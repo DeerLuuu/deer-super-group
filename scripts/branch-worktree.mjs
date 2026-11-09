@@ -54,10 +54,16 @@ function parseWorktrees() {
     .filter((item) => item.worktree);
 }
 
+function normalizePath(value) {
+  return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 function activeWorktrees() {
-  const prefix = branchesDir.toLowerCase() + path.sep;
+  // git worktree list --porcelain 在 Windows 上可能返回正斜杠路径，
+  // 不能直接和 path.join 生成的反斜杠前缀比较。
+  const prefix = `${normalizePath(branchesDir)}/`;
   return parseWorktrees().filter((item) =>
-    item.worktree.toLowerCase().startsWith(prefix),
+    normalizePath(item.worktree).startsWith(prefix),
   );
 }
 
