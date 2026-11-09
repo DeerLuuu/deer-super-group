@@ -1146,9 +1146,16 @@ export default function App() {
 
         {!sidebarCollapsed && (
           <div className="sidebar-panel-hint">
-            <div className="section-label">面板</div>
+            <div className="section-label">导航提示</div>
             <p className="muted tiny">
-              使用上方 Dock 标签或 <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 切换面板。
+              Dock 标签切换面板；拖动标签可拆分或合并分栏。
+            </p>
+            <p className="muted tiny">
+              <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 搜索与命令 ·{" "}
+              <kbd>Ctrl B</kbd> 折叠侧栏 · <kbd>Alt 1–6</kbd> 快速切换。
+            </p>
+            <p className="muted tiny">
+              设置已独立为弹窗：点击左侧 <kbd>⚙</kbd> 打开。
             </p>
           </div>
         )}
