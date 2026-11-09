@@ -715,7 +715,7 @@ IPC/UI 映射：
 - `approved_head_sha` 只能由 human merge captain 在 review gate pass 后写入；**reviewer approve 不写它**。
 - `review_decisions.head_sha == approved_head_sha == queue.head_sha` 三者必须一致才 merging；head 变则全部失效。
 - `merge.approved` 事件 payload 增加 `reviewTargetId`/`reviewDecisionIds`（只 id），保持旧字段；旧 UI 可忽略。
-- 配置变更（含 required→off/advisory、advisory→required、requiredApprovals 降低）**不在本节保留任何“不清空/建议”分支**，一律按 §10.5 执行：必须 confirm，清 `approved_head_sha`/`checks_waived`，queue 回 `waiting_review`，写 `review.config_changed` + `merge.approval_reset`；与 AC-RV-32 完全一致。
+- **P0 配置变更只覆盖模式切换**：required→off/advisory、advisory→required；`requiredApprovals` 降低属 **P1**（P0 固定 1，不可降低），不进入 P0 测试。配置变更一律按 §10.5 执行：必须 confirm，清 `approved_head_sha`/`checks_waived`，queue 回 `waiting_review`，写 `review.config_changed` + `merge.approval_reset`；与 AC-RV-32 完全一致。
 
 ---
 
@@ -901,7 +901,7 @@ saveReviewConfig(
 - `submitReviewDecision` 必须带 `headSha`，服务端与当前 target/queue 对比；不匹配 `REVIEW_STALE`。新 decision 覆盖旧当前值并保留历史；`clientRequestId` 幂等。
 - `removeReviewer`/`replaceReviewer` 只允许 human merge captain（或配置的人类 owner），reason ≥8 chars，写 `review.reviewer_removed/replaced` 与 audit；移除后当前 decision 失效，target/queue 重算。
 - `editReviewComment`/`deleteReviewComment`：仅评论作者 human（或 captain）可编辑/软删；Agent 一律拒绝；blocker 根评论不可删除；写 `review.comment_edited/deleted`（仅 id/actor/body_hash）。
-- 保存配置：任何 required→advisory/off 或 requiredApprovals 降低，若存在已 `approved_head_sha/checks_waived` 的活动队列，必须 `confirmResets=true` 才执行；否则 `REVIEW_CONFIG_CONFIRM_REQUIRED`。
+- 保存配置：P0 危险变更仅模式切换（required→advisory/off、advisory→required）；`requiredApprovals` 降低属 P1，不在 P0 测试。若存在已 `approved_head_sha/checks_waived` 的活动队列，必须 `confirmResets=true` 才执行；否则 `REVIEW_CONFIG_CONFIRM_REQUIRED`。
 
 ### 10.3 工具（Agent）
 
@@ -925,10 +925,10 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 ### 10.5 配置变更与强制清批准
 
 - `saveReviewConfig` 统一写 `review.config_changed` 事件（workspace aggregate，payload 见 §11.1；author/actor 人类）。
-- 危险变更：
+- P0 危险变更（仅模式切换）：
   - `required → advisory/off`；
-  - `required_approvals` 降低（P1；P0 固定 1，不可降低）；
-  - `notify_mailbox`/`board_summary` 不触发清批准。
+  - `advisory → required`。
+- P1（不在 P0 测试）：`requiredApprovals` 降低（P0 固定 1，不可降低）；`notify_mailbox`/`board_summary` 不触发清批准。
 - 当危险变更影响存在 `approved_head_sha` 或 `checks_waived` 的活动队列项：
   - 必须 `confirmResets=true`（UI 确认 Modal，明示「将清除合并批准/checks 豁免并回等待评审」）；
   - 未确认 → `REVIEW_CONFIG_CONFIRM_REQUIRED`，不改配置；
@@ -1107,8 +1107,10 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | AC-RV-29 | Git/队列/任务既有测试全绿；`pnpm typecheck/build/test` | 三命令 |
 | AC-RV-30 | 作者/requester 语义：作者严格 `task.ownerId` Agent；target 快照 authorAgentId/requesterId；人类 requester 不是作者且自评是显式例外；ownerId 缺失/迁移兼容；服务端拒绝 Agent 自批与 Agent 评论 | unit/integration |
 | AC-RV-31 | reanchor fixtures：rebase 行移、base 前进、rename、删除行、重复上下文、二进制/超大、文件删除；唯一匹配 moved，否则 outdated；outdated blocker 仍阻断 | unit/integration |
-| AC-RV-32 | 配置变更：required→off/advisory、requiredApprovals 降低、advisory→required 写 `review.config_changed`；未 confirm 拒绝；确认后清 approved_head_sha/checks_waived 并回 waiting_review；已合并项不受影响 | integration |
+| AC-RV-32 | P0 模式切换（required→off/advisory、advisory→required）写 `review.config_changed`；未 confirm 拒绝；确认后清 approved_head_sha/checks_waived 并回 waiting_review；已合并项不受影响。`requiredApprovals` 降低属 P1，不在本 AC。 | integration |
 | AC-RV-33 | `review_decisions` 修订历史：同 reviewer/head 多次提交 revision 递增、旧行 is_current=0、partial unique 索引生效；当前计数/历史查询正确 | unit |
+
+**P1 AC（不在 P0 验收）**：P1-REV-01——多 human reviewer/`requiredApprovals` 降低后的 confirm/清批准路径；P0 固定 1，不测试 lowering。
 
 ### 15.3 夹具
 
@@ -1291,7 +1293,7 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | 6 | removeReviewer/replaceReviewer IPC/权限/失效 | 新增 API + captain/human + reason + audit；旧 decision 失效、target/queue 回 waiting_review；测试 | §7.5/§10.2/§10.4/AC-RV-11 |
 | 7 | TEXT 存 JSON/parse/fallback/≤3 行 | `context_before/after` 明确 JSON 字符串；store parse/stringify；失败回退 `[]`；clamp 3 行；round-trip AC | §4.1/§4.2/AC-RV-07 |
 | 8 | recipient 解析/去重/local human 无邮箱 | local human 只 UI/Toast；Agent 才 mailbox；去重键含 recipient；补 local 无邮箱测试 | §11.2/AC-RV-20 |
-| 9 | config_changed/降级清批准 | 新增 `review.config_changed`；required→off/advisory、approvals 降低、advisory→required 必须 confirm；清 approved_head_sha/checks_waived 回 waiting_review | §10.5/§11.1/AC-RV-32 |
+| 9 | config_changed/模式切换清批准 | 新增 `review.config_changed`；P0 仅 required→off/advisory、advisory→required 必须 confirm；清 approved_head_sha/checks_waived 回 waiting_review；`requiredApprovals` 降低归 P1、不在 P0 AC | §10.5/§11.1/AC-RV-32 |
 | 10 | waived 状态 | P0 删除 `waived`；`review.mode=off` 不是 waived；gate/status/queue/type 同步移除；无 review waive 路径 | D-R16/§4.2/§8.3/§10.1/AC-RV-02 |
 | 11 | §8.5 与 §10.5 配置行为不一致 | 删除“不清空/建议”旧段；§8.5 明确指向 §10.5：危险变更必须 confirm、清 approved_head_sha/checks_waived、回 waiting_review、写 config_changed/merge.approval_reset；与 AC-RV-32 一致 | §8.5/§10.5/AC-RV-32 |
 | 12 | P0 多 approvals 不可执行 | P0 `required_approvals` 固定 1；schema CHECK/API/UI >1 → `REVIEW_LIMIT`；多 approvals 归 P1；AC-RV-11 删除 2 approvals | §1.2/§4.1/§7.4/AC-RV-11/§17.2 |
