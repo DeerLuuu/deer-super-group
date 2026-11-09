@@ -183,7 +183,7 @@ export class MemoryStore {
   private migrate(fault: "after-ddl" | null): void {
     const version = this.schemaVersion;
     const upgrade = version >= 1;
-    if (version >= 3) {
+    if (version >= 4) {
       this.ensureFts();
       return;
     }
@@ -268,11 +268,9 @@ export class MemoryStore {
         UPDATE board_entries
            SET source = ${sourceExpr},
                source_ref = CASE WHEN lower(author) = 'user' OR source = 'user' THEN NULL
-                                 ELSE COALESCE(
-                                   (SELECT a.id FROM agents a
-                                     WHERE a.workspace_id = board_entries.workspace_id
-                                       AND a.name = board_entries.author LIMIT 1),
-                                   source_ref, author)
+                                 ELSE (SELECT a.id FROM agents a
+                                        WHERE a.workspace_id = board_entries.workspace_id
+                                          AND a.name = board_entries.author LIMIT 1)
                             END,
                status = COALESCE(NULLIF(status, ''), 'active'),
                stale = COALESCE(stale, 0),
@@ -281,7 +279,8 @@ export class MemoryStore {
       this.db.prepare(`
         UPDATE memos
            SET source = COALESCE(NULLIF(source, ''), 'agent'),
-               source_ref = COALESCE(source_ref, agent_id),
+               source_ref = (SELECT a.id FROM agents a
+                              WHERE a.workspace_id = memos.workspace_id AND a.id = memos.agent_id LIMIT 1),
                confidence = COALESCE(NULLIF(confidence, ''), 'medium'),
                status = COALESCE(NULLIF(status, ''), 'active'),
                stale = COALESCE(stale, 0),
@@ -308,30 +307,31 @@ export class MemoryStore {
         WHEN NEW.source = 'agent' AND NEW.source_ref IS NULL
         BEGIN
           UPDATE board_entries
-             SET source_ref = COALESCE(
-               (SELECT a.id FROM agents a
-                 WHERE a.workspace_id = NEW.workspace_id AND a.name = NEW.author LIMIT 1),
-               NEW.author)
+             SET source_ref = (SELECT a.id FROM agents a
+                                WHERE a.workspace_id = NEW.workspace_id AND a.name = NEW.author LIMIT 1)
            WHERE id = NEW.id;
         END;
         CREATE TRIGGER trg_memo_source_ref
         AFTER INSERT ON memos
         WHEN NEW.source_ref IS NULL
         BEGIN
-          UPDATE memos SET source_ref = NEW.agent_id WHERE id = NEW.id;
+          UPDATE memos
+             SET source_ref = (SELECT a.id FROM agents a
+                                WHERE a.workspace_id = NEW.workspace_id AND a.id = NEW.agent_id LIMIT 1)
+           WHERE id = NEW.id;
         END;
       `);
 
       this.backfillDomains();
       this.backfillHashes();
-      this.db.prepare("INSERT OR IGNORE INTO memory_schema (version, applied_at) VALUES (3, ?)").run(now);
+      this.db.prepare("INSERT OR IGNORE INTO memory_schema (version, applied_at) VALUES (4, ?)").run(now);
       this.db.prepare("INSERT OR IGNORE INTO memory_index_state (id, dirty, entry_count, fts_available, last_indexed_at) VALUES ('memory', 1, 0, 0, NULL)").run();
       this.store.appendEvent({
         aggregateType: "memory",
         aggregateId: "memory",
         type: "memory.migrated",
         actor: "system",
-        payload: { schemaVersion: 3, fromVersion: version, backup: backupPath !== null },
+        payload: { schemaVersion: 4, fromVersion: version, backup: backupPath !== null },
       });
     });
 
@@ -1912,7 +1912,7 @@ export class MemoryStore {
     const row = this.db
       .prepare("SELECT id FROM agents WHERE workspace_id = ? AND name = ? LIMIT 1")
       .get(workspaceId, author) as Row | undefined;
-    return row?.id ? String(row.id) : author;
+    return row?.id ? String(row.id) : null;
   }
 
   private normalizeTags(raw: string[]): string[] {

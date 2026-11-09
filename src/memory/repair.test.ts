@@ -49,6 +49,7 @@ function setup(clockIso = "2026-05-01T00:00:00.000Z") {
   seedWorkspace(store, "ws", clockIso);
   seedAgent(store, "ws", "agent-a", "a", clockIso);
   seedAgent(store, "ws", "agent-b", "b", clockIso);
+  seedAgent(store, "ws", "agent-ray", "agent:ray", clockIso);
   cleanups.push(() => store.close());
   return { store, clock, memory, service: new MemoryService(memory), ws: "ws" };
 }
@@ -85,30 +86,48 @@ describe("t105 repair: source/agent migration", () => {
     seedAgent(store, "ws", "agent-ray", "Ray", now);
     const userBoard = store.postBoard({ workspaceId: "ws", board: "backend", author: "user", kind: "fact", content: "user fact" });
     const agentBoard = store.postBoard({ workspaceId: "ws", board: "backend", author: "Ray", kind: "fact", content: "agent fact" });
+    const ghostBoard = store.postBoard({ workspaceId: "ws", board: "backend", author: "Ghost", kind: "fact", content: "ghost fact" });
     const memo = store.addMemo({ workspaceId: "ws", agentId: "agent-ray", kind: "lesson", content: "memo" });
+    const phantomMemo = store.addMemo({ workspaceId: "ws", agentId: "ghost-agent", kind: "lesson", content: "phantom memo" });
     const memory = new MemoryStore(store, { clock: new FixedClock(now) });
     expect(memory.getBoard("ws", userBoard.id)?.source).toBe("user");
     expect(memory.getBoard("ws", userBoard.id)?.sourceRef).toBeNull();
     expect(memory.getBoard("ws", agentBoard.id)?.source).toBe("agent");
     expect(memory.getBoard("ws", agentBoard.id)?.sourceRef).toBe("agent-ray");
+    expect(memory.getBoard("ws", ghostBoard.id)?.sourceRef).toBeNull();
+    const createdGhost = memory.createBoard({ workspaceId: "ws", board: "backend", author: "Ghost 2", kind: "fact", content: "created ghost", source: "agent" });
+    expect(createdGhost.sourceRef).toBeNull();
     expect(memory.listMemos("ws", "agent-ray")[0]?.sourceRef).toBe("agent-ray");
     expect(memory.listMemos("ws", "agent-ray")[0]?.id).toBe(memo.id);
+    expect(memory.getMemo("ws", "ghost-agent", phantomMemo.id)?.sourceRef).toBeNull();
 
     // Legacy Store paths after migration are covered by triggers.
     const legacyUser = store.postBoard({ workspaceId: "ws", board: "backend", author: "user", kind: "fact", content: "legacy user" });
     const legacyAgent = store.postBoard({ workspaceId: "ws", board: "backend", author: "Ray", kind: "fact", content: "legacy agent" });
+    const legacyGhost = store.postBoard({ workspaceId: "ws", board: "backend", author: "Ghost", kind: "fact", content: "legacy ghost" });
     const legacyMemo = store.addMemo({ workspaceId: "ws", agentId: "agent-ray", kind: "lesson", content: "legacy memo" });
     expect(memory.getBoard("ws", legacyUser.id)?.source).toBe("user");
     expect(memory.getBoard("ws", legacyAgent.id)?.sourceRef).toBe("agent-ray");
+    expect(memory.getBoard("ws", legacyGhost.id)?.sourceRef).toBeNull();
     expect(memory.getMemo("ws", "agent-ray", legacyMemo.id)?.sourceRef).toBe("agent-ray");
 
-    // Upgrade path: a v2 database has name-based source_ref and old triggers.
+    // Upgrade path: v3 has name/free-text source_ref and old triggers; v4 reverses ids/null.
     store.db.prepare("UPDATE board_entries SET source_ref = 'Ray' WHERE id = ?").run(agentBoard.id);
+    store.db.prepare("UPDATE board_entries SET source_ref = 'Ghost free text' WHERE id = ?").run(ghostBoard.id);
+    store.db.prepare("UPDATE memos SET source_ref = 'free text' WHERE id = ?").run(memo.id);
     store.db.exec("DROP TRIGGER IF EXISTS trg_board_source_user; DROP TRIGGER IF EXISTS trg_board_source_ref; DROP TRIGGER IF EXISTS trg_memo_source_ref;");
-    store.db.exec("UPDATE memory_schema SET version = 2 WHERE version = 3");
+    store.db.exec("UPDATE memory_schema SET version = 3 WHERE version = 4");
     const upgraded = new MemoryStore(store, { clock: new FixedClock(now) });
-    expect(upgraded.schemaVersion).toBe(3);
+    expect(upgraded.schemaVersion).toBe(4);
     expect(upgraded.getBoard("ws", agentBoard.id)?.sourceRef).toBe("agent-ray");
+    expect(upgraded.getBoard("ws", ghostBoard.id)?.sourceRef).toBeNull();
+    expect(upgraded.getMemo("ws", "agent-ray", memo.id)?.sourceRef).toBe("agent-ray");
+    // v2 marker path also converges to v4 (same reverse lookup).
+    store.db.prepare("UPDATE board_entries SET source_ref = 'Ray' WHERE id = ?").run(agentBoard.id);
+    store.db.exec("UPDATE memory_schema SET version = 2 WHERE version = 4");
+    const fromV2 = new MemoryStore(store, { clock: new FixedClock(now) });
+    expect(fromV2.schemaVersion).toBe(4);
+    expect(fromV2.getBoard("ws", agentBoard.id)?.sourceRef).toBe("agent-ray");
     const triggers = store.db.prepare("SELECT name FROM sqlite_master WHERE type='trigger'").all() as Array<{ name: string }>;
     expect(triggers.map((row) => row.name)).toEqual(expect.arrayContaining(["trg_board_source_user", "trg_board_source_ref", "trg_memo_source_ref"]));
   });
@@ -300,6 +319,8 @@ describe("t105 repair: validation, state matrix, sweep and privacy", () => {
     const humanBoard = unwrap(service.postBoard(human, { workspaceId: ws, board: "backend", kind: "fact", content: "human board" }));
     expect(humanBoard.source).toBe("user");
     expect(humanBoard.sourceRef).toBeNull();
+    const agentBoard = unwrap(service.postBoard(agentA, { workspaceId: ws, board: "backend", kind: "fact", content: "agent board" }));
+    expect(agentBoard.sourceRef).toBe("agent-a");
     const humanMemo = unwrap(service.createMemo(human, { workspaceId: ws, agentId: "agent-a", kind: "lesson", content: "human memo" }));
     expect(humanMemo.sourceRef).toBe("agent-a");
   });
@@ -388,7 +409,7 @@ describe("t105 repair: dedupe/diversity and comparator", () => {
     const second = board(memory, ws, "alpha same source two");
     const sameSource = memory.search({ workspaceId: ws, query: "alpha", limit: 50 });
     expect(sameSource.hits).toHaveLength(1);
-    expect(sameSource.hits[0]?.sourceRef).toBe("agent:ray");
+    expect(sameSource.hits[0]?.sourceRef).toBe("agent-ray");
     expect(new Set(sameSource.hits[0]?.citations)).toEqual(new Set([`board:${first.id}`, `board:${second.id}`]));
 
     for (let i = 0; i < 5; i += 1) {
@@ -402,8 +423,8 @@ describe("t105 repair: dedupe/diversity and comparator", () => {
     expect(compareIds("a", "B")).toBeGreaterThan(0);
     expect(compareIds("B", "a")).toBeLessThan(0);
     expect(compareIds("same", "same")).toBe(0);
-    expect(compareIds("盲", "z")).toBeGreaterThan(0);
-    expect([..."b,a,B,盲,z".split(",")].sort(compareIds)).toEqual(["B", "a", "b", "z", "盲"]);
+    expect(compareIds("ä", "z")).toBeGreaterThan(0);
+    expect([..."b,a,B,ä,z".split(",")].sort(compareIds)).toEqual(["B", "a", "b", "z", "ä"]);
   });
 });
 

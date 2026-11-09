@@ -269,7 +269,7 @@ function dedupeForContext(hits: MemoryHit[]): MemoryHit[] {
       continue;
     }
     const sourceKey = `${hit.entityType}\u0000${hit.source}\u0000${hit.sourceRef ?? ""}\u0000${hit.kind}`;
-    const sourceHit = bySource.get(sourceKey);
+    const sourceHit = hit.sourceRef ? bySource.get(sourceKey) : undefined;
     if (sourceHit) {
       sourceHit.citations = [...new Set([...sourceHit.citations, ...hit.citations])].slice(0, 5);
       continue;
@@ -285,7 +285,7 @@ function dedupeForContext(hits: MemoryHit[]): MemoryHit[] {
     counts.set(groupKey, count + 1);
     const copy: MemoryHit = { ...hit, citations: [...hit.citations] };
     byContent.set(hit.contentHash, copy);
-    bySource.set(sourceKey, copy);
+    if (hit.sourceRef) bySource.set(sourceKey, copy);
     out.push(copy);
   }
   return out;

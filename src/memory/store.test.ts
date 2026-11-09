@@ -127,7 +127,7 @@ describe("MemoryStore migration and schema", () => {
     });
 
     const memory = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(memory.schemaVersion).toBe(3);
+    expect(memory.schemaVersion).toBe(4);
     expect(memory.backupPath).not.toBeNull();
     expect(existsSync(memory.backupPath as string)).toBe(true);
     expect((store.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
@@ -144,7 +144,7 @@ describe("MemoryStore migration and schema", () => {
 
     const domainsBefore = memory.listDomains("ws-old").length;
     const reopened = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(reopened.schemaVersion).toBe(3);
+    expect(reopened.schemaVersion).toBe(4);
     expect(reopened.listDomains("ws-old")).toHaveLength(domainsBefore);
   });
 
@@ -163,7 +163,7 @@ describe("MemoryStore migration and schema", () => {
     expect(tables).toHaveLength(0);
 
     const recovered = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(recovered.schemaVersion).toBe(3);
+    expect(recovered.schemaVersion).toBe(4);
   });
 
   it("keeps old postBoard/addMemo/saveSummary call paths working after migration", () => {

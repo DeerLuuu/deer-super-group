@@ -185,3 +185,13 @@ pnpm test                              # pass（见下）
 - 代码回滚：revert 本 PR；`src/memory/` 与集成调用点移除。
 - DB：迁移前 `Store.backupDatabase()` 生成 `.v1-backup`；恢复备份文件即可。新列/新表可忽略，不破坏旧 Store 读取。
 - 关闭记忆：后续集成 `memory.enabled=0` 只走旧路径；本 PR 未接生产启动，不改变现有行为。
+
+---
+
+## 11. Post-t99 repair history（t105 / t109 / t115，同 PR #3）
+
+- **t105**：source 推断、contextBudget 公式/跳过/异常降级、dependency+pinned/working、summaries.agent_id、输入边界、状态矩阵、逐 workspace sweep、同源去重/上限、字典序 comparator、workspace/actor/task/run 校验、memo SQL/计数隐私、早期 proposal entry_snapshot 守卫。
+- **t109**：sourceRef 先统一为 agent.id（人类 null）、promoteMemo expired、working 二次裁剪、sweep 局部 counts/fault 回滚、task refs 过滤 pinned/decision。
+- **t115（当前）**：sourceRef 禁止任何 author 自由文本 fallback，migration/trigger/createBoard 仅在匹配 `agents.name` 时写 agent.id，否则 NULL；memo sourceRef 仅写 agentId（无匹配 NULL）；`memory_schema` 升 v4，反查修正 v2/v3 已写的 name/自由文本；人类 board null；测试覆盖 unknown/free-text/v3→v4/同源去重/citations。
+- 当前验证：`pnpm test` 26 文件 / 329 条全绿（memory 5 文件 / 40 条）；`pnpm typecheck`、`pnpm build` 0。
+- 设计文档仍然为唯一基线；后续 service/IPC/tools/UI 集成不在本 PR。
