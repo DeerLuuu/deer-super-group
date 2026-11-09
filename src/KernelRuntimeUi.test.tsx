@@ -674,7 +674,9 @@ describe("t121 KernelAnnouncer rerender 行为", () => {
     });
     expect(text()).toContain("已交付");
 
-    renderer!.unmount();
+    await act(async () => {
+      renderer!.unmount();
+    });
   });
 
   it("Run 状态变化在切 tab 后首次变化也能播报", async () => {
@@ -731,7 +733,9 @@ describe("t121 KernelAnnouncer rerender 行为", () => {
       );
     });
     expect(text()).toContain("已完成");
-    renderer!.unmount();
+    await act(async () => {
+      renderer!.unmount();
+    });
   });
 
   // t126 F2：scheduler 变化（paused/running）在切 contextKey 后首次变化也能播报；
@@ -808,7 +812,9 @@ describe("t121 KernelAnnouncer rerender 行为", () => {
     });
     expect(text()).toContain("调度已恢复");
 
-    renderer!.unmount();
+    await act(async () => {
+      renderer!.unmount();
+    });
   });
 
   it("scheduler：running 计数变化在切 tab 后首次变化播报", async () => {
@@ -873,7 +879,9 @@ describe("t121 KernelAnnouncer rerender 行为", () => {
     });
     expect(text()).toBe("");
 
-    // running 0→1（activeRuns 增加也被 Announcer 合并进 Run diff）：播报。
+    // t130：runs 恒为 []（隔离 Run 数据），唯一变化是 scheduler.activeRuns 0→1。
+    // 文案必须包含调度分支的「运行中 1 个」（位于消息末尾），以区分 Run 新增文案
+    // （runStatusAnnouncements 输出「… 新增（运行中）」），证明 scheduler running-count 分支真实生效。
     await act(async () => {
       renderer!.update(
         <KernelAnnouncer
@@ -885,8 +893,11 @@ describe("t121 KernelAnnouncer rerender 行为", () => {
       );
     });
     expect(text().length).toBeGreaterThan(0);
-    expect(text()).toMatch(/新增|运行中/);
+    expect(text()).toContain("运行中 1 个");
+    expect(text()).toMatch(/运行中 1 个$/);
 
-    renderer!.unmount();
+    await act(async () => {
+      renderer!.unmount();
+    });
   });
 });

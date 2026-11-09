@@ -284,3 +284,23 @@ t114 F1：t113 的 contextKey 重置把 previous refs 置 **null**，导致切 t
    contextKey 切换与 scheduler 变化始终分帧（与 App 渲染一致——切 tab 是独立帧，快照随后到达）。
 
 **验证**：typecheck 0 / build 0（devDep 不进 bundle）/ test 28 文件 **370/370**（t126 +2；输出无 act 警告）。
+
+## 16. t130 修复记录（repair-round-7，ray / DeepSeek-flash；mika GLM 429 改派）
+
+依据 t127 复审：
+
+1. **unmount act 包装（F1）**：`t121 KernelAnnouncer rerender 行为` describe 内 4 处 `renderer!.unmount()` 全部改为
+   `await act(async () => { renderer!.unmount(); });`（act 来自同一 `loadRtr()` 返回值）。
+   t126 的 `IS_REACT_ACT_ENVIRONMENT=true`（afterAll 恢复）保留；重跑 `KernelRuntimeUi.test.tsx` 确认
+   **stderr 无 "An update to Root inside a test was not wrapped in act(...)"**（修复前 4 条，修复后 0 条）。
+2. **running 断言（F2）**：scheduler running 计数用例保持 `runs=[]`（隔离 Run 数据），唯一数据变化是
+   `scheduler.activeRuns` 0→1；断言从 `/新增|运行中/` 收紧为：
+   - `expect(text()).toContain("运行中 1 个")`（调度分支 `schedulerAnnouncement` 的唯一文案）；
+   - `expect(text()).toMatch(/运行中 1 个$/)`（scheduler 消息固定追加在末尾，进一步排除 Run 新增文案
+     「… 新增（运行中）」误匹配）。
+   该断言可区分「Run 新增」与「调度 running-count」两条分支，证明后者真实生效。
+3. **保留回归**：paused→恢复「调度已恢复」、任务/Run 状态播报、contextKey/workspace 切换静默重建基线、
+   scheduler 分帧用例全部保留通过；未改 `src/kernel/`、`src/git/`、`src/memory/`。
+   stderr 仅剩 react-test-renderer 自身的 deprecation 提示（t126 §15 已披露的已知风险，不属 act 警告）。
+
+**验证**：typecheck 0 / build 0 / test 28 文件 **370/370**（本修复不新增用例，仅收紧断言与消除警告）。
