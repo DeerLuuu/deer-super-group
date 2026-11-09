@@ -6,6 +6,7 @@ import type {
   ChatEvent,
   CreateAgentInput,
   CreateTaskInput,
+  BoardKind,
   EventRecord,
   RiskApprovalRequest,
   UpdateAgentInput,
@@ -14,6 +15,13 @@ import type {
   SendMessageInput,
 } from "../src/shared/types.js";
 import type { GitSettings } from "../src/git/types.js";
+import type {
+  Confidence,
+  MemoryResult,
+  MemorySearchInput,
+  MemorySnapshotOptions,
+  MemoKind,
+} from "../src/memory/types.js";
 
 const api: DeerApi = {
   listWorkspaces: () => ipcRenderer.invoke("workspace:list"),
@@ -94,6 +102,67 @@ const api: DeerApi = {
   mergeStart: (taskId: string) => ipcRenderer.invoke("git:merge-start", taskId),
   mergeProcess: (workspaceId: string) => ipcRenderer.invoke("git:merge-process", workspaceId),
   gitRecover: (workspaceId: string) => ipcRenderer.invoke("git:recover", workspaceId),
+  // t123：记忆工作台
+  getMemorySnapshot: (workspaceId: string, options?: MemorySnapshotOptions) =>
+    ipcRenderer.invoke("memory:snapshot", workspaceId, options),
+  searchMemory: (input: MemorySearchInput) => ipcRenderer.invoke("memory:search", input),
+  createMemoryBoard: (input: {
+    workspaceId: string;
+    board: string;
+    kind: BoardKind;
+    content: string;
+    refs?: string[];
+    confidence?: Confidence;
+    ttlDays?: number | null;
+  }) => ipcRenderer.invoke("board:create", input),
+  setBoardPinned: (input: { workspaceId: string; entryId: string; pinned: boolean }) =>
+    ipcRenderer.invoke("board:pin", input),
+  verifyBoardEntry: (input: { workspaceId: string; entryId: string; confidence?: Confidence }) =>
+    ipcRenderer.invoke("board:verify", input),
+  setBoardTtl: (input: { workspaceId: string; entryId: string; ttlDays: number | null }) =>
+    ipcRenderer.invoke("board:ttl", input),
+  proposeBoardArchive: (input: {
+    workspaceId: string;
+    entryId: string;
+    reason?: "manual" | "stale";
+    note?: string;
+  }) => ipcRenderer.invoke("board:archive-propose", input),
+  decideBoardArchive: (input: {
+    workspaceId: string;
+    proposalId: string;
+    decision: "approve" | "reject";
+    note?: string;
+  }) => ipcRenderer.invoke("board:archive-decide", input),
+  promoteBoardEntry: (input: { workspaceId: string; entryId: string; kind?: "decision" | "fact" }) =>
+    ipcRenderer.invoke("board:promote", input),
+  restoreBoardEntry: (input: { workspaceId: string; entryId: string }) =>
+    ipcRenderer.invoke("board:restore", input),
+  createMemoryMemo: (input: {
+    workspaceId: string;
+    agentId: string;
+    kind: MemoKind;
+    content: string;
+    tags?: string[];
+    confidence?: Confidence;
+    sourceTaskId?: string | null;
+    expiresInDays?: number | null;
+  }) => ipcRenderer.invoke("memo:create", input),
+  listMemoryMemos: (workspaceId: string, agentId: string) =>
+    ipcRenderer.invoke("memo:list", workspaceId, agentId),
+  verifyMemoryMemo: (input: { workspaceId: string; agentId: string; memoId: string }) =>
+    ipcRenderer.invoke("memo:verify", input),
+  archiveMemoryMemo: (input: { workspaceId: string; agentId: string; memoId: string }) =>
+    ipcRenderer.invoke("memo:archive", input),
+  promoteMemoryMemo: (input: { workspaceId: string; agentId: string; memoId: string; board: string }) =>
+    ipcRenderer.invoke("memo:promote", input),
+  runMemoryMaintenance: (workspaceId?: string) => ipcRenderer.invoke("memory:maintenance", workspaceId),
+  getMemoryContext: (input: {
+    workspaceId: string;
+    agentId?: string | null;
+    taskId?: string | null;
+    runId?: string | null;
+    maxTokens?: number;
+  }) => ipcRenderer.invoke("memory:context", input),
   onChatEvent: (listener: (event: ChatEvent) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: ChatEvent) => listener(payload);
     ipcRenderer.on("chat:event", wrapped);

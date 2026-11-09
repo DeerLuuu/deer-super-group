@@ -33,6 +33,7 @@ import {
   MergeQueueModal,
   TaskVcsPanel,
 } from "./git/ui/GitPanels";
+import MemoryWorkbench from "./shell/MemoryWorkbench";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
 import {
   answerAlreadySent,
@@ -104,7 +105,7 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "team", label: "团队", hint: "查看总进度、成员与任务星图" },
   { id: "chat", label: "对话", hint: "与 Router 讨论、查看上下文与工作区概述" },
   { id: "mailbox", label: "邮箱", hint: "查看团队内部消息" },
-  { id: "board", label: "黑板", hint: "查看领域共享记忆" },
+  { id: "board", label: "记忆", hint: "黑板、备忘录、检索与归档审批" },
   { id: "settings", label: "设置", hint: "配置模型与运行参数" },
 ];
 
@@ -2087,6 +2088,7 @@ export default function App() {
                         openRunsPanel(taskId ?? selectedTaskId, null)
                       }
                       onOpenMergeQueue={handleOpenMergeQueue}
+                      onOpenMemory={() => openPanel("board")}
                       onOpenTaskGit={(taskId) => handleOpenTaskVcs(taskId)}
                     />
                   );
@@ -2214,14 +2216,14 @@ export default function App() {
                   );
                 case "board":
                   return (
-                    <BoardView
-                      snapshot={snapshot}
-                      busy={busy}
+                    <MemoryWorkbench
+                      workspaceId={snapshot.workspace.id}
+                      agents={snapshot.agents}
                       selectedBoard={selectedBoard}
                       onSelectBoard={setSelectedBoard}
                       autoOpenPublish={createIntent === "board"}
                       onAutoOpenHandled={() => setCreateIntent(null)}
-                      onPost={handlePostBoard}
+                      onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
                     />
                   );
                 default:

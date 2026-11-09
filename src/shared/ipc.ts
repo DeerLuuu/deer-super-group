@@ -12,6 +12,7 @@ import type {
   ContextSnapshot,
   CreateAgentInput,
   CreateTaskInput,
+  BoardKind,
   UpdateAgentInput,
   EventRecord,
   KernelResult,
@@ -36,6 +37,19 @@ import type {
   TaskVcs,
   TaskVcsSnapshot,
 } from "../git/types.js";
+import type {
+  BoardArchiveProposal,
+  BoardEntry as MemoryBoardEntry,
+  Confidence,
+  MemoryContext,
+  MemoryResult,
+  MemorySearchInput,
+  MemorySearchResult,
+  MemorySnapshot,
+  MemorySnapshotOptions,
+  Memo,
+  MemoKind,
+} from "../memory/types.js";
 
 export interface DeerApi {
   listWorkspaces(): Promise<Workspace[]>;
@@ -101,6 +115,62 @@ export interface DeerApi {
   mergeStart(taskId: string): Promise<MergeQueueItem>;
   mergeProcess(workspaceId: string): Promise<MergeQueueItem>;
   gitRecover(workspaceId: string): Promise<number>;
+  // t123：记忆工作台（MemoryService 运行时；人类治理路径）
+  getMemorySnapshot(workspaceId: string, options?: MemorySnapshotOptions): Promise<MemorySnapshot>;
+  searchMemory(input: MemorySearchInput): Promise<MemorySearchResult>;
+  createMemoryBoard(input: {
+    workspaceId: string;
+    board: string;
+    kind: BoardKind;
+    content: string;
+    refs?: string[];
+    confidence?: Confidence;
+    ttlDays?: number | null;
+  }): Promise<MemoryResult<MemoryBoardEntry>>;
+  setBoardPinned(input: { workspaceId: string; entryId: string; pinned: boolean }): Promise<MemoryResult<MemoryBoardEntry>>;
+  verifyBoardEntry(input: { workspaceId: string; entryId: string; confidence?: Confidence }): Promise<MemoryResult<MemoryBoardEntry>>;
+  setBoardTtl(input: { workspaceId: string; entryId: string; ttlDays: number | null }): Promise<MemoryResult<MemoryBoardEntry>>;
+  proposeBoardArchive(input: {
+    workspaceId: string;
+    entryId: string;
+    reason?: "manual" | "stale";
+    note?: string;
+  }): Promise<MemoryResult<BoardArchiveProposal>>;
+  decideBoardArchive(input: {
+    workspaceId: string;
+    proposalId: string;
+    decision: "approve" | "reject";
+    note?: string;
+  }): Promise<MemoryResult<BoardArchiveProposal>>;
+  promoteBoardEntry(input: { workspaceId: string; entryId: string; kind?: "decision" | "fact" }): Promise<MemoryResult<MemoryBoardEntry>>;
+  restoreBoardEntry(input: { workspaceId: string; entryId: string }): Promise<MemoryResult<MemoryBoardEntry>>;
+  createMemoryMemo(input: {
+    workspaceId: string;
+    agentId: string;
+    kind: MemoKind;
+    content: string;
+    tags?: string[];
+    confidence?: Confidence;
+    sourceTaskId?: string | null;
+    expiresInDays?: number | null;
+  }): Promise<MemoryResult<Memo>>;
+  listMemoryMemos(workspaceId: string, agentId: string): Promise<Memo[]>;
+  verifyMemoryMemo(input: { workspaceId: string; agentId: string; memoId: string }): Promise<MemoryResult<Memo>>;
+  archiveMemoryMemo(input: { workspaceId: string; agentId: string; memoId: string }): Promise<MemoryResult<Memo>>;
+  promoteMemoryMemo(input: {
+    workspaceId: string;
+    agentId: string;
+    memoId: string;
+    board: string;
+  }): Promise<MemoryResult<MemoryBoardEntry>>;
+  runMemoryMaintenance(workspaceId?: string): Promise<MemoryResult<unknown>>;
+  getMemoryContext(input: {
+    workspaceId: string;
+    agentId?: string | null;
+    taskId?: string | null;
+    runId?: string | null;
+    maxTokens?: number;
+  }): Promise<MemoryContext>;
   onChatEvent(listener: (event: ChatEvent) => void): () => void;
   onEvent(listener: (event: EventRecord) => void): () => void;
 }

@@ -38,7 +38,7 @@ export const CREATE_LABELS: Record<CreateIntent, string> = {
   task: "新建任务",
   plan: "规划任务（Router 拆解目标）",
   mail: "发邮件",
-  board: "发布黑板条目",
+  board: "发布记忆条目",
   member: "新建成员",
 };
 
@@ -87,7 +87,7 @@ export default function CommandPalette({
     { id: "team", label: "团队", hint: "进度、成员与星图" },
     { id: "chat", label: "对话", hint: "与 Router 讨论、上下文" },
     { id: "mailbox", label: "邮箱", hint: "团队内部消息" },
-    { id: "board", label: "黑板", hint: "领域共享记忆" },
+    { id: "board", label: "记忆", hint: "黑板、备忘录、检索与归档" },
     { id: "settings", label: "设置", hint: "模型与运行配置" },
   ];
 

@@ -109,7 +109,7 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
   },
   board: {
     key: "board",
-    title: "黑板",
+    title: "记忆",
     component: "board",
     routeTab: "board",
     renderer: "onlyWhenVisible",

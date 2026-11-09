@@ -60,6 +60,8 @@ import {
 } from "./execution/kernel.js";
 import { GitService } from "../git/gitService.js";
 import type { FinalizeRunInput } from "../git/types.js";
+import { MemoryRuntime } from "../shared/memoryRuntime.js";
+import { createMemoryTools } from "../shared/memoryTools.js";
 
 const PERMISSION_MODES: PermissionMode[] = [
   "read_only",
@@ -179,6 +181,8 @@ export class AppService {
   private readonly kernel: ExecutionKernel;
   /** t96：Git 并行开发（worktree/PR/合并队列）；与内核通过 service 包装协作。 */
   readonly git: GitService;
+  /** t123：记忆工作台运行时（MemoryStore/Service 适配，不改核心 schema）。 */
+  readonly memory: MemoryRuntime;
   /**
    * DESIGN §15.4：Full Throttle 会话级状态（key = `workspaceId:agentId`）。
    * 仅会话级：不持久化、不写回 Agent 默认值、不随应用启动恢复；Agent 无工具可自行开启。
@@ -206,6 +210,7 @@ export class AppService {
       }
     });
     this.git = new GitService({ dataDir, store: this.store });
+    this.memory = new MemoryRuntime(this.store);
     this.kernel = new ExecutionKernel({
       store: this.store,
       dataDir,
@@ -945,8 +950,7 @@ export class AppService {
       push("system", "任务系统提示", "system", buildWorkerSystemPrompt(agent, task, workspace));
       push("persona", "人格", "persona", agent.persona);
       push("agents", "AGENTS.md", "agents", agent.agentsMd);
-      push("workspace", "工作区概述", "workspace", workspace.overview ?? "");
-      push(
+      push("workspace", "工作区概述", "workspace", workspace.overview ?? "");      push(
         "task",
         "任务上下文",
         "task",
@@ -965,6 +969,28 @@ export class AppService {
     } else {
       push("system", "Router 系统提示", "system", buildRouterSystemPrompt(workspace, agents, tasks));
       push("workspace", "工作区概述", "workspace", workspace.overview ?? "");
+    }
+
+    if (this.memory.available) {
+      try {
+        const memoryContext = this.memory.buildContext({
+          workspaceId,
+          agentId: agent.id,
+          taskId: task?.id ?? null,
+          maxTokens: 600,
+        });
+        push(
+          "memory",
+          "记忆上下文",
+          "memory",
+          memoryContext.text,
+          `${memoryContext.hits.length} 条命中 · ${memoryContext.usedTokens}/${memoryContext.maxTokens} tokens${
+            memoryContext.truncated ? ` · 已截断 ${memoryContext.omitted}` : ""
+          }`,
+        );
+      } catch {
+        // Memory is optional; context panel must not fail.
+      }
     }
 
     push(
@@ -1220,7 +1246,9 @@ export class AppService {
     const client = createLlmClientForModel(settings, profile);
     const model = profile.modelId;
 
-    const registry = new ToolRegistry().registerAll(createBuiltinTools());
+    const registry = new ToolRegistry()
+      .registerAll(createBuiltinTools())
+      .registerAll(createMemoryTools(this.memory));
     // DESIGN §15.4：满血模式预算覆盖（仅提示/预算，不改权限门禁）。
     const fullThrottle = this.isFullThrottle(workspace.id, agent.id);
     const budget = fullThrottle ? fullThrottleBudget(profile) : null;
@@ -1256,8 +1284,40 @@ export class AppService {
           : undefined,
     };
 
+    const memoryContext = (() => {
+      if (!this.memory.available) return null;
+      try {
+        return this.memory.buildContext({
+          workspaceId: workspace.id,
+          agentId: agent.id,
+          taskId: task.id,
+          maxTokens: 600,
+        });
+      } catch {
+        return null;
+      }
+    })();
     const basePrompt = buildWorkerSystemPrompt(agent, task, workspace);
-    const systemPrompt = fullThrottle ? withFullThrottle(basePrompt) : basePrompt;
+    const promptWithMemory = memoryContext?.text ? `${basePrompt}\n\n${memoryContext.text}` : basePrompt;
+    const systemPrompt = fullThrottle ? withFullThrottle(promptWithMemory) : promptWithMemory;
+    if (memoryContext) {
+      this.store.appendEvent({
+        aggregateType: "task",
+        aggregateId: task.id,
+        type: "memory.context_injected",
+        actor: "system",
+        payload: {
+          workspaceId: workspace.id,
+          agentId: agent.id,
+          taskId: task.id,
+          runId: run.id,
+          hitCount: memoryContext.hits.length,
+          usedTokens: memoryContext.usedTokens,
+          omitted: memoryContext.omitted,
+          truncated: memoryContext.truncated,
+        },
+      });
+    }
 
     const emit = (type: string, payload: unknown) => {
       if (
