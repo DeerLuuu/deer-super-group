@@ -1,6 +1,6 @@
 # 任务执行内核实现（t68 + t83 repair）
 
-- **任务**：t68 — 实现任务执行内核；t83 — repair-round-2；t90 — repair-round-3（waiting_human 投影/CAS 审计/stale-owner 测试）
+- **任务**：t68 — 实现任务执行内核；t83 — repair-round-2；t90 — repair-round-3（waiting_human 投影/CAS 审计/stale-owner 测试）；t94 — repair-round-4（stale-owner abort/activeRuns 清理、异主租约回收统一）
 - **模型路由**：`deepseek-official/deepseek-flash`（成员 sol）
 - **分支 / worktree**：`feature/t68-execution-kernel` / `branches/t68-execution-kernel/`（基于 `origin/main` @ `494faef`，已同步最新 main）
 - **设计依据**：`docs/team/execution-kernel-design.md`（t67 + t76 修订：Q1 4/1/1、T20–T22、迁移/版本、reviewPolicy、autoAdmit 等）
@@ -27,7 +27,7 @@
 | 迁移 | WAL checkpoint + `VACUUM INTO` 备份 + integrity_check；备份失败拒绝迁移；DDL/基线/归一/版本同事务，失败回滚且 `user_version=1` |
 | 兼容 | `service.runTask` 保留为“入队 + 等待终态”；Router/成员/权限/审批/聊天行为不变；旧库增量迁移 |
 
-**测试**：21 个测试文件、**287 个用例**（t68 内核 41 + t64 交互画布/既有 246）全绿。
+**测试**：21 个测试文件、**289 个用例**（t68 内核 43 + t64 交互画布/既有 246）全绿。
 
 ---
 
@@ -107,7 +107,7 @@
 - 活跃 Run 唯一：`ux_runs_active` 部分唯一索引（queued/running/waiting_human）。
 - 字段：agent/modelProfileId/modelId/permissionSnapshot/sandboxId/startedAt/endedAt/heartbeatAt/leaseOwner/leaseExpiresAt/checkpointRef/checkpointStep/tokenIn/tokenOut/costUsd/errorCode/retryable/steps。
 - 租约：owner=`instanceId:bootId`，TTL 60s；执行器 step/工具/独立 15s 心跳续租，`run.heartbeat` 事件 30s 节流。
-- **CAS（t83 F2 / t90）**：heartbeat/checkpoint/waiting/resumed/终态统一 `UPDATE ... WHERE lease_owner=? AND status IN (...)`；旧 owner 写入被 fencing，并写 `run.result_discarded {runId,action,owner}` 审计（不改变投影）。
+- **CAS（t83 F2 / t90 / t94）**：heartbeat/checkpoint/waiting/resumed/终态统一 `UPDATE ... WHERE lease_owner=? AND status IN (...)`；旧 owner/CAS=0 时 abort controller、从 activeRuns 移除，并写 `run.result_discarded {runId,action,owner}` 审计（不改变投影/状态）。
 - **watchdog（t83 F2）**：每次 tick 检查本实例 active Run：
   - running 且 `heartbeatAt`/`leaseExpiresAt` 过期 → abort controller + `failRun`（`run.failed/LEASE_EXPIRED` + `kernel.recovered source=watchdog`）；
   - waiting_human 且过期 → 独立 lease keeper 续租（审批 120s > 租约 60s 不被回收）。
@@ -143,7 +143,7 @@
 - 错误分类：错误对象可带 `code/retryable`；默认 `INTERNAL` 可重试；`aborted` 归 `USER_CANCELLED` 不重试；watchdog 覆盖 `LEASE_EXPIRED`。
 - 自动重试：`retryable && attempt < maxAttempts`（默认 3，总尝试=首跑+2 重试）→ `run.failed`、Task `running → queued`、`task.retry_scheduled{nextRunAt}`；退避 `base * 2^(attempt-1)`，上限 5min，确定性 ±20% jitter；到点由 tick 启动新 attempt。
 - 耗尽：Task `failed(failure_kind=retry_exhausted)`；人工 `retryTask` 可再次入队（`failed → queued`）。
-- 崩溃/启动恢复：
+- 崩溃/启动恢复（t94：tick 与 recover 统一规则，只回收过期/孤儿租约；异主但未过期租约不抢占）：
   - 活跃 Run 租约过期、owner 异主 → `run.failed(LEASE_EXPIRED)`；Task 按 attempt 余额 → `queued` 或 `failed`；
   - 孤儿 Run（task 不存在/终态）→ `run.cancelled(ORPHANED)`；
   - 同 task 重复 active 在迁移/恢复中归一；
@@ -181,7 +181,7 @@ src/kernel/execution/eventRegistry.ts  事件类型 + 逐类型 zod schema/版�
 src/kernel/execution/stateMachine.ts   8 态迁移表/依赖规则
 src/kernel/execution/projections.ts    tasks/runs 投影 + 分页 rebuild + digest
 src/kernel/execution/kernel.ts         执行内核（事件/调度/Run/重试/恢复/watchdog/review）
-src/kernel/execution/kernel.test.ts    41 个确定性测试
+src/kernel/execution/kernel.test.ts    43 个确定性测试
 ```
 
 **修改**
@@ -204,12 +204,12 @@ src/shared/copy.ts       queued 文案
 ```
 pnpm typecheck   # tsc --noEmit，exit 0
 pnpm build       # vite + build-electron，exit 0
-pnpm test        # vitest run，21 文件 / 287 用例，exit 0
+pnpm test        # vitest run，21 文件 / 289 用例，exit 0
 ```
 
-构建输出（已合并 t64 后的 main）：`dist/assets/index-Cj1A80OX.js 1,072.63 kB (gzip 294.96)`，CSS 198.12 kB，`dist-electron/main.cjs 1008.0 kB`。
+构建输出（已合并 t64 后的 main）：`dist/assets/index-Cj1A80OX.js 1,072.63 kB (gzip 294.96)`，CSS 198.12 kB，`dist-electron/main.cjs 1008.3 kB`。
 
-### 9.1 内核测试矩阵（41 例）
+### 9.1 内核测试矩阵（43 例）
 
 | 区域 | 覆盖 |
 |---|---|
@@ -226,7 +226,8 @@ pnpm test        # vitest run，21 文件 / 287 用例，exit 0
 | 依赖传播 | 父失败→子 blocked(dependency_failed)、父重试成功→子 ready；父取消→子 dependency_cancelled |
 | T22 | blocked reason 更新写 task.blocked、无 status_changed、幂等键格式 |
 | 恢复 | 过期租约回收为 attempt 2、孤儿 Run cancelled |
-| 重放 | 重建投影 digest = 实时 digest；waiting/resumed/failed 后 rebuild；>2000 事件分页重放（2105 条） |\n| stale-owner | heartbeat/checkpoint/enterWaiting/resume/complete/fail 参数化：状态/投影不变、无状态事件、写 run.result_discarded |
+| 重放 | 重建投影 digest = 实时 digest；waiting/resumed/failed 后 rebuild；>2000 事件分页重放（2105 条） |
+| stale-owner | heartbeat/checkpoint/enterWaiting/resume/complete/fail 参数化：abort、activeRuns 清理、状态/投影/attempt/Run 数不变、无状态事件、写 run.result_discarded；abort 后晚到的 executor 不再产生工具调用 |
 | 迁移 | WAL 旧库备份可打开/integrity_check、备份失败拒绝迁移（user_version=1）、半迁移回滚、旧事件 schemaVersion=1/时间回填 |
 
 原有测试（service/权限/审批/模型/Dock 星图/Markdown + t64 交互画布/提问 145 项）全部通过，Router/成员/权限/审批无回归。
@@ -244,7 +245,7 @@ pnpm test        # vitest run，21 文件 / 287 用例，exit 0
 | DAG 调度 ready 队列、全局/成员并发、暂停/恢复/取消、并发安全 | 调度组；CAS/单飞/唯一索引实现 |
 | Run 租约/心跳/重试退避、attempt 幂等、孤儿回收 | Run 组、恢复组；attempt 唯一 + 幂等键 + fencing |
 | 事件重放一致；确定性测试覆盖状态机/并发/重试/恢复 | rebuild digest；FakeClock + 受控 executor |
-| 现有 Router/成员/权限/审批无回归；三命令通过 | 287/287；typecheck/build/test 均 exit 0 |
+| 现有 Router/成员/权限/审批无回归；三命令通过 | 289/289；typecheck/build/test 均 exit 0 |
 | worktree/PR，不直接改 main | `feature/t68-execution-kernel`；PR #2 |
 | 实现文档 | 本文件 |
 
@@ -268,6 +269,16 @@ pnpm test        # vitest run，21 文件 / 287 用例，exit 0
 | `run.waiting_human` → waiting_human、`run.resumed` → running（保留 heartbeat/lease patch）；waiting 中 rebuild digest=live、resumed/failed 后 rebuild；run 历史不误报 | `applyKernelEvent` 新增两个 case；`enterWaitingHuman/resumeFromHuman` 事件带 patch；测试组 “t90 waiting_human/resumed projection replay” 2 例（waiting 时 rebuild、resume→done rebuild、failed rebuild） |
 | CAS 影响行数=0 写 `run.result_discarded`（runId/action/owner/no state change）；登记事件/zod；stale-owner heartbeat/checkpoint/complete/fail 测试 | `auditDiscarded` + `casRunPatch` 失败/owner mismatch 调用；`run.result_discarded` 入 `KERNEL_EVENT_TYPES`/`EVENT_REGISTRY`；stale-owner 参数化测试 |
 | stale-owner 参数化（heartbeat/checkpoint/enterWaiting/resume/complete/fail），不产生状态事件/不覆盖新 Run | 测试组 “t90 stale-owner CAS audit” 6 例：run/task 状态不变、attempt=1、无 run 状态事件、写 result_discarded（owner=stale-owner） |
+
+### t94 acceptance（repair-round-4）
+
+| 验收项 | 证据 |
+|---|---|
+| stale-owner 六类写在 abort 旧 executor、清理 activeRuns 的同时写 result_discarded | `discardRun`：`controller.abort()` + `activeRuns.delete` + `auditDiscarded`；heartbeat/checkpoint/enterWaiting/resume/complete/fail 全部改用；测试断言 `signal.aborted`、`kernel.hasActiveRun(runId)===false`、result_discarded |
+| abort 后旧 executor 不再产生模型/工具副作用；状态/投影/attempt/Run 数量不变 | executor 在 await 后检查 signal；stale heartbeat 测试断言 abort 后 toolCalls=0；六类测试断言 run/task 状态不变、attempt=1、Run 数=1 |
+| 周期 tick 与启动 recover 对异主租约回收规则一致，不误抢未过期租约 | `recoverExpiredLeases` 仅回收 `expired || orphaned`；tick 与 recover 均如此；新增 “t94 foreign lease reclaim consistency”：未过期 foreign 经 recover+tick 仍 running，时钟过 61s 后 tick 才 failed(LEASE_EXPIRED) |
+| 补 6 类 stale-owner + abort/无副作用/activeRuns 清理测试 | kernel.test.ts 43 例；stale 参数化 6 例 + late-tool 1 例 + foreign lease 1 例 |
+| 保留 t90 waiting/resumed 投影、result_discarded、状态机、迁移、调度测试 | 全量 289/289 通过，t90 两组测试保留 |
 
 ---
 

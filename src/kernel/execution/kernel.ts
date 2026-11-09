@@ -197,6 +197,11 @@ export class ExecutionKernel {
     return { ...this.limits };
   }
 
+  /** 诊断/测试：该 Run 是否仍由本实例持有 active controller。 */
+  hasActiveRun(runId: string): boolean {
+    return this.activeRuns.has(runId);
+  }
+
   // ---------------------------------------------------------------- commands
 
   /** 入队（ready/blocked→queued），不等待执行。 */
@@ -690,7 +695,7 @@ export class ExecutionKernel {
       if (!run || !isActiveRunStatus(run.status)) return;
       if (run.leaseOwner !== this.owner) {
         // t90 F2：旧 owner 的终态写入被 fencing，记录丢弃审计。
-        this.auditDiscarded(runId, "complete");
+        this.discardRun(runId, "complete");
         return;
       }
       const patch = {
@@ -704,7 +709,7 @@ export class ExecutionKernel {
         steps: result.steps ?? run.steps ?? 0,
       };
       if (!this.casRunPatch(runId, patch, ["running", "waiting_human"])) {
-        this.auditDiscarded(runId, "complete");
+        this.discardRun(runId, "complete");
         return;
       }
       this.appendEvent("run.completed", "run", runId, { patch });
@@ -777,7 +782,7 @@ export class ExecutionKernel {
       const run = this.store.getRun(runId);
       if (!run || !isActiveRunStatus(run.status)) return;
       if (run.leaseOwner !== this.owner) {
-        this.auditDiscarded(runId, "fail");
+        this.discardRun(runId, "fail");
         return;
       }
       const patch = {
@@ -788,7 +793,7 @@ export class ExecutionKernel {
         retryable: classified.retryable,
       };
       if (!this.casRunPatch(runId, patch, ["running", "waiting_human"])) {
-        this.auditDiscarded(runId, "fail");
+        this.discardRun(runId, "fail");
         return;
       }
       applied = true;
@@ -871,7 +876,7 @@ export class ExecutionKernel {
     const run = this.store.getRun(runId);
     if (!run || !isActiveRunStatus(run.status)) return;
     if (run.leaseOwner !== this.owner) {
-      this.store.withTransaction(() => this.auditDiscarded(runId, "heartbeat"));
+      this.store.withTransaction(() => this.discardRun(runId, "heartbeat"));
       return;
     }
     const patch = {
@@ -884,7 +889,7 @@ export class ExecutionKernel {
     const last = this.lastHeartbeatEventAt.get(runId) ?? 0;
     this.store.withTransaction(() => {
       if (!this.casRunPatch(runId, patch, ["running", "waiting_human"])) {
-        this.auditDiscarded(runId, "heartbeat");
+        this.discardRun(runId, "heartbeat");
         return;
       }
       if (now - last >= HEARTBEAT_EVENT_MS) {
@@ -901,7 +906,7 @@ export class ExecutionKernel {
     const run = this.store.getRun(runId);
     if (!run || !isActiveRunStatus(run.status)) return;
     if (run.leaseOwner !== this.owner) {
-      this.store.withTransaction(() => this.auditDiscarded(runId, "enter_waiting_human"));
+      this.store.withTransaction(() => this.discardRun(runId, "enter_waiting_human"));
       return;
     }
     this.store.withTransaction(() => {
@@ -911,7 +916,7 @@ export class ExecutionKernel {
         leaseExpiresAt: iso(now + LEASE_MS),
       };
       if (!this.casRunPatch(runId, patch, ["running"])) {
-        this.auditDiscarded(runId, "enter_waiting_human");
+        this.discardRun(runId, "enter_waiting_human");
         return;
       }
       this.appendEvent("run.waiting_human", "run", runId, { reason, patch });
@@ -924,7 +929,7 @@ export class ExecutionKernel {
     const run = this.store.getRun(runId);
     if (!run || !isActiveRunStatus(run.status)) return;
     if (run.leaseOwner !== this.owner) {
-      this.store.withTransaction(() => this.auditDiscarded(runId, "resume"));
+      this.store.withTransaction(() => this.discardRun(runId, "resume"));
       return;
     }
     this.store.withTransaction(() => {
@@ -934,7 +939,7 @@ export class ExecutionKernel {
         leaseExpiresAt: iso(now + LEASE_MS),
       };
       if (!this.casRunPatch(runId, patch, ["waiting_human"])) {
-        this.auditDiscarded(runId, "resume");
+        this.discardRun(runId, "resume");
         return;
       }
       this.appendEvent("run.resumed", "run", runId, { reason, patch });
@@ -946,14 +951,14 @@ export class ExecutionKernel {
     const run = this.store.getRun(runId);
     if (!run || run.status !== "running") return;
     if (run.leaseOwner !== this.owner) {
-      this.store.withTransaction(() => this.auditDiscarded(runId, "checkpoint"));
+      this.store.withTransaction(() => this.discardRun(runId, "checkpoint"));
       return;
     }
     const ref = info.ref ?? this.writeCheckpointFile(runId, info.step);
     const patch = { checkpointRef: ref, checkpointStep: info.step };
     this.store.withTransaction(() => {
       if (!this.casRunPatch(runId, patch, ["running"])) {
-        this.auditDiscarded(runId, "checkpoint");
+        this.discardRun(runId, "checkpoint");
         return;
       }
       this.appendEvent("run.checkpoint", "run", runId, { ...patch, patch });
@@ -1020,7 +1025,7 @@ export class ExecutionKernel {
     }
   }
 
-  private recoverExpiredLeases(reclaimForeign = false): void {
+  private recoverExpiredLeases(): void {
     const now = this.clock.now();
     const active = this.listActiveRuns();
     for (const run of active) {
@@ -1028,10 +1033,9 @@ export class ExecutionKernel {
       const task = this.store.getTask(run.taskId);
       const orphaned = !task || isTerminalTaskStatus(task.status);
       const expired = !run.leaseExpiresAt || Date.parse(run.leaseExpiresAt) <= now;
-      const foreign = run.leaseOwner !== this.owner;
-      // t90：周期 tick 不抢占“异主但租约仍有效”的 Run（可能属于另一个活实例）；
-      // 启动/recover() 才允许回收异主 Run。
-      if (!orphaned && !expired && !(foreign && reclaimForeign)) continue;
+      // t94：tick 与 recover 统一规则——只回收已过期（或孤儿）的 Run；
+      // 异主但租约仍有效的 Run 不抢占，等 lease 过期后再回收。
+      if (!orphaned && !expired) continue;
       if (orphaned) {
         this.store.withTransaction(() => {
           const nowIso = iso(now);
@@ -1118,9 +1122,9 @@ export class ExecutionKernel {
     this.rejectWaiters(run.taskId, new Error("run recovered after lease expiry"));
   }
 
-  /** 启动恢复：租约/Foreign/孤儿 + running/queued 任务状态归一（幂等）。 */
+  /** 启动恢复：孤儿/过期租约 + running/queued 任务状态归一（幂等）。 */
   recover(): void {
-    this.recoverExpiredLeases(true);
+    this.recoverExpiredLeases();
     const now = iso(this.clock.now());
     this.store.withTransaction(() => {
       const runningTasks = this.store.db
@@ -1431,6 +1435,23 @@ export class ExecutionKernel {
 
   private getReviewPolicy(): "auto" | "required" {
     return this.store.getSetting("kernel.reviewPolicy") === "required" ? "required" : "auto";
+  }
+
+  /** t94：stale-owner/CAS 失败时中止旧 executor 并清理 activeRuns，随后写审计。 */
+  private discardRun(
+    runId: string,
+    action:
+      | "heartbeat"
+      | "checkpoint"
+      | "enter_waiting_human"
+      | "resume"
+      | "complete"
+      | "fail",
+  ): void {
+    const controller = this.activeRuns.get(runId);
+    controller?.abort();
+    this.activeRuns.delete(runId);
+    this.auditDiscarded(runId, action);
   }
 
   /** t90 F2：CAS/owner 校验失败时记录丢弃审计，不改变投影或 Run 状态。 */

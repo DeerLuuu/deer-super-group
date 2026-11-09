@@ -1178,10 +1178,14 @@ describe("t90 stale-owner CAS audit", () => {
 
   it.each(cases)("discards stale-owner $name without state events", async ({ action }) => {
     let captured: RunExecutionContext | null = null;
+    let aborted = false;
     let resolveExec: ((result: { summary: string }) => void) | null = null;
     let rejectExec: ((error: Error) => void) | null = null;
     const executor: RunExecutor = (ctx) => {
       captured = ctx;
+      ctx.signal.addEventListener("abort", () => {
+        aborted = true;
+      });
       return new Promise((resolve, reject) => {
         resolveExec = resolve;
         rejectExec = reject;
@@ -1223,6 +1227,8 @@ describe("t90 stale-owner CAS audit", () => {
     await flush();
 
     const after = store.getRun(run.id)!;
+    expect(aborted).toBe(true);
+    expect(kernel.hasActiveRun(run.id)).toBe(false);
     expect(after.status).toBe("running");
     expect(after.attempt).toBe(1);
     expect(taskStatus(store, task.id)).toBe("running");
@@ -1250,5 +1256,72 @@ describe("t90 stale-owner CAS audit", () => {
     expect(payload.runId).toBe(run.id);
     expect(payload.action).toBe(action);
     expect(payload.owner).toBe("stale-owner");
+  });
+
+  it("aborts stale heartbeat before a late executor tool call", async () => {
+    let captured: RunExecutionContext | null = null;
+    let releaseGate: (() => void) | null = null;
+    let aborted = false;
+    let toolCalls = 0;
+    const executor: RunExecutor = async (ctx) => {
+      captured = ctx;
+      ctx.signal.addEventListener("abort", () => {
+        aborted = true;
+      });
+      await new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+      // 模拟 executor 在 await 之后尝试调用工具；abort 后必须不再产生副作用。
+      if (!ctx.signal.aborted) toolCalls += 1;
+      return { summary: "late-tool" };
+    };
+    const { store, workspaceId, kernel } = setupKernel(executor, { maxAttempts: 1 });
+    const task = createTask(store, workspaceId, "stale-late-tool");
+    kernel.startTask(task.id);
+    await waitFor(() => taskStatus(store, task.id) === "running");
+    const run = kernel.listRuns(task.id)[0];
+    store.db.prepare("UPDATE runs SET lease_owner = 'stale-owner' WHERE id = ?").run(run.id);
+
+    captured!.heartbeat({ steps: 1 });
+    expect(aborted).toBe(true);
+    expect(kernel.hasActiveRun(run.id)).toBe(false);
+    releaseGate!();
+    await flush();
+    await flush();
+    expect(toolCalls).toBe(0);
+    expect(store.getRun(run.id)?.status).toBe("running");
+    expect(taskStatus(store, task.id)).toBe("running");
+  });
+});
+
+describe("t94 foreign lease reclaim consistency", () => {
+  it("does not steal an unexpired foreign lease; recover and tick both wait for expiry", async () => {
+    const { store, workspaceId, clock, kernel } = setupKernel(instantExecutor, { maxAttempts: 1 });
+    const task = createTask(store, workspaceId, "foreign-lease");
+    const now = clock.now();
+    const nowIso = new Date(now).toISOString();
+    const futureIso = new Date(now + 60_000).toISOString();
+    store.db
+      .prepare("UPDATE tasks SET status = 'running', started_at = ?, attempt_count = 1 WHERE id = ?")
+      .run(nowIso, task.id);
+    store.db
+      .prepare(
+        `INSERT INTO runs (id, task_id, agent_id, status, error, started_at, ended_at, token_in, token_out, attempt, heartbeat_at, lease_owner, lease_expires_at)
+         VALUES ('run_foreign', ?, 'agent_x', 'running', NULL, ?, NULL, 0, 0, 1, ?, 'other-instance', ?)`,
+      )
+      .run(task.id, nowIso, nowIso, futureIso);
+
+    kernel.recover();
+    expect(kernel.listRuns(task.id)[0].status).toBe("running");
+    kernel.tick();
+    expect(kernel.listRuns(task.id)[0].status).toBe("running");
+    expect(taskStatus(store, task.id)).toBe("running");
+
+    clock.advance(61_000);
+    kernel.tick();
+    const recovered = kernel.listRuns(task.id)[0];
+    expect(recovered.status).toBe("failed");
+    expect(recovered.errorCode).toBe("LEASE_EXPIRED");
+    expect(taskStatus(store, task.id)).toBe("failed");
   });
 });
