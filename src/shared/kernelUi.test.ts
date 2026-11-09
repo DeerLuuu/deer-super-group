@@ -9,11 +9,14 @@ import type {
 import {
   canCancelRun,
   eventSummary,
+  eventTone,
   filterTaskList,
   formatDuration,
   formatRelative,
   isActiveRunStatus,
+  kernelConfirmCopy,
   KernelUiError,
+  runStatusAnnouncements,
   runTimelineEvents,
   schedulerLimitsText,
   schedulerSummaryText,
@@ -296,8 +299,63 @@ describe("kernelUi 内核结果与 aria 播报", () => {
     expect(taskStatusAnnouncements(null, before)).toEqual([]);
     const after = [task("a", "queued"), task("b", "running"), task("c", "failed")];
     const messages = taskStatusAnnouncements(previous, after);
-    expect(messages).toHaveLength(2);
+    // t107 F5：c 为新增 id，也以「新任务」播报（行为更新）。
+    expect(messages).toHaveLength(3);
     expect(messages[0]).toContain("排队中");
     expect(messages[1]).toContain("进行中");
+    expect(messages[2]).toContain("新任务");
+  });
+
+  // t107 F4：关键事件 tone 映射。
+  it("关键事件 tone：review_rejected=error，cancelled=warn，completed/approved=ok", () => {
+    expect(eventTone("task.review_rejected")).toBe("error");
+    expect(eventTone("run.cancelled")).toBe("warn");
+    expect(eventTone("task.cancelled")).toBe("warn");
+    expect(eventTone("run.failed")).toBe("error");
+    expect(eventTone("run.completed")).toBe("ok");
+    expect(eventTone("task.review_approved")).toBe("ok");
+    expect(eventTone("scheduler.paused")).toBe("warn");
+    expect(eventTone("scheduler.resumed")).toBe("ok");
+    expect(eventTone("run.heartbeat")).toBe("info");
+  });
+
+  // t107 F5：新增 id 以「新增（状态）」播报。
+  it("任务/Run 新增 id 播报：新任务带「新任务」前缀，新 Run 带「新增」", () => {
+    const previousTasks = taskStatusSnapshot([task("a", "ready")]);
+    const taskMessages = taskStatusAnnouncements(previousTasks, [
+      task("a", "ready"),
+      task("new1", "queued"),
+    ]);
+    expect(taskMessages).toHaveLength(1);
+    expect(taskMessages[0]).toContain("新任务");
+    expect(taskMessages[0]).toContain("排队中");
+
+    const previousRuns = new Map([["r1", "running" as const]]);
+    const runMessages = runStatusAnnouncements(previousRuns, [
+      run("r1", "running"),
+      run("r2", "completed"),
+    ]);
+    expect(runMessages).toHaveLength(1);
+    expect(runMessages[0]).toContain("新增");
+    expect(runMessages[0]).toContain("已完成");
+    // 首次快照（previous=null）不播报。
+    expect(runStatusAnnouncements(null, [run("r1", "running")])).toEqual([]);
+  });
+
+  // t107 F1：恢复调度需二次确认——确认文案存在且非危险样式。
+  it("kernelConfirmCopy：resume 有独立文案且 danger=false；pause/review 文案保持", () => {
+    const resume = kernelConfirmCopy({ kind: "resume" });
+    expect(resume.title).toContain("恢复调度");
+    expect(resume.description).toContain("排队");
+    expect(resume.confirm).toBe("恢复调度");
+    expect(resume.danger).toBe(false);
+    const pause = kernelConfirmCopy({ kind: "pause" });
+    expect(pause.title).toContain("暂停");
+    expect(kernelConfirmCopy({ kind: "review", decision: "reject", taskTitle: "X" }).danger).toBe(
+      true,
+    );
+    expect(
+      kernelConfirmCopy({ kind: "cancelRun", runAttempt: 2, taskTitle: "Y" }).description,
+    ).toContain("#2");
   });
 });

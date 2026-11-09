@@ -138,8 +138,9 @@ export default function SchedulerBar({
         </div>
       )}
 
-      {!error && queued > 0 && !compact && queueOpen && (
-        <div className="scheduler-queue" id="scheduler-queue">
+      {/* t107 F7：队列容器始终渲染（关闭时 hidden），aria-controls 指向的 id 恒存在。 */}
+      {!error && queued > 0 && !compact && (
+        <div className="scheduler-queue" id="scheduler-queue" hidden={!queueOpen}>
           <div className="scheduler-queue-head">
             <span className="section-label">排队任务（按优先级 / FIFO）</span>
             <span className="muted tiny">同一工作区同时只运行 1 个</span>

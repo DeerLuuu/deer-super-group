@@ -65,6 +65,7 @@ import {
   failureKindText,
   filterTaskList,
   formatRelative,
+  kernelConfirmCopy,
   kernelErrorText,
   statusCounts,
   taskActionState,
@@ -110,6 +111,7 @@ type ConfirmIntent =
   | { kind: "cancelTask"; task: Task }
   | { kind: "cancelRun"; run: Run; taskTitle: string }
   | { kind: "pause" }
+  | { kind: "resume" }
   | { kind: "review"; task: Task; decision: "approve" | "reject" };
 
 function time(iso: string): string {
@@ -974,14 +976,9 @@ export default function App() {
     setPendingConfirm({ kind: "pause" });
   }
 
-  function handleResumeScheduler() {
-    const current = snapshotRef.current;
-    if (!current) return;
-    void executeKernelAction(
-      "scheduler:resume",
-      () => window.deer.resumeScheduler(current.workspace.id),
-      "调度已恢复",
-    );
+  // t107 F1：恢复调度与暂停一致，必须经确认弹窗（三处入口统一走这里）。
+  function handleRequestResumeScheduler() {
+    setPendingConfirm({ kind: "resume" });
   }
 
   function handleRequestReview(task: Task, decision: "approve" | "reject") {
@@ -1022,6 +1019,15 @@ export default function App() {
           "scheduler:pause",
           () => window.deer.pauseScheduler(current.workspace.id, "user_paused"),
           "调度已暂停",
+        );
+        break;
+      case "resume":
+        // t107 F1：恢复调度经确认弹窗后执行。
+        if (!current) return;
+        await executeKernelAction(
+          "scheduler:resume",
+          () => window.deer.resumeScheduler(current.workspace.id),
+          "调度已恢复",
         );
         break;
       case "review":
@@ -1934,7 +1940,7 @@ export default function App() {
                       onCancelRun={handleRequestCancelRun}
                       onReviewTask={handleRequestReview}
                       onPause={handleRequestPauseScheduler}
-                      onResume={handleResumeScheduler}
+                      onResume={handleRequestResumeScheduler}
                     />
                   );
                 case "team":
@@ -2003,7 +2009,7 @@ export default function App() {
                       onCancelRun={handleRequestCancelRun}
                       onReviewTask={handleRequestReview}
                       onPause={handleRequestPauseScheduler}
-                      onResume={handleResumeScheduler}
+                      onResume={handleRequestResumeScheduler}
                       onReloadScheduler={() => void loadScheduler(snapshot.workspace.id)}
                       onReloadRuns={() => {
                         if (selectedTaskId) void loadRuns(selectedTaskId);
@@ -2255,7 +2261,7 @@ export default function App() {
   );
 }
 
-/** t69：有副作用的内核操作统一二次确认（Esc/焦点陷阱由 Modal 提供）。 */
+/** t69：有副作用的内核操作统一二次确认（Esc/焦点陷阱由 Modal 提供）。t107：文案走 kernelConfirmCopy 纯函数（含 resume）。 */
 function KernelConfirmModal({
   intent,
   reviewNotes,
@@ -2270,51 +2276,23 @@ function KernelConfirmModal({
   onConfirm: () => void;
 }) {
   const isReject = intent.kind === "review" && intent.decision === "reject";
-  const copy = (() => {
-    switch (intent.kind) {
-      case "retry":
-        return {
-          title: "重试任务？",
-          description: `「${intent.task.title}」将重新入队，内核会新建一次 attempt。`,
-          confirm: "重试",
-          danger: false,
-        };
-      case "cancelTask":
-        return {
-          title: "取消任务？",
-          description: `「${intent.task.title}」${intent.task.status === "running" ? "正在运行，当前 Run 会被中止；" : ""}下游任务会按依赖状态刷新。取消是终态。`,
-          confirm: "取消任务",
-          danger: true,
-        };
-      case "cancelRun":
-        return {
-          title: "取消当前 Run？",
-          description: `Run #${intent.run.attempt ?? 1}（${intent.taskTitle}）会被中止，任务将标记失败（RUN_CANCELLED）。`,
-          confirm: "取消 Run",
-          danger: true,
-        };
-      case "pause":
-        return {
-          title: "暂停调度？",
-          description:
-            "运行中的 Run 会继续，新的排队任务不会启动；可随时点击「恢复调度」。",
-          confirm: "暂停调度",
-          danger: false,
-        };
-      case "review":
-        return {
-          title: intent.decision === "approve" ? "批准任务？" : "拒绝任务？",
-          description:
-            intent.decision === "approve"
-              ? `「${intent.task.title}」将标记为已交付；此操作会写评审审计事件。`
-              : `「${intent.task.title}」将标记失败（REVIEW_REJECTED）；拒绝必须填写备注。`,
-          confirm: intent.decision === "approve" ? "批准" : "拒绝",
-          danger: intent.decision === "reject",
-        };
-      default:
-        return { title: "确认操作？", description: "", confirm: "确认", danger: false };
-    }
-  })();
+  // t107 F1/F6：文案统一为纯函数（含 resume）；评审备注聚焦改用 Modal initialFocusRef（去掉 autoFocus）。
+  const notesRef = useRef<HTMLTextAreaElement | null>(null);
+  const copy = kernelConfirmCopy({
+    kind: intent.kind,
+    taskTitle:
+      intent.kind === "retry" || intent.kind === "cancelTask" || intent.kind === "review"
+        ? intent.task.title
+        : intent.kind === "cancelRun"
+          ? intent.taskTitle
+          : undefined,
+    taskStatus:
+      intent.kind === "cancelTask" || intent.kind === "retry" || intent.kind === "review"
+        ? intent.task.status
+        : undefined,
+    runAttempt: intent.kind === "cancelRun" ? intent.run.attempt : undefined,
+    decision: intent.kind === "review" ? intent.decision : undefined,
+  });
 
   return (
     <Modal
@@ -2322,12 +2300,14 @@ function KernelConfirmModal({
       description={copy.description}
       onClose={onClose}
       confirmClose={intent.kind === "review" && Boolean(reviewNotes.trim())}
+      initialFocusRef={intent.kind === "review" ? notesRef : undefined}
     >
       <div className="kernel-confirm">
         {intent.kind === "review" && (
           <label>
             {intent.decision === "reject" ? "拒绝备注（必填）" : "评审备注（可选）"}
             <textarea
+              ref={notesRef}
               value={reviewNotes}
               onChange={(event) => onNotesChange(event.target.value)}
               rows={3}
@@ -2336,7 +2316,6 @@ function KernelConfirmModal({
                   ? "说明拒绝原因，便于成员修复后重试"
                   : "可记录验收依据或后续建议"
               }
-              autoFocus
             />
           </label>
         )}
@@ -2348,6 +2327,11 @@ function KernelConfirmModal({
         {intent.kind === "cancelRun" && (
           <div className="notice small">
             Run 级取消只影响本次执行；任务可选择「重试」重新入队。
+          </div>
+        )}
+        {intent.kind === "resume" && (
+          <div className="notice small">
+            恢复不是危险操作，此处确认用于避免误触；运行中的 Run 不受影响。
           </div>
         )}
         <div className="modal-foot">
@@ -2795,56 +2779,94 @@ function TasksView({
                 >
                   运行详情
                 </button>
-                {actionState?.start.enabled && (
-                  <button
-                    className="primary small"
-                    disabled={actionBusy === `task:start:${selectedTask.id}`}
-                    onClick={() => onStartTask(selectedTask)}
-                    title={actionState.start.reason || "入队运行（默认手动入队）"}
-                  >
-                    {actionBusy === `task:start:${selectedTask.id}` ? "入队中…" : "运行任务"}
-                  </button>
-                )}
-                {actionState?.retry.enabled && (
-                  <button
-                    className="primary small"
-                    disabled={actionBusy === `task:retry:${selectedTask.id}`}
-                    onClick={() => onRetryTask(selectedTask)}
-                    title="重新入队：会新建一次 attempt"
-                  >
-                    {actionBusy === `task:retry:${selectedTask.id}` ? "重试中…" : "重试任务"}
-                  </button>
-                )}
-                {actionState?.review.enabled && (
-                  <>
-                    <button
-                      className="primary small"
-                      disabled={actionBusy === `task:review:${selectedTask.id}`}
-                      onClick={() => onReviewTask(selectedTask, "approve")}
-                    >
-                      批准
-                    </button>
-                    <button
-                      className="ghost small run-danger"
-                      disabled={actionBusy === `task:review:${selectedTask.id}`}
-                      onClick={() => onReviewTask(selectedTask, "reject")}
-                    >
-                      拒绝
-                    </button>
-                  </>
-                )}
-                {actionState?.cancel.enabled && (
-                  <button
-                    className="ghost small run-danger"
-                    disabled={actionBusy === `task:cancel:${selectedTask.id}`}
-                    onClick={() => onCancelTask(selectedTask)}
-                    title="取消任务：运行中的 Run 会中止，取消是终态"
-                  >
-                    {actionBusy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
-                  </button>
-                )}
+                {/* t107 F3：主要操作常驻渲染，不可用时 disabled + title/aria-describedby 原因（与 RunPanel 一致）。 */}
+                <button
+                  className="primary small"
+                  disabled={
+                    !actionState?.start.enabled ||
+                    actionBusy === `task:start:${selectedTask.id}`
+                  }
+                  onClick={() => onStartTask(selectedTask)}
+                  title={actionState?.start.reason || "入队运行（默认手动入队）"}
+                  aria-describedby={
+                    actionState?.start.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  {actionBusy === `task:start:${selectedTask.id}` ? "入队中…" : "运行任务"}
+                </button>
+                <button
+                  className="primary small"
+                  disabled={
+                    !actionState?.retry.enabled ||
+                    actionBusy === `task:retry:${selectedTask.id}`
+                  }
+                  onClick={() => onRetryTask(selectedTask)}
+                  title={actionState?.retry.reason || "重新入队：会新建一次 attempt"}
+                  aria-describedby={
+                    actionState?.retry.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  {actionBusy === `task:retry:${selectedTask.id}` ? "重试中…" : "重试任务"}
+                </button>
+                <button
+                  className="primary small"
+                  disabled={
+                    !actionState?.review.enabled ||
+                    actionBusy === `task:review:${selectedTask.id}`
+                  }
+                  onClick={() => onReviewTask(selectedTask, "approve")}
+                  title={actionState?.review.reason || "批准：任务标记为已交付"}
+                  aria-describedby={
+                    actionState?.review.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  批准
+                </button>
+                <button
+                  className="ghost small run-danger"
+                  disabled={
+                    !actionState?.review.enabled ||
+                    actionBusy === `task:review:${selectedTask.id}`
+                  }
+                  onClick={() => onReviewTask(selectedTask, "reject")}
+                  title={actionState?.review.reason || "拒绝：任务标记失败（REVIEW_REJECTED）"}
+                  aria-describedby={
+                    actionState?.review.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  拒绝
+                </button>
+                <button
+                  className="ghost small run-danger"
+                  disabled={
+                    !actionState?.cancel.enabled ||
+                    actionBusy === `task:cancel:${selectedTask.id}`
+                  }
+                  onClick={() => onCancelTask(selectedTask)}
+                  title={actionState?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
+                  aria-describedby={
+                    actionState?.cancel.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  {actionBusy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
+                </button>
               </div>
             </div>
+
+            {/* t107 F3：不可用操作的原因（可见 inline 说明，供 aria-describedby 引用）。 */}
+            {actionState && (
+              <div id="task-action-hint" className="muted tiny task-action-hint">
+                {[
+                  actionState.start,
+                  actionState.retry,
+                  actionState.review,
+                  actionState.cancel,
+                ]
+                  .filter((gate) => !gate.enabled && gate.reason)
+                  .map((gate) => gate.reason)
+                  .join("；")}
+              </div>
+            )}
 
             {actionError && (
               <div className="error banner task-action-error" role="alert">

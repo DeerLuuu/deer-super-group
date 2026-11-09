@@ -314,58 +314,78 @@ export default function RunPanel({
                       )}
                     </div>
                   )}
+                  {/* t107 F3：主要操作常驻渲染（disabled + 原因），与任务页一致。 */}
                   <div className="row gap wrap run-selected-task-actions">
-                    {actions?.start.enabled && (
-                      <button
-                        type="button"
-                        className="primary small"
-                        onClick={() => onStartTask(selectedTask)}
-                        disabled={busy === `task:start:${selectedTask.id}`}
-                        title={actions.start.reason || "入队运行"}
-                      >
-                        {busy === `task:start:${selectedTask.id}` ? "入队中…" : "运行任务"}
-                      </button>
-                    )}
-                    {actions?.retry.enabled && (
-                      <button
-                        type="button"
-                        className="primary small"
-                        onClick={() => onRetryTask(selectedTask)}
-                        disabled={busy === `task:retry:${selectedTask.id}`}
-                      >
-                        {busy === `task:retry:${selectedTask.id}` ? "重试中…" : "重试任务"}
-                      </button>
-                    )}
-                    {actions?.cancel.enabled && (
-                      <button
-                        type="button"
-                        className="ghost small run-danger"
-                        onClick={() => onCancelTask(selectedTask)}
-                        disabled={busy === `task:cancel:${selectedTask.id}`}
-                      >
-                        {busy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
-                      </button>
-                    )}
-                    {actions?.review.enabled && (
-                      <>
-                        <button
-                          type="button"
-                          className="primary small"
-                          onClick={() => onReviewTask(selectedTask, "approve")}
-                          disabled={busy === `task:review:${selectedTask.id}`}
-                        >
-                          批准
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost small run-danger"
-                          onClick={() => onReviewTask(selectedTask, "reject")}
-                          disabled={busy === `task:review:${selectedTask.id}`}
-                        >
-                          拒绝
-                        </button>
-                      </>
-                    )}
+                    <button
+                      type="button"
+                      className="primary small"
+                      onClick={() => onStartTask(selectedTask)}
+                      disabled={
+                        !actions?.start.enabled || busy === `task:start:${selectedTask.id}`
+                      }
+                      title={actions?.start.reason || "入队运行"}
+                      aria-describedby={
+                        actions?.start.enabled ? undefined : "run-panel-action-hint"
+                      }
+                    >
+                      {busy === `task:start:${selectedTask.id}` ? "入队中…" : "运行任务"}
+                    </button>
+                    <button
+                      type="button"
+                      className="primary small"
+                      onClick={() => onRetryTask(selectedTask)}
+                      disabled={
+                        !actions?.retry.enabled || busy === `task:retry:${selectedTask.id}`
+                      }
+                      title={actions?.retry.reason || "重新入队：会新建一次 attempt"}
+                      aria-describedby={
+                        actions?.retry.enabled ? undefined : "run-panel-action-hint"
+                      }
+                    >
+                      {busy === `task:retry:${selectedTask.id}` ? "重试中…" : "重试任务"}
+                    </button>
+                    <button
+                      type="button"
+                      className="primary small"
+                      onClick={() => onReviewTask(selectedTask, "approve")}
+                      disabled={
+                        !actions?.review.enabled || busy === `task:review:${selectedTask.id}`
+                      }
+                      title={actions?.review.reason || "批准：任务标记为已交付"}
+                      aria-describedby={
+                        actions?.review.enabled ? undefined : "run-panel-action-hint"
+                      }
+                    >
+                      批准
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost small run-danger"
+                      onClick={() => onReviewTask(selectedTask, "reject")}
+                      disabled={
+                        !actions?.review.enabled || busy === `task:review:${selectedTask.id}`
+                      }
+                      title={actions?.review.reason || "拒绝：任务标记失败（REVIEW_REJECTED）"}
+                      aria-describedby={
+                        actions?.review.enabled ? undefined : "run-panel-action-hint"
+                      }
+                    >
+                      拒绝
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost small run-danger"
+                      onClick={() => onCancelTask(selectedTask)}
+                      disabled={
+                        !actions?.cancel.enabled || busy === `task:cancel:${selectedTask.id}`
+                      }
+                      title={actions?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
+                      aria-describedby={
+                        actions?.cancel.enabled ? undefined : "run-panel-action-hint"
+                      }
+                    >
+                      {busy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
+                    </button>
                     <button
                       type="button"
                       className="ghost small"
@@ -374,6 +394,17 @@ export default function RunPanel({
                       打开会话
                     </button>
                   </div>
+                  {actions && (
+                    <div
+                      id="run-panel-action-hint"
+                      className="muted tiny task-action-hint"
+                    >
+                      {[actions.start, actions.retry, actions.review, actions.cancel]
+                        .filter((gate) => !gate.enabled && gate.reason)
+                        .map((gate) => gate.reason)
+                        .join("；")}
+                    </div>
+                  )}
                   {runsError && (
                     <div className="run-panel-error" role="alert">
                       <span>Run 记录读取失败：{runsError}</span>

@@ -487,12 +487,20 @@ export function eventTypeLabel(type: string): string {
 }
 
 export function eventTone(type: string): "ok" | "warn" | "error" | "info" {
-  if (type.includes("failed") || type === "task.retry_exhausted" || type === "kernel.command_rejected") {
+  if (
+    type.includes("failed") ||
+    type === "task.retry_exhausted" ||
+    type === "kernel.command_rejected" ||
+    // t107 F4：评审拒绝是明确的不良结果，按 error 播报。
+    type === "task.review_rejected"
+  ) {
     return "error";
   }
   if (
     type.includes("blocked") ||
     type.includes("waiting_human") ||
+    // t107 F4：取消类事件（run.cancelled / task.cancelled）按 warn 播报。
+    type.includes("cancelled") ||
     type === "scheduler.paused" ||
     type === "scheduler.rejected" ||
     type === "run.result_discarded"
@@ -645,7 +653,10 @@ export function taskStatusSnapshot(tasks: Task[]): TaskStatusSnapshot {
   return new Map(tasks.map((task) => [task.id, task.status]));
 }
 
-/** 两次快照之间任务状态变化的播报文本（最多 3 条，避免刷屏）。 */
+/**
+ * 两次快照之间任务状态变化的播报文本（最多 3 条，避免刷屏）。
+ * t107 F5：首次快照后 previous 已建立；新出现的 id（previous 中不存在）以「新增 + 当前状态」播报。
+ */
 export function taskStatusAnnouncements(
   previous: TaskStatusSnapshot | null,
   tasks: Task[],
@@ -654,14 +665,17 @@ export function taskStatusAnnouncements(
   const messages: string[] = [];
   for (const task of tasks) {
     const before = previous.get(task.id);
-    if (before && before !== task.status) {
+    if (!before) {
+      messages.push(`新任务「${task.title}」：${TASK_STATUS_LABEL[task.status]}`);
+    } else if (before !== task.status) {
       messages.push(`「${task.title}」${TASK_STATUS_LABEL[task.status]}`);
-      if (messages.length >= 3) break;
     }
+    if (messages.length >= 3) break;
   }
   return messages;
 }
 
+/** t107 F5：Run 同样对新增 id 以「新增（状态）」播报。 */
 export function runStatusAnnouncements(
   previous: Map<string, RunStatus> | null,
   runs: Run[],
@@ -670,10 +684,12 @@ export function runStatusAnnouncements(
   const messages: string[] = [];
   for (const run of runs) {
     const before = previous.get(run.id);
-    if (before && before !== run.status) {
+    if (!before) {
+      messages.push(`${runTitle(run)} 新增（${runStatusLabel(run.status)}）`);
+    } else if (before !== run.status) {
       messages.push(`${runTitle(run)} ${runStatusLabel(run.status)}`);
-      if (messages.length >= 3) break;
     }
+    if (messages.length >= 3) break;
   }
   return messages;
 }
@@ -711,4 +727,74 @@ export function schedulerAnnouncement(
     return `排队 ${next.queued} 个`;
   }
   return null;
+}
+
+// ------------------------------------------------------- confirm copy (t107 F1)
+
+/** t107 F1：确认弹窗文案统一为纯函数（含 resume），供 KernelConfirmModal 与单测共用。 */
+export interface KernelConfirmIntent {
+  kind: "retry" | "cancelTask" | "cancelRun" | "pause" | "resume" | "review";
+  taskTitle?: string;
+  taskStatus?: string;
+  runAttempt?: number | null;
+  decision?: "approve" | "reject";
+}
+
+export function kernelConfirmCopy(intent: KernelConfirmIntent): {
+  title: string;
+  description: string;
+  confirm: string;
+  danger: boolean;
+} {
+  switch (intent.kind) {
+    case "retry":
+      return {
+        title: "重试任务？",
+        description: `「${intent.taskTitle ?? ""}」将重新入队，内核会新建一次 attempt。`,
+        confirm: "重试",
+        danger: false,
+      };
+    case "cancelTask":
+      return {
+        title: "取消任务？",
+        description: `「${intent.taskTitle ?? ""}${
+          intent.taskStatus === "running" ? "正在运行，当前 Run 会被中止；" : ""
+        }下游任务会按依赖状态刷新。取消是终态。`,
+        confirm: "取消任务",
+        danger: true,
+      };
+    case "cancelRun":
+      return {
+        title: "取消当前 Run？",
+        description: `Run #${intent.runAttempt ?? 1}（${intent.taskTitle ?? ""}）会被中止，任务将标记失败（RUN_CANCELLED）。`,
+        confirm: "取消 Run",
+        danger: true,
+      };
+    case "pause":
+      return {
+        title: "暂停调度？",
+        description: "运行中的 Run 会继续，新的排队任务不会启动；可随时点击「恢复调度」。",
+        confirm: "暂停调度",
+        danger: false,
+      };
+    case "resume":
+      return {
+        title: "恢复调度？",
+        description: "排队的任务将按并发上限继续启动；已暂停期间入队的任务会按优先级/FIFO 依次执行。",
+        confirm: "恢复调度",
+        danger: false,
+      };
+    case "review":
+      return {
+        title: intent.decision === "approve" ? "批准任务？" : "拒绝任务？",
+        description:
+          intent.decision === "approve"
+            ? `「${intent.taskTitle ?? ""}」将标记为已交付；此操作会写评审审计事件。`
+            : `「${intent.taskTitle ?? ""}」将标记失败（REVIEW_REJECTED）；拒绝必须填写备注。`,
+        confirm: intent.decision === "approve" ? "批准" : "拒绝",
+        danger: intent.decision === "reject",
+      };
+    default:
+      return { title: "确认操作？", description: "", confirm: "确认", danger: false };
+  }
 }

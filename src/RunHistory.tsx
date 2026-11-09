@@ -69,17 +69,21 @@ export function RunDetail({
               在运行面板打开
             </button>
           )}
-          {canCancelRun(run) && (
-            <button
-              type="button"
-              className="ghost tiny run-danger"
-              onClick={() => onCancelRun(run)}
-              disabled={cancelBusy}
-              title="取消该 Run：会中止执行，任务将被标记为失败（RUN_CANCELLED）"
-            >
-              {cancelBusy ? "取消中…" : "取消 Run"}
-            </button>
-          )}
+          {/* t107 F3：取消 Run 常驻渲染（disabled + 原因），与任务页/RunPanel 一致。 */}
+          <button
+            type="button"
+            className="ghost tiny run-danger"
+            onClick={() => onCancelRun(run)}
+            disabled={!canCancelRun(run) || cancelBusy}
+            title={
+              canCancelRun(run)
+                ? "取消该 Run：会中止执行，任务将被标记为失败（RUN_CANCELLED）"
+                : "仅运行中（running）的 Run 可以取消"
+            }
+            aria-describedby={canCancelRun(run) ? undefined : `run-cancel-hint-${run.id}`}
+          >
+            {cancelBusy ? "取消中…" : "取消 Run"}
+          </button>
         </div>
       </div>
 
@@ -163,6 +167,13 @@ export function RunDetail({
           <span className="muted tiny">
             {run.retryable ? "可重试（内核会自动退避重试）" : "不可重试"}
           </span>
+        </div>
+      )}
+
+      {/* t107 F3：取消不可用时的可见原因（aria-describedby 引用）。 */}
+      {!canCancelRun(run) && (
+        <div id={`run-cancel-hint-${run.id}`} className="muted tiny task-action-hint">
+          仅运行中（running）的 Run 可以取消；历史 Run 不可取消。
         </div>
       )}
 

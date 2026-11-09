@@ -5467,3 +5467,9 @@ label.check input {
 .run-selected-task-head .status {
   flex: 0 0 auto;
 }
+
+/* t107 F3：不可用操作原因的 inline 提示 */
+.task-action-hint {
+  padding: 0 16px 6px;
+  line-height: 1.5;
+}
