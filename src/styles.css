@@ -2587,28 +2587,6 @@ label.check input {
 }
 
 /* S10：首访引导 / 稀疏提示 / 图例 / 帮助 */
-.star-guide {
-  position: absolute;
-  left: 10px;
-  bottom: 96px;
-  z-index: 11;
-  width: 280px;
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(21, 27, 36, 0.94);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
-}
-
-.star-guide ul {
-  margin: 0;
-  padding-left: 16px;
-  display: grid;
-  gap: 3px;
-}
-
 .star-sparse {
   position: absolute;
   top: 52px;

@@ -357,8 +357,8 @@ export default function TaskStarMap({
   // S08：归属图层（默认关）。
   const [ownership, setOwnership] = useState(false);
 
-  // S10：引导 / 图例 / 帮助。
-  const [guideOpen, setGuideOpen] = useState(false);
+  // S10：图例 / 帮助。
+
   const [legendOpen, setLegendOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -570,17 +570,6 @@ export default function TaskStarMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
-  // S10：首访引导（按工作区记忆）。
-  useEffect(() => {
-    try {
-      if (!localStorage.getItem(`deer.starmap.guide.${workspaceId}`)) {
-        setGuideOpen(true);
-      }
-    } catch {
-      /* localStorage 不可用时跳过 */
-    }
-  }, [workspaceId]);
-
   // S12：任务集合变化 → 不自动 fit，提示「布局已更新」。
   useEffect(() => {
     if (initializedWorkspaceRef.current !== workspaceId) return;
@@ -735,7 +724,13 @@ export default function TaskStarMap({
   // ---------- 交互 ----------
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    if ((event.target as HTMLElement).closest("[data-star-node], .star-popover")) return;
+    if (
+      (event.target as HTMLElement).closest(
+        "[data-star-node], .star-popover, .star-guide, .star-controls, .star-legend, .modal, .modal-backdrop, button, input, select, textarea, a, [role='dialog']",
+      )
+    ) {
+      return;
+    }
     // 集成修复 IF-01（t48）：S04 与 bb-47 要求「点击空白关闭浮窗」，原实现只有 Esc/动作会关闭。
     // 空白按下（即将开始平移）时关闭浮窗，不抢焦点；选中态保留。
     if (legendOpen) setLegendOpen(false);
@@ -962,15 +957,6 @@ export default function TaskStarMap({
     }
     return lod as 1 | 2 | 3;
   }
-
-  const guideItems = [
-    "单击节点：浮窗查看任务概述与动作",
-    "双击节点 / Ctrl+Enter：打开任务会话",
-    "滚轮缩放 · 拖动空白平移 · 「适应」回到全景",
-    "悬停或 Tab 聚焦节点：高亮 1 跳上下游邻居",
-    "浮窗「聚焦」：只看 1–3 跳邻域，Esc 退出",
-    "节点大小 = 连接数 · 颜色/形状 = 状态（见图例）",
-  ];
 
   return (
     <div
@@ -1408,36 +1394,6 @@ export default function TaskStarMap({
             </button>
           </div>
         )
-      )}
-
-      {/* S10：首访引导 */}
-      {guideOpen && (
-        <div className="star-guide">
-          <div className="panel-title" style={{ fontSize: 12 }}>
-            星图怎么用
-          </div>
-          <ul>
-            {guideItems.map((item) => (
-              <li key={item} className="muted tiny">
-                {item}
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            className="primary tiny"
-            onClick={() => {
-              setGuideOpen(false);
-              try {
-                localStorage.setItem(`deer.starmap.guide.${workspaceId}`, "1");
-              } catch {
-                /* 忽略 */
-              }
-            }}
-          >
-            知道了
-          </button>
-        </div>
       )}
 
       {/* S10/S08：常驻图例（可折叠） */}
