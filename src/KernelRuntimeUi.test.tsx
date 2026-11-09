@@ -486,3 +486,52 @@ describe("t113 CSS 与 Announcer", () => {
     expect(html).toContain('aria-live="polite"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// t117：contextKey 重置改为「以当前数据建基线」，切回 tab 后首个变化不被吞
+// ---------------------------------------------------------------------------
+
+describe("t117 Announcer 基线重置（纯函数）", () => {
+  it("contextKey 切换后基线为当前数据（非 null）：首个任务变化能播报", async () => {
+    const { announcerBaseline } = await import("./KernelAnnouncer");
+    const { taskStatusAnnouncements } = await import("./shared/kernelUi");
+    // tasks 页 → chat → 回 tasks：基线 = 当前任务快照。
+    const before = [task({ id: "a", status: "ready" })];
+    const baseline = announcerBaseline(before, [], null);
+    expect(baseline.tasks).not.toBeNull();
+    expect(baseline.tasks.get("a")).toBe("ready");
+    // 切回后第一次真实变化（a → queued）：基线非 null ⇒ 正常 diff 播报（t113 版本基线为 null 会吞掉）。
+    const after = [task({ id: "a", status: "queued" })];
+    const messages = taskStatusAnnouncements(baseline.tasks, after);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("排队中");
+    // 对照：previous=null（t113 行为）不播报——证明差异正是本修复点。
+    expect(taskStatusAnnouncements(null, after)).toEqual([]);
+  });
+
+  it("Run 基线同理：切 tab 后新 Run/状态变化播报；首次挂载（previous=null）不播报", async () => {
+    const { announcerBaseline } = await import("./KernelAnnouncer");
+    const { runStatusAnnouncements } = await import("./shared/kernelUi");
+    const baseline = announcerBaseline([], [run({ id: "r1", status: "running" })], null);
+    expect(baseline.runs.get("r1")).toBe("running");
+    // 首个变化：r1 running→completed。
+    const messages = runStatusAnnouncements(baseline.runs, [
+      run({ id: "r1", status: "completed" }),
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("已完成");
+    expect(runStatusAnnouncements(null, [run({ id: "r1", status: "completed" })])).toEqual([]);
+  });
+
+  it("切 workspace：基线以新 workspace 数据静默建立，同数据不产生播报", async () => {
+    const { announcerBaseline } = await import("./KernelAnnouncer");
+    const { taskStatusAnnouncements, schedulerAnnouncement } = await import(
+      "./shared/kernelUi"
+    );
+    // 新 workspace 的当前数据作为基线 → 对同一份数据 diff 为空（不误播报）。
+    const wsTasks = [task({ id: "x", status: "ready" })];
+    const baseline = announcerBaseline(wsTasks, [], null);
+    expect(taskStatusAnnouncements(baseline.tasks, wsTasks)).toEqual([]);
+    expect(schedulerAnnouncement(baseline.scheduler, baseline.scheduler)).toBeNull();
+  });
+});

@@ -245,3 +245,19 @@ t71 二轮 F1–F5（t113 契约），同一 worktree/PR 内修复。
 | F5 error 时 aria-controls 悬空 | error 态队列按钮与队列容器同条件不渲染（按钮不存在即无悬空 aria-controls），与正常态「恒渲染 + hidden」统一 | SSR 断言「F5：error 时…无 aria-controls/scheduler-queue」+ role=alert/重试在位 |
 
 **验证（worktree 实跑）**：`pnpm typecheck` 0；`pnpm build` 0；`pnpm test` 23 文件 / **323 用例全过**（t113 新增 5 用例，t107 F7 用例更新为 useId 断言）。
+
+## 13. t117 修复记录（repair-round-4，mika / GLM-5.3）
+
+t114 F1：t113 的 contextKey 重置把 previous refs 置 **null**，导致切 tab 回来后首个真实变化走「首次快照不播报」路径被吞。
+
+修复（KernelAnnouncer.tsx）：
+- 删除 render 阶段重置（副作用进 render 违规 + 双基线风险）；
+- 新增独立 contextKey effect（依赖仅 contextKey）：`announcerBaseline(tasks, displayedRuns, scheduler)` 以**当前数据**建立三 refs 基线（非 null）并 `setMessage("")` 清空旧播报；
+- 数据 diff effect 不变：基线非 null ⇒ 切回后第一次任务/Run/调度变化正常 diff 播报；首次挂载（refs 仍 null）保持不播报。
+
+测试（KernelRuntimeUi.test「t117 Announcer 基线重置」，3 用例）：
+1. tasks→chat→tasks：baseline.tasks 非 null，a ready→queued 播报「排队中」；对照 previous=null（t113 行为）返回 []——证明不再吞；
+2. Run 基线同理：r1 running→completed 播报「已完成」；previous=null 不播报；
+3. 切 workspace：基线=新 workspace 当前数据，对同数据 diff 为空（不误播报）。
+
+**验证**：typecheck 0 / build 0 / test 23 文件 **326/326**（t117 +3）。未改 src/kernel/、未混 Git/记忆改动。
