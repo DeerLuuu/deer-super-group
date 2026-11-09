@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { AppService } from "../src/kernel/service.js";
 import type {
+  AnswerChatQuestionInput,
+  CancelChatQuestionInput,
   CreateAgentInput,
   CreateTaskInput,
   LlmSettings,
@@ -124,6 +126,22 @@ app.whenReady().then(() => {
   handle("session:setFullThrottle", (workspaceId: string, agentId: string, enabled: boolean) => {
     getService().setFullThrottle(workspaceId, agentId, enabled);
   });
+  // t64：交互画布索引 + 提问状态机（业务失败用返回值表达，不抛异常）。
+  handle("chat:artifacts:list", (workspaceId: string, agentId?: string) =>
+    getService().listChatArtifacts(workspaceId, agentId),
+  );
+  handle("chat:artifact:get", (workspaceId: string, artifactId: string) =>
+    getService().getChatArtifact(workspaceId, artifactId),
+  );
+  handle("chat:questions:list", (workspaceId: string, agentId?: string) =>
+    getService().listChatQuestions(workspaceId, agentId),
+  );
+  handle("chat:question:answer", (input: AnswerChatQuestionInput) =>
+    getService().answerChatQuestion(input),
+  );
+  handle("chat:question:cancel", (input: CancelChatQuestionInput) =>
+    getService().cancelChatQuestion(input),
+  );
   // t58 IF-05：auto_risk 高风险 → 人类审批弹窗（主进程推送 + 人工回执，单次 requestId）。
   service?.onRiskApproval((request) => {
     win?.webContents.send("risk:approval", request);

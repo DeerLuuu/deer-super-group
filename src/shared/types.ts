@@ -1,3 +1,11 @@
+import type {
+  DeerCanvas,
+  DeerQuestion,
+  QuestionAnswers,
+  QuestionFieldError,
+  QuestionValues,
+} from "./interactive.js";
+
 export type Id = string;
 export type IsoDate = string;
 
@@ -181,6 +189,75 @@ export type ChatEvent =
   | { type: "done"; workspaceId: Id; agentId: Id; message: ChatMessage }
   | { type: "cancelled"; workspaceId: Id; agentId: Id }
   | { type: "error"; workspaceId: Id; agentId: Id; error: string };
+
+// ---------------------------------------------------------------------------
+// t64：交互画布 / 提问表单（docs/team/interactive-canvas-design.md §9/§10）
+// ---------------------------------------------------------------------------
+
+export interface ChatArtifactRecord {
+  /** 稳定键：`${messageId}#b${blockIndex}` */
+  id: string;
+  workspaceId: Id;
+  agentId: Id;
+  messageId: Id;
+  blockIndex: number;
+  kind: DeerCanvas["kind"];
+  title: string;
+  protocolVersion: number;
+  payload: DeerCanvas;
+  createdAt: IsoDate;
+}
+
+export type ChatQuestionStatus = "pending" | "answered" | "cancelled" | "expired";
+
+export interface ChatQuestionRecord {
+  /** 稳定键：`${messageId}#b${blockIndex}`（与 artifact 同规则，不同表） */
+  id: string;
+  workspaceId: Id;
+  agentId: Id;
+  messageId: Id;
+  blockIndex: number;
+  title: string;
+  payload: DeerQuestion;
+  status: ChatQuestionStatus;
+  answer: QuestionAnswers | null;
+  createdAt: IsoDate;
+  answeredAt: IsoDate | null;
+  expiresAt: IsoDate | null;
+}
+
+export interface AnswerChatQuestionInput {
+  workspaceId: Id;
+  questionId: string;
+  values: QuestionValues;
+}
+
+export type AnswerErrorCode =
+  | "E_NOT_FOUND"
+  | "E_WORKSPACE_MISMATCH"
+  | "E_BUSY"
+  | "E_INVALID_ANSWER"
+  | "E_EXPIRED"
+  | "E_CLOSED"
+  | "E_TOO_LARGE";
+
+export type AnswerChatQuestionResult =
+  | { ok: true; changed: boolean; question: ChatQuestionRecord; answerText: string }
+  | {
+      ok: false;
+      code: AnswerErrorCode;
+      message: string;
+      fieldErrors?: QuestionFieldError[];
+    };
+
+export interface CancelChatQuestionInput {
+  workspaceId: Id;
+  questionId: string;
+}
+
+export type CancelChatQuestionResult =
+  | { ok: true; question: ChatQuestionRecord }
+  | { ok: false; code: AnswerErrorCode; message: string };
 
 export interface ContextSection {
   id: string;

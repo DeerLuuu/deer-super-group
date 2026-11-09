@@ -258,6 +258,202 @@ function planFor(goal: string): PlanResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// t64：Mock 模式的交互协议夹具（离线演示/手工验收；不影响真实模型路径）
+// ---------------------------------------------------------------------------
+
+function fence(language: "deer-canvas" | "deer-question", payload: unknown): string {
+  return ["```" + language, JSON.stringify(payload, null, 2), "```"].join("\n");
+}
+
+const MOCK_FLOWCHART = {
+  protocol: "deer-canvas",
+  version: 1,
+  kind: "flowchart",
+  title: "实现流程（Mock）",
+  summary: "从协议到上线的 5 个阶段",
+  direction: "TB",
+  groups: [
+    { id: "p0", label: "P0 对话内", order: 0, tone: "accent" },
+    { id: "p1", label: "P1 面板与导出", order: 1, tone: "purple" },
+  ],
+  nodes: [
+    { id: "schema", label: "协议与校验", kind: "step", status: "done", groupId: "p0" },
+    { id: "parse", label: "消息解析", kind: "step", status: "active", groupId: "p0" },
+    {
+      id: "render",
+      label: "画布渲染",
+      kind: "decision",
+      status: "active",
+      groupId: "p0",
+      note: "合法→渲染；非法→回退卡片",
+    },
+    { id: "ask", label: "提问表单", kind: "step", status: "planned", groupId: "p0" },
+    { id: "dock", label: "Dock 面板", kind: "step", status: "planned", groupId: "p1" },
+    { id: "export", label: "Mermaid / SVG 导出", kind: "note", status: "planned", groupId: "p1" },
+  ],
+  edges: [
+    { from: "schema", to: "parse", kind: "flow" },
+    { from: "parse", to: "render", kind: "flow" },
+    { from: "render", to: "ask", kind: "flow" },
+    { from: "render", to: "dock", kind: "relates" },
+    { from: "dock", to: "export", kind: "flow" },
+  ],
+};
+
+const MOCK_MINDMAP = {
+  protocol: "deer-canvas",
+  version: 1,
+  kind: "mindmap",
+  title: "交互画布范围（Mock）",
+  nodes: [
+    { id: "root", label: "交互画布", kind: "root", status: "active" },
+    { id: "types", label: "四类图", kind: "topic" },
+    { id: "flow", label: "流程图", kind: "topic" },
+    { id: "mind", label: "思维导图", kind: "topic" },
+    { id: "road", label: "路线图", kind: "topic" },
+    { id: "dep", label: "依赖图", kind: "topic" },
+    { id: "safety", label: "安全", kind: "topic", status: "review" },
+    { id: "white", label: "白名单", kind: "note", note: "节点/边/字段枚举 + 纯文本" },
+    { id: "nohtml", label: "不执行 HTML/JS", kind: "note" },
+  ],
+  edges: [
+    { from: "root", to: "types", kind: "contains" },
+    { from: "types", to: "flow", kind: "contains" },
+    { from: "types", to: "mind", kind: "contains" },
+    { from: "types", to: "road", kind: "contains" },
+    { from: "types", to: "dep", kind: "contains" },
+    { from: "root", to: "safety", kind: "contains" },
+    { from: "safety", to: "white", kind: "contains" },
+    { from: "safety", to: "nohtml", kind: "contains" },
+  ],
+};
+
+const MOCK_ROADMAP = {
+  protocol: "deer-canvas",
+  version: 1,
+  kind: "roadmap",
+  title: "交互画布路线图（Mock）",
+  direction: "LR",
+  groups: [
+    { id: "p0", label: "P0 · 对话内", order: 0, tone: "accent", status: "active" },
+    { id: "p1", label: "P1 · 面板与导出", order: 1, tone: "purple", status: "planned" },
+    { id: "p2", label: "P2 · 编辑与协作", order: 2, tone: "neutral", status: "planned" },
+  ],
+  nodes: [
+    { id: "p0-schema", label: "协议/校验", kind: "step", status: "done", groupId: "p0", order: 0 },
+    { id: "p0-ui", label: "画布 + 表单", kind: "step", status: "active", groupId: "p0", order: 1 },
+    {
+      id: "p0-ga",
+      label: "安全与可达性测试",
+      kind: "milestone",
+      status: "planned",
+      groupId: "p0",
+      order: 2,
+    },
+    { id: "p1-panel", label: "Dock 画布面板", kind: "step", status: "planned", groupId: "p1", order: 0 },
+    { id: "p1-png", label: "PNG/导出增强", kind: "step", status: "planned", groupId: "p1", order: 1 },
+    { id: "p2-edit", label: "节点拖拽/批注", kind: "step", status: "planned", groupId: "p2", order: 0 },
+  ],
+  edges: [
+    { from: "p0-schema", to: "p0-ui", kind: "flow" },
+    { from: "p0-ui", to: "p0-ga", kind: "flow" },
+    { from: "p0-ga", to: "p1-panel", kind: "flow" },
+    { from: "p1-panel", to: "p1-png", kind: "flow" },
+    { from: "p1-png", to: "p2-edit", kind: "flow" },
+  ],
+};
+
+const MOCK_DEPENDENCY = {
+  protocol: "deer-canvas",
+  version: 1,
+  kind: "dependency",
+  title: "交互画布任务依赖（Mock）",
+  nodes: [
+    { id: "t63", label: "设计协议与交互", kind: "task", status: "done" },
+    { id: "t64", label: "实现画布与提问", kind: "task", status: "active" },
+    { id: "t65", label: "评审：安全与可达性", kind: "task", status: "planned" },
+    { id: "t66", label: "集成验收", kind: "task", status: "planned" },
+    { id: "ship", label: "可交付", kind: "milestone", status: "planned" },
+  ],
+  edges: [
+    { from: "t63", to: "t64", kind: "depends" },
+    { from: "t64", to: "t65", kind: "depends" },
+    { from: "t65", to: "t66", kind: "depends" },
+    { from: "t66", to: "ship", kind: "depends" },
+  ],
+};
+
+const MOCK_QUESTION = {
+  protocol: "deer-question",
+  version: 1,
+  title: "确认 P0 实现范围（Mock）",
+  description: "回答后我会按你的选择继续推进；可稍后再答。",
+  timeoutSec: 900,
+  fields: [
+    {
+      id: "platform",
+      kind: "single",
+      label: "优先平台",
+      required: true,
+      options: [
+        { id: "desktop", label: "桌面 Electron（默认）" },
+        { id: "web", label: "浏览器 Web" },
+      ],
+    },
+    {
+      id: "features",
+      kind: "multi",
+      label: "P0 必须包含",
+      description: "可多选；至少 1 项",
+      required: true,
+      min: 1,
+      max: 4,
+      options: [
+        { id: "flow", label: "流程图" },
+        { id: "mind", label: "思维导图" },
+        { id: "road", label: "路线图" },
+        { id: "ask", label: "提问表单" },
+      ],
+    },
+    {
+      id: "notes",
+      kind: "text",
+      label: "补充说明",
+      required: false,
+      placeholder: "可留空",
+      maxLength: 500,
+      multiline: true,
+    },
+    {
+      id: "confirm",
+      kind: "confirm",
+      label: "按以上范围开始实现",
+      required: true,
+      danger: false,
+    },
+  ],
+};
+
+function mockCanvasReply(user: string): string | null {
+  if (!/画布|流程图|流程|思维导图|路线图|依赖图/.test(user)) return null;
+  if (user.includes("思维导图")) {
+    return `下面是一张思维导图：\n\n${fence("deer-canvas", MOCK_MINDMAP)}`;
+  }
+  if (user.includes("路线图")) {
+    return `下面是一张路线图：\n\n${fence("deer-canvas", MOCK_ROADMAP)}`;
+  }
+  if (user.includes("依赖图") || user.includes("依赖")) {
+    return `下面是任务依赖图：\n\n${fence("deer-canvas", MOCK_DEPENDENCY)}`;
+  }
+  return `下面是实现流程：\n\n${fence("deer-canvas", MOCK_FLOWCHART)}`;
+}
+
+function mockQuestionReply(user: string): string | null {
+  if (!/提问|表单|确认|问我|收集/.test(user)) return null;
+  return `有 4 个点需要你确认：\n\n${fence("deer-question", MOCK_QUESTION)}`;
+}
+
 /** Deterministic offline model used for demos and tests. */
 export class MockClient implements LlmClient {
   async *stream(request: LlmRequest): AsyncIterable<LlmStreamEvent> {
@@ -274,6 +470,19 @@ export class MockClient implements LlmClient {
     }
 
     if (system.includes("You are Router")) {
+      // t64：离线演示夹具——用户提到画布/提问关键词时返回合法 deer-* 块。
+      const canvasReply = mockCanvasReply(user);
+      if (canvasReply) {
+        yield { type: "text", text: canvasReply };
+        yield { type: "finish", reason: "stop" };
+        return;
+      }
+      const questionReply = mockQuestionReply(user);
+      if (questionReply) {
+        yield { type: "text", text: questionReply };
+        yield { type: "finish", reason: "stop" };
+        return;
+      }
       const text = [
         "我是这个工作区的 Router。",
         "",

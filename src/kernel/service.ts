@@ -2,9 +2,15 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type {
   Agent,
+  AnswerChatQuestionInput,
+  AnswerChatQuestionResult,
   BoardEntry,
+  CancelChatQuestionInput,
+  CancelChatQuestionResult,
+  ChatArtifactRecord,
   ChatEvent,
   ChatMessage,
+  ChatQuestionRecord,
   ContextSection,
   ContextSnapshot,
   CreateAgentInput,
@@ -23,6 +29,16 @@ import type {
   UpdateAgentInput,
   Workspace,
 } from "../shared/types.js";
+import {
+  QUESTION_LIMITS,
+  INTERACTIVE_PROMPT_V1,
+  compressInteractiveForModel,
+  formatQuestionAnswer,
+  parseChatContent,
+  questionExpiresAt,
+  validateQuestionAnswers,
+  type InteractiveError,
+} from "../shared/interactive.js";
 import {
   createLlmClientForModel,
   fetchModelListForProvider,
@@ -63,7 +79,7 @@ function thinkingStyleFor(
 }
 
 function buildRouterSystemPrompt(workspace: Workspace, agents: Agent[], tasks: Task[]): string {
-  return [
+  const base = [
     "You are Router, the coordinator of an AI team called DeerSuperGroup.",
     `Workspace: ${workspace.name} at ${workspace.path}`,
     workspace.overview ? `Workspace overview:\n${workspace.overview}` : "",
@@ -73,9 +89,12 @@ function buildRouterSystemPrompt(workspace: Workspace, agents: Agent[], tasks: T
     `Tasks:\n${tasks.map((task) => `- ${task.title} [${task.status}]`).join("\n") || "(none)"}`,
     "You are chatting with the user. Be concise, ask for missing information, and suggest next steps.",
     "If the user wants a task plan, tell them to use the Plan button or describe the goal in detail.",
+    // t64：交互协议 v1 只注入 Router 对话（worker 循环不注入，见设计 §5.8）。
+    INTERACTIVE_PROMPT_V1,
   ]
     .filter(Boolean)
     .join("\n");
+  return base;
 }
 
 function buildWorkerSystemPrompt(agent: Agent, task: Task, workspace: Workspace): string {
@@ -403,15 +422,27 @@ export class AppService {
       this.store.listAgents(workspaceId),
       this.store.listTasks(workspaceId),
     );
+    // t64 §5.9：画布/问题块进入模型上下文前压缩为摘要，避免 JSON 挤爆上下文；
+    // 同时把最近 5 张画布摘要附加到单条 system 消息末尾（不同 provider 对多 system 处理不一致）。
+    const recentCanvases = this.recentCanvasSummary(workspaceId, router.id);
+    const systemContent = [
+      fullThrottle ? withFullThrottle(routerPrompt) : routerPrompt,
+      recentCanvases,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const messages: LlmMessage[] = [
       {
         role: "system",
-        content: fullThrottle ? withFullThrottle(routerPrompt) : routerPrompt,
+        content: systemContent,
       },
       ...history.map(
         (item): LlmMessage => ({
           role: item.role === "assistant" ? "assistant" : "user",
-          content: item.content,
+          content:
+            item.role === "assistant"
+              ? compressInteractiveForModel(item.content, item.id)
+              : item.content,
         }),
       ),
     ];
@@ -453,6 +484,19 @@ export class AppService {
         content: text.trim() || "（无回复）",
         reasoning: reasoning.trim(),
       });
+      // t64 §9.4：落库后 ingest 画布/提问（幂等）；任何异常只写审计事件，不阻断 done。
+      try {
+        this.ingestAssistantInteractive(workspaceId, router.id, assistant);
+      } catch (error) {
+        const code = error instanceof Error ? error.message.slice(0, 120) : "unknown";
+        this.store.appendEvent({
+          aggregateType: "chat",
+          aggregateId: assistant.id,
+          type: "chat.interactive_ingest_failed",
+          actor: "Router",
+          payload: { messageId: assistant.id, code },
+        });
+      }
       this.emitChat({ type: "done", workspaceId, agentId: router.id, message: assistant });
       return assistant;
     } catch (error) {
@@ -553,6 +597,284 @@ export class AppService {
     return true;
   }
 
+  // ---------- t64：交互画布 / 提问表单（设计 §9.4） ----------
+
+  /**
+   * 主进程 ingest：解析 assistant 消息中的 deer-canvas / deer-question 块。
+   * - 合法画布 → chat_artifacts 索引（P0 渲染不依赖）；
+   * - 合法提问 → chat_questions（pending，可带 expiresAt）；
+   * - 非法块 → chat.interactive_invalid 审计事件（不落库、不阻塞对话）；
+   * - 幂等：同一 (messageId, blockIndex) 只写一次、只发一次事件。
+   */
+  ingestAssistantInteractive(
+    workspaceId: string,
+    agentId: string,
+    message: ChatMessage,
+  ): { artifacts: number; questions: number; errors: InteractiveError[] } {
+    const blocks = parseChatContent(message.content, {
+      role: "assistant",
+      messageId: message.id,
+      complete: true,
+    });
+    let artifacts = 0;
+    let questions = 0;
+    const errors: InteractiveError[] = [];
+
+    for (const block of blocks) {
+      if (block.type === "canvas") {
+        if (this.store.getCanvasArtifact(workspaceId, block.key)) continue;
+        this.store.saveCanvasArtifact({
+          id: block.key,
+          workspaceId,
+          agentId,
+          messageId: message.id,
+          blockIndex: block.blockIndex,
+          kind: block.artifact.kind,
+          title: block.artifact.title,
+          protocolVersion: block.artifact.version,
+          payload: block.artifact,
+          createdAt: message.createdAt,
+        });
+        artifacts += 1;
+        this.store.appendEvent({
+          aggregateType: "chat",
+          aggregateId: block.key,
+          type: "chat.artifact_ingested",
+          actor: "Router",
+          payload: {
+            artifactId: block.key,
+            kind: block.artifact.kind,
+            nodes: block.artifact.nodes.length,
+            edges: block.artifact.edges.length,
+          },
+        });
+        continue;
+      }
+      if (block.type === "question") {
+        if (this.store.getChatQuestion(block.key)) continue;
+        const expiresAt = questionExpiresAt(message.createdAt, block.question.timeoutSec);
+        this.store.saveChatQuestion({
+          id: block.key,
+          workspaceId,
+          agentId,
+          messageId: message.id,
+          blockIndex: block.blockIndex,
+          title: block.question.title,
+          payload: block.question,
+          createdAt: message.createdAt,
+          expiresAt,
+        });
+        questions += 1;
+        this.store.appendEvent({
+          aggregateType: "chat",
+          aggregateId: block.key,
+          type: "chat.question_created",
+          actor: "Router",
+          payload: {
+            questionId: block.key,
+            fieldCount: block.question.fields.length,
+            expiresAt,
+          },
+        });
+        continue;
+      }
+      if (block.type === "canvas_error" || block.type === "question_error") {
+        errors.push(block.error);
+        this.store.appendEvent({
+          aggregateType: "chat",
+          aggregateId: message.id,
+          type: "chat.interactive_invalid",
+          actor: "Router",
+          payload: {
+            messageId: message.id,
+            blockIndex: block.blockIndex,
+            kind: block.type === "canvas_error" ? "canvas" : "question",
+            code: block.error.code,
+          },
+        });
+      }
+    }
+    return { artifacts, questions, errors };
+  }
+
+  /** 问题列表（含惰性过期清算；设计 §6.4）。 */
+  listChatQuestions(workspaceId: string, agentId?: string): ChatQuestionRecord[] {
+    this.expireQuestions(workspaceId);
+    return this.store.listChatQuestions(workspaceId, agentId);
+  }
+
+  private expireQuestions(workspaceId: string): string[] {
+    const expired = this.store.expireChatQuestions(workspaceId, new Date().toISOString());
+    for (const questionId of expired) {
+      this.store.appendEvent({
+        aggregateType: "chat",
+        aggregateId: questionId,
+        type: "chat.question_expired",
+        actor: "system",
+        payload: { questionId },
+      });
+    }
+    return expired;
+  }
+
+  answerChatQuestion(input: AnswerChatQuestionInput): AnswerChatQuestionResult {
+    const question = this.store.getChatQuestion(input.questionId);
+    if (!question) {
+      return { ok: false, code: "E_NOT_FOUND", message: "问题不存在或已被清理" };
+    }
+    if (question.workspaceId !== input.workspaceId) {
+      return { ok: false, code: "E_WORKSPACE_MISMATCH", message: "问题不属于当前工作区" };
+    }
+    // E_BUSY 在标记 answered 之前检查：避免「答案已存但消息发不出」的状态。
+    if (this.chatAborts.has(input.workspaceId)) {
+      return { ok: false, code: "E_BUSY", message: "Router 正在回复，请稍后再提交" };
+    }
+    const now = new Date().toISOString();
+    if (question.status === "answered") {
+      return {
+        ok: true,
+        changed: false,
+        question,
+        answerText: formatQuestionAnswer(question.payload, question.answer?.values ?? {}),
+      };
+    }
+    if (question.status === "cancelled") {
+      return { ok: false, code: "E_CLOSED", message: "该问题已取消" };
+    }
+    if (question.status === "expired") {
+      return { ok: false, code: "E_EXPIRED", message: "该问题已过期" };
+    }
+    if (question.expiresAt && question.expiresAt <= now) {
+      this.expireQuestions(question.workspaceId);
+      return { ok: false, code: "E_EXPIRED", message: "该问题已过期" };
+    }
+
+    const validated = validateQuestionAnswers(question.payload, input.values);
+    if (!validated.ok) {
+      return {
+        ok: false,
+        code: "E_INVALID_ANSWER",
+        message: "回答未通过校验",
+        fieldErrors: validated.errors,
+      };
+    }
+    const answer = { values: validated.values, answeredAt: now };
+    const bytes = new TextEncoder().encode(JSON.stringify(answer)).length;
+    if (bytes > QUESTION_LIMITS.answerBytes) {
+      return { ok: false, code: "E_TOO_LARGE", message: "回答内容过长，请精简" };
+    }
+
+    const changed = this.store.answerChatQuestion({
+      questionId: question.id,
+      answer,
+      answeredAt: now,
+    });
+    if (!changed) {
+      const latest = this.store.getChatQuestion(question.id);
+      if (!latest) {
+        return { ok: false, code: "E_NOT_FOUND", message: "问题不存在或已被清理" };
+      }
+      if (latest.status === "answered") {
+        this.store.appendEvent({
+          aggregateType: "chat",
+          aggregateId: latest.id,
+          type: "chat.question_answered",
+          actor: "user",
+          payload: { questionId: latest.id, changed: false, fieldIds: [] },
+        });
+        return {
+          ok: true,
+          changed: false,
+          question: latest,
+          answerText: formatQuestionAnswer(latest.payload, latest.answer?.values ?? {}),
+        };
+      }
+      if (latest.status === "expired") {
+        return { ok: false, code: "E_EXPIRED", message: "该问题已过期" };
+      }
+      return { ok: false, code: "E_CLOSED", message: "该问题已结束" };
+    }
+
+    const updated = this.store.getChatQuestion(question.id);
+    if (!updated) {
+      return { ok: false, code: "E_NOT_FOUND", message: "问题不存在或已被清理" };
+    }
+    const answerText = formatQuestionAnswer(updated.payload, validated.values);
+    this.store.appendEvent({
+      aggregateType: "chat",
+      aggregateId: updated.id,
+      type: "chat.question_answered",
+      actor: "user",
+      payload: { questionId: updated.id, changed: true, fieldIds: Object.keys(validated.values) },
+    });
+    return { ok: true, changed: true, question: updated, answerText };
+  }
+
+  cancelChatQuestion(input: CancelChatQuestionInput): CancelChatQuestionResult {
+    const question = this.store.getChatQuestion(input.questionId);
+    if (!question) {
+      return { ok: false, code: "E_NOT_FOUND", message: "问题不存在或已被清理" };
+    }
+    if (question.workspaceId !== input.workspaceId) {
+      return { ok: false, code: "E_WORKSPACE_MISMATCH", message: "问题不属于当前工作区" };
+    }
+    if (question.status === "cancelled") {
+      return { ok: true, question };
+    }
+    if (question.status === "answered") {
+      return { ok: false, code: "E_CLOSED", message: "该问题已回答，不能取消" };
+    }
+    if (question.status === "expired") {
+      return { ok: false, code: "E_EXPIRED", message: "该问题已过期" };
+    }
+    const finishedAt = new Date().toISOString();
+    const changed = this.store.cancelChatQuestion({
+      questionId: question.id,
+      finishedAt,
+    });
+    if (!changed) {
+      const latest = this.store.getChatQuestion(question.id);
+      if (latest?.status === "cancelled") return { ok: true, question: latest };
+      if (latest?.status === "expired") {
+        return { ok: false, code: "E_EXPIRED", message: "该问题已过期" };
+      }
+      return { ok: false, code: "E_CLOSED", message: "该问题已结束" };
+    }
+    const updated = this.store.getChatQuestion(question.id);
+    if (!updated) {
+      return { ok: false, code: "E_NOT_FOUND", message: "问题不存在或已被清理" };
+    }
+    this.store.appendEvent({
+      aggregateType: "chat",
+      aggregateId: updated.id,
+      type: "chat.question_cancelled",
+      actor: "user",
+      payload: { questionId: updated.id },
+    });
+    return { ok: true, question: updated };
+  }
+
+  listChatArtifacts(workspaceId: string, agentId?: string): ChatArtifactRecord[] {
+    return this.store.listCanvasArtifacts(workspaceId, agentId, 100);
+  }
+
+  getChatArtifact(workspaceId: string, artifactId: string): ChatArtifactRecord | null {
+    return this.store.getCanvasArtifact(workspaceId, artifactId);
+  }
+
+  /** 最近画布摘要（进入 Router system 消息末尾；设计 §5.9）。 */
+  private recentCanvasSummary(workspaceId: string, agentId: string): string {
+    const artifacts = this.store.listCanvasArtifacts(workspaceId, agentId, 5);
+    if (artifacts.length === 0) return "";
+    return [
+      "Recent canvases for this conversation:",
+      ...artifacts.map(
+        (artifact) =>
+          `- ${artifact.id} "${artifact.title}" (${artifact.kind}, ${artifact.payload.nodes.length} nodes)`,
+      ),
+    ].join("\n");
+  }
+
   getContext(workspaceId: string, agentId?: string, taskId?: string): ContextSnapshot {
     const workspace = this.store.getWorkspace(workspaceId);
     if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
@@ -638,6 +960,31 @@ export class AppService {
       "history",
       history.map((item) => `${item.role}: ${item.content}`).join("\n\n"),
       `${history.length} 条`,
+    );
+
+    // t64 §5.9：交互画布与提问摘要（复用 kind=history，上下文面板无需新增 UI 类型）。
+    const artifacts = this.store.listCanvasArtifacts(workspaceId, agent.id, 5);
+    const questions = this.listChatQuestions(workspaceId, agent.id);
+    const pendingQuestions = questions.filter((question) => question.status === "pending");
+    const answeredQuestions = questions.filter((question) => question.status === "answered");
+    push(
+      "interactive",
+      "交互画布与提问",
+      "history",
+      [
+        ...artifacts.map(
+          (artifact) =>
+            `[画布] ${artifact.title}（${artifact.kind}，${artifact.payload.nodes.length} 节点）id=${artifact.id}`,
+        ),
+        ...pendingQuestions.map(
+          (question) =>
+            `[待回答] ${question.title}（${question.payload.fields.length} 字段）id=${question.id}`,
+        ),
+        ...answeredQuestions
+          .slice(-3)
+          .map((question) => `[已回答] ${question.title} id=${question.id}`),
+      ].join("\n"),
+      `${artifacts.length} 张画布 · ${pendingQuestions.length} 个待回答`,
     );
 
     const board = this.store.listBoard(workspaceId, undefined, 10);
