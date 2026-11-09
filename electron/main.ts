@@ -14,6 +14,11 @@ import type {
   SendMessageInput,
 } from "../src/shared/types.js";
 import type { GitSettings } from "../src/git/types.js";
+import type {
+  CreateMemoryBoardInput,
+  CreateMemoryMemoInput,
+} from "../src/shared/memoryRuntime.js";
+import type { MemorySearchInput, MemorySnapshotOptions } from "../src/memory/types.js";
 
 let win: BrowserWindow | null = null;
 let service: AppService | null = null;
@@ -222,6 +227,61 @@ app.whenReady().then(() => {
   handle("git:merge-start", (taskId: string) => getService().git.mergeStart(taskId));
   handle("git:merge-process", (workspaceId: string) => getService().git.processQueue(workspaceId));
   handle("git:recover", (workspaceId: string) => getService().git.recover(workspaceId));
+  // t123：记忆工作台 / MemoryService
+  handle("memory:snapshot", (workspaceId: string, options?: MemorySnapshotOptions) =>
+    getService().memory.snapshot(workspaceId, options),
+  );
+  handle("memory:search", (input: MemorySearchInput) => getService().memory.search(input));
+  handle("memory:maintenance", (workspaceId?: string) => getService().memory.maintenance(workspaceId));
+  handle(
+    "memory:context",
+    (input: {
+      workspaceId: string;
+      agentId?: string | null;
+      taskId?: string | null;
+      runId?: string | null;
+      maxTokens?: number;
+    }) => getService().memory.buildContext(input),
+  );
+  handle("board:create", (input: CreateMemoryBoardInput) => getService().memory.postBoard(input));
+  handle("board:pin", (input: { workspaceId: string; entryId: string; pinned: boolean }) =>
+    getService().memory.pin(input.workspaceId, input.entryId, input.pinned),
+  );
+  handle("board:verify", (input: { workspaceId: string; entryId: string; confidence?: "low" | "medium" | "high" }) =>
+    getService().memory.verifyBoard(input.workspaceId, input.entryId, input.confidence),
+  );
+  handle("board:ttl", (input: { workspaceId: string; entryId: string; ttlDays: number | null }) =>
+    getService().memory.setTtl(input.workspaceId, input.entryId, input.ttlDays),
+  );
+  handle(
+    "board:archive-propose",
+    (input: { workspaceId: string; entryId: string; reason?: "manual" | "stale"; note?: string }) =>
+      getService().memory.proposeArchive(input.workspaceId, input.entryId, input.reason ?? "manual", input.note),
+  );
+  handle(
+    "board:archive-decide",
+    (input: { workspaceId: string; proposalId: string; decision: "approve" | "reject"; note?: string }) =>
+      getService().memory.decideArchive(input.workspaceId, input.proposalId, input.decision, input.note),
+  );
+  handle("board:promote", (input: { workspaceId: string; entryId: string; kind?: "decision" | "fact" }) =>
+    getService().memory.promoteBoard(input.workspaceId, input.entryId, input.kind ?? "decision"),
+  );
+  handle("board:restore", (input: { workspaceId: string; entryId: string }) =>
+    getService().memory.restoreBoardEntry(input.workspaceId, input.entryId),
+  );
+  handle("memo:create", (input: CreateMemoryMemoInput) => getService().memory.createMemo(input));
+  handle("memo:list", (workspaceId: string, agentId: string) =>
+    getService().memory.listMemos(workspaceId, agentId),
+  );
+  handle("memo:verify", (input: { workspaceId: string; agentId: string; memoId: string }) =>
+    getService().memory.verifyMemo(input.workspaceId, input.agentId, input.memoId),
+  );
+  handle("memo:archive", (input: { workspaceId: string; agentId: string; memoId: string }) =>
+    getService().memory.archiveMemo(input.workspaceId, input.agentId, input.memoId),
+  );
+  handle("memo:promote", (input: { workspaceId: string; agentId: string; memoId: string; board: string }) =>
+    getService().memory.promoteMemo(input.workspaceId, input.agentId, input.memoId, input.board),
+  );
   // t58 IF-05：auto_risk 高风险 → 人类审批弹窗（主进程推送 + 人工回执，单次 requestId）。
   service?.onRiskApproval((request) => {
     win?.webContents.send("risk:approval", request);

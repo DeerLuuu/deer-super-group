@@ -46,6 +46,7 @@ export default function TeamDashboard({
   onOpenTask,
   onOpenTaskPage,
   onOpenMergeQueue,
+  onOpenMemory,
   onOpenTaskGit,
   scheduler,
   onOpenRuns,
@@ -67,6 +68,8 @@ export default function TeamDashboard({
   onOpenTaskPage: (taskId: string) => void;
   /** t103：团队页 Git 入口。 */
   onOpenMergeQueue: () => void;
+  /** t123：团队页记忆工作台入口。 */
+  onOpenMemory: () => void;
   onOpenTaskGit: (taskId: string) => void;
   /** t69：调度快照（团队进度/排队段与运行面板联动）。 */
   scheduler?: SchedulerSnapshot | null;
@@ -157,6 +160,7 @@ export default function TeamDashboard({
         scheduler={scheduler ?? null}
         onOpenRuns={() => onOpenRuns(selectedTaskId)}
         onOpenMergeQueue={onOpenMergeQueue}
+        onOpenMemory={onOpenMemory}
       />
 
       <div className="team-middle">
@@ -364,6 +368,7 @@ function ProgressHeader({
   scheduler,
   onOpenRuns,
   onOpenMergeQueue,
+  onOpenMemory,
 }: {
   stats: {
     total: number;
@@ -378,6 +383,7 @@ function ProgressHeader({
   scheduler: SchedulerSnapshot | null;
   onOpenRuns: () => void;
   onOpenMergeQueue: () => void;
+  onOpenMemory: () => void;
 }) {
   function percent(value: number): string {
     return stats.total === 0 ? "0%" : `${(value / stats.total) * 100}%`;
@@ -412,6 +418,14 @@ function ProgressHeader({
               title="打开合并队列（串行合并、检查与冲突处理）"
             >
               合并队列
+            </button>
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={onOpenMemory}
+              title="打开记忆工作台：黑板、备忘录与归档审批"
+            >
+              记忆
             </button>
             <button
               type="button"
