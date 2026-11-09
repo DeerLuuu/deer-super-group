@@ -247,16 +247,16 @@ pnpm test        # vitest run，11 文件 / 121 用例，exit 0
 
 ## 12. 流程注记（工具链）
 
-AGENTS §8 要求 `pnpm branch:start t68 execution-kernel`，但当前 `scripts/branch-worktree.mjs` 存在 bug：`run()` 对 `execFileSync(..., {stdio:"inherit"})` 的返回值为 `null` 调用 `.trim()`，`branch:start` 在 `syncBaseRef` 的 fetch 处崩（`TypeError: Cannot read properties of null (reading 'trim')`）。`branch:sync/finish` 同样受影响。
+AGENTS §8 要求 `pnpm branch:start t68 execution-kernel`。任务开始时 `scripts/branch-worktree.mjs` 存在 bug：`run()` 对 `execFileSync(..., {stdio:"inherit"})` 的返回值为 `null` 调用 `.trim()`，`branch:start` 在 `syncBaseRef` 的 fetch 处崩溃（`TypeError: Cannot read properties of null (reading 'trim')`），`branch:sync/finish` 同样受影响。
 
-本次采用等价手动流程，未修改工具脚本（避免混入无关改动）：
+本次采用等价手动流程（未修改工具脚本，避免混入无关改动）：
 
 ```
 git fetch origin --prune
 git worktree add -b feature/t68-execution-kernel branches/t68-execution-kernel origin/main
 ```
 
-建议后续单独修脚本（`run` 在 inherit 模式下不调用 `.trim()`），并单独提交工具修复 PR。PR 仍通过 push + `gh pr create` 手动创建（`branch:finish` 因同 bug 不可用）。
+任务中途，main 上的 `15fa426 fix: handle inherited git output and resolve main worktree root` 修复了该脚本；本分支已 merge 最新 `origin/main`（含 7fb747a 记忆系统设计，非本任务改动）。PR 由 `git push` + `gh pr create` 创建；合并后可按 AGENTS §8 用 `pnpm branch:remove t68-execution-kernel` 清理。
 
 ---
 
