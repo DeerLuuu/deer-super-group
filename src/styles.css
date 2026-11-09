@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: dark;
   --bg: #0d1117;
   --bg-2: #11161d;
@@ -1856,6 +1856,8 @@ label.check input {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  container-type: inline-size;
+  container-name: team;
 }
 
 .team-progress {
@@ -3320,4 +3322,69 @@ label.check input {
 
 .risk-approval-grid > div {
   min-width: 0;
+}
+
+/* Dock 右栏默认只有 42%，必须按面板宽度收窄，而不是按窗口宽度。
+   放在文件末尾以覆盖前面所有 .team-* 基础规则。 */
+@container team (max-width: 700px) {
+  .team-progress {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  .team-progress-summary {
+    flex: 1 1 100%;
+  }
+  .team-progress-cards {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .team-progress-card {
+    width: auto;
+    padding: 6px 8px;
+  }
+  .team-progress-card strong {
+    font-size: 18px;
+  }
+  .team-progress-card .muted:last-child {
+    font-size: 9px;
+  }
+  .team-donut {
+    width: 64px;
+    height: 64px;
+  }
+  .team-donut-inner {
+    width: 48px;
+    height: 48px;
+  }
+  .team-donut-inner strong {
+    font-size: 13px;
+  }
+  .team-middle {
+    flex-direction: column;
+  }
+  .team-members {
+    flex: 0 0 132px;
+    width: 100%;
+  }
+  .team-member-list {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 6px;
+  }
+  .team-member {
+    flex: 0 0 188px;
+  }
+  .team-map-panel {
+    min-height: 300px;
+  }
+  .team-detail-body {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .team-detail-meta {
+    grid-template-columns: 1fr;
+  }
 }

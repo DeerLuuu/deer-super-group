@@ -16,6 +16,7 @@ import {
   type IDockviewPanelHeaderProps,
   type IDockviewPanelProps,
 } from "dockview-react";
+import "dockview-react/dist/styles/dockview.css";
 import {
   MAIN_GROUP_ORDER,
   PANEL_DEFS,
