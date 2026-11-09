@@ -1041,7 +1041,20 @@ export default function App() {
           </button>
         </div>
 
-        {!sidebarCollapsed && (
+        {sidebarCollapsed ? (
+          <div className="sidebar-rail-workspace">
+            <button
+              type="button"
+              className="ghost small sidebar-action"
+              onClick={handleOpenWorkspace}
+              disabled={busy}
+              title={`切换工作区：${snapshot.workspace.name}`}
+              aria-label="切换工作区"
+            >
+              <span className="sidebar-action-icon">⇄</span>
+            </button>
+          </div>
+        ) : (
           <div className="workspace-box">
             <div className="section-label">工作区</div>
             <div className="workspace-name">{snapshot.workspace.name}</div>

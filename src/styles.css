@@ -407,6 +407,20 @@ button:disabled {
   padding: 12px 8px;
 }
 
+.sidebar-rail-workspace {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  justify-items: center;
+}
+
+.sidebar.collapsed .sidebar-rail-workspace .sidebar-action {
+  width: 40px;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+}
+
 .sidebar.collapsed .sidebar-actions {
   padding: 8px 6px;
   justify-items: center;
