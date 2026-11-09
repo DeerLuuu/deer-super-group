@@ -72,7 +72,7 @@
 ```text
 pnpm typecheck   # exit 0
 pnpm build       # exit 0（vite + build-electron）
-pnpm test        # t128 后 28 files / 390 tests；Git 专项 56（含 t111/t128）+ GitPanels loading 3（t111 23/330、t104 22/316 历史基线保留）
+pnpm test        # t128 完成后同步 origin/main（t69 UI）最终 30 files / 431 tests；Git 专项 56（含 t111/t128）+ GitPanels loading 3（t111 23/330、t104 22/316 历史基线保留）
 ```
 
 Git 专项覆盖：GitExec 白名单/脱敏/真实命令；迁移 6 列/旧库；CommitGuard；worktree 创建/容量/defer/`.deer-git` 回退/finalize/清理；MergeQueue 批准/一次合并/三种 mergeMethod/冲突/本地 ready/幂等 enqueue；admission；Manual/Local/async provider；bare remote push；enterprise REST（mock fetch）；waive；崩溃 reconcile；kernel run.started sandbox 一致性/容量 defer；abort+finalize；ChecksRunner 成功/失败；squash 内容校验；Git 事件 type/schema。全部零网络。
@@ -228,7 +228,7 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 
 ### 8.7 F8/F9
 
-- F8：§3 已更新为 t128 实测 **28 files / 390 tests**（Git 专项 56 + GitPanels 3；t111 23/330、t104 基线 22/316 保留为历史）；t128 新增 AC-MQ/GIT/Provider/进程级测试全部通过。
+- F8：§3 已更新为 t128 完成后同步 origin/main（t69 UI）实测 **30 files / 431 tests**（Git 专项 56 + GitPanels 3；t111 23/330、t104 基线 22/316 保留为历史）；t128 新增 AC-MQ/GIT/Provider/进程级测试全部通过。
 - F9：local/manual `verifyIntegrated` **P1 降级**。原因：t111 outOfScope 含 `electron/` 与 `src/shared/ipc.ts`，无法在不越界的情况下新增 `verifyIntegrated` IPC；真实调用后端已有但 UI 不提供按钮。MergeQueueModal 对 local/manual ready 展示说明，验收记录在本节与 §5.6；后续由独立 IPC/UI 任务提供。
 
 ### 8.8 验证
@@ -236,8 +236,8 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 | 命令 | 结果 |
 |---|---|
 | `pnpm typecheck` | ✅ 0 |
-| `pnpm build` | ✅ 0（393 modules；css 202.22 kB / gzip 22.60；js 1,085.33 kB / gzip 298.16；electron main 1.1mb、preload 4.9kb） |
-| `pnpm test` | ✅ 0（28 文件 / 390 用例；Git 专项 56 + GitPanels 3；t111 23/330、t104 22/316 为历史基线） |
+| `pnpm build` | ✅ 0（398 modules；css 214.34 kB / gzip 24.46；js 1,132.48 kB / gzip 311.36；electron main 1.1mb、preload 5.9kb） |
+| `pnpm test` | ✅ 0（30 文件 / 431 用例；Git 专项 56 + GitPanels 3；t111 23/330、t104 22/316 为历史基线） |
 
 ### 8.9 改动文件（t111/t128）
 
@@ -271,7 +271,7 @@ Captain 对 t112 的 F1–F7 逐项批准以下 waiver/例外（t128 记录）�
 - AC-MQ-01/02a/02b/03/04/05/06/07/08/09/10/11/12/13/14/15 表驱动/集成；
 - AC-PR-01..11 mock host + B3 并发；AC-KRN-05/08、AC-TYPE-01。
 
-验证见 §3/§8.8：`pnpm typecheck` 0、`pnpm build` 0、`pnpm test` 0（28 文件 / 390 用例；Git 专项 56 + GitPanels 3）。
+验证见 §3/§8.8：`pnpm typecheck` 0、`pnpm build` 0、`pnpm test` 0（t128+sync t69 后 30 文件 / 431 用例；Git 专项 56 + GitPanels 3）。
 
 
 
