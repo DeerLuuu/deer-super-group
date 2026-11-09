@@ -72,7 +72,7 @@
 ```text
 pnpm typecheck   # exit 0
 pnpm build       # exit 0（vite + build-electron）
-pnpm test        # 23 files / 330 tests passed（t104 基线 22/316；Git 专项 36 + GitPanels loading 3）
+pnpm test        # t111 change set 23 files / 330 tests；同步 origin/main（memory t99）后 28 files / 370 tests（t104 基线 22/316；Git 专项 36 + GitPanels loading 3）
 ```
 
 Git 专项覆盖：GitExec 白名单/脱敏/真实命令；迁移 6 列/旧库；CommitGuard；worktree 创建/容量/defer/`.deer-git` 回退/finalize/清理；MergeQueue 批准/一次合并/三种 mergeMethod/冲突/本地 ready/幂等 enqueue；admission；Manual/Local/async provider；bare remote push；enterprise REST（mock fetch）；waive；崩溃 reconcile；kernel run.started sandbox 一致性/容量 defer；abort+finalize；ChecksRunner 成功/失败；squash 内容校验；Git 事件 type/schema。全部零网络。
@@ -227,7 +227,7 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 
 ### 8.7 F8/F9
 
-- F8：§3 已更新为 t111 实测 **23 files / 330 tests**（t104 基线 22/316；Git 专项 36 + GitPanels 3），并注明 Git 专项。
+- F8：§3 已更新为 t111 实测 **23 files / 330 tests**（t104 基线 22/316；Git 专项 36 + GitPanels 3）；`branch:sync` 吸收 origin/main 的 memory t99 后为 28 files / 370 tests，Git 专项与 t111 新增均保持通过。
 - F9：local/manual `verifyIntegrated` **P1 降级**。原因：t111 outOfScope 含 `electron/` 与 `src/shared/ipc.ts`，无法在不越界的情况下新增 `verifyIntegrated` IPC；真实调用后端已有但 UI 不提供按钮。MergeQueueModal 对 local/manual ready 展示说明，验收记录在本节与 §5.6；后续由独立 IPC/UI 任务提供。
 
 ### 8.8 验证
@@ -236,7 +236,7 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 |---|---|
 | `pnpm typecheck` | ✅ 0 |
 | `pnpm build` | ✅ 0（393 modules；css 202.22 kB / gzip 22.60；js 1,085.33 kB / gzip 298.16；electron main 1.1mb、preload 4.9kb） |
-| `pnpm test` | ✅ 0（23 文件 / 330 用例；t111 新增 14：Git 11 + GitPanels 3；Git 专项 36） |
+| `pnpm test` | ✅ 0（t111 change set 23 文件 / 330 用例；同步 origin/main 后 28 文件 / 370 用例；Git 专项 36 + GitPanels 3） |
 
 ### 8.9 改动文件（t111）
 
