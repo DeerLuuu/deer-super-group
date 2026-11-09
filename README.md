@@ -1,6 +1,7 @@
 # DeerSuperGroup
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-DeerLuuu%2Fdeer--super--group-181717?logo=github)](https://github.com/DeerLuuu/deer-super-group)
 
 **一个本地优先的 AI 团队工作台**：Router 拆任务，成员在独立工作区里执行，邮箱与黑板共享上下文，人类负责决策与验收。
 

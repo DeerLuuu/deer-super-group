@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeerLuuu/deer-super-group.git"
+  },
+  "homepage": "https://github.com/DeerLuuu/deer-super-group#readme",
+  "bugs": {
+    "url": "https://github.com/DeerLuuu/deer-super-group/issues"
+  },
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
