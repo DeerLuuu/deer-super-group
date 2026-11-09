@@ -1,6 +1,7 @@
 // C12：hash 路由与深链。
 // 格式：#/tasks?t=<taskId> · #/team?t=<taskId> · #/chat?task=<taskId> ·
 //       #/mailbox?m=<messageId> · #/board?b=<boardName> · #/settings
+// t69：任务页/Run 面板共享 `r=<runId>`（仅在 Run 面板激活时写入，见 App）。
 // t103：Git 入口深链 #/tasks?t=<taskId>&merge=1（合并队列）/
 //       &vcs=1（任务 VCS）· #/settings?git=1（设置 Git 区）。
 // C10 已把 Router 页合并进任务/对话页，旧 #/router 深链重定向到 #/tasks。
@@ -24,6 +25,8 @@ export type Route = {
   message: string | null;
   /** 黑板选中的板块名（`b` 参数）。 */
   board: string | null;
+  /** t69：Run 面板选中的 Run id（`r` 参数；tasks tab 可选）。 */
+  run: string | null;
   /** t103：打开合并队列 Modal（`merge=1`）。 */
   mergeQueue: boolean;
   /** t103：设置页聚焦 Git 区（`git=1`）。 */
@@ -40,6 +43,7 @@ export const DEFAULT_ROUTE: Route = {
   chatTask: null,
   message: null,
   board: null,
+  run: null,
   mergeQueue: false,
   gitSettings: false,
   taskVcs: false,
@@ -63,6 +67,7 @@ export function parseHash(hash: string): Route {
     chatTask: params.get("task"),
     message: params.get("m"),
     board: params.get("b"),
+    run: params.get("r"),
     mergeQueue: params.get("merge") === "1",
     gitSettings: params.get("git") === "1",
     taskVcs: params.get("vcs") === "1",
@@ -75,6 +80,8 @@ export type RouteSelection = {
   chatTask?: string | null;
   message?: string | null;
   board?: string | null;
+  /** t69：Run 面板选中的 Run id（仅 tasks tab 写入）。 */
+  run?: string | null;
   mergeQueue?: boolean;
   gitSettings?: boolean;
   taskVcs?: boolean;
@@ -84,6 +91,7 @@ export function buildHash(tab: RouteTab, selection: RouteSelection = {}): string
   const params = new URLSearchParams();
   if (tab === "tasks" || tab === "team") {
     if (selection.task) params.set("t", selection.task);
+    if (tab === "tasks" && selection.run) params.set("r", selection.run);
     if (selection.mergeQueue) params.set("merge", "1");
     if (tab === "tasks" && selection.taskVcs) params.set("vcs", "1");
   } else if (tab === "chat") {

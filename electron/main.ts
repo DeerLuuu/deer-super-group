@@ -7,6 +7,7 @@ import type {
   CancelChatQuestionInput,
   CreateAgentInput,
   CreateTaskInput,
+  KernelErrorCode,
   LlmSettings,
   UpdateAgentInput,
   PostBoardInput,
@@ -64,6 +65,33 @@ function handle(channel: string, fn: (...args: any[]) => unknown): void {
   });
 }
 
+/**
+ * t69：内核命令统一返回 KernelResult<T>。
+ * 稳定错误码来自 KernelError.code；非内核异常归 INTERNAL。渲染层用 code 选择文案，
+ * 不解析 message（message 只用于详情/复制）。
+ */
+function handleKernel(
+  channel: string,
+  fn: (...args: any[]) => unknown,
+): void {
+  ipcMain.handle(channel, async (_event, ...args) => {
+    try {
+      return { ok: true as const, value: await fn(...args) };
+    } catch (error) {
+      const code =
+        (error as { code?: KernelErrorCode } | null)?.code ?? "INTERNAL";
+      return {
+        ok: false as const,
+        error: {
+          code,
+          message: error instanceof Error ? error.message : String(error),
+          details: (error as { details?: unknown } | null)?.details,
+        },
+      };
+    }
+  });
+}
+
 app.whenReady().then(() => {
   // Optional fallback for environments where GUI apps do not inherit shell vars.
   const envFile = path.join(app.getPath("userData"), ".env");
@@ -102,6 +130,26 @@ app.whenReady().then(() => {
   handle("agent:update", (input: UpdateAgentInput) => getService().updateAgent(input));
   handle("task:create", (input: CreateTaskInput) => getService().createTask(input));
   handle("task:run", (taskId: string) => getService().runTask(taskId));
+  // t69：调度/运行可观测 UI 的内核命令（KernelResult，不抛裸错误）。
+  handleKernel("kernel:startTask", (taskId: string) => getService().startTask(taskId));
+  handleKernel("kernel:cancelTask", (taskId: string) => getService().cancelTask(taskId));
+  handleKernel("kernel:retryTask", (taskId: string) => getService().retryTask(taskId));
+  handleKernel(
+    "kernel:reviewTask",
+    (taskId: string, decision: "approve" | "reject", options?: { reviewer?: string; notes?: string }) =>
+      getService().reviewTask(taskId, decision, options),
+  );
+  handleKernel("kernel:cancelRun", (runId: string) => getService().cancelRun(runId));
+  handleKernel("kernel:listRuns", (taskId: string) => getService().listRuns(taskId));
+  handleKernel("kernel:getScheduler", (workspaceId: string) =>
+    getService().getScheduler(workspaceId),
+  );
+  handleKernel("kernel:pauseScheduler", (workspaceId: string, reason?: string) =>
+    getService().pauseScheduler(workspaceId, reason),
+  );
+  handleKernel("kernel:resumeScheduler", (workspaceId: string) =>
+    getService().resumeScheduler(workspaceId),
+  );
   handle("task:trace", (taskId: string) => getService().getTaskTrace(taskId));
   handle("router:plan", (workspaceId: string, goal: string) => getService().plan(workspaceId, goal));
   handle("mailbox:send", (input: SendMessageInput) => getService().sendMessage(input));

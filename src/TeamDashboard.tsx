@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Agent, PermissionMode, Snapshot, Task, UpdateAgentInput } from "./shared/types";
+import type {
+  Agent,
+  PermissionMode,
+  SchedulerSnapshot,
+  Snapshot,
+  Task,
+  UpdateAgentInput,
+} from "./shared/types";
 import {
   PERMISSION_DESCRIPTIONS,
   PERMISSION_LABELS,
   PERMISSION_MODES,
   TASK_STATUS_LABEL,
 } from "./shared/copy";
+import {
+  schedulerActiveCount,
+} from "./shared/kernelUi";
 import TaskStarMap from "./TaskStarMap";
 import Modal from "./Modal";
 import EmptyState from "./EmptyState";
@@ -37,6 +47,8 @@ export default function TeamDashboard({
   onOpenTaskPage,
   onOpenMergeQueue,
   onOpenTaskGit,
+  scheduler,
+  onOpenRuns,
 }: {
   snapshot: Snapshot;
   busy: boolean;
@@ -56,6 +68,10 @@ export default function TeamDashboard({
   /** t103：团队页 Git 入口。 */
   onOpenMergeQueue: () => void;
   onOpenTaskGit: (taskId: string) => void;
+  /** t69：调度快照（团队进度/排队段与运行面板联动）。 */
+  scheduler?: SchedulerSnapshot | null;
+  /** t69：打开运行面板；可带选中任务。 */
+  onOpenRuns: (taskId?: string | null) => void;
 }) {
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ agent: Agent | null } | null>(null);
@@ -82,6 +98,7 @@ export default function TeamDashboard({
       (task) => task.status === "running" || task.status === "review",
     ).length;
     const delivered = snapshot.tasks.filter((task) => task.status === "done").length;
+    const queued = snapshot.tasks.filter((task) => task.status === "queued").length;
     const waiting = snapshot.tasks.filter(
       (task) =>
         (task.status === "ready" || task.status === "blocked") &&
@@ -90,9 +107,9 @@ export default function TeamDashboard({
     const ready = snapshot.tasks.filter(
       (task) => task.status === "ready" && !dependsOnUnfinished(task),
     ).length;
-    const other = total - running - delivered - waiting - ready;
+    const other = total - running - delivered - queued - waiting - ready;
     const deliveryPct = total === 0 ? 0 : Math.round((delivered / total) * 100);
-    return { total, running, delivered, waiting, ready, other, deliveryPct };
+    return { total, running, delivered, queued, waiting, ready, other, deliveryPct };
   }, [snapshot.tasks, taskById]);
 
   const members = snapshot.agents;
@@ -135,7 +152,12 @@ export default function TeamDashboard({
 
   return (
     <div className="team-layout">
-      <ProgressHeader stats={stats} onOpenMergeQueue={onOpenMergeQueue} />
+      <ProgressHeader
+        stats={stats}
+        scheduler={scheduler ?? null}
+        onOpenRuns={() => onOpenRuns(selectedTaskId)}
+        onOpenMergeQueue={onOpenMergeQueue}
+      />
 
       <div className="team-middle">
         <aside className="panel team-members">
@@ -263,6 +285,14 @@ export default function TeamDashboard({
                 </button>
                 <button
                   type="button"
+                  className="ghost small"
+                  onClick={() => onOpenRuns(selectedTask.id)}
+                  title="在运行面板查看该任务的 Run 历史与时间线"
+                >
+                  运行详情
+                </button>
+                <button
+                  type="button"
                   className="primary small"
                   onClick={() => onOpenTask(selectedTask.id)}
                 >
@@ -331,22 +361,29 @@ export default function TeamDashboard({
 
 function ProgressHeader({
   stats,
+  scheduler,
+  onOpenRuns,
   onOpenMergeQueue,
 }: {
   stats: {
     total: number;
     running: number;
     delivered: number;
+    queued: number;
     waiting: number;
     ready: number;
     other: number;
     deliveryPct: number;
   };
+  scheduler: SchedulerSnapshot | null;
+  onOpenRuns: () => void;
   onOpenMergeQueue: () => void;
 }) {
   function percent(value: number): string {
     return stats.total === 0 ? "0%" : `${(value / stats.total) * 100}%`;
   }
+  const activeRuns = schedulerActiveCount(scheduler);
+  const paused = Boolean(scheduler?.paused);
 
   return (
     <section className="panel team-progress">
@@ -361,6 +398,13 @@ function ProgressHeader({
             </div>
           </div>
           <div className="team-progress-actions">
+            <span className="muted tiny">
+              {paused
+                ? "调度已暂停"
+                : activeRuns > 0
+                  ? `运行中 ${activeRuns} · 排队 ${stats.queued}`
+                  : `排队 ${stats.queued}`}
+            </span>
             <button
               type="button"
               className="ghost tiny"
@@ -369,7 +413,14 @@ function ProgressHeader({
             >
               合并队列
             </button>
-            <span className="muted tiny">实时</span>
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={onOpenRuns}
+              title="打开运行面板：调度队列、Run 历史与时间线"
+            >
+              运行面板
+            </button>
           </div>
         </div>
         <div className="team-progress-bar">
@@ -377,6 +428,12 @@ function ProgressHeader({
             <span
               className="team-progress-seg running"
               style={{ width: percent(stats.running) }}
+            />
+          )}
+          {stats.queued > 0 && (
+            <span
+              className="team-progress-seg queued"
+              style={{ width: percent(stats.queued) }}
             />
           )}
           {stats.waiting > 0 && (
@@ -410,6 +467,9 @@ function ProgressHeader({
             <i className="dot running" /> 进行中 {stats.running}
           </span>
           <span>
+            <i className="dot queued" /> 排队中 {stats.queued}
+          </span>
+          <span>
             <i className="dot waiting" /> 等待依赖 {stats.waiting}
           </span>
           <span>
@@ -426,6 +486,11 @@ function ProgressHeader({
           <span className="muted tiny">进行中</span>
           <strong>{stats.running}</strong>
           <span className="muted tiny">含评审中的任务</span>
+        </div>
+        <div className="team-progress-card">
+          <span className="muted tiny">排队中</span>
+          <strong>{stats.queued}</strong>
+          <span className="muted tiny">已入队待启动</span>
         </div>
         <div className="team-progress-card">
           <span className="muted tiny">等待依赖</span>

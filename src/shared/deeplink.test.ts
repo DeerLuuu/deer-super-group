@@ -9,6 +9,7 @@ describe("parseHash（C12 深链解析）", () => {
       chatTask: null,
       message: null,
       board: null,
+      run: null,
       mergeQueue: false,
       gitSettings: false,
       taskVcs: false,
@@ -26,6 +27,13 @@ describe("parseHash（C12 深链解析）", () => {
     const route = parseHash("#/tasks?t=t3");
     expect(route.tab).toBe("tasks");
     expect(route.task).toBe("t3");
+  });
+
+  it("解析 Run 面板深链 #/tasks?t=t3&r=run-2", () => {
+    const route = parseHash("#/tasks?t=t3&r=run-2");
+    expect(route.tab).toBe("tasks");
+    expect(route.task).toBe("t3");
+    expect(route.run).toBe("run-2");
   });
 
   it("解析对话任务上下文 #/chat?task=t5", () => {
@@ -79,6 +87,13 @@ describe("parseHash（C12 深链解析）", () => {
 describe("buildHash（C12 深链生成）", () => {
   it("任务页携带选中任务", () => {
     expect(buildHash("tasks", { task: "t3" })).toBe("#/tasks?t=t3");
+  });
+
+  it("任务页携带 Run 选中（t69 Run 面板）", () => {
+    expect(buildHash("tasks", { task: "t3", run: "run-2" })).toBe(
+      "#/tasks?t=t3&r=run-2",
+    );
+    expect(parseHash("#/tasks?t=t3&r=run-2").run).toBe("run-2");
   });
 
   it("对话页携带任务上下文", () => {
