@@ -10,7 +10,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ToastItem = {
   id: number;
-  kind: "success" | "error";
+  /** t64：新增 info（中性提示，role=status），用于「新问题到达」等场景。 */
+  kind: "success" | "error" | "info";
   message: string;
   detail?: string;
   action?: { label: string; onClick: () => void };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 
 /**
  * C25 模态框可用性基线：全部弹窗共用的 Modal 原语。
@@ -33,6 +33,8 @@ export default function Modal({
   /** 为 true 时关闭（Esc / backdrop / 关闭按钮）需先经 window.confirm 确认。 */
   confirmClose = false,
   className = "",
+  /** t64：可选初始焦点（提问弹窗聚焦首个字段）；不传时沿用「首个可聚焦元素」。 */
+  initialFocusRef,
   children,
 }: {
   title: string;
@@ -40,6 +42,7 @@ export default function Modal({
   onClose: () => void;
   confirmClose?: boolean;
   className?: string;
+  initialFocusRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -54,8 +57,11 @@ export default function Modal({
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const node = dialogRef.current;
     if (node) {
+      // t64：优先使用调用方指定的初始焦点（提问弹窗首个字段），默认行为不变。
+      const explicit = initialFocusRef?.current ?? null;
       const focusable = getFocusable(node);
-      (focusable[0] ?? node).focus();
+      const target = explicit ?? focusable[0] ?? node;
+      target.focus();
     }
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -63,6 +69,7 @@ export default function Modal({
       document.body.style.overflow = prevOverflow;
       restoreFocusRef.current?.focus();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

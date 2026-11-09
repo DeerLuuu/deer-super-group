@@ -7,12 +7,16 @@ import {
   type LegacyProviderFields,
 } from "../shared/models.js";
 import { resolveApiKeyEnv, resolveBaseUrlEnv } from "./env.js";
+import { CanvasSchema, QuestionSchema } from "../shared/interactive.js";
+import type { DeerCanvas, DeerQuestion, QuestionAnswers } from "../shared/interactive.js";
 import type {
   Agent,
   AgentStatus,
   BoardEntry,
   BoardKind,
+  ChatArtifactRecord,
   ChatMessage,
+  ChatQuestionRecord,
   ChatRole,
   CreateAgentInput,
   CreateTaskInput,
@@ -173,6 +177,46 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS chat_artifacts (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  block_index INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  protocol_version INTEGER NOT NULL DEFAULT 1,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(message_id, block_index)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_artifacts_ws
+  ON chat_artifacts(workspace_id, agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_artifacts_msg
+  ON chat_artifacts(message_id);
+
+CREATE TABLE IF NOT EXISTS chat_questions (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  block_index INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  answer TEXT,
+  created_at TEXT NOT NULL,
+  answered_at TEXT,
+  expires_at TEXT,
+  UNIQUE(message_id, block_index)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_questions_ws
+  ON chat_questions(workspace_id, agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_questions_status
+  ON chat_questions(workspace_id, status);
+CREATE INDEX IF NOT EXISTS idx_chat_questions_msg
+  ON chat_questions(message_id);
 `;
 
 function newId(prefix: string): string {
@@ -304,6 +348,60 @@ function toChatMessage(row: Row): ChatMessage {
     createdAt: String(row.created_at),
   };
 }
+
+const QUESTION_STATUSES = ["pending", "answered", "cancelled", "expired"] as const;
+
+function toChatArtifact(row: Row): ChatArtifactRecord | null {
+  const parsed = CanvasSchema.safeParse(parseJson<unknown>(row.payload, null));
+  if (!parsed.success) return null;
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    agentId: String(row.agent_id),
+    messageId: String(row.message_id),
+    blockIndex: Number(row.block_index ?? 0),
+    kind: parsed.data.kind,
+    title: String(row.title),
+    protocolVersion: Number(row.protocol_version ?? 1),
+    payload: parsed.data,
+    createdAt: String(row.created_at),
+  };
+}
+
+function toChatQuestion(row: Row): ChatQuestionRecord | null {
+  const payload = QuestionSchema.safeParse(parseJson<unknown>(row.payload, null));
+  if (!payload.success) return null;
+  const rawStatus = String(row.status ?? "pending");
+  const status = (QUESTION_STATUSES as readonly string[]).includes(rawStatus)
+    ? (rawStatus as ChatQuestionRecord["status"])
+    : "pending";
+  const rawAnswer = row.answer == null ? null : parseJson<unknown>(row.answer, null);
+  const answer =
+    rawAnswer &&
+    typeof rawAnswer === "object" &&
+    !Array.isArray(rawAnswer) &&
+    typeof (rawAnswer as { values?: unknown }).values === "object"
+      ? (rawAnswer as QuestionAnswers)
+      : null;
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    agentId: String(row.agent_id),
+    messageId: String(row.message_id),
+    blockIndex: Number(row.block_index ?? 0),
+    title: String(row.title),
+    payload: payload.data,
+    status,
+    answer,
+    createdAt: String(row.created_at),
+    answeredAt: row.answered_at == null ? null : String(row.answered_at),
+    expiresAt: row.expires_at == null ? null : String(row.expires_at),
+  };
+}
+
+/** 类型可用性：DeerQuestion 用于 service 侧签名对齐（store 内部只存 JSON）。 */
+export type StoredQuestionPayload = DeerQuestion;
+export type StoredCanvasPayload = DeerCanvas;
 
 function toMemo(row: Row): Memo {
   return {
@@ -891,6 +989,192 @@ export class Store {
           )
           .all(workspaceId, limit) as Row[]);
     return rows.map(toChatMessage).reverse();
+  }
+
+  // chat interactive（t64：画布索引 + 提问状态机）-------------------------
+
+  saveCanvasArtifact(input: {
+    id: string;
+    workspaceId: string;
+    agentId: string;
+    messageId: string;
+    blockIndex: number;
+    kind: DeerCanvas["kind"];
+    title: string;
+    protocolVersion: number;
+    payload: DeerCanvas;
+    createdAt: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO chat_artifacts
+         (id, workspace_id, agent_id, message_id, block_index, kind, title, protocol_version, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT DO NOTHING`,
+      )
+      .run(
+        input.id,
+        input.workspaceId,
+        input.agentId,
+        input.messageId,
+        input.blockIndex,
+        input.kind,
+        input.title,
+        input.protocolVersion,
+        JSON.stringify(input.payload),
+        input.createdAt,
+      );
+  }
+
+  listCanvasArtifacts(workspaceId: string, agentId?: string, limit = 100): ChatArtifactRecord[] {
+    const capped = Math.max(1, Math.min(limit, 200));
+    const rows = agentId
+      ? (this.db
+          .prepare(
+            `SELECT * FROM chat_artifacts
+             WHERE workspace_id = ? AND agent_id = ?
+             ORDER BY created_at DESC LIMIT ?`,
+          )
+          .all(workspaceId, agentId, capped) as Row[])
+      : (this.db
+          .prepare(
+            `SELECT * FROM chat_artifacts
+             WHERE workspace_id = ?
+             ORDER BY created_at DESC LIMIT ?`,
+          )
+          .all(workspaceId, capped) as Row[]);
+    const records: ChatArtifactRecord[] = [];
+    for (const row of rows) {
+      const record = toChatArtifact(row);
+      if (record) records.push(record);
+    }
+    return records;
+  }
+
+  getCanvasArtifact(workspaceId: string, artifactId: string): ChatArtifactRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM chat_artifacts WHERE id = ? AND workspace_id = ?")
+      .get(artifactId, workspaceId) as Row | undefined;
+    return row ? toChatArtifact(row) : null;
+  }
+
+  saveChatQuestion(input: {
+    id: string;
+    workspaceId: string;
+    agentId: string;
+    messageId: string;
+    blockIndex: number;
+    title: string;
+    payload: DeerQuestion;
+    createdAt: string;
+    expiresAt: string | null;
+  }): ChatQuestionRecord {
+    this.db
+      .prepare(
+        `INSERT INTO chat_questions
+         (id, workspace_id, agent_id, message_id, block_index, title, payload, status, answer, created_at, answered_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, ?)
+         ON CONFLICT DO NOTHING`,
+      )
+      .run(
+        input.id,
+        input.workspaceId,
+        input.agentId,
+        input.messageId,
+        input.blockIndex,
+        input.title,
+        JSON.stringify(input.payload),
+        input.createdAt,
+        input.expiresAt,
+      );
+    const record = this.getChatQuestion(input.id);
+    if (!record) throw new Error(`question not found after save: ${input.id}`);
+    return record;
+  }
+
+  listChatQuestions(workspaceId: string, agentId?: string, limit = 200): ChatQuestionRecord[] {
+    const capped = Math.max(1, Math.min(limit, 200));
+    const rows = agentId
+      ? (this.db
+          .prepare(
+            `SELECT * FROM chat_questions
+             WHERE workspace_id = ? AND agent_id = ?
+             ORDER BY created_at ASC LIMIT ?`,
+          )
+          .all(workspaceId, agentId, capped) as Row[])
+      : (this.db
+          .prepare(
+            `SELECT * FROM chat_questions
+             WHERE workspace_id = ?
+             ORDER BY created_at ASC LIMIT ?`,
+          )
+          .all(workspaceId, capped) as Row[]);
+    const records: ChatQuestionRecord[] = [];
+    for (const row of rows) {
+      const record = toChatQuestion(row);
+      if (record) records.push(record);
+    }
+    return records;
+  }
+
+  getChatQuestion(questionId: string): ChatQuestionRecord | null {
+    const row = this.db.prepare("SELECT * FROM chat_questions WHERE id = ?").get(questionId) as
+      | Row
+      | undefined;
+    return row ? toChatQuestion(row) : null;
+  }
+
+  /** 条件更新：仅 pending 且未过期才成功；返回是否发生变更。 */
+  answerChatQuestion(input: {
+    questionId: string;
+    answer: QuestionAnswers;
+    answeredAt: string;
+  }): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE chat_questions
+            SET status = 'answered', answer = ?, answered_at = ?
+          WHERE id = ?
+            AND status = 'pending'
+            AND (expires_at IS NULL OR expires_at > ?)`,
+      )
+      .run(JSON.stringify(input.answer), input.answeredAt, input.questionId, input.answeredAt);
+    return Number(result.changes) > 0;
+  }
+
+  /** 条件更新：仅 pending 才能取消；幂等（已取消返回 false）。 */
+  cancelChatQuestion(input: { questionId: string; finishedAt: string }): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE chat_questions
+            SET status = 'cancelled', answered_at = ?
+          WHERE id = ? AND status = 'pending'`,
+      )
+      .run(input.finishedAt, input.questionId);
+    return Number(result.changes) > 0;
+  }
+
+  /** 惰性过期：返回被标记的 id 列表（供服务层写事件）。 */
+  expireChatQuestions(workspaceId: string, nowIso: string): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM chat_questions
+          WHERE workspace_id = ? AND status = 'pending'
+            AND expires_at IS NOT NULL AND expires_at <= ?`,
+      )
+      .all(workspaceId, nowIso) as Row[];
+    if (rows.length === 0) return [];
+    const update = this.db.prepare(
+      `UPDATE chat_questions SET status = 'expired', answered_at = ?
+        WHERE id = ? AND status = 'pending'`,
+    );
+    const expired: string[] = [];
+    for (const row of rows) {
+      const id = String(row.id);
+      const result = update.run(nowIso, id);
+      if (Number(result.changes) > 0) expired.push(id);
+    }
+    return expired;
   }
 
   // board ----------------------------------------------------------------

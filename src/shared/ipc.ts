@@ -1,8 +1,14 @@
 import type {
   Agent,
+  AnswerChatQuestionInput,
+  AnswerChatQuestionResult,
   BoardEntry,
+  CancelChatQuestionInput,
+  CancelChatQuestionResult,
+  ChatArtifactRecord,
   ChatEvent,
   ChatMessage,
+  ChatQuestionRecord,
   ContextSnapshot,
   CreateAgentInput,
   CreateTaskInput,
@@ -45,6 +51,13 @@ export interface DeerApi {
   onRiskApproval(listener: (request: RiskApprovalRequest) => void): () => void;
   /** t58 IF-05：人工回执（单次 requestId；Agent 无自行批准路径）。 */
   respondRiskApproval(requestId: string, approved: boolean): Promise<boolean>;
+  // t64：交互画布索引（P0 渲染不依赖，Dock/导出 P1 使用）。
+  listChatArtifacts(workspaceId: string, agentId?: string): Promise<ChatArtifactRecord[]>;
+  getChatArtifact(workspaceId: string, artifactId: string): Promise<ChatArtifactRecord | null>;
+  // t64：提问状态（内联卡片回显 + 队列/自动打开）。
+  listChatQuestions(workspaceId: string, agentId?: string): Promise<ChatQuestionRecord[]>;
+  answerChatQuestion(input: AnswerChatQuestionInput): Promise<AnswerChatQuestionResult>;
+  cancelChatQuestion(input: CancelChatQuestionInput): Promise<CancelChatQuestionResult>;
   onChatEvent(listener: (event: ChatEvent) => void): () => void;
   onEvent(listener: (event: EventRecord) => void): () => void;
 }
