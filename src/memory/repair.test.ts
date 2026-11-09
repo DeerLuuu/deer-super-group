@@ -101,6 +101,11 @@ describe("t105 repair: source/agent migration", () => {
     expect(memory.listMemos("ws", "agent-ray")[0]?.id).toBe(memo.id);
     expect(memory.getMemo("ws", "ghost-agent", phantomMemo.id)?.sourceRef).toBeNull();
 
+    // v3 fixtures: id sourceRef + agent:<name> author, name sourceRef + agent:<name>, free text.
+    const idRefBoard = memory.createBoard({ workspaceId: "ws", board: "backend", author: "agent:Ray", kind: "fact", content: "id ref", source: "agent", sourceRef: "agent-ray" });
+    const nameRefBoard = memory.createBoard({ workspaceId: "ws", board: "backend", author: "agent:Ray", kind: "fact", content: "name ref", source: "agent", sourceRef: "Ray" });
+    const freeRefBoard = memory.createBoard({ workspaceId: "ws", board: "backend", author: "agent:Wrong", kind: "fact", content: "free ref", source: "agent", sourceRef: "free text" });
+
     // Legacy Store paths after migration are covered by triggers.
     const legacyUser = store.postBoard({ workspaceId: "ws", board: "backend", author: "user", kind: "fact", content: "legacy user" });
     const legacyAgent = store.postBoard({ workspaceId: "ws", board: "backend", author: "Ray", kind: "fact", content: "legacy agent" });
@@ -111,9 +116,12 @@ describe("t105 repair: source/agent migration", () => {
     expect(memory.getBoard("ws", legacyGhost.id)?.sourceRef).toBeNull();
     expect(memory.getMemo("ws", "agent-ray", legacyMemo.id)?.sourceRef).toBe("agent-ray");
 
-    // Upgrade path: v3 has name/free-text source_ref and old triggers; v4 reverses ids/null.
+    // Upgrade path: v3 has id/name/free-text source_ref; v4 preserves id, reverses name, NULL unknown.
     store.db.prepare("UPDATE board_entries SET source_ref = 'Ray' WHERE id = ?").run(agentBoard.id);
     store.db.prepare("UPDATE board_entries SET source_ref = 'Ghost free text' WHERE id = ?").run(ghostBoard.id);
+    store.db.prepare("UPDATE board_entries SET source_ref = 'agent-ray' WHERE id = ?").run(idRefBoard.id);
+    store.db.prepare("UPDATE board_entries SET source_ref = 'Ray' WHERE id = ?").run(nameRefBoard.id);
+    store.db.prepare("UPDATE board_entries SET source_ref = 'free text' WHERE id = ?").run(freeRefBoard.id);
     store.db.prepare("UPDATE memos SET source_ref = 'free text' WHERE id = ?").run(memo.id);
     store.db.exec("DROP TRIGGER IF EXISTS trg_board_source_user; DROP TRIGGER IF EXISTS trg_board_source_ref; DROP TRIGGER IF EXISTS trg_memo_source_ref;");
     store.db.exec("UPDATE memory_schema SET version = 3 WHERE version = 4");
@@ -121,6 +129,9 @@ describe("t105 repair: source/agent migration", () => {
     expect(upgraded.schemaVersion).toBe(4);
     expect(upgraded.getBoard("ws", agentBoard.id)?.sourceRef).toBe("agent-ray");
     expect(upgraded.getBoard("ws", ghostBoard.id)?.sourceRef).toBeNull();
+    expect(upgraded.getBoard("ws", idRefBoard.id)?.sourceRef).toBe("agent-ray");
+    expect(upgraded.getBoard("ws", nameRefBoard.id)?.sourceRef).toBe("agent-ray");
+    expect(upgraded.getBoard("ws", freeRefBoard.id)?.sourceRef).toBeNull();
     expect(upgraded.getMemo("ws", "agent-ray", memo.id)?.sourceRef).toBe("agent-ray");
     // v2 marker path also converges to v4 (same reverse lookup).
     store.db.prepare("UPDATE board_entries SET source_ref = 'Ray' WHERE id = ?").run(agentBoard.id);

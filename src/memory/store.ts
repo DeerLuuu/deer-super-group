@@ -267,11 +267,20 @@ export class MemoryStore {
       this.db.prepare(`
         UPDATE board_entries
            SET source = ${sourceExpr},
-               source_ref = CASE WHEN lower(author) = 'user' OR source = 'user' THEN NULL
-                                 ELSE (SELECT a.id FROM agents a
-                                        WHERE a.workspace_id = board_entries.workspace_id
-                                          AND a.name = board_entries.author LIMIT 1)
-                            END,
+               source_ref = CASE
+                 WHEN source <> 'agent' OR lower(author) = 'user' THEN NULL
+                 ELSE COALESCE(
+                   (SELECT a.id FROM agents a
+                     WHERE a.workspace_id = board_entries.workspace_id
+                       AND a.id = board_entries.source_ref LIMIT 1),
+                   (SELECT a.id FROM agents a
+                     WHERE a.workspace_id = board_entries.workspace_id
+                       AND a.name = board_entries.source_ref LIMIT 1),
+                   (SELECT a.id FROM agents a
+                     WHERE a.workspace_id = board_entries.workspace_id
+                       AND a.name = board_entries.author LIMIT 1)
+                 )
+               END,
                status = COALESCE(NULLIF(status, ''), 'active'),
                stale = COALESCE(stale, 0),
                updated_at = COALESCE(updated_at, created_at)
