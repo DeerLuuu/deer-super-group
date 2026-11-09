@@ -52,6 +52,31 @@ function apiBase(host: string): string {
   return host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`;
 }
 
+function gitFailure(code: string, message: string, retryable = false): Error {
+  return Object.assign(new Error(message), { code, retryable });
+}
+
+function restFailure(status: number, text: string): Error {
+  const message = redactSecrets(text || `GitHub REST ${status}`).slice(0, 2_000);
+  if (status === 401) return gitFailure("AUTH_MISSING", message);
+  if (status === 403 || status === 429) return gitFailure("PR_RATE_LIMITED", message, true);
+  if (status >= 500) return gitFailure("PR_UNKNOWN_STATE", message, true);
+  return gitFailure("PR_CREATE_FAILED", message);
+}
+
+/** Only https URLs whose host is the configured GitHub host may leave the provider. */
+export function safePrUrl(value: string | null | undefined, host = "github.com"): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return null;
+    if (parsed.host !== host && parsed.host !== "github.com") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 async function rest(
   repo: RepoInfo,
   pathName: string,
@@ -91,16 +116,19 @@ export class GitHubProvider implements PrProvider {
   readonly id = "github" as const;
   private host: string;
 
-  constructor(host = "github.com") {
+  constructor(
+    host = "github.com",
+    private readonly runGh: (args: string[]) => Promise<{ ok: boolean; stdout: string; stderr: string }> = gh,
+  ) {
     this.host = host;
   }
 
   async detect(_repo: RepoInfo): Promise<boolean> {
-    return (await ghAuth()) || Boolean(token());
+    return (await this.runGh(["auth", "status"])).ok || Boolean(token());
   }
 
   private async view(owner: string, repo: string, number: number): Promise<PrInfo> {
-    const result = await gh([
+    const result = await this.runGh([
       "pr",
       "view",
       String(number),
@@ -140,7 +168,7 @@ export class GitHubProvider implements PrProvider {
     return {
       provider: "github",
       number: Number(data.number ?? number),
-      url: data.url ? String(data.url) : null,
+      url: safePrUrl(data.url ? String(data.url) : null, this.host),
       state: merged ? "merged" : state === "closed" ? "closed" : data.isDraft ? "draft" : "open",
       headSha: String(data.headRefOid ?? ""),
       baseBranch: String(data.baseRefName ?? "main"),
@@ -167,7 +195,7 @@ export class GitHubProvider implements PrProvider {
   }): Promise<PrInfo> {
     const parsed = parseRepo(input.repo.remote);
     if (!parsed) throw new Error("PR_NOT_FOUND");
-    const result = await gh([
+    const result = await this.runGh([
       "pr",
       "create",
       "--repo",
@@ -200,12 +228,12 @@ export class GitHubProvider implements PrProvider {
         },
         this.host,
       );
-      if (!response.ok) throw new Error(response.text || "PR_CREATE_FAILED");
+      if (!response.ok) throw restFailure(response.status, response.text);
       const data = response.json as Record<string, unknown>;
       return {
         provider: "github",
         number: Number(data.number ?? 0),
-        url: data.html_url ? String(data.html_url) : null,
+        url: safePrUrl(data.html_url ? String(data.html_url) : null, this.host),
         state: data.draft ? "draft" : "open",
         headSha: String((data.head as { sha?: string } | undefined)?.sha ?? ""),
         baseBranch: String((data.base as { ref?: string } | undefined)?.ref ?? input.base),
@@ -247,7 +275,7 @@ export class GitHubProvider implements PrProvider {
     const parsed = parseRepo(repo.remote);
     if (!parsed) throw new Error("PR_NOT_FOUND");
     const flag = opts.method === "squash" ? "--squash" : opts.method === "merge" ? "--merge" : "--rebase";
-    const result = await gh([
+    const result = await this.runGh([
       "pr",
       "merge",
       String(pr.number),
@@ -270,7 +298,7 @@ export class GitHubProvider implements PrProvider {
         },
         this.host,
       );
-      if (!response.ok) throw new Error(response.text || "MERGE_FAILED");
+      if (!response.ok) throw restFailure(response.status, response.text);
       return this.restRefresh(repo, pr.number);
     }
     return this.refresh(repo, { number: pr.number, branch: pr.branch });
@@ -280,7 +308,7 @@ export class GitHubProvider implements PrProvider {
     if (!pr.number) return;
     const parsed = parseRepo(repo.remote);
     if (!parsed) return;
-    await gh([
+    await this.runGh([
       "pr",
       "close",
       String(pr.number),
@@ -293,12 +321,12 @@ export class GitHubProvider implements PrProvider {
     const parsed = parseRepo(repo.remote);
     if (!parsed) throw new Error("PR_NOT_FOUND");
     const result = await rest(repo, `/repos/${parsed.owner}/${parsed.repo}/pulls/${number}`, {}, this.host);
-    if (!result.ok) throw new Error(result.text || "PR_NOT_FOUND");
+    if (!result.ok) throw restFailure(result.status, result.text);
     const data = result.json as Record<string, unknown>;
     return {
       provider: "github",
       number,
-      url: data.html_url ? String(data.html_url) : null,
+      url: safePrUrl(data.html_url ? String(data.html_url) : null, this.host),
       state: String(data.state ?? "open") as PrInfo["state"],
       headSha: String((data.head as { sha?: string } | undefined)?.sha ?? ""),
       baseBranch: String((data.base as { ref?: string } | undefined)?.ref ?? "main"),

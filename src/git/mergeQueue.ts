@@ -175,11 +175,37 @@ export class MergeQueue {
     return this.process(item.workspaceId, item.id);
   }
 
+  async cancel(taskId: string, reason = "cancelled"): Promise<MergeQueueItem> {
+    const item = this.deps.gitStore.getQueueForTask(taskId);
+    if (!item) throw new Error("task is not in the merge queue");
+    if (item.state === "merged") throw new Error("merged queue item cannot be cancelled");
+    this.deps.gitStore.updateQueue(item.id, { state: "cancelled", lastError: reason });
+    event(this.deps.store, item.workspaceId, "merge.cancelled", {
+      queueId: item.id,
+      reason,
+    }, taskId);
+    return this.fill(this.deps.gitStore.getQueueItem(item.id) ?? item);
+  }
+
   async process(workspaceId: string, onlyId?: string): Promise<MergeQueueItem> {
     const snapshot = this.list(workspaceId);
     const activeMerge = snapshot.items.find((item) => item.state === "merging");
     if (activeMerge && activeMerge.id !== onlyId) {
       throw new Error("another merge is in progress");
+    }
+    if (!onlyId) {
+      const head = snapshot.items
+        .filter(
+          (item) =>
+            ["queued", "waiting_checks", "waiting_review", "ready", "updating", "merging", "blocked"].includes(
+              item.state,
+            ) && !item.retryAt,
+        )
+        .sort((a, b) => a.position - b.position)[0];
+      const allowSkip = this.deps.gitStore.getConfig(workspaceId).allowSkipBlocked;
+      if (head?.state === "blocked" && !allowSkip) {
+        throw new Error("merge queue head is blocked; resolve it or enable skip");
+      }
     }
     const target = onlyId
       ? snapshot.items.find((item) => item.id === onlyId)
@@ -227,6 +253,17 @@ export class MergeQueue {
         queueId: item.id,
         mergeCommitSha: pr.mergedCommitSha,
       }, item.taskId);
+      return this.fill(this.deps.gitStore.getQueueItem(item.id) ?? item);
+    }
+
+    if (item.state === "failed" && item.headSha && pr.headSha && pr.headSha !== item.headSha) {
+      this.deps.gitStore.updateQueue(item.id, {
+        state: "waiting_checks",
+        headSha: pr.headSha,
+        approvedHeadSha: null,
+        checksWaived: false,
+        lastError: null,
+      });
       return this.fill(this.deps.gitStore.getQueueItem(item.id) ?? item);
     }
 

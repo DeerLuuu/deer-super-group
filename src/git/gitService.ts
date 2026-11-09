@@ -219,36 +219,47 @@ export class GitService {
       input.status === "cancelled" ||
       (input.status === "failed" && settings.autoPushWip);
     if (shouldCommit) {
-      const guard = new CommitGuard(git);
-      const committed = await commitAll({
-        git,
-        worktree: cwd,
-        message: `${input.status === "completed" ? "feat" : "wip"}(${task.id}): ${task.title}`,
-        scan: () => guard.scan(cwd),
-      });
-      if (committed.ok && committed.commit) {
-        commitSha = committed.commit.sha;
+      const status = await git.run(["status", "--porcelain"], { cwd });
+      if (status.code === 0 && !status.stdout.trim()) {
         emitGitEvent(this.options.store, {
           aggregateType: "task",
           aggregateId: task.id,
-          type: "git.commit",
+          type: "git.no_changes",
           actor: "git-service",
-          payload: { runId: input.runId, branch: record.branch, sha: commitSha, files: committed.commit.files },
+          payload: { runId: input.runId },
         });
-      } else if (!committed.ok) {
-        errorCode = "GIT_COMMIT_BLOCKED";
-        emitGitEvent(this.options.store, {
-          aggregateType: "task",
-          aggregateId: task.id,
-          type: "git.commit_blocked",
-          actor: "git-service",
-          payload: {
-            runId: input.runId,
-            files: [],
-            reason: committed.reason ?? "blocked",
-            errorCode,
-          },
+      } else {
+        const guard = new CommitGuard(git);
+        const committed = await commitAll({
+          git,
+          worktree: cwd,
+          message: `${input.status === "completed" ? "feat" : "wip"}(${task.id}): ${task.title}`,
+          scan: () => guard.scan(cwd),
         });
+        if (committed.ok && committed.commit) {
+          commitSha = committed.commit.sha;
+          emitGitEvent(this.options.store, {
+            aggregateType: "task",
+            aggregateId: task.id,
+            type: "git.commit",
+            actor: "git-service",
+            payload: { runId: input.runId, branch: record.branch, sha: commitSha, files: committed.commit.files },
+          });
+        } else if (!committed.ok) {
+          errorCode = "GIT_COMMIT_BLOCKED";
+          emitGitEvent(this.options.store, {
+            aggregateType: "task",
+            aggregateId: task.id,
+            type: "git.commit_blocked",
+            actor: "git-service",
+            payload: {
+              runId: input.runId,
+              files: [],
+              reason: committed.reason ?? "blocked",
+              errorCode,
+            },
+          });
+        }
       }
     }
 
@@ -768,6 +779,14 @@ export class GitService {
         item.baseSha === input.baseSha,
     );
     if (existing?.conflictTaskId) return { taskId: existing.conflictTaskId, created: false };
+    if (input.prNumber != null) {
+      const samePr = this.gitStore
+        .listQueue(input.workspaceId)
+        .filter((item) => item.prNumber === input.prNumber && item.conflictTaskId);
+      if (samePr.length >= 2) {
+        return { taskId: samePr[0]!.conflictTaskId!, created: false };
+      }
+    }
     const task = this.options.store.createTask({
       workspaceId: input.workspaceId,
       title: `解决合并冲突：${input.taskTitle}`,

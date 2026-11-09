@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -13,11 +14,11 @@ import { GitExec, redactSecrets, validateGitArgs } from "./gitExec.js";
 import { CommitGuard } from "./commitGuard.js";
 import { ChecksRunner } from "./checksRunner.js";
 import { MergeQueue } from "./mergeQueue.js";
-import { WorktreeManager, validateWorktreePath } from "./worktreeManager.js";
+import { WorktreeManager, branchName, validateWorktreePath } from "./worktreeManager.js";
 import { GitService } from "./gitService.js";
 import { verifyIntegratedContent, commitAll, pushBranch } from "./branchOps.js";
 import { detectRepoSync } from "./repo.js";
-import { LocalProvider, ManualProvider, GitHubProvider } from "./providers.js";
+import { LocalProvider, ManualProvider, GitHubProvider, safePrUrl } from "./providers.js";
 import { GitRunEnvironmentProvider, type RunEnvironmentProvider } from "./g3.js";
 import { GIT_EVENT_TYPES, gitEventTypeSchema, validateGitEvent, emitGitEvent, registerGitEventTypes } from "./events.js";
 import type { GitErrorCode, GitSettings, MergeQueueItem, PrepareRunInput, PrepareRunResult, PrInfo, PrProvider, RepoDiagnostics, RepoInfo, TaskVcs, WorktreeRecord } from "./types.js";
@@ -1183,7 +1184,99 @@ describe("t111 repair — AC-GIT-01 29-row argv table", () => {
   });
 });
 
-describe("t111 repair — AC-TYPE-01 field snapshots", () => {
+describe("t128 repair — AC-WT-05/06/07 process/error paths", () => {
+  it("AC-WT-05: worktree creation failure returns an error and records no fake worktree", () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const repo = detectRepoSync(dir, "main");
+    const parent = path.join(repo.runtimeRoot ?? path.join(dir, ".deer"), "worktrees", taskId);
+    mkdirSync(path.dirname(parent), { recursive: true });
+    writeFileSync(parent, "not a directory\n");
+    const result = service.beforeStart({
+      workspaceId,
+      taskId,
+      runId: "run-create-fail",
+      attempt: 1,
+      agentId: "agent",
+    });
+    expect(result).toMatchObject({ allow: true, environment: { mode: "degraded" } });
+    expect(service.gitStore.getActiveWorktreeForTask(taskId)).toBeNull();
+  });
+
+  it("AC-WT-06: clean worktree emits git.no_changes and removes the worktree", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const run = store.createRun(taskId, "agent");
+    const prepared = service.beforeStart({
+      workspaceId,
+      taskId,
+      runId: run.id,
+      attempt: 1,
+      agentId: "agent",
+    });
+    if (typeof prepared === "boolean" || !prepared.allow || !prepared.environment) {
+      throw new Error("worktree was not prepared");
+    }
+    await service.finalizeRun({ runId: run.id, taskId, status: "completed" });
+    expect(existsSync(prepared.environment.cwd)).toBe(false);
+    expect(
+      (store.db.prepare("SELECT count(*) AS n FROM events WHERE type = 'git.no_changes'").get() as {
+        n: number;
+      }).n,
+    ).toBe(1);
+  });
+
+  it("AC-WT-07: a separately terminated process leaves a stale lease; finalize rejects and recover reclaims", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const dataDir = path.join(dir, "data");
+    const service = new GitService({ dataDir, store });
+    const run = store.createRun(taskId, "agent");
+    expect(
+      service.beforeStart({ workspaceId, taskId, runId: run.id, attempt: 1, agentId: "agent" }),
+    ).toMatchObject({ allow: true });
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "fixtures",
+      "stale-lease-holder.cjs",
+    );
+    const child = spawn(process.execPath, [fixture], {
+      env: {
+        ...process.env,
+        GIT_DB: path.join(dataDir, "git.db"),
+        RUN_ID: run.id,
+        STALE_OWNER: "git-service:other-process",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("child fixture timeout")), 10_000);
+      child.stdout?.on("data", (chunk) => {
+        if (String(chunk).includes("READY")) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+    child.kill();
+    await new Promise<void>((resolve) => child.on("exit", () => resolve()));
+
+    await expect(
+      service.finalizeRun({ runId: run.id, taskId, status: "completed" }),
+    ).rejects.toThrow(/GIT_FENCING_STALE/);
+    store.updateRun(run.id, { status: "completed" });
+    await service.recover(workspaceId);
+    expect(service.gitStore.getActiveWorktreeForTask(taskId)).toBeNull();
+  });
+});
+
+describe("t128 repair — AC-TYPE-01 field snapshots", () => {
   it("keeps the public Git UI/API field sets stable", () => {
     const taskVcs: Array<keyof TaskVcs> = [
       "taskId", "workspaceId", "mode", "branch", "baseBranch", "headSha", "pr",
@@ -1209,4 +1302,441 @@ describe("t111 repair — AC-TYPE-01 field snapshots", () => {
     expect(errorCode).toBe("GIT_PATH_ESCAPE");
   });
 });
+
+describe("t128 repair — AC-GIT-02..13", () => {
+  it("AC-GIT-02 rejects branch injection and sanitizes slugs", () => {
+    expect(validateGitArgs(["check-ref-format", "--branch", "a;rm -rf"]).ok).toBe(false);
+    expect(validateGitArgs(["check-ref-format", "--branch", "-x"]).ok).toBe(false);
+    const branch = branchName("t1", "a;rm -rf /tmp/x");
+    expect(branch).toMatch(/^deer\/t1-[a-z0-9-]+$/);
+    expect(validateGitArgs(["check-ref-format", "--branch", branch]).ok).toBe(true);
+  });
+
+  it("AC-GIT-03 CommitGuard blocks env/private-key/large files without leaking content", async () => {
+    const dir = tempDir();
+    writeFileSync(path.join(dir, ".env"), "SECRET_VALUE=super-secret\n");
+    writeFileSync(path.join(dir, "id_rsa"), "PRIVATE KEY\n");
+    writeFileSync(path.join(dir, "big.bin"), Buffer.alloc(6 * 1024 * 1024));
+    const guard = new CommitGuard(new GitExec(hooksFor(dir)));
+    const result = await guard.scan(dir);
+    expect(result.ok).toBe(false);
+    expect(result.reason).not.toContain("super-secret");
+  });
+
+  it("AC-GIT-04 uses temporary commit identity when repo config is absent", async () => {
+    const dir = tempDir();
+    git(dir, ["init", "-b", "main"]);
+    writeFileSync(path.join(dir, "a.txt"), "a\n");
+    git(dir, ["add", "a.txt"]);
+    const oldHome = process.env.HOME;
+    const oldProfile = process.env.USERPROFILE;
+    process.env.HOME = tempDir();
+    process.env.USERPROFILE = process.env.HOME;
+    try {
+      const committed = await commitAll({
+        git: new GitExec(hooksFor(dir)),
+        worktree: dir,
+        message: "test identity",
+        scan: async () => ({ ok: true, blocked: false, files: [] }),
+      });
+      expect(committed.ok).toBe(true);
+      expect(git(dir, ["log", "-1", "--format=%an <%ae>"])).toContain("DeerSuperGroup Agent");
+    } finally {
+      if (oldHome === undefined) delete process.env.HOME;
+      else process.env.HOME = oldHome;
+      if (oldProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = oldProfile;
+    }
+  });
+
+  it("AC-GIT-05/06 maps non-fast-forward and network push failures", async () => {
+    const dir = initRepo();
+    const remote = tempDir();
+    git(remote, ["init", "--bare"]);
+    git(dir, ["remote", "add", "origin", remote]);
+    git(dir, ["checkout", "-b", "deer/pushtest"]);
+    writeFileSync(path.join(dir, "push.txt"), "one\n");
+    git(dir, ["add", "push.txt"]);
+    git(dir, ["commit", "-m", "one"]);
+    expect(
+      await pushBranch({
+        git: new GitExec(hooksFor(dir)),
+        cwd: dir,
+        remote: "origin",
+        branch: "deer/pushtest",
+      }),
+    ).toMatchObject({ ok: true });
+    const other = tempDir();
+    git(other, ["clone", "-b", "deer/pushtest", remote, "."]);
+    writeFileSync(path.join(other, "push.txt"), "two\n");
+    git(other, ["commit", "-am", "two"]);
+    git(other, ["push", "origin", "deer/pushtest"]);
+    writeFileSync(path.join(dir, "push.txt"), "three\n");
+    git(dir, ["commit", "-am", "three"]);
+    const rejected = await pushBranch({
+      git: new GitExec(hooksFor(dir)),
+      cwd: dir,
+      remote: "origin",
+      branch: "deer/pushtest",
+    });
+    expect(rejected.ok).toBe(false);
+    expect(rejected.error).toBe("GIT_PUSH_REJECTED");
+    git(dir, ["remote", "set-url", "origin", path.join(dir, "missing-remote")]);
+    const network = await pushBranch({
+      git: new GitExec(hooksFor(dir)),
+      cwd: dir,
+      remote: "origin",
+      branch: "deer/pushtest",
+    });
+    expect(network.ok).toBe(false);
+    expect(network.error).toBe("GIT_PUSH_NETWORK");
+  });
+
+  it("AC-GIT-07/08 redacts tokens/credentials and only accepts https PR URLs", () => {
+    expect(redactSecrets("ghp_abcdefghijklmnopqrstuvwxyz123456")).toBe("[REDACTED]");
+    expect(redactSecrets("https://user:pass@github.com/x/y")).not.toContain("pass");
+    expect(safePrUrl("https://github.com/acme/repo/pull/1")).toBe("https://github.com/acme/repo/pull/1");
+    expect(safePrUrl("http://github.com/acme/repo/pull/1")).toBeNull();
+    expect(safePrUrl("https://evil.example/acme/repo/pull/1")).toBeNull();
+  });
+
+  it("AC-GIT-09/10 degrades when git is unavailable or repo is not root", () => {
+    const repoDir = initRepo();
+    const sub = path.join(repoDir, "sub");
+    mkdirSync(path.join(sub, ".git"), { recursive: true });
+    const fake = tempDir();
+    const oldPath = process.env.PATH;
+    if (process.platform === "win32") {
+      writeFileSync(
+        path.join(fake, "git.cmd"),
+        `@echo off\nif "%1"=="--version" (echo git version 2.40.0 & exit /b 0)\nif "%1"=="rev-parse" if "%2"=="--show-toplevel" (echo ${repoDir} & exit /b 0)\nexit /b 1\n`,
+      );
+    } else {
+      const script = path.join(fake, "git");
+      writeFileSync(
+        script,
+        `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "git version 2.40.0"; exit 0; fi\nif [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then echo "${repoDir}"; exit 0; fi\nexit 1\n`,
+      );
+      chmodSync(script, 0o755);
+    }
+    process.env.PATH = `${fake}${path.delimiter}${oldPath ?? ""}`;
+    try {
+      expect(detectRepoSync(sub, "main").errorCode).toBe("GIT_NOT_ROOT");
+      process.env.PATH = "";
+      expect(detectRepoSync(repoDir, "main").errorCode).toBe("GIT_NOT_FOUND");
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
+
+  it("AC-GIT-11 malicious hooks are not executed", async () => {
+    const dir = initRepo();
+    const sentinel = path.join(dir, "hook-ran.txt");
+    const hook = path.join(dir, ".git", "hooks", "pre-commit");
+    mkdirSync(path.dirname(hook), { recursive: true });
+    writeFileSync(hook, `node -e "require('fs').writeFileSync('${sentinel.replace(/\\/g, "\\\\")}','x')"\n`);
+    writeFileSync(path.join(dir, "hooked.txt"), "hooked\n");
+    const committed = await commitAll({
+      git: new GitExec(hooksFor(dir)),
+      worktree: dir,
+      message: "hook test",
+      scan: async () => ({ ok: true, blocked: false, files: [] }),
+    });
+    expect(committed.ok).toBe(true);
+    expect(existsSync(sentinel)).toBe(false);
+  });
+
+  it("AC-GIT-12 finalize is idempotent after worktree removal", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const run = store.createRun(taskId, "agent");
+    service.beforeStart({ workspaceId, taskId, runId: run.id, attempt: 1, agentId: "agent" });
+    await service.finalizeRun({ runId: run.id, taskId, status: "completed" });
+    await expect(
+      service.finalizeRun({ runId: run.id, taskId, status: "completed" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("AC-GIT-13 GitErrorCode snapshot", () => {
+    const codes: GitErrorCode[] = [
+      "GIT_NOT_FOUND", "GIT_REPO_NOT_FOUND", "GIT_NOT_ROOT", "GIT_VERSION_LOW",
+      "GIT_CAPACITY", "GIT_WORKTREE_FAILED", "GIT_WORKTREE_NOT_CLEAN",
+      "GIT_WORKTREE_BUSY", "GIT_BRANCH_INVALID", "GIT_BRANCH_EXISTS",
+      "GIT_COMMIT_BLOCKED", "GIT_PUSH_REJECTED", "GIT_PUSH_NETWORK",
+      "GIT_TIMEOUT", "GIT_FORBIDDEN", "GIT_PATH_ESCAPE", "SECRET_BLOCKED",
+      "AUTH_MISSING", "AUTH_FORBIDDEN", "AUTH_PUSH", "PR_NOT_FOUND",
+      "PR_CREATE_FAILED", "PR_RATE_LIMITED", "PR_UNKNOWN_STATE",
+      "PR_METHOD_UNSUPPORTED", "CHECKS_FAILED", "CHECKS_TIMEOUT", "CHECKS_SPAWN",
+      "MERGE_CONFLICT", "MERGE_REVIEW_REQUIRED", "MERGE_APPROVAL_STALE",
+      "MERGE_UNKNOWN_STATE", "MERGE_LOCKED", "MERGE_CANCELLED", "MERGE_LIMIT",
+    ];
+    expect(codes).toHaveLength(35);
+    expect(new Set(codes).size).toBe(35);
+  });
+});
+
+describe("t128 repair — AC-PR mock enterprise host", () => {
+  const repo: RepoInfo = {
+    ok: true,
+    workspacePath: "/tmp/repo",
+    root: "/tmp/repo",
+    runtimeRoot: "/tmp/repo/.deer",
+    baseBranch: "main",
+    remote: "https://ghe.example/acme/repo.git",
+    remoteKind: "remote",
+    gitVersion: "2.40.0",
+  };
+
+  it("AC-PR-04/07/09 maps 401/403/429/5xx and keeps REST headers/token out of URL", async () => {
+    const oldToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = "test-token";
+    const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+    try {
+      for (const status of [401, 403, 429, 500]) {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (url: string, init: RequestInit) => {
+            calls.push({ url, headers: (init.headers ?? {}) as Record<string, string> });
+            return { ok: false, status, text: async () => `error-${status}` };
+          }),
+        );
+        const provider = new GitHubProvider("ghe.example");
+        await expect(provider.restRefresh(repo, 7)).rejects.toMatchObject({
+          code: status === 401 ? "AUTH_MISSING" : status === 500 ? "PR_UNKNOWN_STATE" : "PR_RATE_LIMITED",
+        });
+      }
+      expect(calls[0]!.url).toContain("https://ghe.example/api/v3/repos/acme/repo/pulls/7");
+      expect(calls[0]!.url).not.toContain("test-token");
+      expect(calls[0]!.headers.Authorization).toBe("Bearer test-token");
+      expect(calls[0]!.headers["X-GitHub-Api-Version"]).toBe("2022-11-28");
+    } finally {
+      vi.unstubAllGlobals();
+      if (oldToken === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = oldToken;
+    }
+  });
+
+  it("AC-PR-10 maps squash/merge/rebase to gh flags with match-head-commit", async () => {
+    for (const method of ["squash", "merge", "rebase"] as const) {
+      const calls: string[][] = [];
+      const provider = new GitHubProvider("ghe.example", async (args) => {
+        calls.push(args);
+        if (args[0] === "pr" && args[1] === "merge") return { ok: true, stdout: "", stderr: "" };
+        return {
+          ok: true,
+          stdout: JSON.stringify({
+            number: 7,
+            url: "https://ghe.example/acme/repo/pull/7",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            reviewDecision: "APPROVED",
+            statusCheckRollup: [],
+            headRefOid: "head-sha",
+            baseRefName: "main",
+            mergeCommit: null,
+          }),
+          stderr: "",
+        };
+      });
+      const pr = await provider.merge(repo, { number: 7, branch: "deer/x", headSha: "head-sha" }, { method });
+      expect(pr.state).toBe("open");
+      const mergeArgs = calls.find((args) => args[1] === "merge")!;
+      expect(mergeArgs).toContain(`--${method}`);
+      expect(mergeArgs).toContain("--match-head-commit");
+      expect(mergeArgs).toContain("head-sha");
+    }
+  });
+});
+
+describe("t128 repair — AC-MQ-01..14", () => {
+  function queueFixture() {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const repo: RepoInfo = {
+      ok: true,
+      workspacePath: dir,
+      root: dir,
+      runtimeRoot: path.join(dir, ".deer"),
+      baseBranch: "main",
+      remote: null,
+      remoteKind: "none",
+      gitVersion: "2.40.0",
+    };
+    gitStore.upsertTaskVcs(vcsFor(taskId, workspaceId, "deer/mq-test", "head-sha"));
+    const provider = new MockProvider();
+    return { dir, store, workspaceId, taskId, gitStore, repo, provider };
+  }
+
+  it("AC-MQ-02b auto_merge=false stops at ready until explicit mergeStart", async () => {
+    const { dir, store, workspaceId, taskId, gitStore, repo, provider } = queueFixture();
+    const settings: GitSettings = { ...gitStore.getConfig(workspaceId), requireApproval: false, autoMerge: false };
+    const queue = new MergeQueue({
+      store, gitStore, checks: new ChecksRunner(),
+      contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider, settings }),
+      createConflictTask: async () => ({ taskId: "c", created: true }),
+    });
+    const item = await queue.enqueue(taskId);
+    const ready = await queue.process(workspaceId, item.id);
+    expect(ready.state).toBe("ready");
+    expect(provider.merged).toBe(false);
+    await queue.approve(taskId);
+    await queue.mergeStart(taskId);
+    expect(gitStore.getQueueItem(item.id)?.state).toBe("ready");
+  });
+
+  it("AC-MQ-03/04/14 checks fail and head reset clear approval/waiver", async () => {
+    const { dir, store, workspaceId, taskId, gitStore, repo, provider } = queueFixture();
+    const settings: GitSettings = { ...gitStore.getConfig(workspaceId), requireApproval: true, autoMerge: true };
+    const queue = new MergeQueue({
+      store, gitStore, checks: new ChecksRunner(),
+      contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider, settings }),
+      createConflictTask: async () => ({ taskId: "c", created: true }),
+    });
+    const item = await queue.enqueue(taskId);
+    await queue.approve(taskId);
+    gitStore.updateQueue(item.id, { checksWaived: true, approvedHeadSha: item.headSha });
+    provider.refresh = async () => ({
+      provider: "github", number: 7, url: null, state: "open",
+      headSha: "new-head", baseBranch: "main", mergeable: "mergeable",
+      checks: [], review: "approved", mergedCommitSha: null, updatedAt: new Date().toISOString(),
+    });
+    const reset = await queue.process(workspaceId, item.id);
+    expect(reset.state).toBe("waiting_review");
+    expect(reset.approvedHeadSha).toBeNull();
+    expect(reset.checksWaived).toBe(false);
+  });
+
+  it("AC-MQ-05/08/09/12 cancels, blocks queue head, and limits conflict tasks", async () => {
+    const { dir, store, workspaceId, taskId, gitStore, repo, provider } = queueFixture();
+    const settings: GitSettings = { ...gitStore.getConfig(workspaceId), requireApproval: false, autoMerge: true };
+    const queue = new MergeQueue({
+      store, gitStore, checks: new ChecksRunner(),
+      contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider, settings }),
+      createConflictTask: async () => ({ taskId: "c", created: true }),
+    });
+    const first = await queue.enqueue(taskId);
+    await queue.cancel(taskId, "test cancel");
+    expect(gitStore.getQueueItem(first.id)?.state).toBe("cancelled");
+    const task2 = store.createTask({ workspaceId, title: "second", description: "d", acceptance: [] });
+    gitStore.upsertTaskVcs(vcsFor(task2.id, workspaceId, "deer/mq-2", "head-2"));
+    const second = await queue.enqueue(task2.id);
+    gitStore.updateQueue(second.id, { state: "blocked" });
+    await expect(queue.process(workspaceId)).rejects.toThrow(/head is blocked/);
+
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const conflictInput = {
+      workspaceId, taskId: "source", taskTitle: "source", branch: "deer/source",
+      baseBranch: "main", prNumber: 99, prUrl: "https://ghe.example/pull/99",
+      conflictFiles: ["a.txt"], baseSha: "base",
+    };
+    const a = await (service as unknown as { createConflictTask: (i: typeof conflictInput) => Promise<{ created: boolean }> }).createConflictTask(conflictInput);
+    const b = await (service as unknown as { createConflictTask: (i: typeof conflictInput) => Promise<{ created: boolean }> }).createConflictTask(conflictInput);
+    expect(a.created).toBe(true);
+    expect(b.created).toBe(true); // different source task/base; second conflict task allowed
+    service.gitStore.insertQueue({
+      ...first, id: "q_limit_1", taskId: "limit-1", state: "blocked", conflictTaskId: "c1", prNumber: 99, position: 10,
+    });
+    service.gitStore.insertQueue({
+      ...first, id: "q_limit_2", taskId: "limit-2", state: "blocked", conflictTaskId: "c2", prNumber: 99, position: 11,
+    });
+    const c = await (service as unknown as { createConflictTask: (i: typeof conflictInput) => Promise<{ created: boolean }> }).createConflictTask({ ...conflictInput, taskId: "source-3" });
+    expect(c.created).toBe(false);
+  });
+
+  it("AC-MQ-11 tree verification accepts squash/rebase content and rejects wrong content", async () => {
+    const dir = initRepo();
+    git(dir, ["checkout", "-b", "feature"]);
+    writeFileSync(path.join(dir, "README.md"), "feature\n");
+    git(dir, ["commit", "-am", "feature"]);
+    const head = git(dir, ["rev-parse", "HEAD"]);
+    git(dir, ["checkout", "main"]);
+    git(dir, ["merge", "--squash", "feature"]);
+    git(dir, ["commit", "-m", "squash feature"]);
+    expect(
+      await verifyIntegratedContent({ git: new GitExec(hooksFor(dir)), cwd: dir, headSha: head, integratedRef: "main" }),
+    ).toMatchObject({ ok: true });
+
+    git(dir, ["checkout", "-b", "rebase-feature"]);
+    writeFileSync(path.join(dir, "README.md"), "rebase\n");
+    git(dir, ["commit", "-am", "rebase feature"]);
+    const rebaseHead = git(dir, ["rev-parse", "HEAD"]);
+    git(dir, ["checkout", "main"]);
+    git(dir, ["cherry-pick", rebaseHead]);
+    expect(
+      await verifyIntegratedContent({ git: new GitExec(hooksFor(dir)), cwd: dir, headSha: rebaseHead, integratedRef: "main" }),
+    ).toMatchObject({ ok: true });
+  });
+});
+
+describe("t128 repair — remaining AC-MQ acceptance", () => {
+  function fixture() {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const repo: RepoInfo = {
+      ok: true, workspacePath: dir, root: dir, runtimeRoot: path.join(dir, ".deer"),
+      baseBranch: "main", remote: null, remoteKind: "none", gitVersion: "2.40.0",
+    };
+    gitStore.upsertTaskVcs(vcsFor(taskId, workspaceId, "deer/mq-remaining", "head-sha"));
+    const provider = new MockProvider();
+    return { dir, store, workspaceId, taskId, gitStore, repo, provider };
+  }
+
+  it("AC-MQ-01/07/10/13 merge once, idempotent approve, event/vcs, waive boundary", async () => {
+    const { dir, store, workspaceId, taskId, gitStore, repo, provider } = fixture();
+    const settings: GitSettings = {
+      ...gitStore.getConfig(workspaceId),
+      requireApproval: true,
+      autoMerge: true,
+      checksCommand: null,
+    };
+    const queue = new MergeQueue({
+      store, gitStore, checks: new ChecksRunner(),
+      contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider, settings }),
+      createConflictTask: async () => ({ taskId: "c", created: true }),
+    });
+    const item = await queue.enqueue(taskId);
+    await queue.approve(taskId);
+    await queue.approve(taskId);
+    expect(gitStore.getQueueItem(item.id)?.approvedHeadSha).toBe(item.headSha);
+    await expect(queue.waiveChecks(taskId, "short")).rejects.toThrow(/at least 8/);
+    const merged = await queue.process(workspaceId, item.id);
+    expect(merged.state).toBe("merged");
+    expect(gitStore.getTaskVcs(taskId)?.merge.state).toBe("merged");
+    expect(
+      (store.db.prepare("SELECT count(*) AS n FROM events WHERE type = 'merge.merged'").get() as { n: number }).n,
+    ).toBe(1);
+
+    const other = store.createTask({ workspaceId, title: "other", description: "d", acceptance: [] });
+    gitStore.upsertTaskVcs(vcsFor(other.id, workspaceId, "deer/mq-other", "other-head"));
+    const queuedOther = await queue.enqueue(other.id);
+    gitStore.updateQueue(item.id, { state: "merging" });
+    await expect(queue.process(workspaceId)).rejects.toThrow(/another merge/);
+    expect(gitStore.getQueueItem(queuedOther.id)?.state).not.toBe("merged");
+  });
+
+  it("AC-MQ-15 failed item with new head returns to waiting_checks", async () => {
+    const { dir, store, workspaceId, taskId, gitStore, repo, provider } = fixture();
+    const settings: GitSettings = { ...gitStore.getConfig(workspaceId), requireApproval: false, autoMerge: true };
+    const queue = new MergeQueue({
+      store, gitStore, checks: new ChecksRunner(),
+      contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider, settings }),
+      createConflictTask: async () => ({ taskId: "c", created: true }),
+    });
+    const item = await queue.enqueue(taskId);
+    gitStore.updateQueue(item.id, { state: "failed", headSha: "old-head", checksWaived: true });
+    provider.refresh = async () => ({
+      provider: "github", number: 7, url: null, state: "open",
+      headSha: "new-head", baseBranch: "main", mergeable: "mergeable",
+      checks: [], review: "pending", mergedCommitSha: null, updatedAt: new Date().toISOString(),
+    });
+    const next = await queue.process(workspaceId, item.id);
+    expect(next.state).toBe("waiting_checks");
+    expect(next.headSha).toBe("new-head");
+    expect(next.checksWaived).toBe(false);
+  });
+});
+
 

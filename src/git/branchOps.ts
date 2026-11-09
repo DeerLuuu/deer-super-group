@@ -31,9 +31,21 @@ export async function commitAll(input: {
   if (!guard.ok) return { ok: false, reason: guard.reason ?? "commit guard blocked" };
   const add = await input.git.run(["add", "-A"], { cwd: input.worktree });
   if (add.code !== 0) return { ok: false, reason: add.stderr || "git add failed" };
+  const configuredName = await input.git.run(["config", "--get", "user.name"], { cwd: input.worktree });
+  const configuredEmail = await input.git.run(["config", "--get", "user.email"], { cwd: input.worktree });
+  const identityEnv =
+    configuredName.code !== 0 || configuredEmail.code !== 0
+      ? {
+          GIT_AUTHOR_NAME: "DeerSuperGroup Agent",
+          GIT_AUTHOR_EMAIL: "agent@deer.local",
+          GIT_COMMITTER_NAME: "DeerSuperGroup Agent",
+          GIT_COMMITTER_EMAIL: "agent@deer.local",
+        }
+      : undefined;
   const commit = await input.git.run(["commit", "--no-verify", "-m", input.message], {
     cwd: input.worktree,
     timeoutMs: 60_000,
+    env: identityEnv,
   });
   if (commit.code !== 0) return { ok: false, reason: commit.stderr || "git commit failed" };
   const sha = await input.git.run(["log", "-n", "1", "--format=%H"], { cwd: input.worktree });
@@ -66,9 +78,13 @@ export async function pushBranch(input: {
     { cwd: input.cwd, timeoutMs: 120_000 },
   );
   if (result.code === 0) return { ok: true, code: 0 };
-  const error = /auth|permission|denied/i.test(result.stderr)
+  const error = /auth|permission|denied|authentication/i.test(result.stderr)
     ? "AUTH_PUSH"
-    : "GIT_PUSH_NETWORK";
+    : /rejected|non-fast-forward|fetch first|stale info/i.test(result.stderr)
+      ? "GIT_PUSH_REJECTED"
+      : /timed out|timeout/i.test(result.stderr)
+        ? "GIT_TIMEOUT"
+        : "GIT_PUSH_NETWORK";
   return { ok: false, code: result.code, error };
 }
 

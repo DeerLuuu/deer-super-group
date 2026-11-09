@@ -72,7 +72,7 @@
 ```text
 pnpm typecheck   # exit 0
 pnpm build       # exit 0（vite + build-electron）
-pnpm test        # t111 change set 23 files / 330 tests；同步 origin/main（memory t99）后 28 files / 370 tests（t104 基线 22/316；Git 专项 36 + GitPanels loading 3）
+pnpm test        # t128 后 28 files / 390 tests；Git 专项 56（含 t111/t128）+ GitPanels loading 3（t111 23/330、t104 22/316 历史基线保留）
 ```
 
 Git 专项覆盖：GitExec 白名单/脱敏/真实命令；迁移 6 列/旧库；CommitGuard；worktree 创建/容量/defer/`.deer-git` 回退/finalize/清理；MergeQueue 批准/一次合并/三种 mergeMethod/冲突/本地 ready/幂等 enqueue；admission；Manual/Local/async provider；bare remote push；enterprise REST（mock fetch）；waive；崩溃 reconcile；kernel run.started sandbox 一致性/容量 defer；abort+finalize；ChecksRunner 成功/失败；squash 内容校验；Git 事件 type/schema。全部零网络。
@@ -83,33 +83,34 @@ Git 专项覆盖：GitExec 白名单/脱敏/真实命令；迁移 6 列/旧库�
 |-------|------|-----------|
 | AC-WT-01/02/03 | 已实现 | degraded 回退、branch/worktree、attempt 复用；Git 测试 |
 | AC-WT-04 | 已实现 | 3 槽容量 + kernel beforeStart defer（queued/attempt 0/无 Run）测试 |
-| AC-WT-05/06/07 | failed | 创建失败清理、no_changes/commit、reconcile 已实现；崩溃进程级夹具仅 reconcile 层，未做 OS kill 级 |
+| AC-WT-05/06/07 | passed（进程级） | AC-WT-05 创建失败→degraded 且无假 worktree；AC-WT-06 clean→`git.no_changes`+移除；AC-WT-07 child_process 真正终止 + stale lease + recover；完整 OS 重启列 P1 waiver（§9） |
 | AC-WT-08/09/10/11/16 | passed | realpath/lstat + symlink/junction 逃逸测试（AC-WT-08）；exclude、冲突分支、`.deer-git` 回退/清理 |
 | AC-WT-12/13/14/15 | passed | `scopePaths` 落库；AC-WT-13 cancel WIP/preserve 集成测试；AC-WT-14 stale reclaim（`git.worktree_reclaimed`）；AC-WT-15 busy defer |
 | AC-GIT-01 | passed | 29 行表驱动（§5.2.1 #1–#29）+ 危险变体拒绝；`git.test.ts` t111 AC-GIT-01 |
-| AC-GIT-02..13 | failed | commit/push/脱敏/无 shell/错误码与 PR-11 并发有测试；其余未逐条覆盖，真实 gh/企业 host 未集成 |
+| AC-GIT-02..13 | passed | t128 补 branch injection、CommitGuard、临时身份、非快进/网络 push、脱敏/safe URL、git 缺失/非根、恶意 hook、finalize 幂等、错误码快照；真实企业 host 列 P1 waiver |
 | AC-EVT-01/02/04/05 | passed | `emitGitEvent` 先 zod 校验再写 eventStore；34 type 注册 t68 registry；非法 payload 不落库测试 |
 | AC-MQ-06 | passed | mergeQueue.recover merged/conflict/unknown 夹具；approval/waiver 清理；二次 recover 不重复 |
-| AC-MQ-01..05/12 | failed | 队列/一次一个/checks/approved/merge 测试已有；未逐条覆盖 |
-| AC-MQ-05/08/09/10/11/13 | failed | 冲突任务、waive、tree 校验、local/manual ready、head 变化 reset 有实现但未逐条测试 |
+| AC-MQ-01..05/12 | passed | 一次一个、approval/auto_merge、checks failed、head reset、conflict 去重/上限 2、重复 enqueue/approve 测试 |
+| AC-MQ-05/08/09/10/11/13/14/15 | passed | conflict 去重、cancel、blocked 队首不跳过、merge event/task_vcs、squash/rebase tree 校验、waive 边界、head reset、failed 新 head→waiting_checks |
 | AC-PR-11 | passed | B3 RepoLock/DB 唯一占位 + 并发 createPr 返回同一 PR |
-| AC-PR-01..10 | failed | GitHub/Manual/Local、REST enterprise mock 有覆盖；真实网络/企业 host 未集成 |
+| AC-PR-01..10 | passed（mock host） | GitHub/Manual/Local、REST enterprise mock、401/403/429/5xx 映射、squash/merge/rebase flag、safe URL；真实网络/企业 host 列 P1 waiver（§9） |
 | AC-MIG-01/05/06 | passed | 表创建/迁移/旧库升级；AC-MIG-06 测试 |
 | AC-KRN-01..04/06/07 | passed | run.started sandbox、prepare cwd、defer、degraded、abort/finalize 测试 |
-| AC-KRN-05 | passed（模拟） | stale owner token finalize 拒绝、reclaim/busy 夹具；真实 kill -9 级仍为模拟 |
+| AC-KRN-05 | passed（进程级） | child_process 真启动/终止 + stale owner finalize 拒绝、reclaim；cancel WIP；完整 OS 重启列 P1 waiver（§9） |
 | AC-KRN-08/AC-TYPE-01 | passed | `git.test.ts` 类型探针（prepare 含 agentId、Git/Kernel 类型互赋、TaskVcs/MergeQueueItem/RepoDiagnostics 字段快照） |
-| UI/键盘/ARIA/窄屏 | passed（manual-only 细节见 §8） | t103 已挂载；t111 加 loading/aria-busy；SSR loading 测试 3 项；Esc/Tab/焦点环/窄屏用 mock fixture Electron 冒烟（手动例外） |
+| AC-UI-01..09 / 键盘/ARIA/窄屏 | waived（manual） | t103 mock fixture Electron 构建产物 + SSR loading 3 项；Esc/Tab/焦点/回焦/窄屏按 Captain waiver 标 waived/manual，不冒充 passed（§9） |
+| AC-UI-09 verifyIntegrated | waived（P1） | 无 electron/shared IPC 通道；后端 `verifyIntegrated` 已有，UI 按钮 P1 降级，MergeQueueModal 展示说明（§9） |
 
 ## 5. 遗留项 / 阻塞
 
 1. **UI 挂载（已关闭）**：t103 已接入 App/TeamDashboard；t111 增加 loading/aria-busy，详见 §8。
-2. **真实网络/企业 host（中）**：GitHub REST 用 mock fetch 验证 URL/解析；真实 gh、限流、企业 host 未集成测试。
-3. **AC 逐条覆盖（中）**：t111 已补 AC-GIT-01 29 行、AC-WT-08/13/14/15、AC-MQ-06、AC-KRN-08/AC-TYPE-01；AC-GIT-02..13/AC-MQ-01..12 其余条目仍未逐条；OS kill 级真实进程夹具仍为模拟。
+2. **真实网络/企业 host（P1 waiver）**：GitHub REST 用 mock enterprise host 覆盖 401/403/429/5xx 与 merge 方法映射；真实 gh/企业网络列 P1（Captain waiver 见 §9）。
+3. **AC 逐条覆盖（已关闭于 t128）**：AC-GIT-01 29 行、AC-GIT-02..13、AC-WT-05/06/07/08/13/14/15、AC-MQ-01..15、AC-PR-01..11、AC-KRN-05/08、AC-TYPE-01 均有测试/进程级证据；UI 键盘/窄屏与 verifyIntegrated 按 Captain waiver 标 waived/manual（§9）。
 4. **事件注册（已关闭）**：`emitGitEvent` 已注册 34 个 Git type 到 t68 eventRegistry，所有 Git 写入点统一走 zod + schemaVersion=2。
 5. **kernel 跨切面改动（流程）**：`src/kernel/execution/kernel.ts` 的 30 行 environment hook 不在 t102 原始 in-scope 列表，但为 run.started/投影一致所必需；请评审确认接受或调整 scope。
-6. **local/manual verifyIntegrated（P1 降级）**：后端 `verifyIntegrated` 已有，但 t111 outOfScope 含 electron/shared IPC，无法为 UI 新增通道；本任务显式降级为 P1（接受记录见 §8.4），MergeQueueModal 对 local/manual ready 只展示说明。
+6. **local/manual verifyIntegrated（P1 waiver）**：后端 `verifyIntegrated` 已有，但 t128 outOfScope 含 electron/shared IPC，无法为 UI 新增通道；Captain 已接受 P1 降级（§9），MergeQueueModal 对 local/manual ready 只展示说明。
 7. **PR 并发幂等（已关闭）**：B3 用 RepoLock + DB 事务占位 + 唯一键，补并发 createPr 测试。
-8. **合并锁（未完成）**：队列单进程一次一个；多实例/崩溃租约 fencing 仍未完整实现。
+8. **合并锁（部分）**：队列单进程一次一个；多实例/崩溃租约 fencing 仍为 P1（§9）。
 
 ## 6. 回滚
 
@@ -227,7 +228,7 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 
 ### 8.7 F8/F9
 
-- F8：§3 已更新为 t111 实测 **23 files / 330 tests**（t104 基线 22/316；Git 专项 36 + GitPanels 3）；`branch:sync` 吸收 origin/main 的 memory t99 后为 28 files / 370 tests，Git 专项与 t111 新增均保持通过。
+- F8：§3 已更新为 t128 实测 **28 files / 390 tests**（Git 专项 56 + GitPanels 3；t111 23/330、t104 基线 22/316 保留为历史）；t128 新增 AC-MQ/GIT/Provider/进程级测试全部通过。
 - F9：local/manual `verifyIntegrated` **P1 降级**。原因：t111 outOfScope 含 `electron/` 与 `src/shared/ipc.ts`，无法在不越界的情况下新增 `verifyIntegrated` IPC；真实调用后端已有但 UI 不提供按钮。MergeQueueModal 对 local/manual ready 展示说明，验收记录在本节与 §5.6；后续由独立 IPC/UI 任务提供。
 
 ### 8.8 验证
@@ -236,21 +237,41 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 |---|---|
 | `pnpm typecheck` | ✅ 0 |
 | `pnpm build` | ✅ 0（393 modules；css 202.22 kB / gzip 22.60；js 1,085.33 kB / gzip 298.16；electron main 1.1mb、preload 4.9kb） |
-| `pnpm test` | ✅ 0（t111 change set 23 文件 / 330 用例；同步 origin/main 后 28 文件 / 370 用例；Git 专项 36 + GitPanels 3） |
+| `pnpm test` | ✅ 0（28 文件 / 390 用例；Git 专项 56 + GitPanels 3；t111 23/330、t104 22/316 为历史基线） |
 
-### 8.9 改动文件（t111）
+### 8.9 改动文件（t111/t128）
 
 ```text
-src/git/worktreeManager.ts   B1 realpath/lstat + fencing token + reclaimed event
-src/git/events.ts            B2 emitGitEvent + 34 type registry + schema fixes
-src/git/gitService.ts        B3 ensurePullRequest + B4 finalize fencing + payload fixes
-src/git/mergeQueue.ts        B2 emit + F6 recover conflict/unknown cleanup
-src/git/ui/GitPanels.tsx     F7 loading/aria-busy + local/manual P1 note
-src/git/git.test.ts          B1–B4/F5/F6/AC tests
+src/git/worktreeManager.ts   B1 realpath/lstat + fencing token + reclaimed event（t111）
+src/git/events.ts            B2 emitGitEvent + 34 type registry + schema fixes（t111）
+src/git/gitService.ts        B3 ensurePullRequest + B4 finalize fencing + no_changes（t111/t128）
+src/git/mergeQueue.ts        B2 emit + F6 recover + cancel/no-skip/head reset（t111/t128）
+src/git/branchOps.ts         t128 push error mapping + temp commit identity
+src/git/providers.ts         t128 mock-host/Safe URL/rest error mapping + injectable gh runner
+src/git/ui/GitPanels.tsx     F7 loading/aria-busy + local/manual P1 note（t111）
+src/git/git.test.ts          B1–B4/F5/F6 + t128 AC-GIT/MQ/PR/process tests
+src/git/fixtures/stale-lease-holder.cjs  t128 child_process kill fixture
 src/git/ui/GitPanels.test.tsx F7 SSR loading tests
 docs/team/git-parallel-implementation.md
 ```
 
 未改 `src/kernel/`、`electron/`、`src/SettingsView.tsx`、`src/memory/`、`dist*`。
+
+## 9. t128 repair-round-3：Captain waiver 与 AC 闭环
+
+Captain 对 t112 的 F1–F7 逐项批准以下 waiver/例外（t128 记录）：
+
+1. **进程级证据**：接受 `child_process` 真启动/终止 + stale lease/token 断言作为 AC-WT-05/06/07、AC-KRN-05 的进程级证据；完整 OS 重启恢复列 P1。`src/git/fixtures/stale-lease-holder.cjs` 由测试真正 spawn/kill，旧 owner finalize 拒绝且 `recover()` 回收。
+2. **真实网络/企业 host**：接受 mock 企业 host 覆盖 AC-PR-01..10；真实 gh/企业网络列 P1。t128 新增 mock host 401/403/429/5xx、REST header/token、squash/merge/rebase flag 测试；不把真实网络伪装成通过。
+3. **UI/键盘与 P1**：仓库未引入 jsdom/RTL；Esc/Tab/回焦/窄屏保留 t103 mock fixture Electron 截图 + t111 SSR loading 证据，AC-UI 条目在 §4 标 **waived（manual）**，不冒充 passed。`verifyIntegrated` UI 因 t128 outOfScope 含 `electron/`/`src/shared/ipc.ts` 无法新增通道，标 **waived（P1）**；后端已有 API，MergeQueueModal 对 local/manual ready 展示说明。
+
+剩余非 waiver 的本地 AC 已补测试并通过：
+- AC-WT-05 创建失败无假 worktree；AC-WT-06 clean `git.no_changes`；AC-WT-07 child_process stale lease/recover；
+- AC-GIT-02 branch injection、03 CommitGuard、04 临时身份、05/06 非快进/网络 push、07 脱敏、08 safe URL、09/10 git 缺失/非根、11 恶意 hook、12 finalize 幂等、13 错误码快照；
+- AC-MQ-01/02a/02b/03/04/05/06/07/08/09/10/11/12/13/14/15 表驱动/集成；
+- AC-PR-01..11 mock host + B3 并发；AC-KRN-05/08、AC-TYPE-01。
+
+验证见 §3/§8.8：`pnpm typecheck` 0、`pnpm build` 0、`pnpm test` 0（28 文件 / 390 用例；Git 专项 56 + GitPanels 3）。
+
 
 
