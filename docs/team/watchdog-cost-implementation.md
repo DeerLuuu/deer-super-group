@@ -21,17 +21,17 @@
 | 预算/降级 | task/agent/workspace 预算、soft/hard、pause/stop、启动前拦截、运行中 hard 暂停；fallback 链/provider-model 两级冷却 |
 | API/IPC | Watchdog snapshot/costs/handoff/ack/resolve/releaseHold/setBudget/setFallback/health；main/preload/DeerApi |
 | UI | 独立 `WatchdogPanel`/`BudgetBar`/`WatchdogAlertBanner`/`RunHandoffCard`（ARIA progressbar/alert/live、窄窗 class）；组件测试 |
-| 测试 | watchdog 10 例 + 既有 439，共 **449**；fake clock/重建/预算/暂时租约/切换成员/UI |
+| 测试 | watchdog 10 例 + 既有 463，共 **473**；fake clock/重建/预算/暂时租约/切换成员/UI |
 
 **验证数字（本地 HEAD）**：
 
 ```
 pnpm typecheck  # exit 0
 pnpm build      # exit 0
-pnpm test       # 33 files / 449 tests passed
+pnpm test       # 37 files / 473 tests passed
 ```
 
-构建：`dist/assets/index-N5jaE34o.js 1,157.56 kB (gzip 318.11)`，CSS 218.10 kB；`dist-electron/main.cjs 1.3 MB`。
+构建（同步 main 后）：`dist/assets/index-P3Cg1UT5.js 1,174.82 kB (gzip 322.50)`，CSS 222.60 kB；`dist-electron/main.cjs 1.4 MB`。
 
 ---
 
@@ -190,7 +190,7 @@ docs/team/watchdog-cost-implementation.md
 | 冷却 | provider/model + `*` 两级；过期边界（set/isCooling） |
 | 重建 | kernel.rebuildProjections 后 hold/autoInterventions/handoff 保留 |
 | UI | 预算 progressbar/aria-valuenow、critical role=alert、确认/恢复按钮 |
-| 既有回归 | 439 tests（Git/记忆/权限/审批/画布/调度/Poll 等）全绿 |
+| 既有回归 | 463 tests（Git/记忆/权限/审批/画布/调度/Poll 等）全绿；合计 473 |
 
 ---
 
@@ -205,7 +205,7 @@ docs/team/watchdog-cost-implementation.md
 7. **watchdog 自身 deadman** 为本地 last_tick 检测（单进程限制）；外置 supervisor 属后续。
 8. **预算 soft 仅 warning 事件/UI**，不自动暂停（hard 才暂停）。
 9. **历史 Run 成本不回填**，UI 标 legacy unknown；ledger 仅新 Run。
-10. **测试基线** 449；若后续 App 集成新增 UI 测试，数字会变化。
+10. **测试基线** 473；若后续 App 集成新增 UI 测试，数字会变化。
 
 ---
 
@@ -214,7 +214,7 @@ docs/team/watchdog-cost-implementation.md
 ```
 pnpm typecheck   # exit 0
 pnpm build       # exit 0（vite 33? modules；js 1,157.56 kB gzip 318.11；electron main 1.3 MB）
-pnpm test        # exit 0（33 files / 449 tests）
+pnpm test        # exit 0（37 files / 473 tests）
 ```
 
 （HEAD 以 PR 提交为准；同步 main 后若 CI 环境变化，以 PR 检查为准。）
