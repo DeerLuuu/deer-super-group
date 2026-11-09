@@ -4668,6 +4668,260 @@ label.check input {
   }
 }
 
+/* t103：Git 面板挂载（任务详情 / 设置 / 合并队列）。token-only，无裸色。 */
+.task-git-section {
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  outline: none;
+}
+
+.task-git-section:focus-visible,
+.settings-git-block:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.settings-git-block {
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 16px;
+  outline: none;
+}
+
+.settings-git-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.settings-git-heading p {
+  margin: 4px 0 0;
+  max-width: 70ch;
+}
+
+.git-vcs-panel {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+}
+
+.git-vcs-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.git-vcs-panel h3,
+.git-settings h3 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.git-vcs-panel > header button {
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  min-width: 24px;
+  min-height: 24px;
+  cursor: pointer;
+}
+
+.git-vcs-panel dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.git-vcs-panel dt {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.git-vcs-panel dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.git-vcs-panel dd code {
+  font-size: 11px;
+}
+
+.git-vcs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.git-vcs-actions button,
+.git-settings button {
+  border: 1px solid var(--border-2);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.git-vcs-actions button:disabled,
+.git-settings button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.git-settings label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.git-settings label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.git-settings h3,
+.git-settings > [role="alert"],
+.git-settings > [role="status"] {
+  grid-column: 1 / -1;
+}
+
+.git-settings input,
+.git-settings select {
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font: inherit;
+  min-width: 0;
+}
+
+.git-settings input[type="checkbox"] {
+  width: auto;
+}
+
+.git-queue-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+
+.git-queue-modal {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 18px 60px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+
+.git-queue-modal > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.git-queue-modal h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.git-queue-modal > header button {
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  min-width: 28px;
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.git-queue-modal [role="alert"] {
+  border-left: 3px solid var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.git-queue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.git-queue-list li {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.git-queue-list li[aria-current="true"] {
+  border-color: var(--accent);
+}
+
+.git-queue-list li > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.git-queue-list label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.git-queue-list input {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font: inherit;
+  min-width: 0;
+}
+
+.git-queue-list button {
+  border: 1px solid var(--border-2);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.git-queue-list button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ========================================================================
    t69：调度 / Run 可观测 UI
    ======================================================================== */
@@ -4699,6 +4953,51 @@ label.check input {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.team-detail-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .git-queue-backdrop {
+    padding: 8px;
+  }
+
+  .git-queue-modal {
+    width: 100% !important;
+    max-height: 92vh;
+  }
+
+  .settings-git-block {
+    padding: 12px;
+  }
+}
+
+/* t103 窄任务面板：Git 区不得产生横向滚动 */
+.task-detail-panel {
+  overflow-x: hidden;
+}
+
+.task-git-section,
+.git-vcs-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.git-vcs-actions button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.task-detail-panel .trace {
+  overflow-x: hidden;
+}
+
+.task-detail-panel .trace-body {
+  max-width: 100%;
 }
 
 /* ---------- tasks layout：调度栏占满整行 ---------- */

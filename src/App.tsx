@@ -28,6 +28,11 @@ import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
 import KernelAnnouncer from "./KernelAnnouncer";
 import ChatContent from "./ChatContent";
+import {
+  GitSettingsPanel,
+  MergeQueueModal,
+  TaskVcsPanel,
+} from "./git/ui/GitPanels";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
 import {
   answerAlreadySent,
@@ -135,6 +140,13 @@ function payloadText(payload: unknown): string {
   }
 }
 
+/** t103：只滚动最近的滚动容器，避免 scrollIntoView 把整个窗口带偏。 */
+function scrollWithin(container: HTMLElement, target: HTMLElement) {
+  const delta =
+    target.getBoundingClientRect().top - container.getBoundingClientRect().top;
+  container.scrollTop += delta;
+}
+
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -163,6 +175,11 @@ export default function App() {
   const [settingsReturnTab, setSettingsReturnTab] = useState<Tab>(() =>
     initialRoute.tab === "settings" ? "chat" : initialRoute.tab,
   );
+  // t103：Git 入口——合并队列 Modal、设置 Modal 内 Git 区聚焦、任务详情 VCS 区聚焦。
+  const [mergeQueueOpen, setMergeQueueOpen] = useState(false);
+  const [gitSettingsFocus, setGitSettingsFocus] = useState(false);
+  const [taskVcsFocus, setTaskVcsFocus] = useState(false);
+  const settingsGitRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -276,6 +293,8 @@ export default function App() {
         return;
       }
       setSettingsOpen(false);
+      setGitSettingsFocus(false);
+      if (key !== "tasks") setTaskVcsFocus(false);
       setPanelMenuOpen(false);
       const route = routeTabFromPanel(key);
       if (route) setTab(route);
@@ -295,6 +314,7 @@ export default function App() {
 
   function closeSettings() {
     setSettingsOpen(false);
+    setGitSettingsFocus(false);
     const back = settingsReturnTab === "settings" ? "chat" : settingsReturnTab;
     setTab(back);
     dockRef.current?.openPanel(back);
@@ -339,6 +359,9 @@ export default function App() {
       board: selectedBoard,
       // t69：只在 Run 面板激活时写 r，避免任务页内联 Run 历史污染深链。
       run: activePanelKey === "runs" ? selectedRunId : null,
+      mergeQueue: mergeQueueOpen,
+      gitSettings: gitSettingsFocus,
+      taskVcs: taskVcsFocus && Boolean(selectedTaskId),
     });
     if (window.location.hash === hash) return;
     lastWrittenHashRef.current = hash;
@@ -356,12 +379,41 @@ export default function App() {
     selectedBoard,
     selectedRunId,
     activePanelKey,
+    mergeQueueOpen,
+    gitSettingsFocus,
+    taskVcsFocus,
   ]);
+
+  // t103：深链/命令 → 滚动并聚焦设置 Git 区或任务 VCS 区。
+  useEffect(() => {
+    if (!gitSettingsFocus || !settingsOpen) return;
+    const timer = window.setTimeout(() => {
+      const target = settingsGitRef.current;
+      if (!target) return;
+      const modal = target.closest<HTMLElement>(".settings-modal");
+      if (modal) scrollWithin(modal, target);
+      else target.scrollIntoView({ block: "start" });
+      target.focus({ preventScroll: true });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [gitSettingsFocus, settingsOpen]);
+
+  useEffect(() => {
+    if (!taskVcsFocus || !selectedTaskId) return;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById("task-git-section");
+      if (!target) return;
+      const panel = target.closest<HTMLElement>(".task-detail-panel");
+      if (panel) scrollWithin(panel, target);
+      else target.scrollIntoView({ block: "start" });
+      target.focus({ preventScroll: true });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [taskVcsFocus, selectedTaskId]);
 
   // C09：窄窗自动折叠侧栏；Ctrl/⌘+B 手动切换。
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 1100px)");
-    let wasNarrow = query.matches;
+    const query = window.matchMedia("(max-width: 1100px)");    let wasNarrow = query.matches;
     if (query.matches) {
       setSidebarCollapsed(true);
       localStorage.setItem("deer.sidebarCollapsed", "1");
@@ -586,6 +638,14 @@ export default function App() {
     }
     if (initialRoute.message) setSelectedMessageId(initialRoute.message);
     if (initialRoute.board) setSelectedBoard(initialRoute.board);
+    // t103：Git 入口深链（合并队列 / 设置 Git 区 / 任务 VCS）。
+    setMergeQueueOpen(initialRoute.mergeQueue);
+    if (initialRoute.gitSettings) {
+      setSettingsOpen(true);
+      setTab("settings");
+      setGitSettingsFocus(true);
+    }
+    setTaskVcsFocus(initialRoute.taskVcs);
   }, [snapshot, initialRoute, loadTrace, loadRuns]);
 
   // C12：浏览器前进/后退或外部 hash 变更 → 恢复视图（自己写入的 hash 跳过）。
@@ -622,6 +682,16 @@ export default function App() {
       setContextSource(route.chatTask ? "tasks" : null);
       setSelectedMessageId(route.message);
       setSelectedBoard(route.board);
+      // t103：Git 入口深链。设置页没有 git=1 时关闭 Git 聚焦，避免残留。
+      setMergeQueueOpen(route.mergeQueue);
+      if (route.gitSettings) {
+        setSettingsOpen(true);
+        setTab("settings");
+        setGitSettingsFocus(true);
+      } else {
+        setGitSettingsFocus(false);
+      }
+      setTaskVcsFocus(route.taskVcs);
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -1453,8 +1523,52 @@ export default function App() {
     openPanel(target);
   }
 
+  // t103：Git 入口（命令面板 / 团队页 / 深链共用）。
+  function handleOpenMergeQueue() {
+    if (tab === "settings") {
+      setSettingsOpen(false);
+      setGitSettingsFocus(false);
+    }
+    if (tab !== "tasks" && tab !== "team") {
+      setTab("tasks");
+      dockRef.current?.openPanel("tasks");
+    }
+    setMergeQueueOpen(true);
+  }
+
+  function handleOpenGitSettings() {
+    if (tab !== "settings") setSettingsReturnTab(tab);
+    setSettingsOpen(true);
+    setTab("settings");
+    setGitSettingsFocus(true);
+  }
+
+  function handleOpenTaskVcs(taskId?: string | null) {
+    const targetId = taskId ?? selectedTaskId ?? snapshotRef.current?.tasks[0]?.id ?? null;
+    if (!targetId) {
+      pushToast({ kind: "error", message: "先在任务页选择一个任务，再查看 Git 状态。" });
+      return;
+    }
+    setSelectedTaskId(targetId);
+    void loadTrace(targetId);
+    openPanel("tasks");
+    setTaskVcsFocus(true);
+  }
+
   // t50：命令面板「面板」组动作 → DockHandle。
   function handlePanelAction(action: PanelAction) {
+    if (action === "open-merge-queue") {
+      handleOpenMergeQueue();
+      return;
+    }
+    if (action === "open-git-settings") {
+      handleOpenGitSettings();
+      return;
+    }
+    if (action === "open-task-vcs") {
+      handleOpenTaskVcs();
+      return;
+    }
     const dock = dockRef.current;
     if (!dock) return;
     switch (action) {
@@ -1972,6 +2086,8 @@ export default function App() {
                       onOpenRuns={(taskId) =>
                         openRunsPanel(taskId ?? selectedTaskId, null)
                       }
+                      onOpenMergeQueue={handleOpenMergeQueue}
+                      onOpenTaskGit={(taskId) => handleOpenTaskVcs(taskId)}
                     />
                   );
                 case "runs":
@@ -2133,7 +2249,7 @@ export default function App() {
       {settingsOpen && snapshot && (
         <Modal
           title="设置"
-          description="模型、插件、MCP、Skills 与团队"
+          description="模型、插件、MCP、Skills、团队与 Git"
           onClose={closeSettings}
           className="settings-modal"
         >
@@ -2143,7 +2259,31 @@ export default function App() {
             onSave={handleSaveSettings}
             onReload={() => void refresh(snapshot.workspace.id)}
           />
+          <div
+            ref={settingsGitRef}
+            id="settings-git"
+            className="settings-git-block"
+            tabIndex={-1}
+          >
+            <div className="settings-git-heading">
+              <div>
+                <div className="section-label">Git 开发</div>
+                <p className="muted tiny">
+                  仓库模式、分支/PR、worktree 容量与合并方式。Token 只来自 gh 登录或环境变量，不在此处输入或展示。
+                </p>
+              </div>
+            </div>
+            <GitSettingsPanel workspaceId={snapshot.workspace.id} />
+          </div>
         </Modal>
+      )}
+
+      {snapshot && (
+        <MergeQueueModal
+          workspaceId={snapshot.workspace.id}
+          open={mergeQueueOpen}
+          onClose={() => setMergeQueueOpen(false)}
+        />
       )}
 
       {/* t64：模型提问表单弹窗（不嵌套：风险审批优先，审批期间不渲染问题弹窗） */}
@@ -2964,6 +3104,14 @@ function TasksView({
                 <div className="section-label">摘要</div>
                 <p className="detail-text">{selectedTask.summary || "（尚未完成）"}</p>
               </div>
+            </div>
+
+            <div
+              className="task-git-section"
+              id="task-git-section"
+              tabIndex={-1}
+            >
+              <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} />
             </div>
 
             <RunHistory

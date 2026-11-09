@@ -45,6 +45,8 @@ export default function TeamDashboard({
   onUpdate,
   onOpenTask,
   onOpenTaskPage,
+  onOpenMergeQueue,
+  onOpenTaskGit,
   scheduler,
   onOpenRuns,
 }: {
@@ -63,6 +65,9 @@ export default function TeamDashboard({
   onOpenTask: (taskId: string) => void;
   /** S04：星图浮窗「在任务页打开」。 */
   onOpenTaskPage: (taskId: string) => void;
+  /** t103：团队页 Git 入口。 */
+  onOpenMergeQueue: () => void;
+  onOpenTaskGit: (taskId: string) => void;
   /** t69：调度快照（团队进度/排队段与运行面板联动）。 */
   scheduler?: SchedulerSnapshot | null;
   /** t69：打开运行面板；可带选中任务。 */
@@ -151,6 +156,7 @@ export default function TeamDashboard({
         stats={stats}
         scheduler={scheduler ?? null}
         onOpenRuns={() => onOpenRuns(selectedTaskId)}
+        onOpenMergeQueue={onOpenMergeQueue}
       />
 
       <div className="team-middle">
@@ -268,21 +274,31 @@ export default function TeamDashboard({
                 <strong>{selectedTask.title}</strong>
                 <span className="muted tiny mono">{selectedTask.id}</span>
               </div>
-              <button
-                type="button"
-                className="primary small"
-                onClick={() => onOpenTask(selectedTask.id)}
-              >
-                打开任务会话
-              </button>
-              <button
-                type="button"
-                className="ghost small"
-                onClick={() => onOpenRuns(selectedTask.id)}
-                title="在运行面板查看该任务的 Run 历史与时间线"
-              >
-                运行详情
-              </button>
+              <div className="team-detail-head-actions">
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => onOpenTaskGit(selectedTask.id)}
+                  title="在任务页查看该任务的分支、PR、检查与合并状态"
+                >
+                  Git 状态
+                </button>
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => onOpenRuns(selectedTask.id)}
+                  title="在运行面板查看该任务的 Run 历史与时间线"
+                >
+                  运行详情
+                </button>
+                <button
+                  type="button"
+                  className="primary small"
+                  onClick={() => onOpenTask(selectedTask.id)}
+                >
+                  打开任务会话
+                </button>
+              </div>
             </div>
             <div className="team-detail-body">
               <div className="team-detail-description">
@@ -347,6 +363,7 @@ function ProgressHeader({
   stats,
   scheduler,
   onOpenRuns,
+  onOpenMergeQueue,
 }: {
   stats: {
     total: number;
@@ -360,6 +377,7 @@ function ProgressHeader({
   };
   scheduler: SchedulerSnapshot | null;
   onOpenRuns: () => void;
+  onOpenMergeQueue: () => void;
 }) {
   function percent(value: number): string {
     return stats.total === 0 ? "0%" : `${(value / stats.total) * 100}%`;
@@ -387,6 +405,14 @@ function ProgressHeader({
                   ? `运行中 ${activeRuns} · 排队 ${stats.queued}`
                   : `排队 ${stats.queued}`}
             </span>
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={onOpenMergeQueue}
+              title="打开合并队列（串行合并、检查与冲突处理）"
+            >
+              合并队列
+            </button>
             <button
               type="button"
               className="ghost tiny"

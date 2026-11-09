@@ -58,6 +58,8 @@ import {
   type RunExecutionContext,
   type RunExecutionResult,
 } from "./execution/kernel.js";
+import { GitService } from "../git/gitService.js";
+import type { FinalizeRunInput } from "../git/types.js";
 
 const PERMISSION_MODES: PermissionMode[] = [
   "read_only",
@@ -175,6 +177,8 @@ export class AppService {
   private readonly chatAborts = new Map<string, AbortController>();
   /** t68：执行内核（事件/状态机/调度/重试/恢复）。 */
   private readonly kernel: ExecutionKernel;
+  /** t96：Git 并行开发（worktree/PR/合并队列）；与内核通过 service 包装协作。 */
+  readonly git: GitService;
   /**
    * DESIGN §15.4：Full Throttle 会话级状态（key = `workspaceId:agentId`）。
    * 仅会话级：不持久化、不写回 Agent 默认值、不随应用启动恢复；Agent 无工具可自行开启。
@@ -201,10 +205,17 @@ export class AppService {
         }
       }
     });
+    this.git = new GitService({ dataDir, store: this.store });
     this.kernel = new ExecutionKernel({
       store: this.store,
       dataDir,
       executor: (ctx) => this.executeRun(ctx),
+      hooks: {
+        // Git admission runs before the kernel creates a Run. A capacity
+        // miss returns false; the task stays queued with nextRunAt and its
+        // attempt is not consumed (kernel G3 defer semantics, wrapper form).
+        beforeStart: (info) => this.git.beforeStart(info),
+      },
     });
   }
 
@@ -229,6 +240,7 @@ export class AppService {
   }
 
   close(): void {
+    this.git.close();
     this.kernel.dispose();
     this.store.close();
   }
@@ -377,12 +389,16 @@ export class AppService {
 
   createTask(input: CreateTaskInput): Task {
     if (!input.title.trim()) throw new Error("task title is required");
-    return this.store.createTask({
+    const task = this.store.createTask({
       workspaceId: input.workspaceId,
       title: input.title.trim(),
       description: input.description,
       acceptance: input.acceptance.filter(Boolean),
     });
+    if (input.scopePaths?.length) {
+      this.git.recordScope(task.id, input.workspaceId, input.scopePaths);
+    }
+    return task;
   }
 
   getSnapshot(workspaceId: string): Snapshot {
@@ -1171,6 +1187,29 @@ export class AppService {
 
   /** 内核执行器：一次 Run 的 LLM/工具执行（不含生命周期/状态写入，由 kernel 负责）。 */
   private async executeRun(ctx: RunExecutionContext): Promise<RunExecutionResult> {
+    const { run, task, agent } = ctx;
+    // The beforeStart hook prepared the runtime worktree synchronously and the
+    // kernel wrote it into run.started/run projection; consume it here.
+    const worktreePath = run.sandboxId?.startsWith("git:") ? run.sandboxId.slice(4) : null;
+    const finalize = (status: FinalizeRunInput["status"]) => {
+      void this.git.finalizeRun({ runId: run.id, taskId: task.id, status }).catch(() => {
+        // Git finalization must never change kernel terminal state
+      });
+    };
+    try {
+      const result = await this.executeRunCore(ctx, worktreePath);
+      finalize(ctx.signal.aborted ? "cancelled" : "completed");
+      return result;
+    } catch (error) {
+      finalize(ctx.signal.aborted ? "cancelled" : "failed");
+      throw error;
+    }
+  }
+
+  private async executeRunCore(
+    ctx: RunExecutionContext,
+    worktreeOverride: string | null,
+  ): Promise<RunExecutionResult> {
     const { run, task, agent, signal, heartbeat, checkpoint, waitingHuman, resumeHuman } = ctx;
     const workspace = this.store.getWorkspace(task.workspaceId);
     if (!workspace) throw new Error("workspace not found");
@@ -1188,7 +1227,7 @@ export class AppService {
     const toolContext: ToolContext = {
       workspaceId: workspace.id,
       workspacePath: workspace.path,
-      worktreePath: workspace.path,
+      worktreePath: worktreeOverride ?? workspace.path,
       taskId: task.id,
       runId: run.id,
       agentId: agent.id,
