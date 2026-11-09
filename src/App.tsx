@@ -49,6 +49,16 @@ import {
 
 type Tab = RouteTab;
 
+/** 侧栏「面板」启动器：设置独立为弹窗，不在此列。 */
+const PANEL_LAUNCHER_KEYS: PanelKey[] = [
+  "chat",
+  "tasks",
+  "team",
+  "mailbox",
+  "board",
+  "context",
+];
+
 // C10：Router 页并入对话（概述）与任务（规划），导航 7→6。
 const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "tasks", label: "任务", hint: "查看任务、规划目标、运行与回看 trace" },
@@ -130,6 +140,8 @@ export default function App() {
   // C11：命令面板与「＋新建」菜单。
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [panelMenuOpen, setPanelMenuOpen] = useState(false);
+  const [openPanelKeys, setOpenPanelKeys] = useState<PanelKey[]>([]);
   const [createIntent, setCreateIntent] = useState<CreateIntent | null>(null);
   // C12：邮箱 / 黑板选中项提升到 App，进入 hash 深链。
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -171,12 +183,21 @@ export default function App() {
         return;
       }
       setSettingsOpen(false);
+      setPanelMenuOpen(false);
       const route = routeTabFromPanel(key);
       if (route) setTab(route);
       dockRef.current?.openPanel(key);
     },
     [tab],
   );
+
+  function togglePanelMenu() {
+    if (!panelMenuOpen) {
+      setOpenPanelKeys(dockRef.current?.getOpenPanelKeys() ?? []);
+    }
+    setCreateMenuOpen(false);
+    setPanelMenuOpen((open) => !open);
+  }
 
   function closeSettings() {
     setSettingsOpen(false);
@@ -1067,8 +1088,14 @@ export default function App() {
 
         <div className="sidebar-actions">
           {!sidebarCollapsed && <div className="section-label">操作</div>}
-          {createMenuOpen && (
-            <div className="menu-backdrop" onClick={() => setCreateMenuOpen(false)} />
+          {(createMenuOpen || panelMenuOpen) && (
+            <div
+              className="menu-backdrop"
+              onClick={() => {
+                setCreateMenuOpen(false);
+                setPanelMenuOpen(false);
+              }}
+            />
           )}
           <button
             type="button"
@@ -1083,7 +1110,10 @@ export default function App() {
             <button
               type="button"
               className="primary small sidebar-action"
-              onClick={() => setCreateMenuOpen((open) => !open)}
+              onClick={() => {
+                setPanelMenuOpen(false);
+                setCreateMenuOpen((open) => !open);
+              }}
               aria-expanded={createMenuOpen}
               aria-haspopup="menu"
               title="新建"
@@ -1116,6 +1146,45 @@ export default function App() {
             <span className="sidebar-action-icon">↻</span>
             <span className="sidebar-action-label">刷新</span>
           </button>
+          <div className="panel-menu-wrap">
+            <button
+              type="button"
+              className="ghost small sidebar-action"
+              onClick={togglePanelMenu}
+              aria-expanded={panelMenuOpen}
+              aria-haspopup="menu"
+              title="面板：打开或聚焦面板"
+            >
+              <span className="sidebar-action-icon">▦</span>
+              <span className="sidebar-action-label">面板</span>
+            </button>
+            {panelMenuOpen && (
+              <div className="panel-menu" role="menu" aria-label="面板">
+                <div className="panel-menu-head">
+                  <span>面板</span>
+                  <span className="muted tiny">点击打开 / 聚焦</span>
+                </div>
+                {PANEL_LAUNCHER_KEYS.map((key) => {
+                  const def = PANEL_DEFS[key];
+                  const isOpen = openPanelKeys.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      role="menuitem"
+                      className={`panel-menu-item ${isOpen ? "is-open" : ""}`}
+                      onClick={() => openPanel(key)}
+                    >
+                      <span className="panel-menu-title">{def.title}</span>
+                      <span className="panel-menu-state">
+                        {isOpen ? "已打开" : "打开"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="ghost small sidebar-action"
@@ -1155,7 +1224,8 @@ export default function App() {
               <kbd>Ctrl B</kbd> 折叠侧栏 · <kbd>Alt 1–6</kbd> 快速切换。
             </p>
             <p className="muted tiny">
-              设置已独立为弹窗：点击左侧 <kbd>⚙</kbd> 打开。
+              设置已独立为弹窗：点击左侧 <kbd>⚙</kbd> 打开；关闭的面板可从{" "}
+              <kbd>▦</kbd> 面板按钮重新打开。
             </p>
           </div>
         )}

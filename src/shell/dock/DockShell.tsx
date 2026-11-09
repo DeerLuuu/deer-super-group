@@ -44,6 +44,7 @@ import {
 
 export type DockHandle = {
   openPanel: (key: PanelKey) => void;
+  getOpenPanelKeys: () => PanelKey[];
   closeActivePanel: () => void;
   resetLayout: () => void;
   resetAllLayouts: () => void;
@@ -310,6 +311,9 @@ export default forwardRef<DockHandle, {
         ensurePanel(api, key);
       }
       api.getPanel(key)?.api.setActive();
+    },
+    getOpenPanelKeys() {
+      return (apiRef.current?.panels.map((panel) => panel.id as PanelKey) ?? []);
     },
     closeActivePanel() {
       const api = apiRef.current;
