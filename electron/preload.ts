@@ -23,6 +23,12 @@ import type {
   MemorySnapshotOptions,
   MemoKind,
 } from "../src/memory/types.js";
+import type {
+  CastPollRequest,
+  ClosePollRequest,
+  CreatePollRequest,
+  PollStatus,
+} from "../src/shared/poll.js";
 
 const api: DeerApi = {
   listWorkspaces: () => ipcRenderer.invoke("workspace:list"),
@@ -181,6 +187,14 @@ const api: DeerApi = {
   setWatchdogFallback: (input: SetFallbackChainInput) =>
     ipcRenderer.invoke("watchdog:setFallback", input),
   getWatchdogHealth: () => ipcRenderer.invoke("watchdog:health"),
+  listPolls: (workspaceId: string, status?: PollStatus) =>
+    ipcRenderer.invoke("poll:list", workspaceId, status),
+  getPoll: (workspaceId: string, pollId: string) => ipcRenderer.invoke("poll:get", workspaceId, pollId),
+  createPoll: (input: CreatePollRequest) => ipcRenderer.invoke("poll:create", input),
+  castPoll: (workspaceId: string, input: CastPollRequest) =>
+    ipcRenderer.invoke("poll:cast", workspaceId, input),
+  closePoll: (workspaceId: string, input: ClosePollRequest) =>
+    ipcRenderer.invoke("poll:close", workspaceId, input),
   onChatEvent: (listener: (event: ChatEvent) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: ChatEvent) => listener(payload);
     ipcRenderer.on("chat:event", wrapped);

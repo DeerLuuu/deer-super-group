@@ -3584,6 +3584,125 @@ label.check input {
     grid-template-columns: 1fr;
   }
 }
+/* ---------- t136 Poll ---------- */
+.poll-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.poll-subtitle { font-size: 11px; margin-top: 2px; }
+.poll-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px 0;
+}
+.poll-status { min-height: 18px; padding: 4px 14px; font-size: 11px; color: var(--muted); }
+.poll-error { margin: 0 14px 8px; display: flex; justify-content: space-between; gap: 12px; }
+.poll-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+  padding: 0 14px 14px;
+}
+.poll-list { overflow: auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.poll-card {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  color: var(--text);
+  cursor: pointer;
+}
+.poll-card:hover { border-color: rgba(188, 140, 255, 0.45); }
+.poll-card.active { border-color: rgba(188, 140, 255, 0.7); background: rgba(188, 140, 255, 0.09); }
+.poll-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.poll-card-title { font-weight: 600; font-size: 12px; line-height: 1.35; }
+.poll-card-meta { font-size: 10px; color: var(--muted); }
+.poll-badge-open { color: #56d364; border-color: rgba(63, 185, 80, 0.4); background: rgba(63, 185, 80, 0.1); }
+.poll-badge-closed { color: #8b949e; border-color: var(--border); background: rgba(139, 148, 158, 0.08); }
+.poll-badge-expired { color: #e3b341; border-color: rgba(210, 153, 34, 0.4); background: rgba(210, 153, 34, 0.08); }
+.poll-badge-draft { color: #79c0ff; border-color: rgba(56, 139, 253, 0.4); background: rgba(56, 139, 253, 0.08); }
+.poll-detail { overflow: auto; min-height: 0; padding: 2px 2px 12px; }
+.poll-article { display: flex; flex-direction: column; gap: 12px; }
+.poll-detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.poll-detail-head h3 { margin: 0 0 4px; font-size: 15px; }
+.poll-meta-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; font-size: 10px; color: var(--muted); }
+.poll-options { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.poll-option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  min-height: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+.poll-option.selected { border-color: rgba(188, 140, 255, 0.6); background: rgba(188, 140, 255, 0.07); }
+.poll-option input[type="checkbox"],
+.poll-option input[type="radio"] {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.poll-option-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; color: var(--text); }
+.poll-option-label { display: block; font-size: 12px; overflow-wrap: anywhere; color: var(--text); }
+.poll-option-count { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
+.poll-actions { align-items: center; font-size: 10px; }
+.poll-results { border-top: 1px solid var(--border); padding-top: 10px; }
+.poll-results-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 12px; }
+.poll-result-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.poll-result { display: flex; flex-direction: column; gap: 4px; }
+.poll-result.adopted .poll-result-label span:first-child { color: #56d364; font-weight: 600; }
+.poll-result-label { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.poll-bar { height: 6px; border-radius: 999px; background: rgba(139, 148, 158, 0.16); overflow: hidden; }
+.poll-bar > span { display: block; height: 100%; border-radius: inherit; background: rgba(188, 140, 255, 0.65); }
+.poll-result.adopted .poll-bar > span { background: rgba(63, 185, 80, 0.75); }
+.poll-threshold-note { margin-top: 8px; font-size: 10px; color: var(--muted); }
+.poll-decision { border: 1px solid rgba(63, 185, 80, 0.35); background: rgba(63, 185, 80, 0.06); border-radius: 8px; padding: 10px 12px; }
+.poll-decision-head { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.poll-decision p { margin: 6px 0 0; font-size: 11px; line-height: 1.5; }
+.poll-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.poll-create-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+.poll-create-form input[type="checkbox"] { width: auto; min-width: 0; padding: 0; margin: 0; }
+.poll-form-options { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.poll-option-row { display: grid; grid-template-columns: 18px minmax(0, 1.1fr) minmax(0, 1.6fr) auto; gap: 8px; align-items: center; }
+.poll-option-row input { min-width: 0; }
+.poll-create-actions { border-top: 1px solid var(--border); padding-top: 10px; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 900px) {
+  .poll-layout { grid-template-columns: minmax(0, 1fr); }
+  .poll-list { max-height: 180px; }
+  .poll-option-row { grid-template-columns: 18px minmax(0, 1fr) auto; }
+  .poll-option-row input:nth-child(3) { grid-column: 2 / 3; }
+}
+
 /* ==========================================================================
    t64：交互画布与提问表单（docs/team/interactive-canvas-design.md §4/§6/§7）
    只用主题 token / color-mix，不引入新色板；新增规则全部前缀 canvas-/question-。
@@ -6067,4 +6186,3 @@ label.check input {
     animation: none !important;
   }
 }
-

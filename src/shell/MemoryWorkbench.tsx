@@ -73,6 +73,8 @@ export interface MemoryWorkbenchProps {
   autoOpenPublish: boolean;
   onAutoOpenHandled: () => void;
   onNotify: (message: string, kind?: NotifyKind) => void;
+  /** t136：从黑板条目发起正式投票（入口保留来源）。 */
+  onStartPoll?: (source: { title: string; sourceId: string; board: string }) => void;
 }
 
 export default function MemoryWorkbench({
@@ -83,6 +85,7 @@ export default function MemoryWorkbench({
   autoOpenPublish,
   onAutoOpenHandled,
   onNotify,
+  onStartPoll,
 }: MemoryWorkbenchProps) {
   const [tab, setTab] = useState<MemoryTab>(() => loadTab(workspaceId));
   const [snapshot, setSnapshot] = useState<MemorySnapshot | null>(null);
@@ -467,6 +470,7 @@ export default function MemoryWorkbench({
               onPublish={() => setPublishOpen(true)}
               onDialog={setDialog}
               onCopy={copyCitation}
+              onStartPoll={onStartPoll}
               onPin={(entry, pinned) =>
                 act(() => window.deer.setBoardPinned({ workspaceId, entryId: entry.id, pinned }), pinned ? "已置顶" : "已取消置顶")
               }
@@ -668,6 +672,7 @@ function BoardTab({
   onPublish,
   onDialog,
   onCopy,
+  onStartPoll,
   onPin,
   loading,
 }: {
@@ -682,6 +687,7 @@ function BoardTab({
   onPublish: () => void;
   onDialog: (dialog: { kind: "verify" | "ttl" | "archive" | "promote"; entry: BoardEntry }) => void;
   onCopy: (citation: string) => void;
+  onStartPoll?: (source: { title: string; sourceId: string; board: string }) => void;
   onPin: (entry: BoardEntry, pinned: boolean) => Promise<boolean>;
   loading: boolean;
 }) {
@@ -770,6 +776,21 @@ function BoardTab({
               <button type="button" className="ghost small" onClick={() => onDialog({ kind: "promote", entry })}>
                 提升为决策
               </button>
+              {onStartPoll ? (
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() =>
+                    onStartPoll({
+                      title: entry.content.slice(0, 80),
+                      sourceId: entry.id,
+                      board: entry.board,
+                    })
+                  }
+                >
+                  发起投票
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="ghost small"

@@ -34,6 +34,7 @@ import {
   TaskVcsPanel,
 } from "./git/ui/GitPanels";
 import MemoryWorkbench from "./shell/MemoryWorkbench";
+import PollPanel from "./shell/PollPanel";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
 import {
   answerAlreadySent,
@@ -96,6 +97,7 @@ const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "runs",
   "mailbox",
   "board",
+  "polls",
   "context",
 ];
 
@@ -210,6 +212,13 @@ export default function App() {
   const [panelMenuOpen, setPanelMenuOpen] = useState(false);
   const [openPanelKeys, setOpenPanelKeys] = useState<PanelKey[]>([]);
   const [createIntent, setCreateIntent] = useState<CreateIntent | null>(null);
+  // t136：从任务/黑板发起 Poll 时带入来源并自动打开创建弹窗。
+  const [pollIntent, setPollIntent] = useState<{
+    title: string;
+    sourceId: string;
+    scope: "task" | "board";
+    scopeId: string;
+  } | null>(null);
   // C12：邮箱 / 黑板选中项提升到 App，进入 hash 深链。
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
@@ -1579,6 +1588,9 @@ export default function App() {
       case "open-runs":
         openPanel("runs");
         break;
+      case "open-polls":
+        openPanel("polls");
+        break;
       case "close-active":
         dock.closeActivePanel();
         break;
@@ -2034,6 +2046,15 @@ export default function App() {
                       }}
                       onLocate={handleLocateInStarMap}
                       onPlan={handlePlan}
+                      onStartPoll={(task) => {
+                        setPollIntent({
+                          title: task.title,
+                          sourceId: task.id,
+                          scope: "task",
+                          scopeId: task.id,
+                        });
+                        openPanel("polls");
+                      }}
                       scheduler={scheduler}
                       schedulerLoading={schedulerLoading}
                       schedulerError={schedulerError}
@@ -2223,6 +2244,26 @@ export default function App() {
                       onSelectBoard={setSelectedBoard}
                       autoOpenPublish={createIntent === "board"}
                       onAutoOpenHandled={() => setCreateIntent(null)}
+                      onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
+                      onStartPoll={(source) => {
+                        setPollIntent({
+                          title: source.title,
+                          sourceId: source.sourceId,
+                          scope: "board",
+                          scopeId: source.sourceId,
+                        });
+                        openPanel("polls");
+                      }}
+                    />
+                  );
+                case "polls":
+                  return (
+                    <PollPanel
+                      workspaceId={snapshot.workspace.id}
+                      agents={snapshot.agents}
+                      autoOpenCreate={pollIntent !== null}
+                      initialSource={pollIntent}
+                      onAutoOpenHandled={() => setPollIntent(null)}
                       onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
                     />
                   );
@@ -2526,6 +2567,7 @@ function TasksView({
   onContext,
   onLocate,
   onPlan,
+  onStartPoll,
   scheduler,
   schedulerLoading,
   schedulerError,
@@ -2561,6 +2603,7 @@ function TasksView({
   onContext: (taskId: string) => void;
   onLocate: (taskId: string) => void;
   onPlan: (goal: string) => void;
+  onStartPoll: (task: Task) => void;
   scheduler: SchedulerSnapshot | null;
   schedulerLoading: boolean;
   schedulerError: string | null;
@@ -2921,6 +2964,13 @@ function TasksView({
                   title="打开运行面板：队列、Run 历史与时间线"
                 >
                   运行详情
+                </button>
+                <button
+                  className="ghost small"
+                  onClick={() => onStartPoll(selectedTask)}
+                  title="从该任务发起团队投票"
+                >
+                  发起投票
                 </button>
                 {/* t107 F3：主要操作常驻渲染，不可用时 disabled + title/aria-describedby 原因（与 RunPanel 一致）。 */}
                 <button
