@@ -167,7 +167,7 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 - `#/tasks?merge=1`：合并队列 Modal 打开；Esc 关闭验证 `QUEUE_OPEN=true` → `QUEUE_CLOSED=true`；
 - Ctrl/⌘+K：命令面板「Git」组存在三项命令；窄窗 980×735 任务 Git 区可用。
 
-截图：`docs/team/t103-task-vcs.png`、`t103-git-settings.png`、`t103-merge-queue.png`。
+截图：[t103-task-vcs.png](t103-task-vcs.png)、[t103-git-settings.png](t103-git-settings.png)、[t103-merge-queue.png](t103-merge-queue.png)。
 
 ### 7.6 遗留
 
