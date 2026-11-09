@@ -3,6 +3,7 @@ import type {
   Agent,
   BoardEntry,
   ChatMessage,
+  ChatQuestionRecord,
   ContextSnapshot,
   EventRecord,
   LlmSettings,
@@ -16,10 +17,18 @@ import type {
 } from "./shared/types";
 import SettingsView from "./SettingsView";
 import Modal from "./Modal";
-import Markdown from "./Markdown";
 import TeamDashboard from "./TeamDashboard";
 import StatusBadge from "./StatusBadge";
 import EmptyState from "./EmptyState";
+import ChatContent from "./ChatContent";
+import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
+import {
+  answerAlreadySent,
+  isComposerFocusWithin,
+  isEditableElement,
+  shouldAutoOpenQuestion,
+} from "./interactive/questionFlow";
+import type { QuestionValues } from "./shared/interactive";
 import CommandPalette, {
   CREATE_LABELS,
   CREATE_TARGET_TAB,
@@ -152,6 +161,16 @@ export default function App() {
   // 多个高风险调用并发时按 FIFO 依次弹窗，避免后到请求覆盖先到请求导致误超时。
   const [riskApprovals, setRiskApprovals] = useState<RiskApprovalRequest[]>([]);
   const riskApproval = riskApprovals[0] ?? null;
+  // t64：交互画布/提问表单状态（问题状态以主进程 chat_questions 为唯一事实源）。
+  const [chatQuestions, setChatQuestions] = useState<ChatQuestionRecord[]>([]);
+  const [questionsLoaded, setQuestionsLoaded] = useState(false);
+  const [questionModalId, setQuestionModalId] = useState<string | null>(null);
+  const [questionDrafts, setQuestionDrafts] = useState<Record<string, QuestionValues>>({});
+  const [deferredQuestionIds, setDeferredQuestionIds] = useState<string[]>([]);
+  const [submittingQuestion, setSubmittingQuestion] = useState(false);
+  const autoOpenedQuestionIdsRef = useRef<Set<string>>(new Set());
+  const knownPendingQuestionIdsRef = useRef<Set<string>>(new Set());
+  const questionsFirstLoadRef = useRef(true);
   // C26：全局 toast 反馈。
   const { toasts, pushToast, dismissToast } = useToasts();
   // t50：Dock 布局（对话/团队双主面板）。
@@ -167,6 +186,24 @@ export default function App() {
   const resizingRef = useRef(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("deer.sidebarCollapsed") === "1",
+  );
+
+  // t64：问题队列派生值（按 created_at 升序；同一时间只显示一个 Modal）。
+  const questionsByKey = useMemo(() => {
+    const map = new Map<string, ChatQuestionRecord>();
+    for (const question of chatQuestions) map.set(question.id, question);
+    return map;
+  }, [chatQuestions]);
+  const pendingQuestions = useMemo(
+    () =>
+      chatQuestions
+        .filter((question) => question.status === "pending")
+        .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0)),
+    [chatQuestions],
+  );
+  const activeQuestion = useMemo(
+    () => (questionModalId ? chatQuestions.find((item) => item.id === questionModalId) ?? null : null),
+    [chatQuestions, questionModalId],
   );
 
   useEffect(() => {
@@ -366,7 +403,19 @@ export default function App() {
     ]);
     setChatMessages(messages);
     setContext(contextSnapshot);
-  }, [contextTaskId]);
+    // t64 §4.9：问题状态单独加载；失败不阻断消息渲染（画布/文本仍可用）。
+    try {
+      const questions = await window.deer.listChatQuestions(current.workspace.id, router.id);
+      setChatQuestions(questions);
+      setQuestionsLoaded(true);
+    } catch (error) {
+      setQuestionsLoaded(true);
+      pushToast({
+        kind: "error",
+        message: `问题状态加载失败：${formatError(error)}`,
+      });
+    }
+  }, [contextTaskId, pushToast]);
 
   const refresh = useCallback(
     async (workspaceId: string) => {
@@ -458,6 +507,88 @@ export default function App() {
     if (!snapshot) return;
     void loadChat().catch((error) => setError(errorText(error)));
   }, [snapshot?.workspace.id, contextTaskId, loadChat]);
+
+  // t64 §6.3 / t80 F6：待回答问题自动打开（DEC-10）。纯函数 shouldAutoOpenQuestion
+  // 统一判定「对话面板可见 / 窗口有焦点 / 无其他弹窗 / composer 未聚焦且无草稿 /
+  // 未延后 / 每个问题只自动开一次 / Router 不在回复」。
+  useEffect(() => {
+    if (!snapshot || !questionsLoaded) return;
+    if (activeQuestion || riskApproval || settingsOpen) return;
+    const windowFocused = typeof document === "undefined" ? false : document.hasFocus();
+    const otherModalOpen =
+      typeof document === "undefined"
+        ? false
+        : Boolean(document.querySelector('[role="dialog"]'));
+    const activeElement =
+      typeof document === "undefined"
+        ? null
+        : (document.activeElement as
+            | { tagName?: string; isContentEditable?: boolean; closest?: (selector: string) => unknown }
+            | null);
+    const composerFocused =
+      Boolean(activeElement) &&
+      (isEditableElement(activeElement) || isComposerFocusWithin(activeElement));
+    const candidate = pendingQuestions.find((question) =>
+      shouldAutoOpenQuestion({
+        questionsLoaded,
+        panelVisible: tab === "chat",
+        windowFocused,
+        otherModalOpen,
+        composerFocused,
+        composerHasDraft: Boolean(chatInput.trim()),
+        chatBusy,
+        deferred: deferredQuestionIds.includes(question.id),
+        alreadyAutoOpened: autoOpenedQuestionIdsRef.current.has(question.id),
+      }),
+    );
+    if (!candidate) return;
+    autoOpenedQuestionIdsRef.current.add(candidate.id);
+    setQuestionModalId(candidate.id);
+  }, [
+    activeQuestion,
+    chatBusy,
+    chatInput,
+    deferredQuestionIds,
+    pendingQuestions,
+    questionsLoaded,
+    riskApproval,
+    settingsOpen,
+    snapshot,
+    tab,
+  ]);
+
+  // t64：新问题到达但未被自动打开 → 一条 info toast（同一批只发一条）。
+  useEffect(() => {
+    const known = knownPendingQuestionIdsRef.current;
+    const fresh = pendingQuestions.filter((question) => !known.has(question.id));
+    for (const question of pendingQuestions) known.add(question.id);
+    if (questionsFirstLoadRef.current) {
+      questionsFirstLoadRef.current = false;
+      return;
+    }
+    if (fresh.length === 0 || questionModalId || riskApproval) return;
+    pushToast({
+      kind: "info",
+      message:
+        fresh.length === 1
+          ? `Router 有 1 个问题需要你回答：${fresh[0].title}`
+          : `Router 有 ${fresh.length} 个问题需要你回答`,
+      action: {
+        label: "去回答",
+        onClick: () => {
+          openPanel("chat");
+          openQuestionModal(fresh[0].id);
+        },
+      },
+    });
+  }, [pendingQuestions, questionModalId, riskApproval, pushToast, openPanel]);
+
+  // t64 §7.3：不允许嵌套 Modal——高风险审批优先，问题弹窗收起但保留 pending。
+  useEffect(() => {
+    if (!riskApproval || !questionModalId) return;
+    setQuestionModalId(null);
+    pushToast({ kind: "info", message: "先处理高风险审批；问题已保留，可稍后回答" });
+  }, [riskApproval, questionModalId, pushToast]);
 
   // t58 IF-05：主进程高风险审批请求 → 人类审批弹窗；拒绝/超时在主进程写审计事件。
   useEffect(() => {
@@ -561,6 +692,15 @@ export default function App() {
     setSelectedBoard(null);
     // DESIGN §15.4：满血模式仅会话级，切换工作区即复位。
     setChatFullThrottle(false);
+    // t64 §6.4：切换工作区关闭问题弹窗、清空队列/草稿/延后（新工作区独立）。
+    setChatQuestions([]);
+    setQuestionsLoaded(false);
+    setQuestionModalId(null);
+    setQuestionDrafts({});
+    setDeferredQuestionIds([]);
+    autoOpenedQuestionIdsRef.current = new Set();
+    knownPendingQuestionIdsRef.current = new Set();
+    questionsFirstLoadRef.current = true;
   }
 
   // t55 集成修复 IF-03：切换工作区前清掉旧工作区的满血模式，
@@ -781,12 +921,18 @@ export default function App() {
     }
   }
 
-  async function handleSendChat() {
+  /**
+   * t64：对话发送的唯一实现（composer 与「回答表单」都走这里）。
+   * t80 F5：回答回流失败时由调用方提供 onFailure（带「重新发送回答」action 的 toast）。
+   */
+  async function sendChatText(
+    text: string,
+    options: { failureToast?: string; onFailure?: () => void } = {},
+  ): Promise<boolean> {
     const current = snapshotRef.current;
     const router = current?.agents.find((agent) => agent.isRouter);
-    const text = chatInput.trim();
-    if (!current || !router || !text || chatBusy) return;
-    setChatInput("");
+    const message = text.trim();
+    if (!current || !router || !message || chatBusy) return false;
     setChatBusy(true);
     setChatStream("");
     setChatReasoning("");
@@ -798,19 +944,168 @@ export default function App() {
         workspaceId: current.workspace.id,
         agentId: router.id,
         role: "user",
-        content: text,
+        content: message,
         reasoning: "",
         createdAt: new Date().toISOString(),
       },
     ]);
     try {
-      await window.deer.sendChat(current.workspace.id, text);
+      await window.deer.sendChat(current.workspace.id, message);
+      return true;
     } catch (error) {
       setError(errorText(error));
+      if (options.onFailure) {
+        options.onFailure();
+      } else if (options.failureToast) {
+        pushToast({ kind: "error", message: options.failureToast });
+      }
+      return false;
     } finally {
       setChatBusy(false);
       void loadChat().catch((error) => setError(errorText(error)));
     }
+  }
+
+  /**
+   * t80 F5：「重新发送回答」——重发前 loadChat 对比最后一条消息内容 === answerText，
+   * 已存在则不重复发送（幂等兜底；服务端回答状态机仍是唯一事实源）。
+   */
+  async function resendAnswer(answerText: string) {
+    const current = snapshotRef.current;
+    const router = current?.agents.find((agent) => agent.isRouter);
+    if (!current || !router) return;
+    try {
+      const messages = await window.deer.listChat(current.workspace.id, router.id);
+      setChatMessages(messages);
+      if (answerAlreadySent(messages, answerText)) {
+        pushToast({ kind: "info", message: "该回答已在对话中，未重复发送" });
+        return;
+      }
+    } catch (error) {
+      pushToast({ kind: "error", message: `读取对话失败：${errorText(error)}` });
+      return;
+    }
+    void sendChatText(answerText, { failureToast: "重新发送回答失败，请稍后重试" });
+  }
+
+  async function handleSendChat() {
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    setChatInput("");
+    await sendChatText(text);
+  }
+
+  // ---------- t64：提问弹窗（队列 / 自动打开 / 回答 / 取消 / 超时） ----------
+
+  function openQuestionModal(questionId: string) {
+    setQuestionModalId(questionId);
+    setDeferredQuestionIds((current) => current.filter((id) => id !== questionId));
+  }
+
+  function handleDeferQuestion(questionId: string) {
+    setQuestionModalId(null);
+    setDeferredQuestionIds((current) =>
+      current.includes(questionId) ? current : [...current, questionId],
+    );
+    pushToast({ kind: "info", message: "已稍后回答；问题卡片仍保留在对话里" });
+  }
+
+  async function handleCancelQuestion(questionId: string) {
+    const current = snapshotRef.current;
+    if (!current) return;
+    try {
+      const result = await window.deer.cancelChatQuestion({
+        workspaceId: current.workspace.id,
+        questionId,
+      });
+      if (!result.ok) {
+        pushToast({ kind: "error", message: result.message });
+        if (result.code === "E_EXPIRED" || result.code === "E_CLOSED") {
+          setQuestionModalId(null);
+          void loadChat().catch(() => {});
+        }
+        return;
+      }
+      setChatQuestions((previous) =>
+        previous.map((item) => (item.id === result.question.id ? result.question : item)),
+      );
+      setQuestionModalId(null);
+      pushToast({ kind: "success", message: "已取消提问" });
+    } catch (error) {
+      pushToast({ kind: "error", message: `取消失败：${errorText(error)}` });
+    }
+  }
+
+  /**
+   * 提交回答：先落库（服务端条件更新 + 校验），changed 才发送用户消息（AC-10/AC-12）。
+   * 返回字段错误给 QuestionModal 内联展示；业务失败不抛异常。
+   */
+  async function handleAnswerQuestion(values: QuestionValues): Promise<QuestionSubmitResult> {
+    const current = snapshotRef.current;
+    const question = activeQuestion;
+    if (!current || !question) return { ok: false, message: "问题不存在或已关闭" };
+    if (chatBusy) return { ok: false, message: "Router 正在回复，请稍后再提交" };
+    setSubmittingQuestion(true);
+    try {
+      const result = await window.deer.answerChatQuestion({
+        workspaceId: current.workspace.id,
+        questionId: question.id,
+        values,
+      });
+      if (!result.ok) {
+        if (result.code === "E_INVALID_ANSWER" && result.fieldErrors?.length) {
+          return { ok: false, fieldErrors: result.fieldErrors, message: result.message };
+        }
+        pushToast({ kind: "error", message: result.message });
+        if (result.code === "E_EXPIRED" || result.code === "E_CLOSED") {
+          setQuestionModalId(null);
+          void loadChat().catch(() => {});
+        }
+        return { ok: false, message: result.message };
+      }
+      setChatQuestions((previous) =>
+        previous.map((item) => (item.id === result.question.id ? result.question : item)),
+      );
+      setQuestionModalId(null);
+      setQuestionDrafts((previous) => {
+        const next = { ...previous };
+        delete next[question.id];
+        return next;
+      });
+      if (!result.changed) {
+        pushToast({ kind: "info", message: "该问题已回答，未重复发送" });
+        return { ok: true };
+      }
+      pushToast({ kind: "success", message: "回答已提交，Router 继续" });
+      // 不 await：弹窗立即关闭、对话继续流式输出。
+      // t80 F5：失败时 toast 带「重新发送回答」action；重发前会按最后一条消息去重。
+      const answerText = result.answerText;
+      void sendChatText(answerText, {
+        onFailure: () =>
+          pushToast({
+            kind: "error",
+            message: "回答已保存，但发送失败",
+            action: {
+              label: "重新发送回答",
+              onClick: () => void resendAnswer(answerText),
+            },
+          }),
+      });
+      return { ok: true };
+    } catch (error) {
+      const message = errorText(error);
+      pushToast({ kind: "error", message: `提交回答失败：${message}` });
+      return { ok: false, message };
+    } finally {
+      setSubmittingQuestion(false);
+    }
+  }
+
+  function handleExpireQuestion(questionId: string) {
+    if (questionModalId !== questionId) return;
+    setQuestionModalId(null);
+    pushToast({ kind: "error", message: "问题已到期，未提交" });
+    void loadChat().catch(() => {});
   }
 
   async function handleStopChat() {
@@ -1366,6 +1661,15 @@ export default function App() {
                       onInput={setChatInput}
                       onSend={handleSendChat}
                       onStop={handleStopChat}
+                      questions={questionsByKey}
+                      questionsLoaded={questionsLoaded}
+                      pendingQuestionCount={pendingQuestions.length}
+                      onOpenFirstQuestion={() => {
+                        const first = pendingQuestions[0];
+                        if (first) openQuestionModal(first.id);
+                      }}
+                      onAnswerQuestion={openQuestionModal}
+                      onToast={pushToast}
                       taskContext={contextTaskId}
                       taskContextSource={contextSource}
                       onReturnToSource={
@@ -1461,6 +1765,28 @@ export default function App() {
             onReload={() => void refresh(snapshot.workspace.id)}
           />
         </Modal>
+      )}
+
+      {/* t64：模型提问表单弹窗（不嵌套：风险审批优先，审批期间不渲染问题弹窗） */}
+      {activeQuestion && !riskApproval && (
+        <QuestionModal
+          key={activeQuestion.id}
+          question={activeQuestion}
+          index={Math.max(
+            0,
+            pendingQuestions.findIndex((item) => item.id === activeQuestion.id),
+          )}
+          total={Math.max(1, pendingQuestions.length)}
+          busy={chatBusy || submittingQuestion}
+          initialValues={questionDrafts[activeQuestion.id]}
+          onDraftChange={(values) =>
+            setQuestionDrafts((previous) => ({ ...previous, [activeQuestion.id]: values }))
+          }
+          onSubmit={handleAnswerQuestion}
+          onDefer={() => handleDeferQuestion(activeQuestion.id)}
+          onCancel={() => handleCancelQuestion(activeQuestion.id)}
+          onExpire={() => handleExpireQuestion(activeQuestion.id)}
+        />
       )}
 
       {/* t58 IF-05：auto_risk 高风险人类审批弹窗（Esc/关闭 = 拒绝，安全默认） */}
@@ -2608,6 +2934,12 @@ function ChatView({
   onModelChange,
   onPermissionChange,
   onFullThrottleChange,
+  questions,
+  questionsLoaded,
+  pendingQuestionCount,
+  onOpenFirstQuestion,
+  onAnswerQuestion,
+  onToast,
 }: {
   messages: ChatMessage[];
   stream: string;
@@ -2617,6 +2949,13 @@ function ChatView({
   onInput: (value: string) => void;
   onSend: () => void;
   onStop: () => void;
+  /** t64：问题状态（按 messageId#bN 索引）与队列入口。 */
+  questions: ReadonlyMap<string, ChatQuestionRecord>;
+  questionsLoaded: boolean;
+  pendingQuestionCount: number;
+  onOpenFirstQuestion: () => void;
+  onAnswerQuestion: (questionId: string) => void;
+  onToast: (toast: { kind: "success" | "error" | "info"; message: string }) => void;
   taskContext: string | null;
   taskContextSource: "tasks" | "team" | null;
   onReturnToSource: (() => void) | undefined;
@@ -2660,6 +2999,16 @@ function ChatView({
             </div>
           </div>
           <div className="row gap">
+            {pendingQuestionCount > 0 && (
+              <button
+                type="button"
+                className="badge question-chip"
+                onClick={onOpenFirstQuestion}
+                title="打开最早待回答的问题"
+              >
+                待回答 {pendingQuestionCount}
+              </button>
+            )}
             {taskContext && (
               <span className="badge" title="当前对话锁定在该任务的上下文">
                 任务上下文
@@ -2720,10 +3069,15 @@ function ChatView({
           {messages.map((message) => (
             <ChatBubble
               key={message.id}
+              messageId={message.id}
               role={message.role}
               content={message.content}
               reasoning={message.reasoning}
               createdAt={message.createdAt}
+              questions={questions}
+              questionsLoaded={questionsLoaded}
+              onAnswerQuestion={onAnswerQuestion}
+              onToast={onToast}
             />
           ))}
           {(reasoning || stream) && (
@@ -2732,6 +3086,10 @@ function ChatView({
               content={stream}
               reasoning={reasoning}
               streaming
+              questions={questions}
+              questionsLoaded={questionsLoaded}
+              onAnswerQuestion={onAnswerQuestion}
+              onToast={onToast}
             />
           )}
         </div>
@@ -2821,17 +3179,27 @@ function ChatView({
 }
 
 function ChatBubble({
+  messageId,
   role,
   content,
   reasoning,
   createdAt,
   streaming,
+  questions,
+  questionsLoaded,
+  onAnswerQuestion,
+  onToast,
 }: {
+  messageId?: string;
   role: ChatMessage["role"];
   content: string;
   reasoning?: string;
   createdAt?: string;
   streaming?: boolean;
+  questions?: ReadonlyMap<string, ChatQuestionRecord>;
+  questionsLoaded?: boolean;
+  onAnswerQuestion?: (questionId: string) => void;
+  onToast?: (toast: { kind: "success" | "error" | "info"; message: string }) => void;
 }) {
   return (
     <div className={`chat-row ${role}`}>
@@ -2853,11 +3221,16 @@ function ChatBubble({
         )}
         {content && (
           <div className="chat-content">
-            {role === "assistant" ? (
-              <Markdown content={content} />
-            ) : (
-              <div className="chat-plain">{content}</div>
-            )}
+            <ChatContent
+              role={role}
+              content={content}
+              messageId={messageId}
+              streaming={streaming}
+              questions={questions}
+              questionsLoaded={questionsLoaded}
+              onAnswerQuestion={onAnswerQuestion}
+              onToast={onToast}
+            />
             {streaming && <span className="cursor">▍</span>}
           </div>
         )}

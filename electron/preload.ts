@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DeerApi } from "../src/shared/ipc.js";
 import type {
+  AnswerChatQuestionInput,
+  CancelChatQuestionInput,
   ChatEvent,
   CreateAgentInput,
   CreateTaskInput,
@@ -46,6 +48,17 @@ const api: DeerApi = {
   },
   respondRiskApproval: (requestId: string, approved: boolean) =>
     ipcRenderer.invoke("risk:approval_response", requestId, approved),
+  // t64：交互画布与提问表单（只做类型转发，业务校验在主进程）。
+  listChatArtifacts: (workspaceId: string, agentId?: string) =>
+    ipcRenderer.invoke("chat:artifacts:list", workspaceId, agentId),
+  getChatArtifact: (workspaceId: string, artifactId: string) =>
+    ipcRenderer.invoke("chat:artifact:get", workspaceId, artifactId),
+  listChatQuestions: (workspaceId: string, agentId?: string) =>
+    ipcRenderer.invoke("chat:questions:list", workspaceId, agentId),
+  answerChatQuestion: (input: AnswerChatQuestionInput) =>
+    ipcRenderer.invoke("chat:question:answer", input),
+  cancelChatQuestion: (input: CancelChatQuestionInput) =>
+    ipcRenderer.invoke("chat:question:cancel", input),
   onChatEvent: (listener: (event: ChatEvent) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: ChatEvent) => listener(payload);
     ipcRenderer.on("chat:event", wrapped);
