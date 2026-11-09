@@ -27,7 +27,7 @@
 | 迁移 | WAL checkpoint + `VACUUM INTO` 备份 + integrity_check；备份失败拒绝迁移；DDL/基线/归一/版本同事务，失败回滚且 `user_version=1` |
 | 兼容 | `service.runTask` 保留为“入队 + 等待终态”；Router/成员/权限/审批/聊天行为不变；旧库增量迁移 |
 
-**测试**：11 个测试文件、**134 个用例**（t68 原有 101 + 内核 33）全绿。
+**测试**：21 个测试文件、**279 个用例**（t68 内核 33 + t64 交互画布/既有 246）全绿。
 
 ---
 
@@ -203,10 +203,10 @@ src/shared/copy.ts       queued 文案
 ```
 pnpm typecheck   # tsc --noEmit，exit 0
 pnpm build       # vite + build-electron，exit 0
-pnpm test        # vitest run，11 文件 / 134 用例，exit 0
+pnpm test        # vitest run，21 文件 / 279 用例，exit 0
 ```
 
-构建输出：`dist/assets/index-BPfzrDoA.js 906.56 kB (gzip 245.75)`，CSS 181.67 kB，`dist-electron/main.cjs 944.0 kB`。
+构建输出（已合并 t64 后的 main）：`dist/assets/index-Cj1A80OX.js 1,072.63 kB (gzip 294.96)`，CSS 198.12 kB，`dist-electron/main.cjs 1005.4 kB`。
 
 ### 9.1 内核测试矩阵（33 例）
 
@@ -228,7 +228,7 @@ pnpm test        # vitest run，11 文件 / 134 用例，exit 0
 | 重放 | 重建投影 digest = 实时 digest；>2000 事件分页重放（2105 条） |
 | 迁移 | WAL 旧库备份可打开/integrity_check、备份失败拒绝迁移（user_version=1）、半迁移回滚、旧事件 schemaVersion=1/时间回填 |
 
-原有 101 个测试（service/权限/审批/模型/Dock 星图/Markdown）全部通过，Router/成员/权限/审批无回归。
+原有测试（service/权限/审批/模型/Dock 星图/Markdown + t64 交互画布/提问 145 项）全部通过，Router/成员/权限/审批无回归。
 
 ---
 
@@ -243,7 +243,7 @@ pnpm test        # vitest run，11 文件 / 134 用例，exit 0
 | DAG 调度 ready 队列、全局/成员并发、暂停/恢复/取消、并发安全 | 调度组；CAS/单飞/唯一索引实现 |
 | Run 租约/心跳/重试退避、attempt 幂等、孤儿回收 | Run 组、恢复组；attempt 唯一 + 幂等键 + fencing |
 | 事件重放一致；确定性测试覆盖状态机/并发/重试/恢复 | rebuild digest；FakeClock + 受控 executor |
-| 现有 Router/成员/权限/审批无回归；三命令通过 | 134/134；typecheck/build/test 均 exit 0 |
+| 现有 Router/成员/权限/审批无回归；三命令通过 | 279/279；typecheck/build/test 均 exit 0 |
 | worktree/PR，不直接改 main | `feature/t68-execution-kernel`；PR #2 |
 | 实现文档 | 本文件 |
 
@@ -288,7 +288,7 @@ git fetch origin --prune
 git worktree add -b feature/t68-execution-kernel branches/t68-execution-kernel origin/main
 ```
 
-任务中途，main 上的 `15fa426 fix: handle inherited git output and resolve main worktree root` 修复了该脚本；本分支已 merge 最新 `origin/main`（含 7fb747a 记忆系统设计，非本任务改动）。PR #2 由 `git push` + `gh pr create` 创建/更新；合并后可按 AGENTS §8 用 `pnpm branch:remove t68-execution-kernel` 清理。
+任务中途，main 上的 `15fa426 fix: handle inherited git output and resolve main worktree root` 修复了该脚本；本分支已 merge 最新 `origin/main`（含 7fb747a 记忆系统设计、t64 交互画布 PR #1，非本任务改动）。PR #2 由 `git push` + `gh pr create` 创建/更新；合并后可按 AGENTS §8 用 `pnpm branch:remove t68-execution-kernel` 清理。
 
 ---
 
