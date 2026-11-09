@@ -25,6 +25,7 @@ export const KERNEL_EVENT_TYPES = [
   "run.completed",
   "run.failed",
   "run.cancelled",
+  "run.result_discarded",
   "scheduler.paused",
   "scheduler.resumed",
   "scheduler.admitted",
@@ -188,11 +189,28 @@ export const EVENT_REGISTRY: Record<KernelEventType, KernelEventDefinition> = {
       patch: runPatch.optional(),
     }),
   ),
-  "run.waiting_human": def(z.strictObject({ reason: shortText })),
-  "run.resumed": def(z.strictObject({ reason: shortText.optional() })),
+  "run.waiting_human": def(
+    z.strictObject({ reason: shortText, patch: runPatch.optional() }),
+  ),
+  "run.resumed": def(z.strictObject({ reason: shortText.optional(), patch: runPatch.optional() })),
   "run.completed": def(z.strictObject({ patch: runPatch })),
   "run.failed": def(z.strictObject({ patch: runPatch })),
   "run.cancelled": def(z.strictObject({ reason: shortText, patch: runPatch })),
+  "run.result_discarded": def(
+    z.strictObject({
+      runId: z.string().min(1).max(200),
+      action: z.enum([
+        "heartbeat",
+        "checkpoint",
+        "enter_waiting_human",
+        "resume",
+        "complete",
+        "fail",
+      ]),
+      owner: z.string().max(200).nullable(),
+      reason: shortText.optional(),
+    }),
+  ),
   "scheduler.paused": def(z.strictObject({ reason: shortText })),
   "scheduler.resumed": def(z.strictObject({})),
   "scheduler.admitted": def(

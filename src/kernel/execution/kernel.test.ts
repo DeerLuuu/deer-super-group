@@ -1097,3 +1097,158 @@ describe("t83 migration backup fail-closed", () => {
     expect(tableColumns(dbPath, "tasks")).not.toContain("priority");
   });
 });
+
+describe("t90 waiting_human/resumed projection replay", () => {
+  it("rebuilds a waiting_human run consistently, then resumes and completes", async () => {
+    let captured: RunExecutionContext | null = null;
+    let release: (() => void) | null = null;
+    const executor: RunExecutor = (ctx) => {
+      captured = ctx;
+      ctx.waitingHuman("risk_approval");
+      return new Promise((resolve) => {
+        release = () => resolve({ summary: "approved", tokenIn: 2, tokenOut: 3 });
+      });
+    };
+    const { store, workspaceId, kernel } = setupKernel(executor);
+    const task = createTask(store, workspaceId, "replay-waiting");
+    kernel.startTask(task.id);
+    await waitFor(() => kernel.listRuns(task.id)[0]?.status === "waiting_human");
+    const liveWaiting = projectionDigest(store);
+    const liveWaitingRun = kernel.listRuns(task.id)[0];
+    expect(liveWaitingRun.status).toBe("waiting_human");
+
+    const rebuiltWaiting = rebuildProjections(store);
+    expect(rebuiltWaiting).toEqual(liveWaiting);
+    const rebuiltRun = kernel.listRuns(task.id)[0];
+    expect(rebuiltRun.status).toBe("waiting_human");
+    expect(rebuiltRun.heartbeatAt).toBe(liveWaitingRun.heartbeatAt);
+    expect(rebuiltRun.leaseExpiresAt).toBe(liveWaitingRun.leaseExpiresAt);
+
+    captured!.resumeHuman();
+    release!();
+    await waitFor(() => taskStatus(store, task.id) === "done");
+    const liveDone = projectionDigest(store);
+    const rebuiltDone = rebuildProjections(store);
+    expect(rebuiltDone).toEqual(liveDone);
+    expect(kernel.listRuns(task.id)[0].status).toBe("completed");
+  });
+
+  it("rebuilds a failed run after waiting_human failure", async () => {
+    let captured: RunExecutionContext | null = null;
+    let rejectExec: ((error: Error) => void) | null = null;
+    const executor: RunExecutor = (ctx) => {
+      captured = ctx;
+      ctx.waitingHuman("risk_approval");
+      return new Promise((_resolve, reject) => {
+        rejectExec = reject;
+      });
+    };
+    const { store, workspaceId, kernel } = setupKernel(executor, { maxAttempts: 1 });
+    const task = createTask(store, workspaceId, "replay-waiting-fail");
+    kernel.startTask(task.id);
+    await waitFor(() => kernel.listRuns(task.id)[0]?.status === "waiting_human");
+    captured!.resumeHuman();
+    rejectExec!(new Error("approval denied"));
+    await waitFor(() => taskStatus(store, task.id) === "failed");
+    const live = projectionDigest(store);
+    const rebuilt = rebuildProjections(store);
+    expect(rebuilt).toEqual(live);
+    expect(kernel.listRuns(task.id)[0].status).toBe("failed");
+    expect(store.getTask(task.id)?.status).toBe("failed");
+  });
+});
+
+describe("t90 stale-owner CAS audit", () => {
+  type StaleAction =
+    | "heartbeat"
+    | "checkpoint"
+    | "enter_waiting_human"
+    | "resume"
+    | "complete"
+    | "fail";
+
+  const cases: Array<{ action: StaleAction; name: string }> = [
+    { action: "heartbeat", name: "heartbeat" },
+    { action: "checkpoint", name: "checkpoint" },
+    { action: "enter_waiting_human", name: "enterWaiting" },
+    { action: "resume", name: "resume" },
+    { action: "complete", name: "complete" },
+    { action: "fail", name: "fail" },
+  ];
+
+  it.each(cases)("discards stale-owner $name without state events", async ({ action }) => {
+    let captured: RunExecutionContext | null = null;
+    let resolveExec: ((result: { summary: string }) => void) | null = null;
+    let rejectExec: ((error: Error) => void) | null = null;
+    const executor: RunExecutor = (ctx) => {
+      captured = ctx;
+      return new Promise((resolve, reject) => {
+        resolveExec = resolve;
+        rejectExec = reject;
+      });
+    };
+    const { store, workspaceId, kernel } = setupKernel(executor, { maxAttempts: 1 });
+    const task = createTask(store, workspaceId, `stale-${action}`);
+    kernel.startTask(task.id);
+    await waitFor(() => taskStatus(store, task.id) === "running");
+    const run = kernel.listRuns(task.id)[0];
+    const statusChangesBefore = store
+      .listEvents({ aggregateId: task.id })
+      .filter((event) => event.type === "task.status_changed").length;
+    store.db
+      .prepare("UPDATE runs SET lease_owner = 'stale-owner' WHERE id = ?")
+      .run(run.id);
+
+    switch (action) {
+      case "heartbeat":
+        captured!.heartbeat({ steps: 9 });
+        break;
+      case "checkpoint":
+        captured!.checkpoint({ step: 2 });
+        break;
+      case "enter_waiting_human":
+        captured!.waitingHuman("risk_approval");
+        break;
+      case "resume":
+        captured!.resumeHuman();
+        break;
+      case "complete":
+        resolveExec!({ summary: "should-not-apply" });
+        break;
+      case "fail":
+        rejectExec!(new Error("should-not-apply"));
+        break;
+    }
+    await flush();
+    await flush();
+
+    const after = store.getRun(run.id)!;
+    expect(after.status).toBe("running");
+    expect(after.attempt).toBe(1);
+    expect(taskStatus(store, task.id)).toBe("running");
+    expect(kernel.listRuns(task.id)).toHaveLength(1);
+    const stateChangesAfter = store
+      .listEvents({ aggregateId: task.id })
+      .filter((event) => event.type === "task.status_changed").length;
+    expect(stateChangesAfter).toBe(statusChangesBefore);
+
+    const runEvents = store.listEvents({ aggregateId: run.id });
+    expect(
+      runEvents.filter((event) =>
+        ["run.completed", "run.failed", "run.waiting_human", "run.resumed", "run.checkpoint"].includes(
+          event.type,
+        ),
+      ),
+    ).toHaveLength(0);
+    const discarded = runEvents.filter((event) => event.type === "run.result_discarded");
+    expect(discarded.length).toBeGreaterThanOrEqual(1);
+    const payload = discarded[discarded.length - 1].payload as {
+      runId?: string;
+      action?: string;
+      owner?: string | null;
+    };
+    expect(payload.runId).toBe(run.id);
+    expect(payload.action).toBe(action);
+    expect(payload.owner).toBe("stale-owner");
+  });
+});

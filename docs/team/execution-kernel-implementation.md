@@ -1,6 +1,6 @@
 # 任务执行内核实现（t68 + t83 repair）
 
-- **任务**：t68 — 实现：任务执行内核核心；t83 — repair-round-2（按 t70/t76 findings 修复）
+- **任务**：t68 — 实现任务执行内核；t83 — repair-round-2；t90 — repair-round-3（waiting_human 投影/CAS 审计/stale-owner 测试）
 - **模型路由**：`deepseek-official/deepseek-flash`（成员 sol）
 - **分支 / worktree**：`feature/t68-execution-kernel` / `branches/t68-execution-kernel/`（基于 `origin/main` @ `494faef`，已同步最新 main）
 - **设计依据**：`docs/team/execution-kernel-design.md`（t67 + t76 修订：Q1 4/1/1、T20–T22、迁移/版本、reviewPolicy、autoAdmit 等）
@@ -27,7 +27,7 @@
 | 迁移 | WAL checkpoint + `VACUUM INTO` 备份 + integrity_check；备份失败拒绝迁移；DDL/基线/归一/版本同事务，失败回滚且 `user_version=1` |
 | 兼容 | `service.runTask` 保留为“入队 + 等待终态”；Router/成员/权限/审批/聊天行为不变；旧库增量迁移 |
 
-**测试**：21 个测试文件、**279 个用例**（t68 内核 33 + t64 交互画布/既有 246）全绿。
+**测试**：21 个测试文件、**287 个用例**（t68 内核 41 + t64 交互画布/既有 246）全绿。
 
 ---
 
@@ -39,7 +39,7 @@
 
 - `appendEventIdempotent(input)`：若 `idempotency_key` 已存在，返回原事件且 `created=false`，不重复写、不重复通知。
 - `idempotency_key` 有部分唯一索引 `ux_events_idem`。
-- `KERNEL_EVENT_TYPES` 共 29 类，每类注册 `{version:2, schema: zod strictObject, maxBytes:64KB}`；`assertKernelEventPayload` 校验类型/版本/大小/schema（拒绝未知字段、非法枚举、超长文本）。
+- `KERNEL_EVENT_TYPES` 共 30 类，每类注册 `{version:2, schema: zod strictObject, maxBytes:64KB}`；`assertKernelEventPayload` 校验类型/版本/大小/schema（拒绝未知字段、非法枚举、超长文本）。
 - **版本策略（t83 F4）**：`events.schema_version` 新库/旧库默认 **1**；迁移回填旧事件 1；`Store.appendEvent` 旧调用默认 1；`Store.createTask/updateTask` 与内核 `appendEvent` 显式 **2**，并先经 schema 校验。
 - `withTransaction(fn)`：`BEGIN IMMEDIATE`，事务内事件进入 `pendingEvents`，**COMMIT 后**按 seq 通知监听器；回滚清空事件与投影。
 - `seq` 使用 SQLite `AUTOINCREMENT`，读取按 seq 升序；不假设无空洞。
@@ -54,6 +54,7 @@
 - `task.updated {patch}`、`task.blocked/unblocked`、`task.retry_scheduled/retry_exhausted`、`task.review_*`；
 - `run.started`（payload 含完整 Run）→ upsert runs；
 - `run.heartbeat/checkpoint/completed/failed/cancelled` → patch runs；
+- `run.waiting_human` → status=waiting_human（含 heartbeat/lease patch）；`run.resumed` → status=running（含 patch）；`run.result_discarded` 仅审计、不改投影（t90）；
 - `kernel.legacy_snapshot {entity,value}` → 旧库基线 upsert。
 - `rebuildProjections(store)`：清空 tasks/runs，**按 seq 游标 500/页重放全部事件**（t83 F8），返回 digest；`projectionDigest` 可按 workspace 过滤。
 - 显式边界：只重建 tasks/runs；agents/messages/board/settings 不是事件投影（保持原表）。
@@ -106,7 +107,7 @@
 - 活跃 Run 唯一：`ux_runs_active` 部分唯一索引（queued/running/waiting_human）。
 - 字段：agent/modelProfileId/modelId/permissionSnapshot/sandboxId/startedAt/endedAt/heartbeatAt/leaseOwner/leaseExpiresAt/checkpointRef/checkpointStep/tokenIn/tokenOut/costUsd/errorCode/retryable/steps。
 - 租约：owner=`instanceId:bootId`，TTL 60s；执行器 step/工具/独立 15s 心跳续租，`run.heartbeat` 事件 30s 节流。
-- **CAS（t83 F2）**：heartbeat/checkpoint/waiting/resumed/终态统一 `UPDATE ... WHERE lease_owner=? AND status IN (...)`；旧 owner 写入被 fencing。
+- **CAS（t83 F2 / t90）**：heartbeat/checkpoint/waiting/resumed/终态统一 `UPDATE ... WHERE lease_owner=? AND status IN (...)`；旧 owner 写入被 fencing，并写 `run.result_discarded {runId,action,owner}` 审计（不改变投影）。
 - **watchdog（t83 F2）**：每次 tick 检查本实例 active Run：
   - running 且 `heartbeatAt`/`leaseExpiresAt` 过期 → abort controller + `failRun`（`run.failed/LEASE_EXPIRED` + `kernel.recovered source=watchdog`）；
   - waiting_human 且过期 → 独立 lease keeper 续租（审批 120s > 租约 60s 不被回收）。
@@ -180,7 +181,7 @@ src/kernel/execution/eventRegistry.ts  事件类型 + 逐类型 zod schema/版�
 src/kernel/execution/stateMachine.ts   8 态迁移表/依赖规则
 src/kernel/execution/projections.ts    tasks/runs 投影 + 分页 rebuild + digest
 src/kernel/execution/kernel.ts         执行内核（事件/调度/Run/重试/恢复/watchdog/review）
-src/kernel/execution/kernel.test.ts    33 个确定性测试
+src/kernel/execution/kernel.test.ts    41 个确定性测试
 ```
 
 **修改**
@@ -203,12 +204,12 @@ src/shared/copy.ts       queued 文案
 ```
 pnpm typecheck   # tsc --noEmit，exit 0
 pnpm build       # vite + build-electron，exit 0
-pnpm test        # vitest run，21 文件 / 279 用例，exit 0
+pnpm test        # vitest run，21 文件 / 287 用例，exit 0
 ```
 
-构建输出（已合并 t64 后的 main）：`dist/assets/index-Cj1A80OX.js 1,072.63 kB (gzip 294.96)`，CSS 198.12 kB，`dist-electron/main.cjs 1005.4 kB`。
+构建输出（已合并 t64 后的 main）：`dist/assets/index-Cj1A80OX.js 1,072.63 kB (gzip 294.96)`，CSS 198.12 kB，`dist-electron/main.cjs 1008.0 kB`。
 
-### 9.1 内核测试矩阵（33 例）
+### 9.1 内核测试矩阵（41 例）
 
 | 区域 | 覆盖 |
 |---|---|
@@ -220,12 +221,12 @@ pnpm test        # vitest run，21 文件 / 279 用例，exit 0
 | Run/重试 | attempt 递增、新 Run、retryOfRunId、退避、耗尽、手动重试 |
 | 租约/心跳 | heartbeat/lease 更新、checkpoint 事件与文件 ref |
 | watchdog | 假时钟 + 永不 resolve executor → abort + failed(LEASE_EXPIRED) + 审计 |
-| waiting_human | 等待 >120s 不被回收、resume→done、失败→run.failed |
+| waiting_human | 等待 >120s 不被回收、resume→done、失败→run.failed；waiting 中 rebuild digest=live；resumed/failed 后 rebuild 一致 |
 | review | required→review、approve→done、reject→failed(REVIEW_REJECTED) |
 | 依赖传播 | 父失败→子 blocked(dependency_failed)、父重试成功→子 ready；父取消→子 dependency_cancelled |
 | T22 | blocked reason 更新写 task.blocked、无 status_changed、幂等键格式 |
 | 恢复 | 过期租约回收为 attempt 2、孤儿 Run cancelled |
-| 重放 | 重建投影 digest = 实时 digest；>2000 事件分页重放（2105 条） |
+| 重放 | 重建投影 digest = 实时 digest；waiting/resumed/failed 后 rebuild；>2000 事件分页重放（2105 条） |\n| stale-owner | heartbeat/checkpoint/enterWaiting/resume/complete/fail 参数化：状态/投影不变、无状态事件、写 run.result_discarded |
 | 迁移 | WAL 旧库备份可打开/integrity_check、备份失败拒绝迁移（user_version=1）、半迁移回滚、旧事件 schemaVersion=1/时间回填 |
 
 原有测试（service/权限/审批/模型/Dock 星图/Markdown + t64 交互画布/提问 145 项）全部通过，Router/成员/权限/审批无回归。
@@ -243,7 +244,7 @@ pnpm test        # vitest run，21 文件 / 279 用例，exit 0
 | DAG 调度 ready 队列、全局/成员并发、暂停/恢复/取消、并发安全 | 调度组；CAS/单飞/唯一索引实现 |
 | Run 租约/心跳/重试退避、attempt 幂等、孤儿回收 | Run 组、恢复组；attempt 唯一 + 幂等键 + fencing |
 | 事件重放一致；确定性测试覆盖状态机/并发/重试/恢复 | rebuild digest；FakeClock + 受控 executor |
-| 现有 Router/成员/权限/审批无回归；三命令通过 | 279/279；typecheck/build/test 均 exit 0 |
+| 现有 Router/成员/权限/审批无回归；三命令通过 | 287/287；typecheck/build/test 均 exit 0 |
 | worktree/PR，不直接改 main | `feature/t68-execution-kernel`；PR #2 |
 | 实现文档 | 本文件 |
 
@@ -256,9 +257,17 @@ pnpm test        # vitest run，21 文件 / 279 用例，exit 0
 | 备份必须成功且可校验；失败拒绝迁移且 user_version=1；WAL/备份失败/半迁移测试 | `backupDatabase`（checkpoint + VACUUM INTO + integrity_check）；测试组 “migration backup fail-closed” 3 例 |
 | schema_version 默认 1；旧事件 1；新内核 2；v1 fixture 断言 | 迁移列默认 1；`Store.appendEvent` 默认 1；`Store.createTask`/内核显式 2；备份测试断言 evt_old=1、occurred/recorded |
 | reviewPolicy auto/required + review 操作；waiting_human 与 t58 联动；进入/批准/拒绝、resumed/failed 测试 | `reviewTask`、`enterWaitingHuman/resumeFromHuman`、service 审批包装；review/waiting 测试组 |
-| 每个事件类型 zod schema（版本/上限），拒绝未知字段/非法值；malformed 测试 | `EVENT_REGISTRY` 29 类；`assertKernelEventPayload`；schema 测试组 |
+| 每个事件类型 zod schema（版本/上限），拒绝未知字段/非法值；malformed 测试 | `EVENT_REGISTRY` 30 类；`assertKernelEventPayload`；schema 测试组 |
 | T22 task.blocked(reasonB) 不改状态 + 幂等键；事件审计断言 | `refreshDependentTasks`；T22 测试断言 task.blocked、无 status_changed、key 格式 |
 | 分页重放全部事件（或显式失败）；>2000 重建测试 | `listEventsAfter` + `rebuildProjections` 游标；2105 事件测试 |
+
+### t90 acceptance（repair-round-3）
+
+| 验收项 | 证据 |
+|---|---|
+| `run.waiting_human` → waiting_human、`run.resumed` → running（保留 heartbeat/lease patch）；waiting 中 rebuild digest=live、resumed/failed 后 rebuild；run 历史不误报 | `applyKernelEvent` 新增两个 case；`enterWaitingHuman/resumeFromHuman` 事件带 patch；测试组 “t90 waiting_human/resumed projection replay” 2 例（waiting 时 rebuild、resume→done rebuild、failed rebuild） |
+| CAS 影响行数=0 写 `run.result_discarded`（runId/action/owner/no state change）；登记事件/zod；stale-owner heartbeat/checkpoint/complete/fail 测试 | `auditDiscarded` + `casRunPatch` 失败/owner mismatch 调用；`run.result_discarded` 入 `KERNEL_EVENT_TYPES`/`EVENT_REGISTRY`；stale-owner 参数化测试 |
+| stale-owner 参数化（heartbeat/checkpoint/enterWaiting/resume/complete/fail），不产生状态事件/不覆盖新 Run | 测试组 “t90 stale-owner CAS audit” 6 例：run/task 状态不变、attempt=1、无 run 状态事件、写 result_discarded（owner=stale-owner） |
 
 ---
 

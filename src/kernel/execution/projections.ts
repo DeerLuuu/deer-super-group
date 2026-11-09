@@ -187,6 +187,24 @@ export function applyKernelEvent(store: Store, event: EventRecord): void {
       if (patch) patchRunProjection(store, event.aggregateId, patch);
       return;
     }
+    case "run.waiting_human": {
+      // t90 F1：等待人工期间 Run 必须可从事件重建为 waiting_human；
+      // 保留事件里的 heartbeat/lease patch，避免重放后租约信息丢失。
+      const patch = asRecord(payload.patch) ?? {};
+      patchRunProjection(store, event.aggregateId, {
+        ...patch,
+        status: "waiting_human",
+      });
+      return;
+    }
+    case "run.resumed": {
+      const patch = asRecord(payload.patch) ?? {};
+      patchRunProjection(store, event.aggregateId, {
+        ...patch,
+        status: "running",
+      });
+      return;
+    }
     case "run.completed":
     case "run.failed":
     case "run.cancelled": {
@@ -194,6 +212,9 @@ export function applyKernelEvent(store: Store, event: EventRecord): void {
       if (patch) patchRunProjection(store, event.aggregateId, patch);
       return;
     }
+    case "run.result_discarded":
+      // 审计事件：不改变任何投影。
+      return;
     default:
       return;
   }
