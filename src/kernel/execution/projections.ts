@@ -279,8 +279,14 @@ export function projectionDigest(store: Store, workspaceId?: string): Projection
 export function rebuildProjections(store: Store): ProjectionDigest {
   return store.withTransaction(() => {
     store.db.exec("DELETE FROM runs; DELETE FROM tasks;");
-    const events = store.listEvents({ limit: 2000 });
-    for (const event of events) applyKernelEvent(store, event);
+    // t83 F8：seq 游标分页重放全部事件，不静默截断在 2000 条。
+    let cursor = 0;
+    for (;;) {
+      const page = store.listEventsAfter(cursor, 500);
+      if (page.length === 0) break;
+      for (const event of page) applyKernelEvent(store, event);
+      cursor = page[page.length - 1].seq;
+    }
     return projectionDigest(store);
   });
 }

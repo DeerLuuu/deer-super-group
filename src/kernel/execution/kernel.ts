@@ -41,7 +41,8 @@ export interface KernelLimits {
 
 export const DEFAULT_KERNEL_LIMITS: KernelLimits = {
   maxGlobal: 4,
-  maxWorkspace: 2,
+  // t83 F1 / t76 Q1：Git/worktree 隔离前工作区串行（1），>1 前必须加写租约/文件锁。
+  maxWorkspace: 1,
   maxPerAgent: 1,
 };
 
@@ -59,6 +60,9 @@ export interface RunExecutionContext {
   signal: AbortSignal;
   heartbeat: (info?: { tokenIn?: number; tokenOut?: number; steps?: number }) => void;
   checkpoint: (info: { step: number; ref?: string }) => void;
+  /** t83 F5：高风险审批/人工输入期间把 Run 标为 waiting_human；结束后 resumeHuman。 */
+  waitingHuman: (reason?: string) => void;
+  resumeHuman: () => void;
 }
 
 export type RunExecutor = (ctx: RunExecutionContext) => Promise<RunExecutionResult | void>;
@@ -453,8 +457,10 @@ export class ExecutionKernel {
     }
     this.ticking = true;
     try {
-      this.recoverExpiredLeases();
       const now = this.clock.now();
+      // t83 F2：本实例 active Run 也受 watchdog 约束；心跳/租约过期必须 abort+fail。
+      this.watchdogActiveRuns(now);
+      this.recoverExpiredLeases();
       const active = this.listActiveRuns();
       let globalCount = active.length;
       const workspaceCounts = new Map<string, number>();
@@ -658,6 +664,8 @@ export class ExecutionKernel {
         signal: controller.signal,
         heartbeat: (info) => this.heartbeat(runId, info),
         checkpoint: (info) => this.checkpoint(runId, info),
+        waitingHuman: (reason) => this.enterWaitingHuman(runId, reason),
+        resumeHuman: () => this.resumeFromHuman(runId),
       });
       if (controller.signal.aborted) return;
       const current = this.store.getRun(runId);
@@ -691,25 +699,46 @@ export class ExecutionKernel {
         tokenOut: result.tokenOut ?? run.tokenOut,
         steps: result.steps ?? run.steps ?? 0,
       };
-      patchRunProjection(this.store, runId, patch);
+      if (!this.casRunPatch(runId, patch, ["running", "waiting_human"])) return;
       this.appendEvent("run.completed", "run", runId, { patch });
       const task = this.store.getTask(run.taskId);
       if (task && task.status === "running") {
         const summary = result.summary?.trim() || "任务完成。";
-        assertTransition(task.status, "done");
-        patchTaskProjection(this.store, task.id, {
-          status: "done",
-          summary,
-          endedAt: nowIso,
-          failureKind: null,
-        });
-        this.appendEvent("task.status_changed", "task", task.id, {
-          from: "running",
-          to: "done",
-          reason: "run_completed",
-          runId,
-          patch: { summary, endedAt: nowIso, failureKind: null },
-        });
+        const reviewPolicy = this.getReviewPolicy();
+        if (reviewPolicy === "required") {
+          assertTransition(task.status, "review");
+          patchTaskProjection(this.store, task.id, {
+            status: "review",
+            summary,
+            failureKind: null,
+          });
+          this.appendEvent("task.status_changed", "task", task.id, {
+            from: "running",
+            to: "review",
+            reason: "review_required",
+            runId,
+            patch: { summary, failureKind: null },
+          });
+          this.appendEvent("task.review_requested", "task", task.id, {
+            runId,
+            policy: "required",
+          });
+        } else {
+          assertTransition(task.status, "done");
+          patchTaskProjection(this.store, task.id, {
+            status: "done",
+            summary,
+            endedAt: nowIso,
+            failureKind: null,
+          });
+          this.appendEvent("task.status_changed", "task", task.id, {
+            from: "running",
+            to: "done",
+            reason: "run_completed",
+            runId,
+            patch: { summary, endedAt: nowIso, failureKind: null },
+          });
+        }
       }
       this.setAgentIdleIfFree(run.agentId);
       this.hooks.onRunFinished?.({
@@ -727,8 +756,12 @@ export class ExecutionKernel {
     if (completedTask) this.refreshDependentTasks(completedTask.id);
   }
 
-  private failRun(runId: string, error: unknown): void {
-    const classified = classifyRunError(error);
+  private failRun(
+    runId: string,
+    error: unknown,
+    override?: { code: string; message: string; retryable: boolean },
+  ): void {
+    const classified = override ?? classifyRunError(error);
     const now = this.clock.now();
     const nowIso = iso(now);
     let retryQueued = false;
@@ -743,7 +776,7 @@ export class ExecutionKernel {
         errorCode: classified.code,
         retryable: classified.retryable,
       };
-      patchRunProjection(this.store, runId, patch);
+      if (!this.casRunPatch(runId, patch, ["running", "waiting_human"])) return;
       this.appendEvent("run.failed", "run", runId, { patch });
       const task = this.store.getTask(run.taskId);
       if (task && task.status === "running") {
@@ -831,7 +864,7 @@ export class ExecutionKernel {
     };
     const last = this.lastHeartbeatEventAt.get(runId) ?? 0;
     this.store.withTransaction(() => {
-      patchRunProjection(this.store, runId, patch);
+      if (!this.casRunPatch(runId, patch, ["running", "waiting_human"])) return;
       if (now - last >= HEARTBEAT_EVENT_MS) {
         this.appendEvent("run.heartbeat", "run", runId, { patch });
         this.lastHeartbeatEventAt.set(runId, now);
@@ -839,16 +872,87 @@ export class ExecutionKernel {
     });
   }
 
+  /** t83 F5：进入人工等待（审批/评审），独立租约 keeper 由 watchdog 续租。 */
+  enterWaitingHuman(runId: string, reason = "human_input"): void {
+    if (!this.activeRuns.has(runId)) return;
+    const now = this.clock.now();
+    this.store.withTransaction(() => {
+      const patch = {
+        heartbeatAt: iso(now),
+        leaseExpiresAt: iso(now + LEASE_MS),
+      };
+      if (!this.casRunPatch(runId, { ...patch, status: "waiting_human" }, ["running"])) return;
+      this.appendEvent("run.waiting_human", "run", runId, { reason });
+    });
+  }
+
+  /** t83 F5：人工等待结束，Run 回到 running 继续执行。 */
+  resumeFromHuman(runId: string, reason = "human_resolved"): void {
+    const now = this.clock.now();
+    this.store.withTransaction(() => {
+      const patch = {
+        heartbeatAt: iso(now),
+        leaseExpiresAt: iso(now + LEASE_MS),
+      };
+      if (!this.casRunPatch(runId, { ...patch, status: "running" }, ["waiting_human"])) return;
+      this.appendEvent("run.resumed", "run", runId, { reason });
+    });
+  }
+
   checkpoint(runId: string, info: { step: number; ref?: string }): void {
     if (!this.activeRuns.has(runId)) return;
     const run = this.store.getRun(runId);
-    if (!run || !isActiveRunStatus(run.status) || run.leaseOwner !== this.owner) return;
+    if (!run || run.status !== "running" || run.leaseOwner !== this.owner) return;
     const ref = info.ref ?? this.writeCheckpointFile(runId, info.step);
     const patch = { checkpointRef: ref, checkpointStep: info.step };
     this.store.withTransaction(() => {
-      patchRunProjection(this.store, runId, patch);
+      if (!this.casRunPatch(runId, patch, ["running"])) return;
       this.appendEvent("run.checkpoint", "run", runId, { ...patch, patch });
     });
+  }
+
+  /**
+   * t83 F2：本实例 active Run 的 watchdog。
+   * - running 且 heartbeat/lease 过期 → abort controller + failRun(LEASE_EXPIRED) + 审计；
+   * - waiting_human 且租约过期 → 独立 keeper 续租（审批 120s > lease 60s 不被回收）。
+   */
+  private watchdogActiveRuns(now: number): void {
+    for (const [runId, controller] of [...this.activeRuns.entries()]) {
+      const run = this.store.getRun(runId);
+      if (!run || !isActiveRunStatus(run.status) || run.leaseOwner !== this.owner) continue;
+      const leaseExpired = !run.leaseExpiresAt || Date.parse(run.leaseExpiresAt) <= now;
+      const heartbeatAt = run.heartbeatAt ? Date.parse(run.heartbeatAt) : Number.NaN;
+      const heartbeatStale = Number.isNaN(heartbeatAt) || now - heartbeatAt >= LEASE_MS;
+      if (!leaseExpired && !heartbeatStale) continue;
+      if (run.status === "waiting_human") {
+        this.store.withTransaction(() => {
+          this.casRunPatch(
+            runId,
+            { heartbeatAt: iso(now), leaseExpiresAt: iso(now + LEASE_MS) },
+            ["waiting_human"],
+          );
+        });
+        continue;
+      }
+      controller.abort();
+      this.failRun(
+        runId,
+        new Error("lease expired while running"),
+        {
+          code: "LEASE_EXPIRED",
+          message: "lease expired while running",
+          retryable: true,
+        },
+      );
+      this.appendEvent("kernel.recovered", "kernel", runId, {
+        runId,
+        taskId: run.taskId,
+        action: "lease_expired",
+        source: "watchdog",
+        attempt: run.attempt ?? 1,
+      });
+      this.activeRuns.delete(runId);
+    }
   }
 
   private writeCheckpointFile(runId: string, step: number): string {
@@ -1024,9 +1128,14 @@ export class ExecutionKernel {
         if (reason) {
           if (task.blockedReason !== reason) {
             patchTaskProjection(this.store, taskId, { blockedReason: reason });
-            this.appendEvent("task.updated", "task", taskId, {
-              patch: { blockedReason: reason },
-            });
+            // t83 F7 / t76 T22：仅原因更新，不改状态；写 task.blocked 审计。
+            this.appendEvent(
+              "task.blocked",
+              "task",
+              taskId,
+              { reason, previousReason: task.blockedReason ?? undefined },
+              this.blockedReasonKey(taskId, reason),
+            );
           }
           continue;
         }
@@ -1067,9 +1176,14 @@ export class ExecutionKernel {
           if (current.status === "blocked") {
             if (current.blockedReason !== reason) {
               patchTaskProjection(this.store, current.id, { blockedReason: reason });
-              this.appendEvent("task.updated", "task", current.id, {
-                patch: { blockedReason: reason },
-              });
+              // t83 F7 / t76 T22：blocked(reasonA)→blocked(reasonB) 只写 task.blocked 审计。
+              this.appendEvent(
+                "task.blocked",
+                "task",
+                current.id,
+                { reason, previousReason: current.blockedReason ?? undefined },
+                this.blockedReasonKey(current.id, reason),
+              );
             }
             continue;
           }
@@ -1203,6 +1317,117 @@ export class ExecutionKernel {
     return Number(row?.paused ?? 0) === 1;
   }
 
+  /**
+   * t83 F5：reviewPolicy=required 的批准/拒绝。
+   * approve: review→done；reject: review→failed(REVIEW_REJECTED)；均写审计事件。
+   */
+  reviewTask(
+    taskId: string,
+    decision: "approve" | "reject",
+    options: { reviewer?: string; notes?: string } = {},
+  ): Task {
+    const task = this.requireTask(taskId);
+    if (task.status !== "review") {
+      throw new KernelError(
+        "INVALID_TRANSITION",
+        `only review tasks can be reviewed (current: ${task.status})`,
+      );
+    }
+    const nowIso = iso(this.clock.now());
+    this.store.withTransaction(() => {
+      const current = this.requireTask(taskId);
+      if (decision === "approve") {
+        assertTransition(current.status, "done");
+        patchTaskProjection(this.store, taskId, {
+          status: "done",
+          endedAt: nowIso,
+          failureKind: null,
+        });
+        this.appendEvent("task.review_approved", "task", taskId, {
+          reviewer: options.reviewer,
+          notes: options.notes,
+        });
+        this.appendEvent("task.status_changed", "task", taskId, {
+          from: "review",
+          to: "done",
+          reason: "review_approved",
+          patch: { endedAt: nowIso, failureKind: null },
+        });
+      } else {
+        assertTransition(current.status, "failed");
+        patchTaskProjection(this.store, taskId, {
+          status: "failed",
+          endedAt: nowIso,
+          failureKind: "REVIEW_REJECTED",
+        });
+        this.appendEvent("task.review_rejected", "task", taskId, {
+          reviewer: options.reviewer,
+          notes: options.notes,
+        });
+        this.appendEvent("task.status_changed", "task", taskId, {
+          from: "review",
+          to: "failed",
+          reason: "review_rejected",
+          patch: { endedAt: nowIso, failureKind: "REVIEW_REJECTED" },
+        });
+      }
+    });
+    if (decision === "approve") this.resolveTaskWaiters(taskId);
+    else this.rejectWaiters(taskId, new Error("review rejected"));
+    this.refreshDependentTasks(taskId);
+    return this.requireTask(taskId);
+  }
+
+  private getReviewPolicy(): "auto" | "required" {
+    return this.store.getSetting("kernel.reviewPolicy") === "required" ? "required" : "auto";
+  }
+
+  private casRunPatch(
+    runId: string,
+    patch: Record<string, unknown>,
+    statuses: RunStatus[],
+  ): boolean {
+    const columns: Record<string, string> = {
+      status: "status",
+      endedAt: "ended_at",
+      error: "error",
+      errorCode: "error_code",
+      retryable: "retryable",
+      tokenIn: "token_in",
+      tokenOut: "token_out",
+      steps: "steps",
+      heartbeatAt: "heartbeat_at",
+      leaseExpiresAt: "lease_expires_at",
+      checkpointRef: "checkpoint_ref",
+      checkpointStep: "checkpoint_step",
+    };
+    const sets: string[] = [];
+    const params: Array<string | number | null> = [];
+    for (const [key, column] of Object.entries(columns)) {
+      if (!(key in patch)) continue;
+      const value = patch[key];
+      sets.push(`${column} = ?`);
+      params.push(
+        value === null || value === undefined
+          ? null
+          : typeof value === "boolean"
+            ? value
+              ? 1
+              : 0
+            : (value as string | number),
+      );
+    }
+    if (!sets.length) return false;
+    const placeholders = statuses.map(() => "?").join(",");
+    params.push(runId, this.owner, ...statuses);
+    const result = this.store.db
+      .prepare(
+        `UPDATE runs SET ${sets.join(", ")} WHERE id = ? AND lease_owner = ? AND status IN (${placeholders})`,
+      )
+      .run(...params);
+    return Number(result.changes) === 1;
+  }
+
   private patchTask(taskId: string, patch: Record<string, unknown>): void {
     patchTaskProjection(this.store, taskId, patch);
   }
@@ -1224,15 +1449,24 @@ export class ExecutionKernel {
     payload: Record<string, unknown>,
     idempotencyKey?: string,
   ): void {
-    assertKernelEventPayload(type, payload);
+    // t83 F4：新内核事件显式 schemaVersion=2；旧调用方（store.appendEvent）默认 1。
+    assertKernelEventPayload(type, payload, 2);
     this.store.appendEventIdempotent({
       aggregateType,
       aggregateId,
       type,
       actor: "system",
       payload,
+      schemaVersion: 2,
       idempotencyKey: idempotencyKey ?? null,
     });
+  }
+
+  private blockedReasonKey(taskId: string, reason: string): string {
+    const row = this.store.db
+      .prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE aggregate_id = ?")
+      .get(taskId) as { seq?: number };
+    return `task:${taskId}:blocked:${reason}:${Number(row.seq ?? 0) + 1}`;
   }
 
   private backoffFor(attempt: number): number {
@@ -1274,8 +1508,14 @@ export class ExecutionKernel {
     if (!run) return;
     const task = this.store.getTask(run.taskId);
     if (!task || task.status !== "done") return;
-    const list = this.waiters.get(task.id) ?? [];
-    this.waiters.delete(task.id);
+    this.resolveTaskWaiters(task.id);
+  }
+
+  private resolveTaskWaiters(taskId: string): void {
+    const task = this.store.getTask(taskId);
+    if (!task || task.status !== "done") return;
+    const list = this.waiters.get(taskId) ?? [];
+    this.waiters.delete(taskId);
     for (const waiter of list) waiter.resolve();
   }
 

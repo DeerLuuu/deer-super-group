@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -7,7 +7,12 @@ import type { Agent, Task } from "../../shared/types.js";
 import { Store } from "../store.js";
 import { AppService } from "../service.js";
 import { FakeClock } from "./clock.js";
-import { ExecutionKernel, type RunExecutionContext, type RunExecutor } from "./kernel.js";
+import {
+  DEFAULT_KERNEL_LIMITS,
+  ExecutionKernel,
+  type RunExecutionContext,
+  type RunExecutor,
+} from "./kernel.js";
 import {
   assertTransition,
   blockedReasonFor,
@@ -16,6 +21,12 @@ import {
   transitionMatrix,
 } from "./stateMachine.js";
 import { projectionDigest, rebuildProjections } from "./projections.js";
+import {
+  KERNEL_EVENT_SCHEMA_VERSION,
+  KERNEL_EVENT_TYPES,
+  EVENT_REGISTRY,
+  assertKernelEventPayload,
+} from "./eventRegistry.js";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -95,6 +106,69 @@ function taskStatus(store: Store, id: string): string {
   return store.getTask(id)?.status ?? "missing";
 }
 
+/** t83：构造 v1 旧库（tasks/runs/events），可注入 WAL/迁移失败 trigger。 */
+function createLegacyTaskDb(
+  root: string,
+  options: { wal?: boolean; trigger?: boolean } = {},
+): string {
+  const dbPath = path.join(root, "deer.db");
+  const db = new DatabaseSync(dbPath);
+  if (options.wal) db.exec("PRAGMA journal_mode = WAL");
+  db.exec(`
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '', acceptance TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'ready', owner_id TEXT,
+      depends_on TEXT NOT NULL DEFAULT '[]', branch TEXT, worktree TEXT, summary TEXT,
+      created_at TEXT NOT NULL, started_at TEXT, ended_at TEXT
+    );
+    CREATE TABLE runs (
+      id TEXT PRIMARY KEY, task_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+      status TEXT NOT NULL, error TEXT, started_at TEXT NOT NULL, ended_at TEXT,
+      token_in INTEGER NOT NULL DEFAULT 0, token_out INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE events (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+      aggregate_type TEXT NOT NULL, aggregate_id TEXT NOT NULL, type TEXT NOT NULL,
+      actor TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
+    );
+  `);
+  db.prepare(
+    "INSERT INTO tasks (id, workspace_id, title, description, acceptance, status, created_at) VALUES ('task_legacy', 'ws_legacy', 'Legacy task', '', '[]', 'ready', ?)",
+  ).run("2026-01-01T00:00:00.000Z");
+  db.prepare(
+    "INSERT INTO events (id, aggregate_type, aggregate_id, type, actor, payload, created_at) VALUES ('evt_old', 'task', 'task_legacy', 'task.running', 'system', '{}', ?)",
+  ).run("2026-01-01T00:00:00.000Z");
+  if (options.trigger) {
+    db.exec(`
+      CREATE TRIGGER fail_kernel_migration BEFORE UPDATE ON tasks
+      BEGIN SELECT RAISE(ABORT, 'migration fault'); END;
+    `);
+  }
+  db.close();
+  return dbPath;
+}
+
+function tableColumns(dbPath: string, table: string): string[] {
+  const db = new DatabaseSync(dbPath);
+  try {
+    return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>).map(
+      (row) => String(row.name),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+function userVersion(dbPath: string): number {
+  const db = new DatabaseSync(dbPath);
+  try {
+    return Number((db.prepare("PRAGMA user_version").get() as { user_version?: number }).user_version);
+  } finally {
+    db.close();
+  }
+}
+
 const instantExecutor: RunExecutor = async () => ({ summary: "done" });
 
 describe("t68 state machine", () => {
@@ -155,7 +229,8 @@ describe("t68 event log", () => {
     expect(second.created).toBe(false);
     expect(second.event.seq).toBe(first.event.seq);
     expect(store.listEvents({ aggregateId: "t1" })).toHaveLength(1);
-    expect(store.listEvents({ aggregateId: "t1" })[0].schemaVersion).toBe(2);
+    // t83 F4：Store.appendEvent 是旧调用路径，默认 schemaVersion=1；内核显式写 2。
+    expect(store.listEvents({ aggregateId: "t1" })[0].schemaVersion).toBe(1);
   });
 
   it("seq is monotonic and events are ordered by seq", () => {
@@ -647,5 +722,378 @@ describe("t68 migration from a v1 database", () => {
     expect(snapshot.workspace.id).toBe("ws_open");
     expect(snapshot.tasks.some((task) => task.id === "task_open")).toBe(true);
     expect(service.getScheduler("ws_open").counts.ready).toBe(1);
+  });
+});
+
+describe("t83 event validation and schema versions", () => {
+  it("registers a zod schema for every kernel event type", () => {
+    for (const type of KERNEL_EVENT_TYPES) {
+      expect(EVENT_REGISTRY[type]).toBeTruthy();
+      expect(EVENT_REGISTRY[type].version).toBe(KERNEL_EVENT_SCHEMA_VERSION);
+      expect(EVENT_REGISTRY[type].version).toBe(2);
+      expect(EVENT_REGISTRY[type].maxBytes).toBeGreaterThan(0);
+    }
+  });
+
+  it("rejects unknown types, unknown fields, invalid values and oversized payloads", () => {
+    const valid = {
+      task: { id: "t1", workspaceId: "w1", title: "ok", status: "ready" },
+    };
+    expect(() => assertKernelEventPayload("task.created", valid)).not.toThrow();
+    expect(() =>
+      assertKernelEventPayload("task.created", { ...valid, unexpected: true }),
+    ).toThrow(/invalid kernel event payload/);
+    expect(() =>
+      assertKernelEventPayload("task.status_changed", {
+        from: "running",
+        to: "not-a-status",
+        reason: "x",
+      }),
+    ).toThrow(/invalid kernel event payload/);
+    expect(() =>
+      assertKernelEventPayload("task.created", {
+        task: { id: "", workspaceId: "w1", title: "x", status: "ready" },
+      }),
+    ).toThrow(/invalid kernel event payload/);
+    expect(() => assertKernelEventPayload("unknown.event", {})).toThrow(/not registered/);
+    expect(() =>
+      assertKernelEventPayload("task.updated", { patch: { description: "x".repeat(70_000) } }),
+    ).toThrow(/too large/);
+  });
+
+  it("writes old events as 1 and kernel/task.created events as 2", () => {
+    const { store, workspaceId } = setupKernel(instantExecutor);
+    const task = createTask(store, workspaceId, "schema");
+    const created = store
+      .listEvents({ aggregateId: task.id })
+      .find((event) => event.type === "task.created");
+    expect(created?.schemaVersion).toBe(2);
+    const legacy = store.appendEvent({
+      aggregateType: "task",
+      aggregateId: task.id,
+      type: "tool.call",
+      actor: "agent",
+      payload: { name: "fs.read" },
+    });
+    expect(legacy.schemaVersion).toBe(1);
+  });
+});
+
+describe("t83 workspace write isolation", () => {
+  it("defaults maxWorkspace to 1 and serializes two different members writing the same file", async () => {
+    expect(DEFAULT_KERNEL_LIMITS.maxWorkspace).toBe(1);
+    const store = new Store(":memory:");
+    cleanups.push(() => store.close());
+    const workspace = store.createWorkspace("isolation", ".");
+    const agents = ["A", "B"].map((name) =>
+      store.createAgent({
+        workspaceId: workspace.id,
+        name,
+        role: "engineer",
+        systemPrompt: "",
+        persona: "",
+        agentsMd: "",
+        model: null,
+      }),
+    );
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "deer-write-")), "shared.txt");
+    writeFileSync(file, "", "utf8");
+    let activeWriters = 0;
+    let maxActiveWriters = 0;
+    const gates: Array<() => void> = [];
+    const executor: RunExecutor = async () => {
+      activeWriters += 1;
+      maxActiveWriters = Math.max(maxActiveWriters, activeWriters);
+      await new Promise<void>((resolve) => gates.push(resolve));
+      activeWriters -= 1;
+      return { summary: "ok" };
+    };
+    const kernel = new ExecutionKernel({
+      store,
+      executor,
+      clock: new FakeClock(),
+      autoTick: false,
+      limits: { maxGlobal: 4, maxWorkspace: 1, maxPerAgent: 1 },
+    });
+    cleanups.push(() => kernel.dispose());
+    const first = store.createTask({
+      workspaceId: workspace.id,
+      title: "writer-a",
+      description: "",
+      acceptance: [],
+      ownerId: agents[0].id,
+    });
+    const second = store.createTask({
+      workspaceId: workspace.id,
+      title: "writer-b",
+      description: "",
+      acceptance: [],
+      ownerId: agents[1].id,
+    });
+    kernel.startTask(first.id);
+    kernel.startTask(second.id);
+    await waitFor(() => gates.length === 1);
+    expect(maxActiveWriters).toBe(1);
+    expect(taskStatus(store, second.id)).toBe("queued");
+    gates.shift()?.();
+    await waitFor(() => gates.length === 1);
+    gates.shift()?.();
+    await waitFor(() => taskStatus(store, second.id) === "done");
+    expect(maxActiveWriters).toBe(1);
+  });
+});
+
+describe("t83 watchdog and waiting_human", () => {
+  it("aborts a hung local run when heartbeat/lease expires and audits LEASE_EXPIRED", async () => {
+    let aborted = false;
+    const executor: RunExecutor = (ctx) => {
+      ctx.signal.addEventListener("abort", () => {
+        aborted = true;
+      });
+      return new Promise(() => {});
+    };
+    const { store, workspaceId, clock, kernel } = setupKernel(executor, {
+      maxAttempts: 1,
+    });
+    const task = createTask(store, workspaceId, "hung");
+    kernel.startTask(task.id);
+    await waitFor(() => taskStatus(store, task.id) === "running");
+    clock.advance(61_000);
+    kernel.tick();
+    const run = kernel.listRuns(task.id)[0];
+    expect(aborted).toBe(true);
+    expect(run.status).toBe("failed");
+    expect(run.errorCode).toBe("LEASE_EXPIRED");
+    expect(taskStatus(store, task.id)).toBe("failed");
+    const events = store.listEvents({ aggregateId: run.id });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "run.failed" &&
+          (event.payload as { patch?: { errorCode?: string } }).patch?.errorCode ===
+            "LEASE_EXPIRED",
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "kernel.recovered" &&
+          (event.payload as { action?: string; source?: string }).action === "lease_expired" &&
+          (event.payload as { source?: string }).source === "watchdog",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps waiting_human alive past lease TTL, then resumes and completes", async () => {
+    let captured: RunExecutionContext | null = null;
+    let release: (() => void) | null = null;
+    const executor: RunExecutor = (ctx) => {
+      captured = ctx;
+      ctx.waitingHuman("risk_approval");
+      return new Promise((resolve) => {
+        release = () => resolve({ summary: "approved" });
+      });
+    };
+    const { store, workspaceId, clock, kernel } = setupKernel(executor);
+    const task = createTask(store, workspaceId, "waiting");
+    kernel.startTask(task.id);
+    await waitFor(() => kernel.listRuns(task.id)[0]?.status === "waiting_human");
+    const before = kernel.listRuns(task.id)[0];
+    clock.advance(120_000);
+    kernel.tick();
+    const waiting = kernel.listRuns(task.id)[0];
+    expect(waiting.status).toBe("waiting_human");
+    expect(Date.parse(waiting.leaseExpiresAt!) > Date.parse(before.leaseExpiresAt!)).toBe(true);
+    captured!.resumeHuman();
+    release!();
+    await waitFor(() => taskStatus(store, task.id) === "done");
+    const types = store.listEvents({ aggregateId: waiting.id }).map((event) => event.type);
+    expect(types).toContain("run.waiting_human");
+    expect(types).toContain("run.resumed");
+  });
+
+  it("waiting_human failure resumes into run.failed", async () => {
+    let rejectExec: ((error: Error) => void) | null = null;
+    let captured: RunExecutionContext | null = null;
+    const executor: RunExecutor = (ctx) => {
+      captured = ctx;
+      ctx.waitingHuman("risk_approval");
+      return new Promise((_resolve, reject) => {
+        rejectExec = reject;
+      });
+    };
+    const { store, workspaceId, kernel } = setupKernel(executor, { maxAttempts: 1 });
+    const task = createTask(store, workspaceId, "waiting-fail");
+    kernel.startTask(task.id);
+    await waitFor(() => kernel.listRuns(task.id)[0]?.status === "waiting_human");
+    captured!.resumeHuman();
+    rejectExec!(new Error("approval denied"));
+    await waitFor(() => taskStatus(store, task.id) === "failed");
+    expect(kernel.listRuns(task.id)[0].status).toBe("failed");
+  });
+});
+
+describe("t83 review policy", () => {
+  it("required policy enters review, approve completes, reject fails", async () => {
+    const { store, workspaceId, kernel } = setupKernel(instantExecutor);
+    store.setSetting("kernel.reviewPolicy", "required");
+    const approvedTask = createTask(store, workspaceId, "review-approve");
+    kernel.startTask(approvedTask.id);
+    await waitFor(() => taskStatus(store, approvedTask.id) === "review");
+    expect(
+      store
+        .listEvents({ aggregateId: approvedTask.id })
+        .some((event) => event.type === "task.review_requested"),
+    ).toBe(true);
+    kernel.reviewTask(approvedTask.id, "approve", { reviewer: "user" });
+    expect(taskStatus(store, approvedTask.id)).toBe("done");
+    expect(
+      store
+        .listEvents({ aggregateId: approvedTask.id })
+        .some((event) => event.type === "task.review_approved"),
+    ).toBe(true);
+
+    const rejectedTask = createTask(store, workspaceId, "review-reject");
+    kernel.startTask(rejectedTask.id);
+    await waitFor(() => taskStatus(store, rejectedTask.id) === "review");
+    kernel.reviewTask(rejectedTask.id, "reject", { notes: "not acceptable" });
+    expect(taskStatus(store, rejectedTask.id)).toBe("failed");
+    expect(store.getTask(rejectedTask.id)?.failureKind).toBe("REVIEW_REJECTED");
+    expect(
+      store
+        .listEvents({ aggregateId: rejectedTask.id })
+        .some((event) => event.type === "task.review_rejected"),
+    ).toBe(true);
+  });
+});
+
+describe("t83 T22 blocked reason audit", () => {
+  it("writes task.blocked(reasonB) without a status transition when dependency fails", async () => {
+    const executor: RunExecutor = async () => {
+      const error = new Error("parent failed") as Error & { retryable?: boolean };
+      error.retryable = false;
+      throw error;
+    };
+    const { store, workspaceId, kernel } = setupKernel(executor, { maxAttempts: 1 });
+    const parent = createTask(store, workspaceId, "t22-parent");
+    const child = store.createTask({
+      workspaceId,
+      title: "t22-child",
+      description: "",
+      acceptance: [],
+      dependsOn: [parent.id],
+    });
+    expect(store.getTask(child.id)?.blockedReason).toBe("waiting_dependencies");
+    kernel.startTask(parent.id);
+    await waitFor(() => taskStatus(store, parent.id) === "failed");
+    expect(taskStatus(store, child.id)).toBe("blocked");
+    expect(store.getTask(child.id)?.blockedReason).toBe("dependency_failed");
+    const blockedEvents = store
+      .listEvents({ aggregateId: child.id })
+      .filter((event) => event.type === "task.blocked");
+    expect(blockedEvents).toHaveLength(1);
+    const payload = blockedEvents[0].payload as { reason?: string; previousReason?: string };
+    expect(payload.reason).toBe("dependency_failed");
+    expect(payload.previousReason).toBe("waiting_dependencies");
+    expect(blockedEvents[0].idempotencyKey).toMatch(
+      new RegExp(`^task:${child.id}:blocked:dependency_failed:\\d+$`),
+    );
+    const blockedStatusChanges = store
+      .listEvents({ aggregateId: child.id })
+      .filter(
+        (event) =>
+          event.type === "task.status_changed" &&
+          (event.payload as { to?: string }).to === "blocked",
+      );
+    expect(blockedStatusChanges).toHaveLength(0);
+  });
+});
+
+describe("t83 rebuild pagination", () => {
+  it("replays more than 2000 events without truncation", () => {
+    const store = new Store(":memory:");
+    cleanups.push(() => store.close());
+    const workspace = store.createWorkspace("pagination", ".");
+    const task = store.createTask({
+      workspaceId: workspace.id,
+      title: "start",
+      description: "",
+      acceptance: [],
+    });
+    store.withTransaction(() => {
+      for (let index = 0; index < 2_105; index += 1) {
+        store.appendEvent({
+          aggregateType: "task",
+          aggregateId: task.id,
+          type: "task.updated",
+          actor: "system",
+          payload: { patch: { title: `title-${index}` } },
+          schemaVersion: 2,
+        });
+      }
+    });
+    const total = Number(
+      (
+        store.db.prepare("SELECT COUNT(*) AS count FROM events").get() as {
+          count?: number;
+        }
+      ).count ?? 0,
+    );
+    expect(total).toBeGreaterThan(2_000);
+    expect(store.listEvents({ aggregateId: task.id })).toHaveLength(500);
+    rebuildProjections(store);
+    expect(store.getTask(task.id)?.title).toBe("title-2104");
+  });
+});
+
+describe("t83 migration backup fail-closed", () => {
+  it("creates a verified backup and preserves old event schemaVersion/timestamps", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-backup-ok-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = createLegacyTaskDb(root, { wal: true });
+    const store = new Store(dbPath);
+    cleanups.push(() => store.close());
+    expect(userVersion(dbPath)).toBe(2);
+    expect(store.lastBackupPath).toBeTruthy();
+    expect(existsSync(store.lastBackupPath!)).toBe(true);
+    const backup = new DatabaseSync(store.lastBackupPath!);
+    try {
+      const integrity = backup.prepare("PRAGMA integrity_check").get() as {
+        integrity_check?: string;
+      };
+      expect(integrity.integrity_check).toBe("ok");
+      const row = backup.prepare("SELECT title FROM tasks WHERE id = 'task_legacy'").get() as
+        | { title?: string }
+        | undefined;
+      expect(row?.title).toBe("Legacy task");
+    } finally {
+      backup.close();
+    }
+    const oldEvent = store
+      .listEvents({ aggregateId: "task_legacy" })
+      .find((event) => event.id === "evt_old")!;
+    expect(oldEvent.schemaVersion).toBe(1);
+    expect(oldEvent.occurredAt).toBe(oldEvent.createdAt);
+    expect(oldEvent.recordedAt).toBe(oldEvent.createdAt);
+  });
+
+  it("refuses to migrate when backup fails, keeping user_version=1 and no v2 columns", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-backup-fail-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = createLegacyTaskDb(root);
+    const notADirectory = path.join(root, "backup-target-is-a-file");
+    writeFileSync(notADirectory, "x", "utf8");
+    expect(() => new Store(dbPath, { backupDirectory: notADirectory })).toThrow();
+    expect(userVersion(dbPath)).toBe(1);
+    expect(tableColumns(dbPath, "tasks")).not.toContain("priority");
+  });
+
+  it("rolls back a half migration and keeps user_version=1", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-half-migrate-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = createLegacyTaskDb(root, { trigger: true });
+    expect(() => new Store(dbPath)).toThrow(/kernel migration failed/);
+    expect(userVersion(dbPath)).toBe(1);
+    expect(tableColumns(dbPath, "tasks")).not.toContain("priority");
   });
 });

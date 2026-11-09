@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -7,6 +7,7 @@ import {
   type LegacyProviderFields,
 } from "../shared/models.js";
 import { resolveApiKeyEnv, resolveBaseUrlEnv } from "./env.js";
+import { assertKernelEventPayload, isKernelEventType } from "./execution/eventRegistry.js";
 import type {
   Agent,
   AgentStatus,
@@ -382,14 +383,25 @@ function toSummary(row: Row): TaskSummary {
   };
 }
 
+export interface StoreOptions {
+  /** 迁移备份目录；默认与数据库同目录。测试可指向不可写路径验证 fail-closed。 */
+  backupDirectory?: string;
+}
+
 export class Store {
   readonly db: DatabaseSync;
+  private readonly databasePath: string;
+  private readonly backupDirectory: string | undefined;
+  /** 最近一次成功且校验通过的迁移备份路径（t83 F3）。 */
+  lastBackupPath: string | null = null;
   private listeners = new Set<(event: EventRecord) => void>();
   /** t68：事务中待提交事件（COMMIT 后再通知 renderer）。 */
   private txDepth = 0;
   private pendingEvents: EventRecord[] = [];
 
-  constructor(databasePath: string) {
+  constructor(databasePath: string, options: StoreOptions = {}) {
+    this.databasePath = databasePath;
+    this.backupDirectory = options.backupDirectory;
     if (databasePath !== ":memory:") {
       mkdirSync(path.dirname(databasePath), { recursive: true });
     }
@@ -418,7 +430,52 @@ export class Store {
     }
 
     // t68：事件/投影/调度 schema（v2）。旧库补列并为存量实体写基线事件。
-    this.migrateKernelSchema(legacyDatabase, databasePath);
+    // t83 F3：迁移/备份失败必须关闭连接并拒绝启动，避免泄漏锁文件。
+    try {
+      this.migrateKernelSchema(legacyDatabase, databasePath);
+    } catch (error) {
+      try {
+        this.db.close();
+      } catch {
+        // ignore close error
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * t83 F3：WAL checkpoint + SQLite VACUUM INTO 生成一致性备份，并打开备份做 integrity_check。
+   * 任何一步失败都抛错，调用方（迁移）必须拒绝启动，不得继续写 user_version=2。
+   */
+  backupDatabase(backupDirectory = this.backupDirectory): string {
+    if (this.databasePath === ":memory:") {
+      throw new Error("cannot backup an in-memory database");
+    }
+    const base = `${this.databasePath}.v1-backup`;
+    let target = base;
+    if (backupDirectory) {
+      mkdirSync(backupDirectory, { recursive: true });
+      target = path.join(backupDirectory, path.basename(base));
+    }
+    if (existsSync(target)) {
+      target = `${target}-${Date.now()}`;
+    }
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const escaped = target.replace(/'/g, "''");
+    this.db.exec(`VACUUM INTO '${escaped}'`);
+    const check = new DatabaseSync(target);
+    try {
+      const result = check.prepare("PRAGMA integrity_check").get() as {
+        integrity_check?: string;
+      };
+      if (String(result?.integrity_check ?? "") !== "ok") {
+        throw new Error(`backup integrity_check failed: ${target}`);
+      }
+    } finally {
+      check.close();
+    }
+    this.lastBackupPath = target;
+    return target;
   }
 
   private tableExists(name: string): boolean {
@@ -442,16 +499,17 @@ export class Store {
       user_version?: number;
     };
     const version = Number(versionRow?.user_version ?? 0);
-    // 迁移前备份（仅旧库、非内存库）。WAL checkpoint 后复制主库文件；
-    // 失败不阻断迁移（迁移本身是增量 DDL，不删除数据）。
-    if (legacyDatabase && version < 2 && databasePath && databasePath !== ":memory:") {
-      try {
-        this.db.exec("PRAGMA wal_checkpoint(FULL)");
-        copyFileSync(databasePath, `${databasePath}.v1-backup`);
-      } catch {
-        // 备份失败不阻断；文档中提示人工备份。
-      }
+    if (version >= 2) return;
+
+    // 旧库先钉在 v1：备份或迁移失败时 user_version 仍为 1，应用拒绝启动。
+    if (legacyDatabase && version < 1) {
+      this.db.exec("PRAGMA user_version = 1");
     }
+    if (legacyDatabase && databasePath && databasePath !== ":memory:") {
+      // t83 F3：备份必须成功且可校验；失败直接抛出，不进入 DDL。
+      this.backupDatabase();
+    }
+
     const columns: Array<[string, string, string]> = [
       ["tasks", "priority", "INTEGER NOT NULL DEFAULT 50"],
       ["tasks", "queued_at", "TEXT"],
@@ -474,32 +532,45 @@ export class Store {
       ["runs", "error_code", "TEXT"],
       ["runs", "retryable", "INTEGER NOT NULL DEFAULT 0"],
       ["runs", "steps", "INTEGER NOT NULL DEFAULT 0"],
-      ["events", "schema_version", "INTEGER NOT NULL DEFAULT 2"],
+      // t83 F4：旧 v1 事件默认 1；内核新写显式 schemaVersion=2。
+      ["events", "schema_version", "INTEGER NOT NULL DEFAULT 1"],
       ["events", "idempotency_key", "TEXT"],
       ["events", "correlation_id", "TEXT"],
       ["events", "causation_id", "TEXT"],
       ["events", "occurred_at", "TEXT"],
       ["events", "recorded_at", "TEXT"],
     ];
-    for (const [table, name, definition] of columns) {
-      this.ensureColumn(table, name, definition);
-    }
-    this.db.exec(KERNEL_TABLES);
-    // 旧库可能有多条同任务 active Run；先归一（编号 + 去重），否则唯一索引会失败。
-    if (legacyDatabase) this.normalizeLegacyRuns();
-    this.db.exec(KERNEL_INDEXES);
-    this.db.exec(
-      "UPDATE events SET occurred_at = COALESCE(occurred_at, created_at), recorded_at = COALESCE(recorded_at, created_at) WHERE occurred_at IS NULL OR recorded_at IS NULL",
-    );
 
-    if (legacyDatabase && version < 2) {
-      this.seedLegacySnapshots();
-    }
-    if (version < 2) {
+    // DDL + 基线 + 归一 + 版本号同事务；任何一步失败回滚，user_version 保持 1。
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const [table, name, definition] of columns) {
+        this.ensureColumn(table, name, definition);
+      }
+      this.db.exec(KERNEL_TABLES);
+      // 旧库可能有多条同任务 active Run；先归一（编号 + 去重），否则唯一索引会失败。
+      if (legacyDatabase) this.normalizeLegacyRuns();
+      this.db.exec(KERNEL_INDEXES);
+      this.db.exec(
+        "UPDATE events SET occurred_at = COALESCE(occurred_at, created_at), recorded_at = COALESCE(recorded_at, created_at) WHERE occurred_at IS NULL OR recorded_at IS NULL",
+      );
+      if (legacyDatabase) this.seedLegacySnapshots();
       this.db
         .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
         .run(2, now());
       this.db.exec("PRAGMA user_version = 2");
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // ignore rollback failure
+      }
+      throw new Error(
+        `kernel migration failed (user_version stays 1${
+          this.lastBackupPath ? `, backup: ${this.lastBackupPath}` : ""
+        }): ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -672,6 +743,11 @@ export class Store {
     occurredAt?: string;
   }): { event: EventRecord; created: boolean } {
     const idempotencyKey = input.idempotencyKey ?? null;
+    const schemaVersion = input.schemaVersion ?? 1;
+    // t83 F6：所有 schemaVersion=2 的内核事件在 append 前做 zod 严格校验。
+    if (schemaVersion === 2 && isKernelEventType(input.type)) {
+      assertKernelEventPayload(input.type, input.payload ?? {}, schemaVersion);
+    }
     if (idempotencyKey) {
       const existing = this.db
         .prepare("SELECT * FROM events WHERE idempotency_key = ?")
@@ -696,7 +772,7 @@ export class Store {
         input.actor,
         JSON.stringify(input.payload ?? {}),
         occurredAt,
-        input.schemaVersion ?? 2,
+        schemaVersion,
         idempotencyKey,
         input.correlationId ?? null,
         input.causationId ?? null,
@@ -712,7 +788,7 @@ export class Store {
       actor: input.actor,
       payload: input.payload ?? {},
       createdAt: occurredAt,
-      schemaVersion: input.schemaVersion ?? 2,
+      schemaVersion,
       idempotencyKey,
       correlationId: input.correlationId ?? null,
       causationId: input.causationId ?? null,
@@ -734,7 +810,7 @@ export class Store {
       actor: String(row.actor),
       payload: parseJson<unknown>(row.payload, {}),
       createdAt: String(row.created_at),
-      schemaVersion: row.schema_version == null ? 2 : Number(row.schema_version),
+      schemaVersion: row.schema_version == null ? 1 : Number(row.schema_version),
       idempotencyKey: row.idempotency_key == null ? null : String(row.idempotency_key),
       correlationId: row.correlation_id == null ? null : String(row.correlation_id),
       causationId: row.causation_id == null ? null : String(row.causation_id),
@@ -763,6 +839,15 @@ export class Store {
   }
 
   /** t68：按任务 + 其全部 Run 聚合取事件（trace 兼容旧 tool.* 事件）。 */
+  /** t83 F8：按 seq 游标分页读取，供完整重建（不静默截断）。 */
+  listEventsAfter(afterSeq: number, limit = 500): EventRecord[] {
+    const pageSize = Math.max(1, Math.min(limit, 1000));
+    const rows = this.db
+      .prepare("SELECT * FROM events WHERE seq > ? ORDER BY seq ASC LIMIT ?")
+      .all(afterSeq, pageSize) as Row[];
+    return rows.map((row) => this.toEventRecord(row));
+  }
+
   listEventsForTask(taskId: string, limit = 2000): EventRecord[] {
     const runIds = (
       this.db.prepare("SELECT id FROM runs WHERE task_id = ?").all(taskId) as Row[]
@@ -972,6 +1057,7 @@ export class Store {
         type: "task.created",
         actor: "user",
         payload: { task },
+        schemaVersion: 2,
         idempotencyKey: `task:${task.id}:created`,
       });
       return task;
@@ -1074,6 +1160,7 @@ export class Store {
           type: "task.updated",
           actor: "system",
           payload: { patch: { dependsOn: patch.dependsOn } },
+          schemaVersion: 2,
         });
       } else if (statusPatch) {
         this.appendEventIdempotent({
@@ -1082,6 +1169,7 @@ export class Store {
           type: "task.status_changed",
           actor: "system",
           payload: { from: before.status, to: statusPatch, reason: "store.updateTask" },
+          schemaVersion: 2,
         });
       } else {
         this.appendEventIdempotent({
@@ -1090,6 +1178,7 @@ export class Store {
           type: "task.updated",
           actor: "system",
           payload: { patch },
+          schemaVersion: 2,
         });
       }
       return this.getTask(id) ?? before;

@@ -789,6 +789,15 @@ export class AppService {
     return this.kernel.retryTask(taskId);
   }
 
+  /** t83 F5：reviewPolicy=required 的批准/拒绝（IPC/UI 由 t69 接入）。 */
+  reviewTask(
+    taskId: string,
+    decision: "approve" | "reject",
+    options: { reviewer?: string; notes?: string } = {},
+  ): Task {
+    return this.kernel.reviewTask(taskId, decision, options);
+  }
+
   cancelRun(runId: string): Run {
     return this.kernel.cancelRun(runId);
   }
@@ -815,7 +824,7 @@ export class AppService {
 
   /** 内核执行器：一次 Run 的 LLM/工具执行（不含生命周期/状态写入，由 kernel 负责）。 */
   private async executeRun(ctx: RunExecutionContext): Promise<RunExecutionResult> {
-    const { run, task, agent, signal, heartbeat, checkpoint } = ctx;
+    const { run, task, agent, signal, heartbeat, checkpoint, waitingHuman, resumeHuman } = ctx;
     const workspace = this.store.getWorkspace(task.workspaceId);
     if (!workspace) throw new Error("workspace not found");
 
@@ -842,15 +851,22 @@ export class AppService {
       // DESIGN §15.2：权限是执行层硬门禁。
       permission: agent.permission,
       // t58 IF-05：auto_risk 高风险 → 人类审批 UI（renderer 弹窗，单次生效；Agent 无自行批准路径）。
+      // t83 F5：等待审批期间 Run 进入 waiting_human，由内核 lease keeper 续租，避免 120s 超时被回收。
       requestApproval:
         agent.permission === "auto_risk"
-          ? (input) =>
-              this.requestRiskApproval({
-                workspaceId: workspace.id,
-                taskId: task.id,
-                agentName: agent.name,
-                ...input,
-              })
+          ? async (input) => {
+              waitingHuman("risk_approval");
+              try {
+                return await this.requestRiskApproval({
+                  workspaceId: workspace.id,
+                  taskId: task.id,
+                  agentName: agent.name,
+                  ...input,
+                });
+              } finally {
+                resumeHuman();
+              }
+            }
           : undefined,
     };
 
@@ -882,23 +898,32 @@ export class AppService {
       }
     };
 
-    const result = await runAgentLoop({
-      client,
-      model,
-      maxSteps: budget ? 30 * budget.maxStepsFactor : undefined,
-      maxOutputTokens: budget?.maxOutputTokens ?? profile.maxOutputTokens,
-      reasoningEffort:
-        budget?.reasoningEffort ??
-        (profile.thinkingEnabled ? profile.thinkingEffort : undefined),
-      thinkingEnabled: profile.thinkingEnabled,
-      thinkingStyle: thinkingStyleFor(provider, profile.modelId),
-      systemPrompt,
-      userMessage: `Start now. Task id: ${task.id}\nTitle: ${task.title}`,
-      tools: registry,
-      toolContext,
-      signal,
-      onEvent: emit,
-    });
+    const result = await (async () => {
+      // 独立心跳：长模型调用期间也保持租约；waiting_human 由内核 watchdog keeper 续租。
+      const heartbeatTimer = setInterval(() => heartbeat(), 15_000);
+      (heartbeatTimer as unknown as { unref?: () => void }).unref?.();
+      try {
+        return await runAgentLoop({
+          client,
+          model,
+          maxSteps: budget ? 30 * budget.maxStepsFactor : undefined,
+          maxOutputTokens: budget?.maxOutputTokens ?? profile.maxOutputTokens,
+          reasoningEffort:
+            budget?.reasoningEffort ??
+            (profile.thinkingEnabled ? profile.thinkingEffort : undefined),
+          thinkingEnabled: profile.thinkingEnabled,
+          thinkingStyle: thinkingStyleFor(provider, profile.modelId),
+          systemPrompt,
+          userMessage: `Start now. Task id: ${task.id}\nTitle: ${task.title}`,
+          tools: registry,
+          toolContext,
+          signal,
+          onEvent: emit,
+        });
+      } finally {
+        clearInterval(heartbeatTimer);
+      }
+    })();
 
     this.store.saveSummary({
       taskId: task.id,
