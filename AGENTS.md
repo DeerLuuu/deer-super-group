@@ -83,11 +83,12 @@ GLM 路由触发 5 小时限额时，典型错误：
 
 ```bash
 pnpm branch:start <task-id> <slug>
-# 例：pnpm branch:start t61 dotenv-sensitive-paths
+# 例：pnpm branch:start t68 execution-kernel
 ```
 
 脚本会：
 
+- 先 `fetch` 远端，并从最新 `origin/main` 起步（没有 remote 时用本地 `main`）；
 - 检查 active worktree 是否已达 3 个；
 - 创建 `feature/<task-id>-<slug>` 分支；
 - 创建 `branches/<task-id>-<slug>/` worktree；
@@ -95,19 +96,49 @@ pnpm branch:start <task-id> <slug>
 
 Agent 必须在对应 worktree 中开发，不能在 `main` 工作树直接改任务代码。
 
-### 任务完成
+### 开始新功能 / 提 PR 前同步主分支
+
+每个功能开始前、以及每次提 PR 前，都必须同步最新主分支：
+
+```bash
+pnpm branch:sync <task-id>-<slug>
+```
+
+规则：
+
+- `branch:start` 已自动从最新 `origin/main` 创建分支；
+- 已经存在的分支在开发新功能或提 PR 前必须再执行一次 `branch:sync`；
+- 同步产生冲突时，先在 worktree 内解决并提交，不得把冲突标记带进 PR；
+- `branch:finish` 会拒绝尚未包含最新 `origin/main` 的分支。
+
+### 任务完成：一个功能一个 PR
 
 1. 在 worktree 中运行 `pnpm typecheck`、`pnpm build`、`pnpm test`；
-2. 提交并推送分支；
-3. 创建 PR，评审通过后合并到 `main`：
+2. 同步主分支并解决冲突；
+3. 提交并推送分支；
+4. 创建 PR，评审通过后合并到 `main`：
    ```bash
    pnpm branch:finish <task-id>-<slug>
    ```
    `branch:finish` 只 push + `gh pr create`，**不会自动合并**；
-4. 合并后清理：
+5. 合并后清理：
    ```bash
    pnpm branch:remove <task-id>-<slug>
    ```
+
+### PR 最小功能原则（必须遵守）
+
+- **一个功能 / 一个分支 / 一个 PR**；不要在一个 PR 里塞多个功能。
+- 只改完成该功能必需的文件；不混入无关重构、格式化、依赖升级、顺手修复。
+- 超出当前任务范围的改动拆成后续分支/PR，不放进当前 PR。
+- PR 描述按 `.github/pull_request_template.md` 填写，必须包含：
+  - 单一功能说明与 task id；
+  - 已同步主分支；
+  - 最小变更范围；
+  - typecheck/build/test；
+  - 风险与回滚方式；
+  - UI 变更截图。
+- 评审以“能否只通过这个最小功能独立验收”为准，不以改动大小论质量。
 
 ### 约束
 
@@ -115,5 +146,5 @@ Agent 必须在对应 worktree 中开发，不能在 `main` 工作树直接改�
 - 一个任务一个分支；一个 worktree 只给一个任务主体。
 - 同时最多 3 个 active worktree；第 4 个会被脚本拒绝。
 - PR 需要 Git remote；没有 remote 时 `branch:finish` 只打印手动 push/PR 指引。
-- 当前进行中的 t61/t60 是分支流程启用前的最后 main-line 例外；完成后先建立基线提交，之后所有新任务走 worktree。
+- 历史 t61/t60 是分支流程启用前的 main-line 例外；新任务一律走 worktree/PR，不再直接改 `main`。
 - `branches/` **整个目录被 gitignore**（worktree + README 都是本地文件）；不要手动把 worktree 内容提交到主仓库；跨团队规则以本文件为准。

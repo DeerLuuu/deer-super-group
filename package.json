@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "branch:start": "node scripts/branch-worktree.mjs start",
+    "branch:sync": "node scripts/branch-worktree.mjs sync",
     "branch:list": "node scripts/branch-worktree.mjs list",
     "branch:finish": "node scripts/branch-worktree.mjs finish",
     "branch:remove": "node scripts/branch-worktree.mjs remove"
