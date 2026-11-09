@@ -6,10 +6,13 @@ import type {
   ChatQuestionRecord,
   ContextSnapshot,
   EventRecord,
+  KernelResult,
   LlmSettings,
   MailboxMessage,
   PermissionMode,
   RiskApprovalRequest,
+  Run,
+  SchedulerSnapshot,
   Snapshot,
   Task,
   UpdateAgentInput,
@@ -20,6 +23,10 @@ import Modal from "./Modal";
 import TeamDashboard from "./TeamDashboard";
 import StatusBadge from "./StatusBadge";
 import EmptyState from "./EmptyState";
+import SchedulerBar from "./SchedulerBar";
+import RunHistory from "./RunHistory";
+import RunPanel from "./RunPanel";
+import KernelAnnouncer from "./KernelAnnouncer";
 import ChatContent from "./ChatContent";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
 import {
@@ -49,6 +56,23 @@ import {
 import { buildHash, parseHash, type RouteTab } from "./shared/deeplink";
 import { RISK_APPROVAL_TIMEOUT_MS } from "./shared/approval";
 import type { TaskStatus } from "./shared/types";
+import {
+  KernelUiError,
+  blockedReasonText,
+  eventSummary,
+  eventTone,
+  eventTypeLabel,
+  failureKindText,
+  filterTaskList,
+  formatRelative,
+  kernelConfirmCopy,
+  kernelErrorText,
+  statusCounts,
+  taskActionState,
+  taskAttemptRatioText,
+  taskNextStep,
+  unwrapKernel,
+} from "./shared/kernelUi";
 import DockShell, { type DockHandle } from "./shell/dock/DockShell";
 import {
   PANEL_DEFS,
@@ -63,6 +87,7 @@ const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "chat",
   "tasks",
   "team",
+  "runs",
   "mailbox",
   "board",
   "context",
@@ -79,6 +104,15 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
 ];
 
 type TaskStatusFilter = "all" | TaskStatus;
+
+/** t69：需要二次确认的内核操作（重试/取消/暂停/评审拒绝等有副作用的动作）。 */
+type ConfirmIntent =
+  | { kind: "retry"; task: Task }
+  | { kind: "cancelTask"; task: Task }
+  | { kind: "cancelRun"; run: Run; taskTitle: string }
+  | { kind: "pause" }
+  | { kind: "resume" }
+  | { kind: "review"; task: Task; decision: "approve" | "reject" };
 
 function time(iso: string): string {
   try {
@@ -109,14 +143,20 @@ export default function App() {
   // t52 集成修复 IF-01：冷启动（无显式深链）默认激活「对话」主面板，满足验收
   // 「对话与团队默认同时可见」与设计 §4 activePanel=chat；显式深链（#/tasks 等）
   // 仍优先。deeplink 模块与其默认路由契约不变（tests 不受影响）。
-  const [bootPanel] = useState<Tab | null>(() =>
-    window.location.hash.startsWith("#/") && initialRoute.tab !== "settings"
-      ? initialRoute.tab
-      : null,
+  // t69：带 r=<runId> 的深链优先打开 Run 面板（Run 面板挂在 tasks 路由下）。
+  const [bootPanel] = useState<PanelKey | null>(() =>
+    initialRoute.run
+      ? "runs"
+      : window.location.hash.startsWith("#/") && initialRoute.tab !== "settings"
+        ? initialRoute.tab
+        : null,
   );
-  const [tab, setTab] = useState<Tab>(() =>
-    initialRoute.tab === "settings" ? "settings" : bootPanel ?? "chat",
-  );
+  const [tab, setTab] = useState<Tab>(() => {
+    if (initialRoute.tab === "settings") return "settings";
+    if (initialRoute.run) return "tasks";
+    if (!bootPanel) return "chat";
+    return bootPanel === "runs" ? "tasks" : (bootPanel as Tab);
+  });
   const [settingsOpen, setSettingsOpen] = useState(
     () => initialRoute.tab === "settings",
   );
@@ -155,6 +195,22 @@ export default function App() {
   // C12：邮箱 / 黑板选中项提升到 App，进入 hash 深链。
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
+  // t69：调度与 Run 可观测状态（调度器快照 + 当前任务 Run 历史）。
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [scheduler, setScheduler] = useState<SchedulerSnapshot | null>(null);
+  const [schedulerLoading, setSchedulerLoading] = useState(true);
+  const [schedulerError, setSchedulerError] = useState<string | null>(null);
+  const [taskRuns, setTaskRuns] = useState<Run[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<ConfirmIntent | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
+  const [kernelAnnouncement, setKernelAnnouncement] = useState<string | null>(null);
+  const [activePanelKey, setActivePanelKey] = useState<PanelKey | null>(bootPanel);
+  const schedulerRequestRef = useRef(0);
+  const runsRequestRef = useRef(0);
   // DESIGN §15.4：满血模式（会话级，不持久化、不随启动恢复）。
   const [chatFullThrottle, setChatFullThrottle] = useState(false);
   // t58 IF-05：auto_risk 高风险人类审批队列（内存态；刷新即失，主进程超时兜底）。
@@ -223,6 +279,7 @@ export default function App() {
       setPanelMenuOpen(false);
       const route = routeTabFromPanel(key);
       if (route) setTab(route);
+      setActivePanelKey(key);
       dockRef.current?.openPanel(key);
     },
     [tab],
@@ -243,8 +300,9 @@ export default function App() {
     dockRef.current?.openPanel(back);
   }
 
-  // t50：dock 激活面板 → 派生路由 tab（context 面板不改变 hash）。
+  // t50：dock 激活面板 → 派生路由 tab（context 面板不改变 hash；runs 与 tasks 同路由）。
   const handleDockActivePanel = useCallback((key: PanelKey) => {
+    setActivePanelKey(key);
     const route = routeTabFromPanel(key);
     if (route) setTab((current) => (current === route ? current : route));
   }, []);
@@ -279,6 +337,8 @@ export default function App() {
       chatTask: contextTaskId,
       message: selectedMessageId,
       board: selectedBoard,
+      // t69：只在 Run 面板激活时写 r，避免任务页内联 Run 历史污染深链。
+      run: activePanelKey === "runs" ? selectedRunId : null,
     });
     if (window.location.hash === hash) return;
     lastWrittenHashRef.current = hash;
@@ -288,7 +348,15 @@ export default function App() {
     } else {
       history.replaceState(null, "", hash);
     }
-  }, [tab, selectedTaskId, contextTaskId, selectedMessageId, selectedBoard]);
+  }, [
+    tab,
+    selectedTaskId,
+    contextTaskId,
+    selectedMessageId,
+    selectedBoard,
+    selectedRunId,
+    activePanelKey,
+  ]);
 
   // C09：窄窗自动折叠侧栏；Ctrl/⌘+B 手动切换。
   useEffect(() => {
@@ -388,6 +456,58 @@ export default function App() {
     }
   }, []);
 
+  /** t69：调度器快照；silent 用于事件刷新，避免每 220ms 出现骨架闪烁。 */
+  const loadScheduler = useCallback(
+    async (workspaceId: string, silent = false) => {
+      const requestId = ++schedulerRequestRef.current;
+      if (!silent) setSchedulerLoading(true);
+      try {
+        const result = await window.deer.getScheduler(workspaceId);
+        if (schedulerRequestRef.current !== requestId) return;
+        if (result.ok) {
+          setScheduler(result.value);
+          setSchedulerError(null);
+        } else {
+          setSchedulerError(kernelErrorText(result.error));
+        }
+      } catch (error) {
+        if (schedulerRequestRef.current === requestId) {
+          setSchedulerError(errorText(error));
+        }
+      } finally {
+        if (schedulerRequestRef.current === requestId) setSchedulerLoading(false);
+      }
+    },
+    [],
+  );
+
+  /** t69：当前任务的 Run 历史；silent 同上。 */
+  const loadRuns = useCallback(async (taskId: string, silent = false) => {
+    const requestId = ++runsRequestRef.current;
+    if (!silent) {
+      setRunsLoading(true);
+      setTaskRuns([]);
+    }
+    try {
+      const result = await window.deer.listRuns(taskId);
+      if (runsRequestRef.current !== requestId) return;
+      if (result.ok) {
+        setTaskRuns(result.value);
+        setRunsError(null);
+      } else {
+        setTaskRuns([]);
+        setRunsError(kernelErrorText(result.error));
+      }
+    } catch (error) {
+      if (runsRequestRef.current === requestId) {
+        setTaskRuns([]);
+        setRunsError(errorText(error));
+      }
+    } finally {
+      if (runsRequestRef.current === requestId) setRunsLoading(false);
+    }
+  }, []);
+
   const loadChat = useCallback(async () => {
     const current = snapshotRef.current;
     if (!current) return;
@@ -421,12 +541,32 @@ export default function App() {
     async (workspaceId: string) => {
       const next = await window.deer.getSnapshot(workspaceId);
       setSnapshot(next);
+      // t69：事件刷新同时更新调度快照与当前任务 Run（静默，不闪骨架）。
+      void loadScheduler(workspaceId, true);
       if (selectedTaskRef.current) {
         await loadTrace(selectedTaskRef.current);
+        void loadRuns(selectedTaskRef.current, true);
       }
     },
-    [loadTrace],
+    [loadTrace, loadScheduler, loadRuns],
   );
+
+  // t69：工作区切换/首屏就绪后加载调度快照（与 snapshot 解耦，避免每次 refresh 重载）。
+  useEffect(() => {
+    if (!snapshot) return;
+    void loadScheduler(snapshot.workspace.id);
+  }, [snapshot?.workspace.id, loadScheduler]);
+
+  // t69：选中任务变化 → 拉取该任务的 Run 历史。
+  useEffect(() => {
+    if (!selectedTaskId) {
+      setTaskRuns([]);
+      setRunsError(null);
+      setRunsLoading(false);
+      return;
+    }
+    void loadRuns(selectedTaskId);
+  }, [selectedTaskId, loadRuns]);
 
   // C12：初始深链——快照就绪后应用选中对象（任务/邮件/黑板）。
   useEffect(() => {
@@ -436,13 +576,17 @@ export default function App() {
       setSelectedTaskId(initialRoute.task);
       void loadTrace(initialRoute.task);
     }
+    if (initialRoute.run) {
+      setSelectedRunId(initialRoute.run);
+      if (initialRoute.run && initialRoute.task) void loadRuns(initialRoute.task);
+    }
     if (initialRoute.chatTask) {
       setContextTaskId(initialRoute.chatTask);
       setContextSource("tasks");
     }
     if (initialRoute.message) setSelectedMessageId(initialRoute.message);
     if (initialRoute.board) setSelectedBoard(initialRoute.board);
-  }, [snapshot, initialRoute, loadTrace]);
+  }, [snapshot, initialRoute, loadTrace, loadRuns]);
 
   // C12：浏览器前进/后退或外部 hash 变更 → 恢复视图（自己写入的 hash 跳过）。
   useEffect(() => {
@@ -466,6 +610,14 @@ export default function App() {
       } else if (route.tab === "tasks" || route.tab === "team") {
         setSelectedTaskId(null);
       }
+      // t69：r 参数 → 打开 Run 面板并选中 Run（刷新/后退可恢复）。
+      // 非 tasks 路由的 r 不生效，避免 chat/team 深链残留 Run 选择。
+      setSelectedRunId(route.tab === "tasks" ? route.run : null);
+      if (route.tab === "tasks" && route.run) {
+        setActivePanelKey("runs");
+        dockRef.current?.openPanel("runs");
+        if (route.task) void loadRuns(route.task);
+      }
       setContextTaskId(route.chatTask);
       setContextSource(route.chatTask ? "tasks" : null);
       setSelectedMessageId(route.message);
@@ -473,7 +625,7 @@ export default function App() {
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [loadTrace]);
+  }, [loadTrace, loadRuns]);
 
   useEffect(() => {
     void (async () => {
@@ -679,7 +831,18 @@ export default function App() {
 
   function resetForWorkspace() {
     setSelectedTaskId(null);
+    setSelectedRunId(null);
     setTrace([]);
+    setTaskRuns([]);
+    setScheduler(null);
+    setSchedulerError(null);
+    setSchedulerLoading(true);
+    setRunsError(null);
+    setRunsLoading(false);
+    setActionError(null);
+    setActionBusy(null);
+    setPendingConfirm(null);
+    setKernelAnnouncement(null);
     setChatMessages([]);
     setChatStream("");
     setChatReasoning("");
@@ -750,18 +913,138 @@ export default function App() {
     }
   }
 
-  async function handleRunTask(taskId: string) {
-    setBusy(true);
-    setError(null);
+  /** t69：统一内核命令执行（KernelResult → toast/inline error + 刷新 + aria 播报）。 */
+  async function executeKernelAction(
+    busyKey: string,
+    call: () => Promise<KernelResult<unknown>>,
+    successMessage: string,
+  ): Promise<boolean> {
+    setActionBusy(busyKey);
+    setActionError(null);
     try {
-      await window.deer.runTask(taskId);
+      unwrapKernel(await call());
+      pushToast({
+        kind: "success",
+        message: successMessage,
+        action: {
+          label: "运行面板",
+          onClick: () => openPanel("runs"),
+        },
+      });
+      setKernelAnnouncement(successMessage);
       const current = snapshotRef.current;
       if (current) await refresh(current.workspace.id);
-      await loadTrace(taskId);
+      return true;
     } catch (error) {
-      setError(errorText(error));
+      const message =
+        error instanceof KernelUiError ? error.message : errorText(error);
+      setActionError(message);
+      pushToast({ kind: "error", message: `操作失败：${message}` });
+      setKernelAnnouncement(`操作失败：${message}`);
+      return false;
     } finally {
-      setBusy(false);
+      setActionBusy(null);
+    }
+  }
+
+  function handleStartTask(task: Task) {
+    void executeKernelAction(
+      `task:start:${task.id}`,
+      () => window.deer.startTask(task.id),
+      `已入队运行「${task.title}」`,
+    );
+  }
+
+  function handleRequestRetry(task: Task) {
+    setPendingConfirm({ kind: "retry", task });
+  }
+
+  function handleRequestCancelTask(task: Task) {
+    setPendingConfirm({ kind: "cancelTask", task });
+  }
+
+  function handleRequestCancelRun(run: Run) {
+    const task = snapshotRef.current?.tasks.find((item) => item.id === run.taskId);
+    setPendingConfirm({
+      kind: "cancelRun",
+      run,
+      taskTitle: task?.title ?? run.taskId,
+    });
+  }
+
+  function handleRequestPauseScheduler() {
+    setPendingConfirm({ kind: "pause" });
+  }
+
+  // t107 F1：恢复调度与暂停一致，必须经确认弹窗（三处入口统一走这里）。
+  function handleRequestResumeScheduler() {
+    setPendingConfirm({ kind: "resume" });
+  }
+
+  function handleRequestReview(task: Task, decision: "approve" | "reject") {
+    setReviewNotes("");
+    setPendingConfirm({ kind: "review", task, decision });
+  }
+
+  async function confirmPendingAction() {
+    const intent = pendingConfirm;
+    if (!intent) return;
+    setPendingConfirm(null);
+    const current = snapshotRef.current;
+    switch (intent.kind) {
+      case "retry":
+        await executeKernelAction(
+          `task:retry:${intent.task.id}`,
+          () => window.deer.retryTask(intent.task.id),
+          `已重新入队「${intent.task.title}」`,
+        );
+        break;
+      case "cancelTask":
+        await executeKernelAction(
+          `task:cancel:${intent.task.id}`,
+          () => window.deer.cancelTask(intent.task.id),
+          `已取消任务「${intent.task.title}」`,
+        );
+        break;
+      case "cancelRun":
+        await executeKernelAction(
+          `run:${intent.run.id}`,
+          () => window.deer.cancelRun(intent.run.id),
+          `已取消 Run #${intent.run.attempt ?? 1}（${intent.taskTitle}）`,
+        );
+        break;
+      case "pause":
+        if (!current) return;
+        await executeKernelAction(
+          "scheduler:pause",
+          () => window.deer.pauseScheduler(current.workspace.id, "user_paused"),
+          "调度已暂停",
+        );
+        break;
+      case "resume":
+        // t107 F1：恢复调度经确认弹窗后执行。
+        if (!current) return;
+        await executeKernelAction(
+          "scheduler:resume",
+          () => window.deer.resumeScheduler(current.workspace.id),
+          "调度已恢复",
+        );
+        break;
+      case "review":
+        await executeKernelAction(
+          `task:review:${intent.task.id}`,
+          () =>
+            window.deer.reviewTask(intent.task.id, intent.decision, {
+              reviewer: "user",
+              notes: reviewNotes.trim() || undefined,
+            }),
+          intent.decision === "approve"
+            ? `已批准「${intent.task.title}」`
+            : `已拒绝「${intent.task.title}」`,
+        );
+        break;
+      default:
+        break;
     }
   }
 
@@ -1122,14 +1405,35 @@ export default function App() {
   function handleShowTaskContext(taskId: string, source: "tasks" | "team" = "tasks") {
     setContextTaskId(taskId);
     setContextSource(source);
+    setSelectedRunId(null);
     openPanel("chat");
   }
 
   // C14：任务详情 → 在星图中定位（跳团队页并居中该节点）。
   function handleLocateInStarMap(taskId: string) {
     setSelectedTaskId(taskId);
+    setSelectedRunId(null);
     setStarmapFocus({ taskId, nonce: Date.now() });
     openPanel("team");
+  }
+
+  /** t69：打开 Runs 面板（可带任务/Run 深链选择）。 */
+  function openRunsPanel(taskId?: string | null, runId?: string | null) {
+    if (taskId) {
+      setSelectedTaskId(taskId);
+      void loadTrace(taskId);
+      void loadRuns(taskId);
+    }
+    setSelectedRunId(runId ?? null);
+    openPanel("runs");
+  }
+
+  function handleOpenTaskPage(taskId: string) {
+    setSelectedTaskId(taskId);
+    setSelectedRunId(null);
+    void loadTrace(taskId);
+    void loadRuns(taskId);
+    openPanel("tasks");
   }
 
   // C06：顶栏失败计数一键跳到任务页并过滤 failed。
@@ -1156,6 +1460,9 @@ export default function App() {
     switch (action) {
       case "open-context":
         openPanel("context");
+        break;
+      case "open-runs":
+        openPanel("runs");
         break;
       case "close-active":
         dock.closeActivePanel();
@@ -1187,7 +1494,9 @@ export default function App() {
 
   function handlePaletteOpenTask(taskId: string) {
     setSelectedTaskId(taskId);
+    setSelectedRunId(null);
     void loadTrace(taskId);
+    void loadRuns(taskId);
     openPanel("tasks");
   }
 
@@ -1597,9 +1906,10 @@ export default function App() {
                       onAutoOpenHandled={() => setCreateIntent(null)}
                       onSelect={(task) => {
                         setSelectedTaskId(task.id);
+                        setSelectedRunId(null);
                         void loadTrace(task.id);
+                        void loadRuns(task.id);
                       }}
-                      onRun={handleRunTask}
                       onCreate={handleCreateTask}
                       onContext={(taskId) => {
                         handleShowTaskContext(taskId, "tasks");
@@ -1609,6 +1919,28 @@ export default function App() {
                       }}
                       onLocate={handleLocateInStarMap}
                       onPlan={handlePlan}
+                      scheduler={scheduler}
+                      schedulerLoading={schedulerLoading}
+                      schedulerError={schedulerError}
+                      runs={taskRuns}
+                      runsLoading={runsLoading}
+                      runsError={runsError}
+                      selectedRunId={selectedRunId}
+                      actionBusy={actionBusy}
+                      actionError={actionError}
+                      onReloadScheduler={() => void loadScheduler(snapshot.workspace.id)}
+                      onReloadRuns={() => {
+                        if (selectedTaskId) void loadRuns(selectedTaskId);
+                      }}
+                      onSelectRun={setSelectedRunId}
+                      onOpenRuns={openRunsPanel}
+                      onStartTask={handleStartTask}
+                      onRetryTask={handleRequestRetry}
+                      onCancelTask={handleRequestCancelTask}
+                      onCancelRun={handleRequestCancelRun}
+                      onReviewTask={handleRequestReview}
+                      onPause={handleRequestPauseScheduler}
+                      onResume={handleRequestResumeScheduler}
                     />
                   );
                 case "team":
@@ -1619,10 +1951,14 @@ export default function App() {
                       selectedTaskId={selectedTaskId}
                       onSelectTask={(taskId) => {
                         setSelectedTaskId(taskId);
+                        setSelectedRunId(null);
                         const current = snapshotRef.current;
                         if (taskId && current) {
                           const task = current.tasks.find((entry) => entry.id === taskId);
-                          if (task) void loadTrace(task.id);
+                          if (task) {
+                            void loadTrace(task.id);
+                            void loadRuns(task.id);
+                          }
                         }
                       }}
                       starmapFocus={starmapFocus}
@@ -1631,11 +1967,54 @@ export default function App() {
                       onCreate={handleCreateAgent}
                       onUpdate={handleUpdateAgent}
                       onOpenTask={(taskId) => handleShowTaskContext(taskId, "team")}
-                      onOpenTaskPage={(taskId) => {
+                      onOpenTaskPage={handleOpenTaskPage}
+                      scheduler={scheduler}
+                      onOpenRuns={(taskId) =>
+                        openRunsPanel(taskId ?? selectedTaskId, null)
+                      }
+                    />
+                  );
+                case "runs":
+                  return (
+                    <RunPanel
+                      snapshot={snapshot}
+                      scheduler={scheduler}
+                      schedulerLoading={schedulerLoading}
+                      schedulerError={schedulerError}
+                      runs={taskRuns}
+                      runsLoading={runsLoading}
+                      runsError={runsError}
+                      trace={trace}
+                      selectedTaskId={selectedTaskId}
+                      selectedRunId={selectedRunId}
+                      busy={actionBusy}
+                      onSelectTask={(taskId) => {
                         setSelectedTaskId(taskId);
+                        setSelectedRunId(null);
                         void loadTrace(taskId);
-                        openPanel("tasks");
+                        void loadRuns(taskId);
                       }}
+                      onSelectRun={setSelectedRunId}
+                      onOpenRun={(taskId, runId) => {
+                        setSelectedTaskId(taskId);
+                        setSelectedRunId(runId);
+                        void loadTrace(taskId);
+                        void loadRuns(taskId);
+                      }}
+                      onOpenTaskPage={handleOpenTaskPage}
+                      onOpenTaskChat={(taskId) => handleShowTaskContext(taskId, "team")}
+                      onStartTask={handleStartTask}
+                      onRetryTask={handleRequestRetry}
+                      onCancelTask={handleRequestCancelTask}
+                      onCancelRun={handleRequestCancelRun}
+                      onReviewTask={handleRequestReview}
+                      onPause={handleRequestPauseScheduler}
+                      onResume={handleRequestResumeScheduler}
+                      onReloadScheduler={() => void loadScheduler(snapshot.workspace.id)}
+                      onReloadRuns={() => {
+                        if (selectedTaskId) void loadRuns(selectedTaskId);
+                      }}
+                      onOpenTasks={() => openPanel("tasks")}
                     />
                   );
                 case "chat": {
@@ -1858,20 +2237,133 @@ export default function App() {
         </Modal>
       )}
 
+      {pendingConfirm && (
+        <KernelConfirmModal
+          intent={pendingConfirm}
+          reviewNotes={reviewNotes}
+          onNotesChange={setReviewNotes}
+          onClose={() => setPendingConfirm(null)}
+          onConfirm={() => void confirmPendingAction()}
+        />
+      )}
+
+      {/* t69：任务/Run/调度状态变化的 aria-live 播报（视觉隐藏）。t113：contextKey 变化静默重置基线。 */}
+      <KernelAnnouncer
+        tasks={snapshot.tasks}
+        scheduler={scheduler}
+        runs={taskRuns}
+        actionMessage={kernelAnnouncement}
+        contextKey={`${snapshot.workspace.id}:${tab}:${selectedTaskId ?? "-"}`}
+      />
+
       {/* C26：全局 toast */}
       <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
 
+/** t69：有副作用的内核操作统一二次确认（Esc/焦点陷阱由 Modal 提供）。t107：文案走 kernelConfirmCopy 纯函数（含 resume）。 */
+function KernelConfirmModal({
+  intent,
+  reviewNotes,
+  onNotesChange,
+  onClose,
+  onConfirm,
+}: {
+  intent: ConfirmIntent;
+  reviewNotes: string;
+  onNotesChange: (value: string) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const isReject = intent.kind === "review" && intent.decision === "reject";
+  // t107 F1/F6：文案统一为纯函数（含 resume）；评审备注聚焦改用 Modal initialFocusRef（去掉 autoFocus）。
+  const notesRef = useRef<HTMLTextAreaElement | null>(null);
+  const copy = kernelConfirmCopy({
+    kind: intent.kind,
+    taskTitle:
+      intent.kind === "retry" || intent.kind === "cancelTask" || intent.kind === "review"
+        ? intent.task.title
+        : intent.kind === "cancelRun"
+          ? intent.taskTitle
+          : undefined,
+    taskStatus:
+      intent.kind === "cancelTask" || intent.kind === "retry" || intent.kind === "review"
+        ? intent.task.status
+        : undefined,
+    runAttempt: intent.kind === "cancelRun" ? intent.run.attempt : undefined,
+    decision: intent.kind === "review" ? intent.decision : undefined,
+  });
+
+  return (
+    <Modal
+      title={copy.title}
+      description={copy.description}
+      onClose={onClose}
+      confirmClose={intent.kind === "review" && Boolean(reviewNotes.trim())}
+      initialFocusRef={intent.kind === "review" ? notesRef : undefined}
+    >
+      <div className="kernel-confirm">
+        {intent.kind === "review" && (
+          <label>
+            {intent.decision === "reject" ? "拒绝备注（必填）" : "评审备注（可选）"}
+            <textarea
+              ref={notesRef}
+              value={reviewNotes}
+              onChange={(event) => onNotesChange(event.target.value)}
+              rows={3}
+              placeholder={
+                intent.decision === "reject"
+                  ? "说明拒绝原因，便于成员修复后重试"
+                  : "可记录验收依据或后续建议"
+              }
+            />
+          </label>
+        )}
+        {intent.kind === "cancelTask" && (
+          <div className="notice small">
+            取消不会删除任务与已有 Run 记录；需要重跑请新建任务或使用「重试」（仅失败任务）。
+          </div>
+        )}
+        {intent.kind === "cancelRun" && (
+          <div className="notice small">
+            Run 级取消只影响本次执行；任务可选择「重试」重新入队。
+          </div>
+        )}
+        {intent.kind === "resume" && (
+          <div className="notice small">
+            恢复不是危险操作，此处确认用于避免误触；运行中的 Run 不受影响。
+          </div>
+        )}
+        <div className="modal-foot">
+          <button type="button" className="ghost" onClick={onClose}>
+            返回
+          </button>
+          <button
+            type="button"
+            className={copy.danger ? "primary danger-button" : "primary"}
+            onClick={onConfirm}
+            disabled={isReject && !reviewNotes.trim()}
+            title={isReject && !reviewNotes.trim() ? "拒绝必须填写备注" : undefined}
+          >
+            {copy.confirm}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 const TASK_FILTERS: Array<TaskStatusFilter> = [
   "all",
+  "queued",
   "running",
   "blocked",
   "ready",
   "review",
   "done",
   "failed",
+  "cancelled",
 ];
 
 function filterLabel(filter: TaskStatusFilter): string {
@@ -1888,11 +2380,30 @@ function TasksView({
   autoOpen,
   onAutoOpenHandled,
   onSelect,
-  onRun,
   onCreate,
   onContext,
   onLocate,
   onPlan,
+  scheduler,
+  schedulerLoading,
+  schedulerError,
+  runs,
+  runsLoading,
+  runsError,
+  selectedRunId,
+  actionBusy,
+  actionError,
+  onReloadScheduler,
+  onReloadRuns,
+  onSelectRun,
+  onOpenRuns,
+  onStartTask,
+  onRetryTask,
+  onCancelTask,
+  onCancelRun,
+  onReviewTask,
+  onPause,
+  onResume,
 }: {
   snapshot: Snapshot;
   selectedTask: Task | null;
@@ -1904,11 +2415,30 @@ function TasksView({
   autoOpen: "task" | "plan" | null;
   onAutoOpenHandled: () => void;
   onSelect: (task: Task) => void;
-  onRun: (taskId: string) => void;
   onCreate: (title: string, description: string, acceptance: string[]) => void;
   onContext: (taskId: string) => void;
   onLocate: (taskId: string) => void;
   onPlan: (goal: string) => void;
+  scheduler: SchedulerSnapshot | null;
+  schedulerLoading: boolean;
+  schedulerError: string | null;
+  runs: Run[];
+  runsLoading: boolean;
+  runsError: string | null;
+  selectedRunId: string | null;
+  actionBusy: string | null;
+  actionError: string | null;
+  onReloadScheduler: () => void;
+  onReloadRuns: () => void;
+  onSelectRun: (runId: string | null) => void;
+  onOpenRuns: (taskId?: string | null, runId?: string | null) => void;
+  onStartTask: (task: Task) => void;
+  onRetryTask: (task: Task) => void;
+  onCancelTask: (task: Task) => void;
+  onCancelRun: (run: Run) => void;
+  onReviewTask: (task: Task, decision: "approve" | "reject") => void;
+  onPause: () => void;
+  onResume: () => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
@@ -1983,23 +2513,46 @@ function TasksView({
   }
 
   const agents = new Map(snapshot.agents.map((agent) => [agent.id, agent]));
-  const hasWorker = snapshot.agents.some((agent) => !agent.isRouter);
-
-  const keyword = search.trim().toLowerCase();
-  const filteredTasks = snapshot.tasks.filter((task) => {
-    const statusOk = statusFilter === "all" || task.status === statusFilter;
-    const searchOk =
-      !keyword ||
-      task.title.toLowerCase().includes(keyword) ||
-      task.id.toLowerCase().includes(keyword) ||
-      (task.summary ?? "").toLowerCase().includes(keyword);
-    return statusOk && searchOk;
-  });
+  const taskById = new Map(snapshot.tasks.map((task) => [task.id, task]));
+  const hasWorker = snapshot.agents.some(
+    (agent) => !agent.isRouter && agent.status !== "offline",
+  );
+  const counts = statusCounts(snapshot.tasks);
+  const filteredTasks = filterTaskList(snapshot.tasks, statusFilter, search);
+  const actionState = selectedTask
+    ? taskActionState(selectedTask, taskById, hasWorker)
+    : null;
+  const nextStep = selectedTask
+    ? taskNextStep(selectedTask, taskById, hasWorker)
+    : null;
+  const selectedTaskDeps = selectedTask
+    ? selectedTask.dependsOn
+        .map((id) => taskById.get(id))
+        .filter((item): item is Task => Boolean(item))
+    : [];
+  const unfilledDeps = selectedTaskDeps.filter((task) => task.status !== "done");
 
   function countFor(filter: TaskStatusFilter): number {
-    return filter === "all"
-      ? snapshot.tasks.length
-      : snapshot.tasks.filter((task) => task.status === filter).length;
+    return filter === "all" ? counts.all : counts[filter];
+  }
+
+  function taskRuntimeHint(task: Task): string | null {
+    if (task.status === "queued") {
+      return `排队中 · 已等 ${task.queuedAt ? formatRelative(task.queuedAt) : "—"}`;
+    }
+    if (task.status === "blocked" && task.blockedReason) {
+      return blockedReasonText(task.blockedReason);
+    }
+    if (task.status === "failed" && task.failureKind) {
+      return failureKindText(task.failureKind);
+    }
+    if (task.status === "running") {
+      return `第 ${task.attemptCount ?? 0} 次执行`;
+    }
+    if (task.status === "review") {
+      return "等待评审批准";
+    }
+    return null;
   }
 
   return (
@@ -2010,6 +2563,22 @@ function TasksView({
         listCollapsed ? undefined : ({ "--task-list-w": `${listWidth}px` } as CSSProperties)
       }
     >
+      <SchedulerBar
+        scheduler={scheduler}
+        tasks={snapshot.tasks}
+        agents={snapshot.agents}
+        loading={schedulerLoading}
+        error={schedulerError}
+        busy={actionBusy}
+        onRetryLoad={onReloadScheduler}
+        onPause={onPause}
+        onResume={onResume}
+        onOpenRuns={() => onOpenRuns(selectedTask?.id ?? null, selectedRunId)}
+        onSelectTask={(taskId) => {
+          const task = taskById.get(taskId);
+          if (task) onSelect(task);
+        }}
+      />
       {!listCollapsed && (
         <section className="panel task-list-panel">
           <div className="panel-head">
@@ -2086,6 +2655,7 @@ function TasksView({
             )}
             {filteredTasks.map((task) => {
               const owner = task.ownerId ? agents.get(task.ownerId) : null;
+              const hint = taskRuntimeHint(task);
               return (
                 <button
                   key={task.id}
@@ -2098,9 +2668,21 @@ function TasksView({
                   </div>
                   <div className="muted tiny task-row-meta">
                     <span>{owner ? owner.name : "未分配"}</span>
+                    <span title="自动重试上限 3 次（总尝试）">
+                      尝试 {taskAttemptRatioText(task)}
+                    </span>
                     {task.dependsOn.length > 0 && <span>依赖 {task.dependsOn.length}</span>}
                     <span>{time(task.createdAt)}</span>
                   </div>
+                  {hint && (
+                    <div
+                      className={`task-row-hint ${
+                        task.status === "failed" ? "is-error" : ""
+                      }`}
+                    >
+                      {hint}
+                    </div>
+                  )}
                 </button>
               );
             })}
@@ -2176,7 +2758,7 @@ function TasksView({
                 <StatusBadge status={selectedTask.status} />
                 <span className="muted tiny mono">{selectedTask.id}</span>
               </div>
-              <div className="row gap">
+              <div className="row gap wrap">
                 <button
                   className="ghost small"
                   onClick={() => onLocate(selectedTask.id)}
@@ -2192,24 +2774,174 @@ function TasksView({
                   查看上下文
                 </button>
                 <button
+                  className="ghost small"
+                  onClick={() => onOpenRuns(selectedTask.id, selectedRunId)}
+                  title="打开运行面板：队列、Run 历史与时间线"
+                >
+                  运行详情
+                </button>
+                {/* t107 F3：主要操作常驻渲染，不可用时 disabled + title/aria-describedby 原因（与 RunPanel 一致）。 */}
+                <button
                   className="primary small"
                   disabled={
-                    busy ||
-                    selectedTask.status === "running" ||
-                    selectedTask.status === "done" ||
-                    !hasWorker
+                    !actionState?.start.enabled ||
+                    actionBusy === `task:start:${selectedTask.id}`
                   }
-                  onClick={() => onRun(selectedTask.id)}
-                  title={!hasWorker ? "请先创建成员" : undefined}
+                  onClick={() => onStartTask(selectedTask)}
+                  title={actionState?.start.reason || "入队运行（默认手动入队）"}
+                  aria-describedby={
+                    actionState?.start.enabled ? undefined : "task-action-hint"
+                  }
                 >
-                  {selectedTask.status === "running" ? "运行中…" : "运行任务"}
+                  {actionBusy === `task:start:${selectedTask.id}` ? "入队中…" : "运行任务"}
+                </button>
+                <button
+                  className="primary small"
+                  disabled={
+                    !actionState?.retry.enabled ||
+                    actionBusy === `task:retry:${selectedTask.id}`
+                  }
+                  onClick={() => onRetryTask(selectedTask)}
+                  title={actionState?.retry.reason || "重新入队：会新建一次 attempt"}
+                  aria-describedby={
+                    actionState?.retry.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  {actionBusy === `task:retry:${selectedTask.id}` ? "重试中…" : "重试任务"}
+                </button>
+                <button
+                  className="primary small"
+                  disabled={
+                    !actionState?.review.enabled ||
+                    actionBusy === `task:review:${selectedTask.id}`
+                  }
+                  onClick={() => onReviewTask(selectedTask, "approve")}
+                  title={actionState?.review.reason || "批准：任务标记为已交付"}
+                  aria-describedby={
+                    actionState?.review.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  批准
+                </button>
+                <button
+                  className="ghost small run-danger"
+                  disabled={
+                    !actionState?.review.enabled ||
+                    actionBusy === `task:review:${selectedTask.id}`
+                  }
+                  onClick={() => onReviewTask(selectedTask, "reject")}
+                  title={actionState?.review.reason || "拒绝：任务标记失败（REVIEW_REJECTED）"}
+                  aria-describedby={
+                    actionState?.review.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  拒绝
+                </button>
+                <button
+                  className="ghost small run-danger"
+                  disabled={
+                    !actionState?.cancel.enabled ||
+                    actionBusy === `task:cancel:${selectedTask.id}`
+                  }
+                  onClick={() => onCancelTask(selectedTask)}
+                  title={actionState?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
+                  aria-describedby={
+                    actionState?.cancel.enabled ? undefined : "task-action-hint"
+                  }
+                >
+                  {actionBusy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
                 </button>
               </div>
             </div>
 
-            {!hasWorker && (
-              <div className="notice">还没有成员。请先到「团队」创建一个成员，再运行任务。</div>
+            {/* t107 F3：不可用操作的原因（可见 inline 说明，供 aria-describedby 引用）。 */}
+            {actionState && (
+              <div id="task-action-hint" className="muted tiny task-action-hint">
+                {[
+                  actionState.start,
+                  actionState.retry,
+                  actionState.review,
+                  actionState.cancel,
+                ]
+                  .filter((gate) => !gate.enabled && gate.reason)
+                  .map((gate) => gate.reason)
+                  .join("；")}
+              </div>
             )}
+
+            {actionError && (
+              <div className="error banner task-action-error" role="alert">
+                <span>操作失败：{actionError}</span>
+              </div>
+            )}
+
+            {!hasWorker && (
+              <div className="notice">还没有可用成员。请先到「团队」创建成员或把成员设为非离线，再运行任务。</div>
+            )}
+
+            {nextStep && nextStep.kind !== "none" && (
+              <div className={`task-next-step tone-${nextStep.kind}`}>
+                <strong>{nextStep.label}</strong>
+                <span>{nextStep.detail}</span>
+                {unfilledDeps.length > 0 && (
+                  <span className="muted tiny">
+                    上游：{" "}
+                    {unfilledDeps.map((dep) => (
+                      <button
+                        key={dep.id}
+                        type="button"
+                        className="link-button"
+                        onClick={() => onSelect(dep)}
+                      >
+                        {dep.title}（{TASK_STATUS_LABEL[dep.status]}）
+                      </button>
+                    ))}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="task-runtime-grid">
+              <div>
+                <div className="section-label">尝试</div>
+                <div>{taskAttemptRatioText(selectedTask)}（共 {selectedTask.attemptCount ?? 0} 次）</div>
+              </div>
+              <div>
+                <div className="section-label">优先级</div>
+                <div>{selectedTask.priority ?? 50}</div>
+              </div>
+              <div>
+                <div className="section-label">入队</div>
+                <div title={selectedTask.queuedAt ?? undefined}>
+                  {selectedTask.queuedAt ? formatRelative(selectedTask.queuedAt) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="section-label">开始 / 结束</div>
+                <div className="muted tiny">
+                  {selectedTask.startedAt ? formatRelative(selectedTask.startedAt) : "—"} /{" "}
+                  {selectedTask.endedAt ? formatRelative(selectedTask.endedAt) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="section-label">阻塞 / 失败原因</div>
+                <div className="muted tiny">
+                  {selectedTask.blockedReason
+                    ? blockedReasonText(selectedTask.blockedReason)
+                    : selectedTask.failureKind
+                      ? failureKindText(selectedTask.failureKind)
+                      : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="section-label">依赖</div>
+                <div className="muted tiny">
+                  {selectedTask.dependsOn.length === 0
+                    ? "无"
+                    : `${selectedTask.dependsOn.length} 个（${unfilledDeps.length} 个未完成）`}
+                </div>
+              </div>
+            </div>
 
             <div className="detail-grid">
               <div>
@@ -2233,6 +2965,24 @@ function TasksView({
                 <p className="detail-text">{selectedTask.summary || "（尚未完成）"}</p>
               </div>
             </div>
+
+            <RunHistory
+              task={selectedTask}
+              runs={runs}
+              agents={snapshot.agents}
+              events={trace}
+              loading={runsLoading}
+              error={runsError}
+              selectedRunId={selectedRunId}
+              busy={actionBusy}
+              onRetryLoad={onReloadRuns}
+              onSelectRun={(runId) => onSelectRun(runId)}
+              onCancelRun={onCancelRun}
+              onOpenRunPanel={(runId) =>
+                onOpenRuns(selectedTask.id, runId ?? selectedRunId)
+              }
+              onRetryTask={() => onRetryTask(selectedTask)}
+            />
 
             <div className="trace-head">
               <div className="section-label">执行 trace</div>
@@ -2345,7 +3095,9 @@ function TaskComposeModal({
 
 function TraceItem({ event }: { event: EventRecord }) {
   const payload = event.payload as Record<string, unknown> | null;
-  let body = payloadText(event.payload);
+  // t69：内核事件优先用统一中文标签 + 一行摘要；旧 tool/assistant 事件保留原有精炼口径。
+  const summary = eventSummary(event);
+  let body = summary || payloadText(event.payload);
   if (event.type === "assistant.message" && payload?.text) body = String(payload.text);
   if (event.type === "tool.call" && payload?.name) {
     body = `${String(payload.name)} ${String(payload.arguments ?? "").slice(0, 600)}`;
@@ -2357,10 +3109,16 @@ function TraceItem({ event }: { event: EventRecord }) {
     body = `usage ${JSON.stringify(payload.usage)}`;
   }
   return (
-    <div className={`trace-item trace-${event.type.replace(/\./g, "-")}`}>
+    <div
+      className={`trace-item trace-${event.type.replace(/\./g, "-")} tone-${eventTone(
+        event.type,
+      )}`}
+    >
       <div className="trace-meta">
         <span className="mono tiny">{time(event.createdAt)}</span>
-        <span className="trace-type">{event.type}</span>
+        <span className="trace-type" title={event.type}>
+          {eventTypeLabel(event.type)}
+        </span>
         <span className="muted tiny">{event.actor}</span>
       </div>
       <pre className="trace-body">{body}</pre>

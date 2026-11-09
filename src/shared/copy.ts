@@ -1,4 +1,12 @@
-import type { AgentStatus, BoardKind, MessageKind, PermissionMode, TaskStatus } from "./types";
+import type {
+  AgentStatus,
+  BoardKind,
+  KernelErrorCode,
+  MessageKind,
+  PermissionMode,
+  RunStatus,
+  TaskStatus,
+} from "./types";
 
 /**
  * C01 状态与枚举统一：全应用唯一的状态/类型中文映射。
@@ -14,6 +22,54 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   done: "已交付",
   failed: "失败",
   cancelled: "已取消",
+};
+
+/** t69：Run 状态中文文案（与 TaskStatus 分开，避免「review/completed」混用）。 */
+export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
+  queued: "排队中",
+  running: "运行中",
+  waiting_human: "等待人工",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+/** t69：Task.blockedReason 文案；未知值原样返回。 */
+export const BLOCKED_REASON_LABEL: Record<string, string> = {
+  waiting_dependencies: "等待上游依赖完成",
+  dependency_failed: "上游任务失败，依赖无法满足",
+  dependency_cancelled: "上游任务已取消",
+  manual: "手动阻塞",
+};
+
+/** t69：Task.failureKind / Run.errorCode 常见文案；未知值原样返回。 */
+export const FAILURE_KIND_LABEL: Record<string, string> = {
+  retry_exhausted: "自动重试已耗尽",
+  REVIEW_REJECTED: "评审拒绝",
+  RUN_CANCELLED: "Run 被取消",
+  LEASE_EXPIRED: "租约过期",
+  RUN_TIMEOUT: "Run 超时",
+  RISK_DENIED: "高风险操作被拒绝",
+  RISK_TIMEOUT: "高风险审批超时",
+  ORPHANED: "孤儿 Run 回收",
+  DUPLICATE_ACTIVE: "重复活跃 Run",
+  NO_AVAILABLE_AGENT: "没有可用成员",
+  INTERNAL: "内部错误",
+};
+
+/** t69：内核命令错误码中文前缀（稳定错误码，UI 不解析 message）。 */
+export const KERNEL_ERROR_LABEL: Record<KernelErrorCode, string> = {
+  INVALID_TRANSITION: "状态不允许此操作",
+  INVALID_DEPENDENCY: "依赖不满足",
+  DEPENDENCY_LOCKED: "依赖被锁定",
+  NOT_FOUND: "对象不存在",
+  CONFLICT: "并发冲突，请刷新后重试",
+  PAUSED: "调度器已暂停",
+  LIMIT_REACHED: "已达到并发上限",
+  NO_AVAILABLE_AGENT: "没有可用成员",
+  HOOK_REJECTED: "调度前置检查拒绝",
+  IDEMPOTENT_REPLAY: "重复命令已忽略",
+  INTERNAL: "内核内部错误",
 };
 
 export const AGENT_STATUS_LABEL: Record<AgentStatus, string> = {

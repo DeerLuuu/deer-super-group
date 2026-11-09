@@ -14,12 +14,15 @@ import type {
   CreateTaskInput,
   UpdateAgentInput,
   EventRecord,
+  KernelResult,
   LlmSettings,
   LlmSettingsInfo,
   MailboxMessage,
   ModelListResult,
   PostBoardInput,
   RiskApprovalRequest,
+  Run,
+  SchedulerSnapshot,
   SendMessageInput,
   Snapshot,
   Task,
@@ -34,6 +37,23 @@ export interface DeerApi {
   updateAgent(input: UpdateAgentInput): Promise<Agent>;
   createTask(input: CreateTaskInput): Promise<Task>;
   runTask(taskId: string): Promise<void>;
+  /** t69：内核调度命令（KernelResult 携带稳定错误码，UI 不解析 message）。 */
+  startTask(taskId: string): Promise<KernelResult<Task>>;
+  cancelTask(taskId: string): Promise<KernelResult<Task>>;
+  retryTask(taskId: string): Promise<KernelResult<Task>>;
+  reviewTask(
+    taskId: string,
+    decision: "approve" | "reject",
+    options?: { reviewer?: string; notes?: string },
+  ): Promise<KernelResult<Task>>;
+  cancelRun(runId: string): Promise<KernelResult<Run>>;
+  listRuns(taskId: string): Promise<KernelResult<Run[]>>;
+  getScheduler(workspaceId: string): Promise<KernelResult<SchedulerSnapshot>>;
+  pauseScheduler(
+    workspaceId: string,
+    reason?: string,
+  ): Promise<KernelResult<SchedulerSnapshot>>;
+  resumeScheduler(workspaceId: string): Promise<KernelResult<SchedulerSnapshot>>;
   getTaskTrace(taskId: string): Promise<EventRecord[]>;
   plan(workspaceId: string, goal: string): Promise<Task[]>;
   sendMessage(input: SendMessageInput): Promise<MailboxMessage>;

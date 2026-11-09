@@ -14,6 +14,7 @@ export type CreateIntent = "task" | "plan" | "mail" | "board" | "member";
 /** t50：dock 面板命令（面板组）。 */
 export type PanelAction =
   | "open-context"
+  | "open-runs"
   | "close-active"
   | "reset-layout"
   | "reset-all"
@@ -109,6 +110,7 @@ export default function CommandPalette({
     if (onPanelAction) {
       const panelCommands: Array<{ id: PanelAction; label: string; hint: string }> = [
         { id: "open-context", label: "打开 上下文面板", hint: "对话的上下文可视化" },
+        { id: "open-runs", label: "打开 运行面板", hint: "调度队列、Run 历史与时间线" },
         { id: "close-active", label: "关闭当前面板", hint: "Ctrl+Alt+W · 设置面板不可关闭" },
         { id: "move-left", label: "移动当前面板：向左", hint: "Ctrl+Shift+Alt+←" },
         { id: "move-right", label: "移动当前面板：向右", hint: "Ctrl+Shift+Alt+→" },

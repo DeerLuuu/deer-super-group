@@ -22,6 +22,23 @@ const api: DeerApi = {
   updateAgent: (input: UpdateAgentInput) => ipcRenderer.invoke("agent:update", input),
   createTask: (input: CreateTaskInput) => ipcRenderer.invoke("task:create", input),
   runTask: (taskId: string) => ipcRenderer.invoke("task:run", taskId),
+  // t69：内核调度命令（返回 KernelResult，业务失败不 reject）。
+  startTask: (taskId: string) => ipcRenderer.invoke("kernel:startTask", taskId),
+  cancelTask: (taskId: string) => ipcRenderer.invoke("kernel:cancelTask", taskId),
+  retryTask: (taskId: string) => ipcRenderer.invoke("kernel:retryTask", taskId),
+  reviewTask: (
+    taskId: string,
+    decision: "approve" | "reject",
+    options?: { reviewer?: string; notes?: string },
+  ) => ipcRenderer.invoke("kernel:reviewTask", taskId, decision, options),
+  cancelRun: (runId: string) => ipcRenderer.invoke("kernel:cancelRun", runId),
+  listRuns: (taskId: string) => ipcRenderer.invoke("kernel:listRuns", taskId),
+  getScheduler: (workspaceId: string) =>
+    ipcRenderer.invoke("kernel:getScheduler", workspaceId),
+  pauseScheduler: (workspaceId: string, reason?: string) =>
+    ipcRenderer.invoke("kernel:pauseScheduler", workspaceId, reason),
+  resumeScheduler: (workspaceId: string) =>
+    ipcRenderer.invoke("kernel:resumeScheduler", workspaceId),
   getTaskTrace: (taskId: string) => ipcRenderer.invoke("task:trace", taskId),
   plan: (workspaceId: string, goal: string) => ipcRenderer.invoke("router:plan", workspaceId, goal),
   sendMessage: (input: SendMessageInput) => ipcRenderer.invoke("mailbox:send", input),

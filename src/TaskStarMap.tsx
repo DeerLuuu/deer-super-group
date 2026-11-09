@@ -45,12 +45,14 @@ const MAX_FOCUS_DEPTH = 3;
 
 const STATUS_FILTERS: Array<"all" | TaskStatus> = [
   "all",
+  "queued",
   "running",
   "review",
   "blocked",
   "ready",
   "done",
   "failed",
+  "cancelled",
 ];
 
 type View = { x: number; y: number; scale: number };
@@ -293,11 +295,13 @@ function reachable(
 
 const STATUS_LEGEND: Array<TaskStatus> = [
   "running",
+  "queued",
   "review",
   "blocked",
   "ready",
   "done",
   "failed",
+  "cancelled",
 ];
 
 export default function TaskStarMap({
