@@ -1,0 +1,44 @@
+{
+  "name": "deer-super-group",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron -c cyan,magenta \"vite\" \"pnpm dev:electron\"",
+    "dev:electron": "pnpm build:electron && wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "build": "vite build && pnpm build:electron",
+    "build:electron": "node scripts/build-electron.mjs",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "branch:start": "node scripts/branch-worktree.mjs start",
+    "branch:list": "node scripts/branch-worktree.mjs list",
+    "branch:finish": "node scripts/branch-worktree.mjs finish",
+    "branch:remove": "node scripts/branch-worktree.mjs remove"
+  },
+  "dependencies": {
+    "dockview-core": "8.9.0",
+    "dockview-react": "8.9.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^45.2.3",
+    "esbuild": "^0.27.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.6",
+    "vitest": "^4.0.16",
+    "wait-on": "^9.0.3"
+  }
+}

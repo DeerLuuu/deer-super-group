@@ -1,0 +1,19 @@
+node_modules/
+dist/
+dist-electron/
+.deer/
+.deers-agent-team/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+.DS_Store
+.tmp-*
+
+# Parallel-development worktrees (entire folder is local-only).
+branches/
+
+# Local tooling
+.vscode/
+.idea/

@@ -1,0 +1,138 @@
+import { useEffect, useRef, type ReactNode } from "react";
+
+/**
+ * C25 模态框可用性基线：全部弹窗共用的 Modal 原语。
+ * - Esc 关闭（有未保存内容时先确认）；
+ * - 打开时聚焦首个可聚焦元素；
+ * - Tab / Shift+Tab 焦点陷阱；
+ * - 关闭后焦点归还触发按钮；
+ * - role="dialog" + aria-modal + aria-label；
+ * - 打开期间锁定背景滚动；
+ * - backdrop 点击与「关闭」按钮走同一条关闭路径（同样受未保存确认保护）。
+ */
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function getFocusable(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (node) => node.offsetParent !== null || node === document.activeElement,
+  );
+}
+
+export default function Modal({
+  title,
+  description,
+  onClose,
+  /** 为 true 时关闭（Esc / backdrop / 关闭按钮）需先经 window.confirm 确认。 */
+  confirmClose = false,
+  className = "",
+  children,
+}: {
+  title: string;
+  description?: string;
+  onClose: () => void;
+  confirmClose?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const confirmCloseRef = useRef(confirmClose);
+  confirmCloseRef.current = confirmClose;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const node = dialogRef.current;
+    if (node) {
+      const focusable = getFocusable(node);
+      (focusable[0] ?? node).focus();
+    }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      restoreFocusRef.current?.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    function requestClose() {
+      if (confirmCloseRef.current) {
+        const ok = window.confirm("有未保存的内容，确定关闭吗？");
+        if (!ok) return;
+      }
+      onCloseRef.current();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        requestClose();
+        return;
+      }
+      if (event.key === "Tab") {
+        const node = dialogRef.current;
+        if (!node) return;
+        const items = getFocusable(node);
+        if (items.length === 0) {
+          event.preventDefault();
+          return;
+        }
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
+  function requestClose() {
+    if (confirmCloseRef.current) {
+      const ok = window.confirm("有未保存的内容，确定关闭吗？");
+      if (!ok) return;
+    }
+    onClose();
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={requestClose}>
+      <div
+        className={`modal ${className}`}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-head">
+          <div>
+            <div className="panel-title">{title}</div>
+            {description && <div className="muted tiny">{description}</div>}
+          </div>
+          <button type="button" className="ghost tiny" onClick={requestClose}>
+            关闭
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
