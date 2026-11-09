@@ -22,6 +22,7 @@ export const KERNEL_EVENT_TYPES = [
   "run.checkpoint",
   "run.waiting_human",
   "run.resumed",
+  "run.nudge",
   "run.completed",
   "run.failed",
   "run.cancelled",
@@ -180,7 +181,12 @@ export const EVENT_REGISTRY: Record<KernelEventType, KernelEventDefinition> = {
     }),
   ),
   "task.cancelled": def(z.strictObject({ reason: shortText })),
-  "run.started": def(z.strictObject({ run: runSchema })),
+  "run.started": def(
+    z.strictObject({
+      run: runSchema,
+      handoffId: z.string().max(200).optional(),
+    }),
+  ),
   "run.heartbeat": def(z.strictObject({ patch: runPatch })),
   "run.checkpoint": def(
     z.strictObject({
@@ -193,6 +199,13 @@ export const EVENT_REGISTRY: Record<KernelEventType, KernelEventDefinition> = {
     z.strictObject({ reason: shortText, patch: runPatch.optional() }),
   ),
   "run.resumed": def(z.strictObject({ reason: shortText.optional(), patch: runPatch.optional() })),
+  "run.nudge": def(
+    z.strictObject({
+      runId: z.string().min(1).max(200),
+      reason: shortText,
+      text: z.string().min(1).max(2_000),
+    }),
+  ),
   "run.completed": def(z.strictObject({ patch: runPatch })),
   "run.failed": def(z.strictObject({ patch: runPatch })),
   "run.cancelled": def(z.strictObject({ reason: shortText, patch: runPatch })),

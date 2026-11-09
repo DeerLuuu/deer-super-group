@@ -1,11 +1,39 @@
 import type {
   LlmSettings,
+  ModelPricing,
   ModelProfile,
   ProviderProfile,
   ThinkingEffort,
 } from "./types.js";
 
 const EFFORTS: ThinkingEffort[] = ["low", "medium", "high", "max"];
+
+function asNonNegativeNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+export function normalizeModelPricing(value: unknown): ModelPricing | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const inputPer1M = asNonNegativeNumber(record.inputPer1M);
+  const outputPer1M = asNonNegativeNumber(record.outputPer1M);
+  if (inputPer1M === null || outputPer1M === null) return null;
+  const cachedInputPer1M = asNonNegativeNumber(record.cachedInputPer1M);
+  const reasoningPer1M = asNonNegativeNumber(record.reasoningPer1M);
+  return {
+    currency: "USD",
+    inputPer1M,
+    outputPer1M,
+    ...(cachedInputPer1M !== null ? { cachedInputPer1M } : {}),
+    ...(reasoningPer1M !== null ? { reasoningPer1M } : {}),
+    source: record.source === "catalog" ? "catalog" : "manual",
+    version:
+      typeof record.version === "string" && record.version.trim()
+        ? record.version.trim()
+        : `manual:${inputPer1M}/${outputPer1M}`,
+  };
+}
 
 export interface LegacyProviderFields {
   baseUrl: string;
@@ -256,6 +284,7 @@ export function normalizeModelProfile(
         ? record.thinkingEnabled
         : base.thinkingEnabled,
     thinkingEffort: asEffort(record.thinkingEffort, base.thinkingEffort),
+    pricing: normalizeModelPricing(record.pricing),
   };
 }
 

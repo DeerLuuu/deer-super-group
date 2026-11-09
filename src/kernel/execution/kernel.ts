@@ -63,9 +63,22 @@ export interface RunExecutionContext {
   /** t83 F5：高风险审批/人工输入期间把 Run 标为 waiting_human；结束后 resumeHuman。 */
   waitingHuman: (reason?: string) => void;
   resumeHuman: () => void;
+  /** t144：看门狗活动信号（step/tool/assistant/diff）；不改变 Run 状态。 */
+  activity: (kind: string, payload?: Record<string, unknown>) => void;
+  /** t144：取出待注入的 nudge；执行器在下次 LLM 调用前消费。 */
+  consumeNudges: () => string[];
 }
 
 export type RunExecutor = (ctx: RunExecutionContext) => Promise<RunExecutionResult | void>;
+
+export interface KernelRunActivity {
+  runId: string;
+  taskId: string;
+  agentId: string;
+  kind: string;
+  at: string;
+  payload?: Record<string, unknown>;
+}
 
 /** Git G3 runtime environment selected before the Run row exists. */
 export interface RunEnvironment {
@@ -85,6 +98,20 @@ export interface KernelHooks {
     attempt: number;
     priority: number;
   }) => boolean | { allow: boolean; reason?: string; environment?: RunEnvironment };
+  /** t144：Run 活动观察（step/tool/assistant/diff），只读、不得抛错影响执行。 */
+  onRunActivity?: (info: KernelRunActivity) => void;
+  /** t144：心跳/token 采样（不刷新看门狗 L2 activity）。 */
+  onRunHeartbeat?: (info: {
+    runId: string;
+    taskId: string;
+    agentId: string;
+    heartbeatAt: string;
+    tokenIn: number;
+    tokenOut: number;
+    steps: number;
+    status: RunStatus;
+  }) => void;
+  onRunStarted?: (info: { runId: string; taskId: string; agentId: string; attempt: number }) => void;
   onRunFinished?: (info: {
     runId: string;
     taskId: string;
@@ -94,6 +121,18 @@ export interface KernelHooks {
     tokenOut: number;
     durationMs: number;
   }) => void;
+}
+
+export interface InterruptRunOptions {
+  code: string;
+  message: string;
+  retryable: boolean;
+  /** 任务重试延迟（ms）；watchdog pause/budget hold 用较长延迟。 */
+  retryDelayMs?: number;
+  /** t144：fallback 新 Run 的模型 profile 覆盖。 */
+  nextModelProfileId?: string;
+  /** t144：handoff 引用，写入 run.started payload 供新执行器读取。 */
+  handoffId?: string;
 }
 
 export interface ExecutionKernelOptions {
@@ -163,6 +202,11 @@ export class ExecutionKernel {
   private readonly activeRuns = new Map<string, AbortController>();
   private readonly waiters = new Map<string, Waiter[]>();
   private readonly lastHeartbeatEventAt = new Map<string, number>();
+  /** t144：看门狗 nudge 队列（按 Run；不持久化，执行器消费后清空）。 */
+  private readonly pendingNudges = new Map<string, string[]>();
+  /** t144：watchdog fallback 选择的新 Run 模型覆盖；taskId -> modelProfileId。 */
+  private readonly modelOverrides = new Map<string, string>();
+  private readonly handoffOverrides = new Map<string, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
   private tickAgain = false;
@@ -232,6 +276,80 @@ export class ExecutionKernel {
       throw new Error(last?.error ?? task.failureKind ?? "task failed");
     }
     if (task?.status === "cancelled") throw new Error("task cancelled");
+  }
+
+  /** t144：看门狗主动中止 Run（pause/fallback/member/budget）。 */
+  interruptRun(runId: string, options: InterruptRunOptions): Run | null {
+    const run = this.requireRun(runId);
+    if (!isActiveRunStatus(run.status)) return run;
+    const controller = this.activeRuns.get(runId);
+    controller?.abort();
+    this.activeRuns.delete(runId);
+    this.failRun(
+      runId,
+      new Error(options.message),
+      {
+        code: options.code,
+        message: options.message,
+        retryable: options.retryable,
+      },
+      {
+        retryDelayMs: options.retryDelayMs,
+        nextModelProfileId: options.nextModelProfileId,
+        handoffId: options.handoffId,
+      },
+    );
+    return this.store.getRun(runId);
+  }
+
+  /** t144：L1 nudge；执行器在下次 LLM 调用前通过 consumeNudges 读取。 */
+  injectNudge(runId: string, text: string, reason = "watchdog"): boolean {
+    if (!this.activeRuns.has(runId)) return false;
+    const run = this.store.getRun(runId);
+    if (!run || !isActiveRunStatus(run.status)) return false;
+    const list = this.pendingNudges.get(runId) ?? [];
+    list.push(text);
+    this.pendingNudges.set(runId, list);
+    this.appendEvent("run.nudge", "run", runId, {
+      runId,
+      reason,
+      text: text.slice(0, 2_000),
+    });
+    return true;
+  }
+
+  /** t144：hold 只用既有 nextRunAt；原因由 watchdog_holds 管理。 */
+  holdTask(taskId: string, nextRunAt: string): Task {
+    const task = this.requireTask(taskId);
+    this.store.withTransaction(() => {
+      patchTaskProjection(this.store, taskId, { nextRunAt });
+      this.appendEvent("task.updated", "task", taskId, { patch: { nextRunAt } });
+    });
+    return this.requireTask(taskId);
+  }
+
+  releaseTaskHold(taskId: string): Task {
+    const task = this.requireTask(taskId);
+    const now = iso(this.clock.now());
+    this.store.withTransaction(() => {
+      patchTaskProjection(this.store, taskId, { nextRunAt: now });
+      this.appendEvent("task.updated", "task", taskId, { patch: { nextRunAt: now } });
+    });
+    return this.requireTask(taskId);
+  }
+
+  /** t144：换成员（更新 owner）；下一次 Run 由新成员执行。 */
+  reassignTask(taskId: string, agentId: string, reason = "watchdog_member_switch"): Task {
+    const task = this.requireTask(taskId);
+    const agent = this.store.getAgent(agentId);
+    if (!agent || agent.workspaceId !== task.workspaceId) {
+      throw new KernelError("NOT_FOUND", `agent not found in workspace: ${agentId}`);
+    }
+    if (agent.isRouter || agent.status === "offline") {
+      throw new KernelError("CONFLICT", `agent is not available: ${agentId}`);
+    }
+    const updated = this.store.updateTask(taskId, { ownerId: agentId });
+    return updated;
   }
 
   retryTask(taskId: string): Task {
@@ -584,6 +702,10 @@ export class ExecutionKernel {
   ): boolean {
     const now = this.clock.now();
     const nowIso = iso(now);
+    const modelOverride = this.modelOverrides.get(task.id);
+    if (modelOverride) this.modelOverrides.delete(task.id);
+    const handoffOverride = this.handoffOverrides.get(task.id);
+    if (handoffOverride) this.handoffOverrides.delete(task.id);
     const run: Run = {
       id: runId,
       taskId: task.id,
@@ -595,7 +717,7 @@ export class ExecutionKernel {
       tokenIn: 0,
       tokenOut: 0,
       attempt,
-      modelProfileId: null,
+      modelProfileId: modelOverride ?? null,
       modelId: null,
       permissionSnapshot: agent.permission,
       sandboxId: environment?.sandboxId ?? `workspace:${task.workspaceId}`,
@@ -649,7 +771,7 @@ export class ExecutionKernel {
         "run.started",
         "run",
         run.id,
-        { run },
+        { run, ...(handoffOverride ? { handoffId: handoffOverride } : {}) },
         `run:${task.id}:attempt:${attempt}:started`,
       );
       this.appendEvent("scheduler.admitted", "scheduler", task.workspaceId, {
@@ -664,6 +786,12 @@ export class ExecutionKernel {
 
     const controller = new AbortController();
     this.activeRuns.set(run.id, controller);
+    this.hooks.onRunStarted?.({
+      runId: run.id,
+      taskId: task.id,
+      agentId: agent.id,
+      attempt,
+    });
     void this.executeRun(run.id, task.id, agent.id, controller);
     return true;
   }
@@ -689,6 +817,21 @@ export class ExecutionKernel {
         checkpoint: (info) => this.checkpoint(runId, info),
         waitingHuman: (reason) => this.enterWaitingHuman(runId, reason),
         resumeHuman: () => this.resumeFromHuman(runId),
+        activity: (kind, payload) => {
+          this.hooks.onRunActivity?.({
+            runId,
+            taskId,
+            agentId,
+            kind,
+            at: iso(this.clock.now()),
+            payload,
+          });
+        },
+        consumeNudges: () => {
+          const list = this.pendingNudges.get(runId) ?? [];
+          this.pendingNudges.delete(runId);
+          return list;
+        },
       });
       if (controller.signal.aborted) return;
       const current = this.store.getRun(runId);
@@ -790,6 +933,7 @@ export class ExecutionKernel {
     runId: string,
     error: unknown,
     override?: { code: string; message: string; retryable: boolean },
+    options?: { retryDelayMs?: number; nextModelProfileId?: string; handoffId?: string },
   ): void {
     const classified = override ?? classifyRunError(error);
     const now = this.clock.now();
@@ -821,7 +965,13 @@ export class ExecutionKernel {
         const attempt = run.attempt ?? 1;
         const canRetry = classified.retryable && attempt < this.maxAttempts;
         if (canRetry) {
-          const nextAt = now + this.backoffFor(attempt);
+          const nextAt = now + (options?.retryDelayMs ?? this.backoffFor(attempt));
+          if (options?.nextModelProfileId) {
+            this.modelOverrides.set(task.id, options.nextModelProfileId);
+          }
+          if (options?.handoffId) {
+            this.handoffOverrides.set(task.id, options.handoffId);
+          }
           patchTaskProjection(this.store, task.id, {
             status: "queued",
             nextRunAt: iso(nextAt),
@@ -915,6 +1065,19 @@ export class ExecutionKernel {
         this.lastHeartbeatEventAt.set(runId, now);
       }
     });
+    const current = this.store.getRun(runId);
+    if (current) {
+      this.hooks.onRunHeartbeat?.({
+        runId,
+        taskId: current.taskId,
+        agentId: current.agentId,
+        heartbeatAt: current.heartbeatAt ?? iso(now),
+        tokenIn: current.tokenIn,
+        tokenOut: current.tokenOut,
+        steps: current.steps ?? 0,
+        status: current.status,
+      });
+    }
   }
 
   /** t83 F5：进入人工等待（审批/评审），独立租约 keeper 由 watchdog 续租。 */

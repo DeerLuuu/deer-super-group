@@ -14,6 +14,7 @@ import type {
   SendMessageInput,
 } from "../src/shared/types.js";
 import type { GitSettings } from "../src/git/types.js";
+import type { SetBudgetInput, SetFallbackChainInput } from "../src/shared/watchdog.js";
 import type {
   CreateMemoryBoardInput,
   CreateMemoryMemoInput,
@@ -156,6 +157,28 @@ app.whenReady().then(() => {
     getService().resumeScheduler(workspaceId),
   );
   handle("task:trace", (taskId: string) => getService().getTaskTrace(taskId));
+  // t144：watchdog/cost（WatchdogResult，业务失败不抛裸错误）
+  handle("watchdog:getSnapshot", (workspaceId: string) =>
+    getService().getWatchdogSnapshot(workspaceId),
+  );
+  handle("watchdog:getCosts", (workspaceId: string) => getService().getWatchdogCosts(workspaceId));
+  handle("watchdog:getHandoff", (workspaceId: string, runId: string) =>
+    getService().getRunHandoff(workspaceId, runId),
+  );
+  handle("watchdog:ackAlert", (workspaceId: string, alertId: string) =>
+    getService().ackWatchdogAlert(workspaceId, alertId),
+  );
+  handle("watchdog:resolveAlert", (workspaceId: string, alertId: string) =>
+    getService().resolveWatchdogAlert(workspaceId, alertId),
+  );
+  handle("watchdog:releaseHold", (workspaceId: string, taskId: string) =>
+    getService().releaseWatchdogTaskHold(workspaceId, taskId),
+  );
+  handle("watchdog:setBudget", (input: SetBudgetInput) => getService().setWatchdogBudget(input));
+  handle("watchdog:setFallback", (input: SetFallbackChainInput) =>
+    getService().setWatchdogFallback(input),
+  );
+  handle("watchdog:health", () => getService().getWatchdogHealth());
   handle("router:plan", (workspaceId: string, goal: string) => getService().plan(workspaceId, goal));
   handle("mailbox:send", (input: SendMessageInput) => getService().sendMessage(input));
   handle("board:post", (input: PostBoardInput) => getService().postBoard(input));
