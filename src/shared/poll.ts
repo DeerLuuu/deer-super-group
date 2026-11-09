@@ -121,6 +121,24 @@ export interface ClosePollInput {
   reason?: string;
 }
 
+/** Renderer 可提交的创建请求：createdBy 由主进程绑定为本地 human。 */
+export type CreatePollRequest = Omit<CreatePollInput, "createdBy">;
+
+/** Renderer 可提交的投票请求：human 的 voterId 由主进程固定为 user。 */
+export interface CastPollRequest {
+  pollId: Id;
+  voterType: PollVoterType;
+  selections: Id[];
+  /** 仅 agent 使用；human 会被主进程忽略。 */
+  voterId?: string;
+}
+
+/** Renderer 可提交的关闭请求：actor 由主进程绑定为本地 human。 */
+export interface ClosePollRequest {
+  pollId: Id;
+  reason?: string;
+}
+
 export class PollError extends Error {
   readonly code:
     | "POLL_INVALID_INPUT"

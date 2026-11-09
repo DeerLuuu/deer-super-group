@@ -112,8 +112,7 @@ describe("t136 poll store", () => {
   });
 
   it("updates one ballot on repeated cast, does not duplicate, and emits poll.voted", () => {
-    const { store, workspace } = setup();
-    const poll = store.createPoll(createInput(workspace.id, { options: [{ label: "A" }, { label: "B" }, { label: "C" }], maxSelections: 2 }));
+    const { store, workspace } = setup();    const poll = store.createPoll(createInput(workspace.id, { options: [{ label: "A" }, { label: "B" }, { label: "C" }], maxSelections: 2 }));
     const first = store.castPoll({ pollId: poll.id, voterId: "user", voterType: "human", selections: [poll.options[0].id, poll.options[1].id] });
     expect(first.ballots).toHaveLength(1);
     expect(first.ballots[0].revision).toBe(1);
@@ -127,6 +126,21 @@ describe("t136 poll store", () => {
     expect(changed.ballots[0].revision).toBe(2);
     expect(changed.ballots[0].selections).toEqual([poll.options[2].id]);
     expect(store.listEvents({ aggregateId: poll.id }).filter((event) => event.type === "poll.voted")).toHaveLength(2);
+    const indexes = store.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='ux_poll_ballots_voter'").all() as Array<{ name: string }>;
+    expect(indexes).toHaveLength(1);
+  });
+
+  it("keeps one ballot under a second connection conflict (unique index + upsert)", () => {
+    const { store, workspace, dbPath } = setup();
+    const poll = store.createPoll(createInput(workspace.id, { maxSelections: 1, options: [{ label: "A" }, { label: "B" }] }));
+    const second = new Store(dbPath);
+    cleanups.push(() => second.close());
+    second.castPoll({ pollId: poll.id, voterId: "user", voterType: "human", selections: [poll.options[0].id] });
+    const changed = store.castPoll({ pollId: poll.id, voterId: "user", voterType: "human", selections: [poll.options[1].id] });
+    expect(changed.ballots).toHaveLength(1);
+    expect(changed.ballots[0].revision).toBe(2);
+    expect(changed.ballots[0].selections).toEqual([poll.options[1].id]);
+    expect(store.db.prepare("SELECT COUNT(*) AS n FROM poll_ballots WHERE poll_id = ?").get(poll.id)).toMatchObject({ n: 1 });
   });
 
   it("adopts >3 options, writes decision to board and is idempotent on close", () => {

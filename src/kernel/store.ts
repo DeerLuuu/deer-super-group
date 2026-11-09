@@ -286,6 +286,8 @@ CREATE TABLE IF NOT EXISTS poll_ballots (
 );
 CREATE INDEX IF NOT EXISTS idx_poll_ballots_poll
   ON poll_ballots(poll_id, updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_poll_ballots_voter
+  ON poll_ballots(poll_id, voter_id);
 
 CREATE TABLE IF NOT EXISTS poll_decisions (
   id TEXT PRIMARY KEY,
@@ -1873,18 +1875,20 @@ export class Store {
     if (unchanged) return this.requirePoll(input.pollId);
     const timestamp = now();
     this.withTransaction(() => {
-      if (existing) {
-        this.db.prepare(
-          "UPDATE poll_ballots SET voter_type = ?, selections = ?, updated_at = ?, revision = revision + 1 WHERE id = ?",
-        ).run(input.voterType, JSON.stringify(selections), timestamp, String(existing.id));
-      } else {
-        this.db.prepare(
-          `INSERT INTO poll_ballots
-            (id, poll_id, voter_id, voter_type, selections, submitted_at, updated_at, revision)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        ).run(newId("pballot"), input.pollId, input.voterId, input.voterType, JSON.stringify(selections), timestamp, timestamp);
-      }
-      const revision = existing ? Number(existing.revision ?? 1) + 1 : 1;
+      this.db.prepare(
+        `INSERT INTO poll_ballots
+          (id, poll_id, voter_id, voter_type, selections, submitted_at, updated_at, revision)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+         ON CONFLICT(poll_id, voter_id) DO UPDATE SET
+           voter_type = excluded.voter_type,
+           selections = excluded.selections,
+           updated_at = excluded.updated_at,
+           revision = poll_ballots.revision + 1`,
+      ).run(newId("pballot"), input.pollId, input.voterId, input.voterType, JSON.stringify(selections), timestamp, timestamp);
+      const stored = this.db.prepare(
+        "SELECT revision FROM poll_ballots WHERE poll_id = ? AND voter_id = ?",
+      ).get(input.pollId, input.voterId) as Row | undefined;
+      const revision = Number(stored?.revision ?? 1);
       this.appendEvent({
         aggregateType: "poll",
         aggregateId: input.pollId,
@@ -1901,7 +1905,21 @@ export class Store {
     return this.requirePoll(input.pollId);
   }
 
-  closePoll(input: ClosePollInput): Poll {
+  closePoll(
+    input: ClosePollInput,
+    options: {
+      /** 服务层用 MemoryStore.createBoard 写 decision，保证 domain/FTS/source 列完整。 */
+      boardWriter?: (entry: {
+        workspaceId: string;
+        board: string;
+        author: string;
+        kind: "decision";
+        content: string;
+        confidence: "high";
+        refs: string[];
+      }) => { id: string };
+    } = {},
+  ): Poll {
     const poll = this.requirePoll(input.pollId);
     if (poll.status === "closed") return poll;
     if (
@@ -1918,14 +1936,18 @@ export class Store {
     let boardEntryId: string | null = null;
     this.withTransaction(() => {
       if (result.adoptedOptionIds.length > 0) {
-        const boardEntry = this.postBoard({
+        const boardInput = {
           workspaceId: poll.workspaceId,
           board: "decisions",
           author: input.actor,
-          kind: "decision",
-          content: summary,
-          confidence: "high",
-        });
+          kind: "decision" as const,
+          content: summary.slice(0, 2000),
+          confidence: "high" as const,
+          refs: [`poll:${poll.id}`],
+        };
+        const boardEntry = options.boardWriter
+          ? options.boardWriter(boardInput)
+          : this.postBoard(boardInput);
         boardEntryId = boardEntry.id;
       }
       this.db.prepare(

@@ -23,9 +23,9 @@ import type {
   MemoKind,
 } from "../src/memory/types.js";
 import type {
-  CastPollInput,
-  ClosePollInput,
-  CreatePollInput,
+  CastPollRequest,
+  ClosePollRequest,
+  CreatePollRequest,
   PollStatus,
 } from "../src/shared/poll.js";
 
@@ -171,10 +171,12 @@ const api: DeerApi = {
   }) => ipcRenderer.invoke("memory:context", input),
   listPolls: (workspaceId: string, status?: PollStatus) =>
     ipcRenderer.invoke("poll:list", workspaceId, status),
-  getPoll: (pollId: string) => ipcRenderer.invoke("poll:get", pollId),
-  createPoll: (input: CreatePollInput) => ipcRenderer.invoke("poll:create", input),
-  castPoll: (input: CastPollInput) => ipcRenderer.invoke("poll:cast", input),
-  closePoll: (input: ClosePollInput) => ipcRenderer.invoke("poll:close", input),
+  getPoll: (workspaceId: string, pollId: string) => ipcRenderer.invoke("poll:get", workspaceId, pollId),
+  createPoll: (input: CreatePollRequest) => ipcRenderer.invoke("poll:create", input),
+  castPoll: (workspaceId: string, input: CastPollRequest) =>
+    ipcRenderer.invoke("poll:cast", workspaceId, input),
+  closePoll: (workspaceId: string, input: ClosePollRequest) =>
+    ipcRenderer.invoke("poll:close", workspaceId, input),
   onChatEvent: (listener: (event: ChatEvent) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: ChatEvent) => listener(payload);
     ipcRenderer.on("chat:event", wrapped);

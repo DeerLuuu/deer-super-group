@@ -4,7 +4,7 @@ import Modal from "../Modal";
 import type { Agent } from "../shared/types";
 import {
   PollError,
-  type CreatePollInput,
+  type CreatePollRequest,
   type Poll,
   type PollMode,
   type PollOptionSource,
@@ -301,9 +301,7 @@ function PollDetail({
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState("");
   const canVote = poll.status === "open";
-  const canClose =
-    poll.status !== "closed" &&
-    (poll.createdBy === "user" || poll.createdBy === "facilitator" || poll.createdBy === "admin");
+  const canClose = poll.status !== "closed" && poll.createdBy === "user";
 
   useEffect(() => {
     setSelections(poll.ballots.find((ballot) => ballot.voterId === "user")?.selections ?? []);
@@ -326,9 +324,8 @@ function PollDetail({
     setBusy(true);
     setError(null);
     try {
-      const updated = await window.deer.castPoll({
+      const updated = await window.deer.castPoll(poll.workspaceId, {
         pollId: poll.id,
-        voterId: "user",
         voterType: "human",
         selections,
       });
@@ -349,7 +346,7 @@ function PollDetail({
     setBusy(true);
     setError(null);
     try {
-      const updated = await window.deer.closePoll({ pollId: poll.id, actor: "user" });
+      const updated = await window.deer.closePoll(poll.workspaceId, { pollId: poll.id });
       onChanged(updated);
       setLive("投票已关闭，decision 已生成");
       onNotify(updated.decision?.boardEntryId ? "投票已关闭，decision 已写入黑板" : "投票已关闭");
@@ -557,7 +554,7 @@ function CreatePollModal({
     setBusy(true);
     setError(null);
     try {
-      const input: CreatePollInput = {
+      const input: CreatePollRequest = {
         workspaceId,
         scope,
         scopeId: scopeId.trim() || null,
@@ -579,7 +576,6 @@ function CreatePollModal({
             sourceType: row.sourceType,
             sourceId: row.sourceId.trim() || null,
           })),
-        createdBy: "user",
       };
       const poll = await window.deer.createPoll(input);
       onCreated(poll);
