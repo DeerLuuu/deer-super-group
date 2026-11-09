@@ -3,7 +3,7 @@
 - **任务**：t134 — 设计：看门狗与成本系统（完整 DESIGN §7.4 / §7.6 实现基线）
 - **日期**：2026-11-10
 - **作者**：sol（系统工程师 · 信息架构）
-- **状态**：设计提案；只读代码/文档，**未修改任何代码**
+- **状态**：t141 修订版（落实 t137 findings）；设计提案；仍未修改代码
 - **依据**：`DESIGN.md` §7.4、§7.6、§7.2、§9、§10；`docs/team/execution-kernel-design.md`（t67/t76）、`docs/team/execution-kernel-implementation.md`（t68/t83/t90/t94）、`docs/team/git-parallel-design.md`、`docs/team/memory-system-design.md`、当前 `src/kernel/`、`src/git/`、`src/memory/`、`src/RunPanel.tsx`、`src/RunHistory.tsx`、`src/App.tsx`
 - **当前基线**：t68 内核（事件/状态机/调度/租约/恢复）已合并；t69 调度 UI、Git 并行、记忆系统已合入 main；PR #2 已合并。本设计在其上增量实现，不重写内核。
 
@@ -78,7 +78,7 @@
 - **Nudge**：向当前 Run 注入一条提醒/纠偏系统消息，不改变状态。
 - **Hold**：Task 仍 `queued` 但被看门狗/预算挂起，调度器不启动；人工释放。
 - **Handoff**：切换前持久化的上下文包（摘要、diff、下一步、模型/成员信息）。
-- **Ledger**：成本账本；final 行是 Run 的最终成本，provisional 仅展示。
+- **Ledger**：成本账本；final 行是 Run 的最终成本；provisional 单行是 active Run 的估算，参与 `spentForBudget` 的 active 项，final 入账后去重。
 - **Fallback chain**：模型降级顺序。
 - **Deadman**：看门狗自身停止心跳的检测。
 
@@ -202,7 +202,7 @@ kernel run.step/tool/assistant（service 上报 activity）
 | 信号 | 默认阈值 | 证据 | 阶梯起点 |
 |---|---|---|---|
 | `heartbeat_stale` | 10min 无 activity（L2）；L1 60s 由内核处理 | 最后 activity、run.started、事件 seq | pause（可先 nudge） |
-| `task_timeout` | 5min 无 activity 检查；10min 硬超时 | 同上 | nudge→pause |
+| `task_timeout` | 5min 无 activity 检查；10min 硬超时（`waiting_human` 除外，见 §11.4） | 同上 | nudge→pause |
 | `repeat_tool` | 同签名 ≥3 次/10min，或同文件写 ≥4 次且无 diff | tool_call 参数 hash、diff | nudge→pause |
 | `no_progress` | ≥3 步或 8min 无写/commit/diff/task.complete | activity + Git diff/文件事件 | nudge→pause |
 | `error_streak` | 连续 3 次工具/模型失败 | tool.result ok=false、run.failed | fallback→member |
@@ -308,7 +308,7 @@ if writesToSameFile >= 4 && diff unchanged:
 | L4 | switch member | **是（+1）** | L3 无可用模型/仍失败、成员能力/权限问题 | 新 Run；失败则人工 |
 | L5 | human escalation | 终止自动 | 自动次数≥2、所有 fallback 失败、危险/权限、deadman | 人工处理 |
 
-- **自动干预计数**：L2/L3/L4 每执行一次 `autoInterventions++`；达到 **2** 后任何新信号只产生 critical alert + human，不再自动动作。L1 单独计数（最多 3），不计入 2。
+- **自动干预计数**：L2/L3/L4 每执行一次 `autoInterventions++`；达到 **2** 后**禁止 nudge 与 L2/L3/L4**，任何新信号只产生 critical alert + human，不再自动动作。L1 单独计数（最多 3），不计入 2，但仅在 `autoInterventions < 2` 时可用（F4）。
 - 阶梯不要求逐级走完；信号直接匹配 L3/L4（如 429）可跳级，但仍计数。
 - 同一任务同一信号 15min 内去重；同一任务多信号合并为一个 intervention 计划，避免叠加。
 
@@ -327,13 +327,14 @@ if writesToSameFile >= 4 && diff unchanged:
   1. `HandoffBuilder.build(runId, reason)`（只读事件/Git diff/summary）→ 持久化 handoff；
   2. `kernel.interruptRun(runId, {code:"WATCHDOG_PAUSED", retryable:true, handoffId, retryDelayMs: holdMs})`：
      - CAS `lease_owner + active status`；abort controller；`failRun` 写 `run.failed(WATCHDOG_PAUSED)`；
-     - Task `running → queued`（内核现有重试路径），设置 `nextRunAt=now+hold`、`holdReason="watchdog"`；
-     - 写 `watchdog.paused` + `kernel.*` 事件；
+     - Task `running → queued`（内核现有重试路径），设置 `nextRunAt=now+hold`；
+     - 写 `watchdog.paused` + `kernel.*` 事件；**hold reason/scope 只写 `watchdog_holds`，不新增/写入 kernel task 列**；
   3. 若 workspace 级（预算/多任务循环）：`kernel.pauseScheduler(workspaceId, "watchdog")`；
-  4. `WatchdogService.holdTask`（若内核命令已包含则跳过）→ hold 表 + critical/warning alert；
+  4. `WatchdogService.holdTask` → `watchdog_holds(taskId, reason='watchdog', scope='task')` + critical/warning alert；hold 表是唯一原因源；
   5. 旧 executor 后续结果由 lease/fencing/`result_discarded` 丢弃；不得覆盖。
 - checkpoint：内核 `checkpoint` 回调在 abort 前由执行器写；若来不及，handoff 里的 lastEventSeq + diff 仍可用；UI 显示“checkpoint 可能不完整”。
-- 释放：人工在面板点“恢复任务” → `kernel.releaseTaskHold(taskId)`（清除 hold/nextRunAt）+ 可选 `resumeScheduler`；写 `watchdog.resumed`。不自动重试直到人确认（预算/循环）。
+- 释放：人工在面板点“恢复任务” → 只删除当前 reason 的 `watchdog_holds` 行；若没有其他 active hold，再 `kernel.releaseTaskHold(taskId)` 清 `nextRunAt`；否则保持 queued/nextRunAt；写 `watchdog.resumed`。不自动重试直到人确认（预算/循环）。
+- Task 详情展示 hold 时按优先级 `escalation > budget > watchdog` 派生文本；**该优先级只用于展示，不写 kernel task 列**（F3）。
 
 #### L3 fallback model
 
@@ -364,9 +365,9 @@ if writesToSameFile >= 4 && diff unchanged:
 
 ### 5.3 自动计数与重置
 
-- 存 `tasks.auto_interventions`（watchdog 迁移列）或 `watchdog_interventions` 聚合；以事件为准，列是投影。
+- 存 **watchdog 自有表** `watchdog_task_state`（auto_interventions/nudge_count）与 `watchdog_interventions`；以 `watchdog.*` 事件为准，表是投影；**不写 kernel task 列**，kernel rebuild 不会重置计数。
 - 新 Task =0；**人工恢复/重置**可归零（默认“恢复并重置”需显式选择，避免循环任务无限自动）；不因普通 retry/done 自动归零。
-- L1 nudge 计数独立 `nudge_count`，最多 3；达到后仍可 L2+。
+- L1 nudge 计数独立 `nudge_count`，最多 3；仅在 `autoInterventions < 2` 时可用；达到 2 后 nudge 也禁止（F4）。
 - 同一任务并发信号只允许一个进行中的 intervention；用 `watchdog_interventions.status=in_progress` 唯一约束防叠加。
 
 ---
@@ -442,13 +443,13 @@ build(runId, reason):
   Rules: continue from next step; verify before editing; do not repeat finished work.
   ```
 - Token 上限：handoff 段 ≤1500 tokens；超出用摘要+diff 引用（模型可 `fs.read` worktree 文件，但需权限）。
-- 新 Run `handoffId` 记入 Run 行/事件；`run.started` payload 含 handoffId/fallbackFromRunId。
+- 新 Run `handoffId`/`fallbackFromRunId` **只写入 `run.started` 事件 payload**（供投影/UI/审计查询），不新增 kernel run 列；RunDetail 从事件与 `run_handoffs` 关联读取。
 
 ### 6.4 abort / lease / fencing 一致性
 
 - 切换前必须：
   1. handoff 持久化；
-  2. 确认当前 Run 仍是 active 且 `lease_owner === 当前 watchdog 实例`（或通过内核命令校验）；
+  2. 确认当前 Run 仍是 active 且由当前内核实例持有（watchdog 不持有 lease；通过 `interruptRun` 内核命令校验 `lease_owner`，不要在 watchdog 侧硬编码 owner）；
   3. 内核 `interruptRun` CAS `lease_owner + status` 成功；否则写 `run.result_discarded` 并放弃本次切换（不抢租约）。
 - abort 后旧 executor：
   - 若有结果写入 → `completeRun/failRun` CAS 失败 → `run.result_discarded`（t90/t94）；
@@ -516,17 +517,17 @@ interface CostLedgerEntry {
 }
 ```
 
-- 唯一约束：`(run_id, kind)`（final 一条；provisional 可多条则用 version/seq）。
+- 唯一约束：`(run_id, kind)`；**每个 Run 至多一条 provisional（heartbeat 原位更新）、一条 final**；adjustment 仅 P2 且需独立 idempotencyKey。
 - 写入时机：
-  - **provisional**：heartbeat 每 ≥30s 计算当前累计成本（token 来自 service activity/heartbeat），用于 UI/预算 soft 预警；不参与 final 汇总。
-  - **final**：监听 `run.completed/failed/cancelled` 事件（COMMIT 后）读取 Run 最终 token/token price snapshot，写 final，更新 `runs.cost_usd`（与事件同事务或独立事务），写 `cost.recorded`。
-  - **adjustment**：人工修正/供应商对账补差（P2）。
+  - **provisional**：heartbeat 每 ≥30s 计算当前累计成本（token 来自 service activity/heartbeat），原位 upsert 单行；仅用于 UI 与 `spentForBudget` 的 active 部分。
+  - **final**：监听 `run.completed/failed/cancelled` 事件（COMMIT 后）读取 Run 最终 token/price snapshot；在**同一 `Store.withTransaction`** 内 upsert final ledger、更新 `runs.cost_usd`、追加 `cost.recorded`（幂等键 `cost:{runId}:final`）。启动/关闭时对“终态 Run 无 final ledger”做一次 reconciliation 重试；不允许事件有而账本无。
+  - **adjustment**：人工修正/供应商对账补差（P2），不参与 final 唯一行。
 - 幂等：final 以 `run_id+kind` 唯一；重复事件返回已有行；`cost.recorded` 事件 idempotencyKey `cost:{runId}:final`。
 - 汇总：
-  - Task 成本 = 该 task 所有 final 成本（含被取消/失败 Run）；
-  - Agent 日成本 = agent 当日 final；
-  - Workspace 日成本 = workspace 当日 final；
-  - 预算查询用 final；provisional 仅展示“当前 Run 估算”。
+  - Task 展示成本 = 该 task 所有 final 成本（含被取消/失败 Run）；
+  - Agent 日成本 / Workspace 日成本 = 当日 final；
+  - **`spentForBudget` = final + active provisional + reservation**；final 入账后从 provisional 项移除，避免同一 token 双计；provisional 不是 final，但参与 active 预算检查（F2）。
+  - 预算查询与活动检查统一使用 `spentForBudget`，不得仅用 final；`reservation` 公式见 §8.2。
 - 历史 Run：迁移后无 ledger；`runs.cost_usd` 保持 0，UI 标 `legacy_unknown`；不回溯按当前价重算（避免伪造历史）。
 - 失败/取消：失败 Run 也计费（已消耗 token）；取消同理；未产生 usage 记 0。
 
@@ -559,8 +560,8 @@ interface FallbackChain {
 ```
 
 - 解析顺序：agent 链 > workspace 链 > 空（不降级）。
-- 选择：跳过当前 model、冷却、不存在的 profile、provider disabled；保留权限不变。
-- 冷却：`provider_cooldowns(provider, model, until, reason)`；429 默认 5min 或 resetAt；同日多次 429 指数退避（5/10/20min，上限 1h）。
+- 选择：跳过当前 model、**同时命中 `(provider,model)` 与 `(provider,'*')` 两级冷却**、不存在的 profile、provider disabled；保留权限不变。
+- 冷却：`provider_cooldowns(provider, model, until, reason)`；429 默认 5min 或 resetAt；同日多次 429 指数退避（5/10/20min，上限 1h）；**provider 级 429 写 `model='*'`，model 级写具体 model；选择/清理/过期必须同时处理两级**；过期行由 patrol 清理（F7）。
 - 降级记录：`run.model_fallback` + intervention；UI Run 历史显示“fallback from X → Y（原因）”。
 - Router/评审模型：不在本系统自动改；只对执行 Worker Run 生效；后续可配置角色链。
 
@@ -586,11 +587,12 @@ interface FallbackChain {
 ### 8.2 检查点
 
 1. **Run 启动前**：`KernelHooks.beforeStart` 组合 Git admission + BudgetService：
-   - `spent >= limit` → deny；任务保持 queued；`budgetHold`（nextRunAt 远未来/hold）+ `cost.budget_exceeded` + alert；不创建 Run、不消耗 attempt；
-   - `spent + reserve > limit` 且 strictReserve → deny；
-   - `spent >= soft` → warning（不阻止）。
-2. **活动心跳**（每 ≥30s / 每 step）：BudgetService 检查 active Run 的 provisional/task 累计；hard → L2 pause；soft → warning。
-3. **Run 结束**：final ledger 入账；若超 hard，后续启动被预检查拦截。
+   - `spentForBudget = final + active provisional + reservation`（见下）；`reservation` 包含现有 active Run 的剩余输出预留 + 本次待启动 Run 的预留；
+   - `reservationForRun = max(0, maxOutputTokens - tokenOut) × outputPrice / 1e6`（micro-USD；价格未知时 non-strict 记 0；`budget.strict=true` 时 prestart deny/人工）；
+   - `spentForBudget >= limit` → deny；任务保持 queued；`budgetHold`（nextRunAt 远未来 + `watchdog_holds`）+ `cost.budget_exceeded` + alert；不创建 Run、不消耗 attempt；
+   - `spentForBudget >= soft` → warning（不阻止）。
+2. **活动心跳**（每 ≥30s / 每 step）：BudgetService 用同一 `spentForBudget`（final + active provisional + 剩余 reservation）检查；hard → L2 pause；soft → warning；final 入账后从 active 项移除，避免双计。
+3. **Run 结束**：final ledger 入账（与 `runs.cost_usd`/`cost.recorded` 同事务）；若超 hard，后续启动被预检查拦截。
 4. **人工调整预算**：`setBudget` 写 `cost.budget_changed`；可 `releaseHold`。
 
 ### 8.3 超限动作
@@ -667,15 +669,26 @@ CREATE TABLE IF NOT EXISTS watchdog_interventions (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_watchdog_intervention_active
   ON watchdog_interventions(task_id) WHERE status='started';
 
-CREATE TABLE IF NOT EXISTS watchdog_holds (
+CREATE TABLE IF NOT EXISTS watchdog_task_state (
+  workspace_id TEXT NOT NULL,
   task_id TEXT PRIMARY KEY,
+  auto_interventions INTEGER NOT NULL DEFAULT 0,
+  nudge_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watchdog_holds (
+  task_id TEXT NOT NULL,
   workspace_id TEXT NOT NULL,
   reason TEXT NOT NULL,            -- watchdog|budget|escalation
   scope TEXT NOT NULL,             -- task|agent|workspace|global
   created_at TEXT NOT NULL,
   released_at TEXT,
-  released_by TEXT
+  released_by TEXT,
+  PRIMARY KEY(task_id, reason, scope)
 );
+CREATE INDEX IF NOT EXISTS idx_watchdog_holds_active
+  ON watchdog_holds(task_id) WHERE released_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS run_handoffs (
   id TEXT PRIMARY KEY,
@@ -721,6 +734,8 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_cost_run_final
   ON cost_ledger(run_id) WHERE kind='final';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cost_run_kind
+  ON cost_ledger(run_id, kind) WHERE kind IN ('provisional','final');
 CREATE INDEX IF NOT EXISTS idx_cost_workspace_day
   ON cost_ledger(workspace_id, period_day);
 CREATE INDEX IF NOT EXISTS idx_cost_agent_day
@@ -746,22 +761,14 @@ CREATE TABLE IF NOT EXISTS provider_cooldowns (
 );
 ```
 
-增量列（watchdog migration，幂等）：
-
-```sql
-ALTER TABLE tasks ADD COLUMN hold_reason TEXT;
-ALTER TABLE tasks ADD COLUMN hold_until TEXT;
-ALTER TABLE tasks ADD COLUMN auto_interventions INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE runs  ADD COLUMN handoff_id TEXT;
-ALTER TABLE runs  ADD COLUMN fallback_from_run_id TEXT;
-```
+增量列：**无**。hold/counter 只存 `watchdog_holds`/`watchdog_task_state`；handoff/fallback 通过 `run_handoffs` 表与 `run.started` 事件 payload 追溯；调度器只使用 kernel 既有 `Task.nextRunAt`（由 hold 命令设置），不新增 kernel task/run 列（F1）。
 
 ### 9.2 迁移步骤（watchdog_schema 1）
 
 1. 检查 `watchdog_schema` 是否存在/版本；已 ≥1 跳过。
-2. 单事务：创建表/索引；`ALTER TABLE` 补列（已存在则跳过）；插入 `version=1`。
+2. 单事务：创建表/索引；插入 `version=1`；**不 ALTER kernel tasks/runs**。
 3. 种子默认设置（不覆盖已有）：`watchdog.enabled=true`、阈值、`budget.*=0`、fallback 空。
-4. 不回填历史 Run 成本；不重写 `tasks.auto_interventions`（默认 0）。
+4. 不回填历史 Run 成本；`watchdog_task_state` 对新 Task 默认 0；不重写 kernel 行。
 5. 失败：回滚；应用可启动（看门狗禁用并提示），不影响内核；写 `watchdog.migration_failed` 事件/日志。
 6. 重复启动幂等。
 
@@ -770,9 +777,9 @@ ALTER TABLE runs  ADD COLUMN fallback_from_run_id TEXT;
 ### 9.3 投影与重建
 
 - 事件为事实源：`watchdog.signal/nudged/paused/resumed/escalated/alert_acknowledged`、`run.handoff_created`、`run.model_fallback`、`run.member_switched`、`cost.recorded/budget_*`。
-- 表为投影/缓存；`WatchdogService.rebuild()` 从事件重建 alerts/interventions/holds/ledger（成本 final 可用 payload 重放，幂等键防重复）。
-- 重建不修改内核 tasks/runs；只重建 watchdog 表。
-- 一致性校验：active interventions 数、open alerts、ledger final 数、hold 数；dev 启动抽样，异常写 `watchdog.rebuild_mismatch`。
+- 表为投影/缓存；`WatchdogService.rebuild()` 从事件重建 alerts/interventions/holds/ledger/task_state（成本 final 可用 payload 重放，幂等键防重复）。
+- **kernel rebuild**：watchdog 不新增 kernel task/run 列；Task 的 hold 仅由既有 `nextRunAt`（kernel 事件）表达，`watchdog_holds` 为原因源；handoff/fallback 在 `run_handoffs` + `run.started` 事件。kernel rebuild 只能重放 kernel 事件，watchdog 重建不能 reset 计数或把 hold 当成无 hold；启动后需核对 active holds 与 nextRunAt。
+- 一致性校验：active interventions 数、open alerts、ledger final 数、hold 数、`watchdog_task_state` 与 events 计数；dev 启动抽样，异常写 `watchdog.rebuild_mismatch`。
 
 ---
 
@@ -784,10 +791,10 @@ ALTER TABLE runs  ADD COLUMN fallback_from_run_id TEXT;
 interface WatchdogServiceApi {
   getSnapshot(workspaceId: string): WatchdogSnapshot;
   getCosts(workspaceId: string, query?: CostQuery): CostSnapshot;
-  getRunHandoff(runId: string): RunHandoff | null;
-  ackAlert(alertId: string, actor?: string): WatchdogResult<WatchdogAlert>;
-  resolveAlert(alertId: string, actor?: string): WatchdogResult<WatchdogAlert>;
-  releaseTaskHold(taskId: string, actor?: string): WatchdogResult<void>;
+  getRunHandoff(workspaceId: string, runId: string): RunHandoff | null;
+  ackAlert(workspaceId: string, alertId: string, actor?: string): WatchdogResult<WatchdogAlert>;
+  resolveAlert(workspaceId: string, alertId: string, actor?: string): WatchdogResult<WatchdogAlert>;
+  releaseTaskHold(workspaceId: string, taskId: string, actor?: string): WatchdogResult<void>;
   setBudget(input: SetBudgetInput): WatchdogResult<BudgetSnapshot>;
   setFallbackChain(input: SetFallbackChainInput): WatchdogResult<FallbackChain>;
   getHealth(): WatchdogHealth;
@@ -813,7 +820,7 @@ interface WatchdogSnapshot {
 ```
 
 - 命令走现有 `KernelResult` 风格；错误码 `WATCHDOG_DISABLED | NOT_FOUND | CONFLICT | INVALID_INPUT`。
-- 所有查询只读、workspace 隔离；不暴露 prompt/secret。
+- **所有查询/命令必须带 workspaceId 并由服务端反查 handoff/alert/hold/task 的 workspace，不匹配返回 NOT_FOUND**；handoff/alert/hold 不接受裸 ID 跨 workspace 访问；不暴露 prompt/secret（F8）。
 - 事件刷新沿用 `app:event`；renderer 防抖刷新 snapshot + 本地即时更新 aria-live。
 
 ### 10.2 IPC / preload
@@ -822,16 +829,16 @@ interface WatchdogSnapshot {
 |---|---|---|---|
 | `watchdog:getSnapshot` | invoke | workspaceId | `WatchdogResult<WatchdogSnapshot>` |
 | `watchdog:getCosts` | invoke | workspaceId, query? | `WatchdogResult<CostSnapshot>` |
-| `watchdog:getHandoff` | invoke | runId | `WatchdogResult<RunHandoff|null>` |
-| `watchdog:ackAlert` | invoke | alertId | `WatchdogResult<WatchdogAlert>` |
-| `watchdog:resolveAlert` | invoke | alertId | `WatchdogResult<WatchdogAlert>` |
-| `watchdog:releaseHold` | invoke | taskId | `WatchdogResult<void>` |
+| `watchdog:getHandoff` | invoke | workspaceId, runId | `WatchdogResult<RunHandoff|null>` |
+| `watchdog:ackAlert` | invoke | workspaceId, alertId | `WatchdogResult<WatchdogAlert>` |
+| `watchdog:resolveAlert` | invoke | workspaceId, alertId | `WatchdogResult<WatchdogAlert>` |
+| `watchdog:releaseHold` | invoke | workspaceId, taskId | `WatchdogResult<void>` |
 | `watchdog:setBudget` | invoke | SetBudgetInput | `WatchdogResult<BudgetSnapshot>` |
 | `watchdog:setFallback` | invoke | SetFallbackChainInput | `WatchdogResult<FallbackChain>` |
 | `watchdog:health` | invoke | — | `WatchdogHealth` |
 | `app:event` | main→renderer | 既有 `EventRecord` | — |
 
-- preload `DeerApi` 增加方法；main `ipcMain.handle` 校验参数（zod）与 workspace 权限；`contextIsolation` 不变。
+- preload `DeerApi` 增加方法；main `ipcMain.handle` 校验参数（zod）与 workspace 权限（handoff/alert/hold/task 均反查 workspaceId）；`contextIsolation` 不变。
 - 事件名/类型在 `src/shared/watchdog.ts`（新）导出，main/preload 共用。
 
 ### 10.3 事件类型与 schema
@@ -909,16 +916,17 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | `KernelHooks.onRunHeartbeat(info)` | token/心跳采样（不刷新 L2 activity） | 同上 |
 | `RunExecutionContext.activity(kind,payload)` | 执行器上报活动 | `src/kernel/execution/kernel.ts`、`service.ts` |
 | `KernelCommands.interruptRun(runId,{code,retryable,handoffId,nextModelProfileId,holdMs})` | 原子 abort+fail/queue+hold；CAS/审计 | `kernel.ts` |
-| `KernelCommands.holdTask/releaseTaskHold` | 任务挂起/恢复（queued + nextRunAt/hold fields） | `kernel.ts` |
+| `KernelCommands.holdTask/releaseTaskHold` | 任务挂起/恢复：只写 kernel 既有 `nextRunAt` 事件；hold reason/scope 在 `watchdog_holds`，不再加 kernel 列 | `kernel.ts` |
 | `KernelCommands.reassignTask` | 换成员（ownerId + 事件） | `kernel.ts` |
 | `KernelCommands.injectNudge` | L1 提醒（下次模型调用前注入） | `kernel.ts`、`loop.ts` |
 | `Run.modelProfileId` 读取 override | fallback 新 Run 使用目标模型 | `service.ts` |
-| `Run.handoffId`/`fallbackFromRunId` 字段 | handoff/fallback 追溯 | `shared/types.ts`、`store` 投影 |
+| `run.started` payload：handoffId/fallbackFromRunId | handoff/fallback 追溯；由事件重建，不加 kernel run 列 | `shared/types.ts`、`store` 事件 schema |
+| `watchdog_task_state`（watchdog 表） | autoInterventions/nudge_count；kernel rebuild 不影响 | `src/watchdog/store.ts` |
 | `tokens per step` usage 事件 | 成本/燃烧速率 | `loop.ts`、`service.ts` |
 
-- 扩展保持内核不变量：所有状态写入仍 CAS + 事件 + 投影；看门狗不直接改表。
+- 扩展保持内核不变量：所有状态写入仍 CAS + 事件 + 投影；看门狗不直接改 kernel 表。
 - `interruptRun` 实现必须复用 t90/t94 的 `discardRun`/CAS 语义；旧 executor 结果被 `result_discarded`。
-- `holdTask` 与调度：`tick` 跳过 `hold_reason IS NOT NULL`（或 `next_run_at` 远未来）；不改变 Task 状态。
+- `holdTask` 与调度：`tick` 只跳过 `next_run_at` 远未来的 Task；**不再依赖 `hold_reason` 列**；release 只在无其他 active `watchdog_holds` 时清 nextRunAt。
 - `injectNudge` 不改变权限/工具；只插一条系统提醒；失败不阻断 Run。
 
 ### 11.2 Git
@@ -936,7 +944,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 ### 11.4 审批/权限
 
 - 429/预算/看门狗不自动批准高风险工具；`TOOL_DENIED` 不触发模型 fallback（应人改权限）。
-- 暂停/中止不绕过 t58 审批：审批中的 Run 处于 `waiting_human`，看门狗不把等待审批误判为卡死（等待状态单独规则/长 TTL）。
+- 暂停/中止不绕过 t58 审批：审批中的 Run 处于 `waiting_human`，L2 的 5min task_timeout/10min heartbeat_stale **不触发 nudge/pause**；等待进入时记录一次 activity，`waitingHumanGraceMs = max(2 × approvalTimeout, 240s)`（默认 240s，可配）后才产生 critical alert/human，仍不自动 pause；审批恢复后照常。补 KRN-07。
 - Agent 无工具可改预算/fallback/watchdog 设置；仅 renderer IPC 人类操作。
 
 ---
@@ -952,7 +960,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 - **UI**：RTL/现有测试；告警条/预算条 ARIA/键盘/窄窗；面板空态。
 - **E2E**：mock provider + fake clock：卡死→nudge→pause+handoff→fallback→done；预算超限→hold→人工提高→resume；429→fallback；人工升级。
 
-### 12.2 AC（编号）
+### 12.2 AC（编号；共 86 条 = 原 77 + t141 新增 9）
 
 #### 信号/巡检（WD）
 
@@ -975,16 +983,18 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 
 | AC | 内容 |
 |---|---|
-| IN-01 | L1 nudge 最多 3 次/任务，不计 auto；有 progress 停止 |
+| IN-01 | L1 nudge 最多 3 次/任务，不计 auto；有 progress 停止；`autoInterventions>=2` 时禁止 nudge |
 | IN-02 | L2 pause 生成 handoff、abort、queued+hold、nextRunAt；旧结果被丢弃 |
 | IN-03 | L3 fallback 选择链中下一个模型；新 Run model override；attempt+1 |
 | IN-04 | L4 换成员更新 owner、新 Run；旧成员无活跃 Run |
-| IN-05 | autoInterventions 每次 L2/L3/L4 +1；达到 2 后只 human |
+| IN-05 | autoInterventions 每次 L2/L3/L4 +1；达到 2 后禁止 nudge/L2-L4，只 human |
 | IN-06 | 人工升级时 scheduler 暂停 + hold + critical alert；不自动恢复 |
 | IN-07 | 同一 task 同时最多一个进行中 intervention |
 | IN-08 | 人工 releaseHold 后 task 可启动；预算/循环未解决时仍被策略阻止 |
 | IN-09 | 429 跳过 nudge/pause 直接 fallback；链空→human |
 | IN-10 | 所有干预写 watchdog.* 事件 + 查询表；审计含 reason/from/to |
+| IN-11 | budget hold + watchdog/escalation hold 同时存在时，release 只清当前 reason；最后一个 hold 才清 nextRunAt；释放其一仍不启动 |
+| IN-12 | 2 次自动干预后的信号矩阵：nudge/L2/L3/L4 均不执行，只 critical alert + human |
 
 #### 交接（HO）
 
@@ -1009,10 +1019,11 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | CO-04 | 价格快照随 Run；价格变更不追溯旧 Run |
 | CO-05 | 未配置价格标记 unknown；预算默认不阻塞（strict 模式可配） |
 | CO-06 | Task/Agent/Workspace 日汇总正确；跨日切换正确 |
-| CO-07 | provisional 仅展示不参与预算 final |
+| CO-07 | provisional 单行原位更新；参与 `spentForBudget` 的 active 项，final 入账后去重，不写 final |
 | CO-08 | 历史 Run 不回填；UI 标记 legacy unknown |
-| CO-09 | cost.recorded/budget_* 事件可审计/重建 |
+| CO-09 | cost.recorded/budget_* 事件可审计/重建；final ledger + Run.costUsd 故障后 reconciliation |
 | CO-10 | 缓存 token/ reasoning token（若提供）计入或显式忽略 |
+| CO-11 | final ledger + runs.cost_usd + cost.recorded 同事务；崩溃/故障注入后 startup reconciliation 补齐，幂等 |
 
 #### 预算/降级（BU）
 
@@ -1028,6 +1039,8 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | BU-08 | 429 冷却 5min/resetAt；provider 连续 2 次全 provider 冷却 |
 | BU-09 | fallback 次数上限 2；链空→human |
 | BU-10 | 预算/模型设置校验（非负/存在/不重复） |
+| BU-11 | `spentForBudget = final + active provisional + reservation` 在 beforeStart/activity 使用；active Run 超支被拦截；final 后去重 |
+| BU-12 | provider 级 429 写 `model='*'` 后所有 model 跳过；到期/清理恢复；同时检查 provider/model 两级 |
 
 #### API/UI（UI/API）
 
@@ -1037,6 +1050,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | API-02 | workspace 隔离；错误码稳定；写命令审计 |
 | API-03 | preload/main 类型与 ipc 声明一致；无未声明通道 |
 | API-04 | 事件刷新后 snapshot 一致 |
+| API-05 | getRunHandoff/ackAlert/resolveAlert/releaseTaskHold 均带 workspaceId 并反查校验；跨 workspace 拒绝 |
 | UI-01 | 顶栏预算条显示 spent/limit，soft/hard 状态；aria progressbar |
 | UI-02 | 任务详情告警条显示 signal/干预/handoff，支持 ack/release |
 | UI-03 | Watchdog 面板 Alerts/Interventions/Costs 三段；空态/加载/错误 |
@@ -1056,10 +1070,13 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | KRN-03 | handoffId/model override 写入新 Run 事件；attempt+1 |
 | KRN-04 | 看门狗不与内核 L1 watchdog 冲突；waiting_human 不被误判卡死 |
 | KRN-05 | 看门狗关闭/异常不影响内核执行 |
+| KRN-06 | kernel rebuild 后 active hold（nextRunAt）、autoInterventions、handoff/fallback 追溯保持；不得 reset/误恢复 |
+| KRN-07 | waiting_human 5/10min 不触发 nudge/pause；grace 到期只 critical/human，恢复后正常 |
 | MG-01 | watchdog_schema 幂等迁移；不改 kernel user_version |
 | MG-02 | 表/列重复启动幂等；失败回滚且应用可用 |
 | MG-03 | 旧 Run cost 不回填；UI legacy unknown |
 | MG-04 | 默认设置不覆盖用户已有；预算默认 0 |
+| MG-05 | watchdog rebuild 与 kernel rebuild 顺序一致；rebuild 后 `watchdog_task_state`/holds 与 nextRunAt 校验无 reset |
 | E2E-01 | 卡死→nudge→pause+handoff→fallback→done（mock provider） |
 | E2E-02 | 循环工具→重复检测→pause；人工 release 后正常 |
 | E2E-03 | 预算硬限→hold→人工提高→resume→done |
@@ -1071,12 +1088,18 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | 任务要求 | 章节/AC |
 |---|---|
 | 心跳/15min/5min 超时/卡死/循环/无进展/错误/token/429 | §4、WD-01..12 |
-| 干预阶梯/最多 2 次 | §5、IN-01..10 |
-| handoff 摘要+diff+下一步；abort/lease/fencing | §6、HO-01..08、KRN-01..05 |
-| 成本账本/价格/Run/预算/降级/审计 | §7、§8、CO/BU |
-| UI/API/ARIA/窄窗 | §10、API/UI |
-| fake clock/故障注入/预算/循环/人工升级/内核契约 | §12 |
+| 干预阶梯/最多 2 次 | §5、IN-01..12 |
+| handoff 摘要+diff+下一步；abort/lease/fencing | §6、HO-01..08、KRN-01..07 |
+| 成本账本/价格/Run/预算/降级/审计 | §7、§8、CO-01..11、BU-01..12 |
+| UI/API/ARIA/窄窗 | §10、API-01..05、UI-01..09 |
+| fake clock/故障注入/预算/循环/人工升级/内核契约 | §12、KRN-06/07、MG-05 |
 | 文件影响/迁移/阶段/非目标/AC | §9、§13、§14、§12 |
+| watchdog 状态与 kernel rebuild/rebuild 顺序 | §9.3、KRN-06、MG-05 |
+| budget active provisional/reservation/final 去重 | §7.2、§8.2、BU-11、CO-07/11 |
+| hold 多原因组合与释放 | §5.2、§9.1、IN-11 |
+| waiting_human 豁免 | §11.4、KRN-07 |
+| provider 两级冷却 | §7.4、BU-12 |
+| API workspace 隔离（handoff/alert/hold） | §10.1/10.2、API-05 |
 
 ---
 
@@ -1101,11 +1124,11 @@ src/watchdog/*.test.ts          signals/detector/interventions/handoff/cost/budg
 ### 13.2 修改
 
 ```
-src/kernel/execution/kernel.ts  activity/heartbeat hooks、interruptRun、hold/release、reassign、injectNudge、Run 字段
+src/kernel/execution/kernel.ts  activity/heartbeat hooks、interruptRun、hold/release（nextRunAt）、reassign、injectNudge、run.started payload
 src/kernel/service.ts           组合 hooks、activity/usage、model override、handoff 注入、watchdog 构造/close
 src/kernel/loop.ts              per-step usage/activity；nudge 注入点
-src/kernel/store.ts             watchdog 迁移（表/列）、Run/Task 映射（hold/handoff/fallback）
-src/shared/types.ts             ModelPricing、Task hold/autoInterventions、Run handoff、Watchdog/Cost 类型
+src/kernel/store.ts             watchdog 独立迁移；不新增 Task/Run 列；Run 事件 schema 增加 handoff/fallback payload
+src/shared/types.ts             ModelPricing、Watchdog/Cost 类型；Run handoff 从事件读取，不新增 hold/auto 列
 src/shared/watchdog.ts          共享 DTO/错误码（或并入 types）
 src/shared/ipc.ts               watchdog 通道
 electron/main.ts                ipcMain handlers
@@ -1169,7 +1192,7 @@ src/shared/copy.ts              signal/severity/action 文案
 | Q1 | 默认阈值（5/10/15min、重复 3、错误 3、token 120k/5min） | 按建议；可设置 |
 | Q2 | 预算默认值 | 全部 0（不限制），团队显式启用 |
 | Q3 | hardAction 默认 pause/stop | pause（可恢复） |
-| Q4 | 每任务自动干预 2 次是否包括 nudge | 不包括；nudge 最多 3 次 |
+| Q4 | 每任务自动干预 2 次是否包括 nudge | 不包括；nudge 最多 3 次且仅在 autoInterventions<2 时可用；达到 2 后 nudge/L2-L4 全部停止，只 human（F4） |
 | Q5 | fallback 默认链 | 空；设置后生效 |
 | Q6 | 价格未知是否阻止预算 | 默认不阻止；strict 可配 |
 | Q7 | handoff 完整 diff 存文件/DB | 文件 + DB 引用；7 天清理 |
@@ -1197,6 +1220,7 @@ watchdog.errorStreak=3
 watchdog.tokenBurnPer5m=120000
 watchdog.autoInterventionLimit=2
 watchdog.nudgeLimit=3
+watchdog.waitingHumanGraceMs=240000
 budget.taskUsd=0
 budget.agentDailyUsd=0
 budget.workspaceDailyUsd=0
@@ -1238,4 +1262,24 @@ fallback.maxSwitches=2
 
 ---
 
-> **审查提示**：本设计覆盖 DESIGN §7.4/§7.6 及任务书 7 项要求；实现前请先裁决 §14.2 Q1–Q10，尤其是预算默认值、hardAction、价格未知策略、fallback 默认链。实现阶段必须先完成内核最小扩展（§11.1）与 fake-clock 契约测试，再接线 UI。
+## 15. t141 修订记录（落实 t137）
+
+> t137 findings：2 blocker（F1 kernel rebuild、F2 预算口径）+ 5 high/medium（F3–F8）+ AC 缺口（F9）。本版按下列方式修订；t141 复审通过后才启动实现。
+
+| 编号 | t137 finding | 本版修订 |
+|---|---|---|
+| F1 | kernel rebuild 丢 watchdog 状态 | §5.2/§5.3/§9.1/§9.3/§11.1：hold/counter 只存 watchdog 表；不新增 kernel task/run 列；hold 用现有 `nextRunAt`，autoInterventions 在 `watchdog_task_state`；handoff/fallback 用 `run.started` 事件/`run_handoffs`；新增 KRN-06/MG-05 |
+| F2 | 预算 final/provisional 矛盾 | §7.2/§8.2：统一 `spentForBudget = final + active provisional + reservation`；定义 reserve 公式、final 去重；更新 CO-07、新增 BU-11 |
+| F3 | hold 不能组合 | §5.2/§9.1：`watchdog_holds` 主键 `(task_id, reason, scope)`；release 只清当前 reason，最后一个才清 nextRunAt；新增 IN-11 |
+| F4 | nudge 与 max2 矛盾 | §5.1/§5.3/Q4：nudge 仅在 autoInterventions<2 时可用；达到 2 后禁止 nudge/L2–L4；新增 IN-12，更新 IN-01/IN-05 |
+| F5 | waiting_human 无规则 | §4.1/§11.4：waiting_human 不参与 5/10min no-activity pause；`waitingHumanGraceMs` 默认 240s；新增 KRN-07 |
+| F6 | final ledger 原子性未定 | §7.2：final ledger + `runs.cost_usd` + `cost.recorded` 同事务；startup reconciliation；provisional 单行原位更新；新增 CO-11 |
+| F7 | provider 冷却未查 `*` | §7.4：选择同时检查 `(provider,model)` 与 `(provider,'*')`；`*` 插入/清理/过期；新增 BU-12 |
+| F8 | API workspace 隔离 | §10.1/§10.2：handoff/alert/hold 方法增加 workspaceId/反查校验；新增 API-05 |
+| F9 | AC 缺口/计数 | §12.2 共 **86 条**（原 77 + 9）；§12.3 增加 F1–F8 映射；新增 IN-11/IN-12、CO-11、BU-11/BU-12、API-05、KRN-06/KRN-07、MG-05 |
+
+**实现顺序**：先补 kernel 最小扩展（activity/interrupt/hold/reassign/nudge）、watchdog 表/事件、fake clock 契约测试，再实现 detector/intervention/handoff/cost/budget，最后 UI。测试必须覆盖 F1 rebuild、F2 active 超支、F3 多 hold、F4 计数矩阵、F5 waiting_human、F6 final 故障注入、F7 provider `*`、F8 跨 workspace 拒绝。
+
+---
+
+> **审查提示**：本设计覆盖 DESIGN §7.4/§7.6 及任务书 7 项要求；实现前请先裁决 §14.2 Q1–Q10（Q4 已明确 2 次后禁 nudge）。实现阶段必须先完成内核最小扩展（§11.1）与 fake-clock 契约测试，再接线 UI；t141 复审通过后才可拆分实现。
