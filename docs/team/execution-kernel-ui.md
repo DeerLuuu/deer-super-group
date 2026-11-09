@@ -273,3 +273,14 @@ t114 F1：t113 的 contextKey 重置把 previous refs 置 **null**，导致切 t
 - 注：contextKey 切换与数据变化分两帧 rerender（与 App 真实行为一致——切 tab 是独立渲染，数据随后经快照刷新到达）；同一帧内同时切 contextKey+变数据按「切上下文」语义静默处理，属设计预期（基线=当前数据）。
 
 **验证**：typecheck 0 / build 0（devDep 不进 bundle）/ test 23 文件 **328/328**（t121 +2）。
+
+## 15. t126 修复记录（repair-round-6，mika / GLM-5.3）
+
+1. **act 环境（t126 验收 1）**：t121/t126 测试 describe 顶部设置 `globalThis.IS_REACT_ACT_ENVIRONMENT = true`（afterAll 恢复原值）——react-test-renderer 在 node 环境（vitest 无 DOM）需要显式 act 标志，重跑确认无 act 警告（pnpm test 输出无 "not wrapped in act"）。完整状态机断言保留。
+2. **deprecated 风险披露（验收 1 后半）**：react-test-renderer 在 React 19 标记 deprecated；官方推荐 react-dom/testing-library，但需要 DOM 测试环境（本项目 vitest 为 node）。决策：保留 rtr，**版本精确锁定 19.3.1**（package.json devDependency 无 `^`，与 react 19.3.1 对齐），不进生产 bundle（build 验证）；升级 React 时需同步替换为 testing-library——已在此记录供评审/集成知悉。
+3. **scheduler 分帧用例（验收 2）**：新增 2 用例（KernelRuntimeUi.test「t121 …」describe 内）：
+   - paused 基线：mount paused 无播报 → 切 chat（同数据）清空 → 切回 tasks（同 scheduler）清空 → **独立帧** paused→false 播报「调度已恢复」；
+   - running 计数：mount activeRuns=[] → 切 chat→切回（清空）→ activeRuns 0→1 独立帧播报（新增 Run 被 Announcer 合并进 Run diff，匹配「新增|运行中」）。
+   contextKey 切换与 scheduler 变化始终分帧（与 App 渲染一致——切 tab 是独立帧，快照随后到达）。
+
+**验证**：typecheck 0 / build 0（devDep 不进 bundle）/ test 28 文件 **370/370**（t126 +2；输出无 act 警告）。

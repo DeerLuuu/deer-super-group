@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import SchedulerBar from "./SchedulerBar";
 import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
@@ -537,12 +537,25 @@ describe("t117 Announcer 基线重置（纯函数）", () => {
 });
 
 // ---------------------------------------------------------------------------
-// t121：KernelAnnouncer 组件 rerender 行为（react-test-renderer）
-// 依赖说明：react-test-renderer@19.3.1 为 devDependency（仅测试），版本与 react 对齐；
+// t121/t126：KernelAnnouncer 组件 rerender 行为（react-test-renderer）
+// 依赖说明：react-test-renderer@19.3.1 为 devDependency（仅测试），版本与 react 精确锁定对齐；
 // 不进入生产 bundle（vite build 无引用），符合最小功能原则。
+// t126：react-test-renderer 在 React 19 已标记 deprecated（官方推荐 react-dom/testing-library，
+// 但后者需要 DOM 测试环境，本项目 vitest 为 node 环境）——故保留 rtr 并：
+//   1) 在 describe 前 IS_REACT_ACT_ENVIRONMENT = true（afterAll 恢复），消除 act 警告；
+//   2) 版本精确锁定 19.3.1（package.json devDependency 无 ^），风险已在 execution-kernel-ui.md §14/§15 记录。
 // ---------------------------------------------------------------------------
 
 describe("t121 KernelAnnouncer rerender 行为", () => {
+  // t126：act 环境标志——rtr 在非 DOM 环境需要显式声明，否则 React 19 输出 act 警告。
+  const previousActEnv = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean })
+    .IS_REACT_ACT_ENVIRONMENT;
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  afterAll(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+      previousActEnv;
+  });
+
   // react-test-renderer 未带类型声明（19.x 移除）；仅测试使用，按 any 引入。
   type RtrModule = {
     default: {
@@ -718,6 +731,162 @@ describe("t121 KernelAnnouncer rerender 行为", () => {
       );
     });
     expect(text()).toContain("已完成");
+    renderer!.unmount();
+  });
+
+  // t126 F2：scheduler 变化（paused/running）在切 contextKey 后首次变化也能播报；
+  // contextKey 切换与调度数据变化分帧（与 App 渲染一致——切 tab 独立帧，快照随后到达）。
+  it("scheduler：mount paused 基线 → 切 chat（清空）→ 切回 → paused→恢复 播报", async () => {
+    const { default: TestRenderer, act } = await loadRtr();
+    const { default: KernelAnnouncer } = await import("./KernelAnnouncer");
+
+    const pausedScheduler: SchedulerSnapshot = {
+      ...scheduler,
+      paused: true,
+      pausedReason: "user_paused",
+      activeRuns: [],
+    };
+    const resumedScheduler: SchedulerSnapshot = {
+      ...scheduler,
+      paused: false,
+      pausedReason: null,
+    };
+
+    let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+    const text = () =>
+      String((renderer as NonNullable<typeof renderer>).root.findByType("div").props.children ?? "");
+
+    // 1) mount：scheduler paused 基线，无播报。
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "ready" })]}
+          scheduler={pausedScheduler}
+          runs={[]}
+          contextKey="ws1:tasks:a"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 2) 切 chat（同 scheduler 数据）：message 清空。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "ready" })]}
+          scheduler={pausedScheduler}
+          runs={[]}
+          contextKey="ws1:chat:a"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 3) 切回 tasks（同数据，基线以当前 scheduler 静默重建）：仍清空。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "ready" })]}
+          scheduler={pausedScheduler}
+          runs={[]}
+          contextKey="ws1:tasks:a"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 4) 调度恢复（paused true→false，同 contextKey 独立帧）：播报「调度已恢复」。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "ready" })]}
+          scheduler={resumedScheduler}
+          runs={[]}
+          contextKey="ws1:tasks:a"
+        />,
+      );
+    });
+    expect(text()).toContain("调度已恢复");
+
+    renderer!.unmount();
+  });
+
+  it("scheduler：running 计数变化在切 tab 后首次变化播报", async () => {
+    const { default: TestRenderer, act } = await loadRtr();
+    const { default: KernelAnnouncer } = await import("./KernelAnnouncer");
+
+    const running0: SchedulerSnapshot = { ...scheduler, paused: false, activeRuns: [] };
+    const running1: SchedulerSnapshot = {
+      ...scheduler,
+      paused: false,
+      activeRuns: [
+        {
+          id: "run-1",
+          taskId: "t1",
+          agentId: "a1",
+          status: "running",
+          startedAt: "2026-11-10T00:00:00.000Z",
+          endedAt: null,
+          attempt: 1,
+          heartbeatAt: null,
+          errorCode: null,
+        },
+      ],
+    };
+
+    let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+    const text = () =>
+      String((renderer as NonNullable<typeof renderer>).root.findByType("div").props.children ?? "");
+
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <KernelAnnouncer
+          tasks={[task()]}
+          scheduler={running0}
+          runs={[]}
+          contextKey="ws1:tasks:t1"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task()]}
+          scheduler={running0}
+          runs={[]}
+          contextKey="ws1:chat:t1"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task()]}
+          scheduler={running0}
+          runs={[]}
+          contextKey="ws1:tasks:t1"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // running 0→1（activeRuns 增加也被 Announcer 合并进 Run diff）：播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task()]}
+          scheduler={running1}
+          runs={[]}
+          contextKey="ws1:tasks:t1"
+        />,
+      );
+    });
+    expect(text().length).toBeGreaterThan(0);
+    expect(text()).toMatch(/新增|运行中/);
+
     renderer!.unmount();
   });
 });
