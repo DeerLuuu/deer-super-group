@@ -109,10 +109,6 @@ export default function App() {
     const saved = Number(localStorage.getItem("deer.sidebarWidth"));
     return Number.isFinite(saved) && saved >= 180 && saved <= 480 ? saved : 250;
   });
-  // C09：侧栏折叠为图标栏（Ctrl/⌘+B 切换；进入 ≤1100px 窄窗自动折叠）。
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    () => localStorage.getItem("deer.sidebarCollapsed") === "1",
-  );
   // C06：任务列表状态过滤提升到 App，供顶栏失败计数一键跳转。
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatusFilter>("all");
   // C14：跨页返回来源（从哪个 tab 进入任务会话）。
@@ -206,40 +202,9 @@ export default function App() {
     }
   }, [tab, selectedTaskId, contextTaskId, selectedMessageId, selectedBoard]);
 
-  // C09：窄窗（≤1100px）自动折叠侧栏；Ctrl/⌘+B 手动切换。
-  // 修复：先同步检查 query.matches（挂载即窄窗则立即折叠），再注册 change 监听；
-  // 仅在「宽 → 窄」的边沿折叠，避免覆盖用户在窄窗下手动展开的意愿。
-  useEffect(() => {
-    const query = window.matchMedia("(max-width: 1100px)");
-    let wasNarrow = query.matches;
-    if (query.matches) {
-      setSidebarCollapsed(true);
-      localStorage.setItem("deer.sidebarCollapsed", "1");
-    }
-    function onChange(event: MediaQueryListEvent) {
-      const enteringNarrow = event.matches && !wasNarrow;
-      wasNarrow = event.matches;
-      if (enteringNarrow) {
-        setSidebarCollapsed(true);
-        localStorage.setItem("deer.sidebarCollapsed", "1");
-      }
-    }
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-
-  // C09/C11：全局快捷键——Ctrl/⌘+B 折叠侧栏、Ctrl/⌘+K 命令面板、Alt+1–6 切换页面。
+  // C11：全局快捷键——Ctrl/⌘+K 命令面板、Alt+1–6 切换页面。
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
-        event.preventDefault();
-        setSidebarCollapsed((collapsed) => {
-          const next = !collapsed;
-          localStorage.setItem("deer.sidebarCollapsed", next ? "1" : "0");
-          return next;
-        });
-        return;
-      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
@@ -254,14 +219,6 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-
-  function toggleSidebarCollapsed() {
-    setSidebarCollapsed((collapsed) => {
-      const next = !collapsed;
-      localStorage.setItem("deer.sidebarCollapsed", next ? "1" : "0");
-      return next;
-    });
-  }
 
   useEffect(() => {
     function onMove(event: MouseEvent) {
@@ -983,73 +940,108 @@ export default function App() {
   const selectedTask = snapshot.tasks.find((task) => task.id === selectedTaskId) ?? null;
   const workers = snapshot.agents.filter((agent) => !agent.isRouter);
   const failedCount = snapshot.tasks.filter((task) => task.status === "failed").length;
-  const crumbObject =
-    (tab === "tasks" || tab === "team") && selectedTask
-      ? selectedTask.title
-      : tab === "chat" && contextTaskId
-        ? (snapshot.tasks.find((task) => task.id === contextTaskId)?.title ?? null)
-        : null;
 
   return (
     <div className="app">
-      <aside
-        className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
-        style={sidebarCollapsed ? undefined : { width: `${sidebarWidth}px` }}
-      >
+      <aside className="sidebar" style={{ width: `${sidebarWidth}px` }}>
         <div className="brand">
           <div className="brand-mark small">DG</div>
-          {!sidebarCollapsed && (
-            <div className="brand-text">
-              <div className="brand-name">DeerSuperGroup</div>
-              <div className="muted tiny">AI team workspace</div>
-            </div>
-          )}
-          <button
-            type="button"
-            className="ghost tiny sidebar-toggle"
-            onClick={toggleSidebarCollapsed}
-            title={sidebarCollapsed ? "展开侧栏（Ctrl/⌘+B）" : "折叠侧栏（Ctrl/⌘+B）"}
-            aria-label={sidebarCollapsed ? "展开侧栏" : "折叠侧栏"}
-            aria-expanded={!sidebarCollapsed}
-          >
-            {sidebarCollapsed ? "»" : "«"}
+          <div className="brand-text">
+            <div className="brand-name">DeerSuperGroup</div>
+            <div className="muted tiny">AI team workspace</div>
+          </div>
+        </div>
+
+        <div className="workspace-box">
+          <div className="section-label">工作区</div>
+          <div className="workspace-name">{snapshot.workspace.name}</div>
+          <div className="muted mono tiny ellipsis">{snapshot.workspace.path}</div>
+          <button className="ghost small" onClick={handleOpenWorkspace} disabled={busy}>
+            切换工作区
           </button>
         </div>
 
-        {!sidebarCollapsed && (
-          <div className="workspace-box">
-            <div className="section-label">工作区</div>
-            <div className="workspace-name">{snapshot.workspace.name}</div>
-            <div className="muted mono tiny ellipsis">{snapshot.workspace.path}</div>
-            <button className="ghost small" onClick={handleOpenWorkspace} disabled={busy}>
-              切换工作区
+        <div className="sidebar-actions">
+          <div className="section-label">操作</div>
+          {createMenuOpen && (
+            <div className="menu-backdrop" onClick={() => setCreateMenuOpen(false)} />
+          )}
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={() => setPaletteOpen(true)}
+            title="全局搜索与命令面板（Ctrl/⌘+K）"
+          >
+            ⌘K 搜索
+          </button>
+          <div className="create-menu-wrap">
+            <button
+              type="button"
+              className="primary small sidebar-action"
+              onClick={() => setCreateMenuOpen((open) => !open)}
+              aria-expanded={createMenuOpen}
+              aria-haspopup="menu"
+            >
+              ＋ 新建 ▾
             </button>
+            {createMenuOpen && (
+              <div className="create-menu" role="menu" aria-label="新建">
+                {(Object.keys(CREATE_LABELS) as CreateIntent[]).map((intent) => (
+                  <button
+                    key={intent}
+                    type="button"
+                    role="menuitem"
+                    className="create-menu-item"
+                    onClick={() => startCreate(intent)}
+                  >
+                    {CREATE_LABELS[intent]}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+          <div className="sidebar-actions-row">
+            <button
+              className="ghost small sidebar-action"
+              onClick={() => void refresh(snapshot.workspace.id)}
+            >
+              刷新
+            </button>
+            <span className="topbar-live" aria-live="polite">
+              {busy && <span className="pill busy">运行中…</span>}
+            </span>
+          </div>
+          {failedCount > 0 && (
+            <button
+              type="button"
+              className="pill pill-failed sidebar-failed"
+              onClick={jumpToFailedTasks}
+              title="跳到任务页并过滤失败任务"
+            >
+              失败 {failedCount}
+            </button>
+          )}
+        </div>
 
-        {!sidebarCollapsed && (
-          <div className="sidebar-panel-hint">
-            <div className="section-label">面板</div>
-            <p className="muted tiny">
-              使用上方 Dock 标签或 <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 切换面板。
-            </p>
-          </div>
-        )}
+        <div className="sidebar-panel-hint">
+          <div className="section-label">面板</div>
+          <p className="muted tiny">
+            使用上方 Dock 标签或 <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 切换面板。
+          </p>
+        </div>
 
-        {!sidebarCollapsed && (
-          <div className="sidebar-footer">
-            <div className="muted tiny">
-              {snapshot.settings.mock
-                ? "Mock 模式"
-                : snapshot.settings.providers[0]?.apiKeySource === "env"
-                  ? `Key: ${snapshot.settings.providers[0]?.apiKeyEnvActive ?? ""}`
-                  : snapshot.settings.providers[0]?.apiKeySource === "local"
-                    ? "Key: 本地保存"
-                    : "未配置 Key"}
-            </div>
-            <div className="muted tiny">{workers.length} 位成员</div>
+        <div className="sidebar-footer">
+          <div className="muted tiny">
+            {snapshot.settings.mock
+              ? "Mock 模式"
+              : snapshot.settings.providers[0]?.apiKeySource === "env"
+                ? `Key: ${snapshot.settings.providers[0]?.apiKeyEnvActive ?? ""}`
+                : snapshot.settings.providers[0]?.apiKeySource === "local"
+                  ? "Key: 本地保存"
+                  : "未配置 Key"}
           </div>
-        )}
+          <div className="muted tiny">{workers.length} 位成员</div>
+        </div>
       </aside>
 
       <div
@@ -1062,80 +1054,6 @@ export default function App() {
       />
 
       <main className="main">
-        <header className="topbar">
-          {/* C03：面包屑「工作区 › 页面 › 选中对象」取代重复页名 */}
-          <div className="topbar-crumb" aria-label="当前位置">
-            <span className="crumb-workspace">{snapshot.workspace.name}</span>
-            <span className="crumb-sep">›</span>
-            <span className="crumb-page">{TABS.find((item) => item.id === tab)?.label}</span>
-            {crumbObject && (
-              <>
-                <span className="crumb-sep">›</span>
-                <span className="crumb-object ellipsis" title={crumbObject}>
-                  {crumbObject}
-                </span>
-              </>
-            )}
-          </div>
-          <div className="topbar-actions">
-            {failedCount > 0 && (
-              <button
-                type="button"
-                className="pill pill-failed"
-                onClick={jumpToFailedTasks}
-                title="跳到任务页并过滤失败任务"
-              >
-                失败 {failedCount}
-              </button>
-            )}
-            <span className="topbar-live" aria-live="polite">
-              {busy && <span className="pill busy">运行中…</span>}
-            </span>
-            {/* C11：全局搜索 / 命令面板入口 */}
-            <button
-              type="button"
-              className="ghost small"
-              onClick={() => setPaletteOpen(true)}
-              title="全局搜索与命令面板（Ctrl/⌘+K）"
-            >
-              ⌘K 搜索
-            </button>
-            {/* C11：任意页 1 步进入创建 */}
-            {createMenuOpen && (
-              <div className="menu-backdrop" onClick={() => setCreateMenuOpen(false)} />
-            )}
-            <div className="create-menu-wrap">
-              <button
-                type="button"
-                className="primary small"
-                onClick={() => setCreateMenuOpen((open) => !open)}
-                aria-expanded={createMenuOpen}
-                aria-haspopup="menu"
-              >
-                ＋ 新建 ▾
-              </button>
-              {createMenuOpen && (
-                <div className="create-menu" role="menu" aria-label="新建">
-                  {(Object.keys(CREATE_LABELS) as CreateIntent[]).map((intent) => (
-                    <button
-                      key={intent}
-                      type="button"
-                      role="menuitem"
-                      className="create-menu-item"
-                      onClick={() => startCreate(intent)}
-                    >
-                      {CREATE_LABELS[intent]}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button className="ghost small" onClick={() => void refresh(snapshot.workspace.id)}>
-              刷新
-            </button>
-          </div>
-        </header>
-
         {error && (
           <div className="error banner" role="alert">
             {/* C26：格式化后的错误文案 + 复制详情 */}
