@@ -575,6 +575,7 @@ export interface KernelHooks {
 ```
 
 - `beforeStart`：50ms 超时；超时/异常 → deny（fail-closed），写 `scheduler.rejected(reason=hook_error)`；**hook 返回后在同一事务内重新读取全局/工作区/成员活跃数并 CAS 启动**；期间容量被占满或调度暂停则跳过并写 `scheduler.rejected(reason=limit_reached|paused)`，不得超发。
+- **G3 增补（t79）**：`beforeStart` 返回类型与 `RunEnvironmentProvider`（prepare/release）扩展见 **§16**；未吸收前保持本节原签名与工作区并发 1，Git G3 不开启。
 - 预算：只读 run 的 token/cost 字段；超限由 hook deny 新启动；Run 内部预算（max tokens）沿用现有 profile/FT。
 - 看门狗：读取 heartbeat/事件/run 指标；干预动作通过 `pauseScheduler`/`cancelRun`/`retryTask` 命令（不直接改 DB）。
 - 评测：通过 events/结束指标采样；不在内核内实现评分。
@@ -1217,3 +1218,56 @@ INTERNAL               未分类
 ---
 
 > **审查提示**：本设计覆盖 DESIGN §5.2、§5.3、§7.2、§7.4 及任务书要求。实现前请先确认 §14 的 Q1–Q11 裁决；requirements 复审通过后 t68/t69 才启动。
+
+---
+
+## 16. G3 Git 集成契约增补（t79，对应 t77 F1）
+
+> 本增补只约束「Git 并行开发（t73）的 G3 集成」，**不改变 §1–§15 的内核核心语义**。t68/t69 实现时必须吸收以下接口；未吸收前 Git G3 **不得开启隔离并发**。来源：t77 审查 F1（内核 defer/prepare 契约缺失）。
+
+### 16.1 原则
+
+- **并发默认不变**：仍为 §7.2 的 global 4 / **workspace 1** / member 1；只有 G3 落地且所有活跃 Run 都有隔离 worktree（`sandboxId=git:*`）+ 租约/写锁后，才允许评估 workspace 2。
+- **准入失败不是任务失败**：Git 容量不足返回 defer；任务保持 `queued`、`nextRunAt` 重试，**不增 attempt、不创建 Run、绝不写 failed**。兼容包装也不得把 `GIT_CAPACITY` 抛成任务终态失败。
+- **Git 不碰内核表**：Git 自有 `task_vcs/run_vcs/...` 与 `git_schema`；内核只调用接口，不读 Git 表。
+- **Task/Run 终态仍由内核独占**；Git commit/push/PR 失败只写 `task_vcs.error`，不改 Run/Task 状态。
+
+### 16.2 接口增补
+
+```ts
+export type BeforeStartResult =
+  | { allow: true }
+  | { allow: false; reason: string }                 // 本次跳过，任务保持 queued
+  | { allow: false; defer: true; retryAfterMs: number; reason: "GIT_CAPACITY" }; // 延迟排队
+
+export interface RunEnvironmentProvider {
+  prepare(input: {
+    workspaceId: string; taskId: string; runId: string; attempt: number; agentId: string;
+  }): Promise<
+    | { ok: true; cwd: string; branch: string | null; sandboxId: string; mode: "git"|"degraded" }
+    | { ok: false; defer: true; retryAfterMs: number; reason: string }
+    | { ok: false; defer: false; errorCode: string; message: string }
+  >;
+  release(input: { runId: string; status: "completed"|"failed"|"cancelled" }): Promise<void>;
+}
+```
+
+- `KernelHooks.beforeStart` 返回类型扩展为 `BeforeStartResult`（原 `{allow,reason}` 是其子集）。
+- **准入**：调度选中任务后调用 `beforeStart`；返回 `defer` → `Task.queued`、`nextRunAt=now+retryAfterMs`、写 `scheduler.deferred`；返回 `allow:false`（无 defer）→ 本次跳过、写 `scheduler.rejected`，任务仍 queued，不 failed。
+- **准备**：准入通过后，内核生成临时 `runId`（UUID，尚未落 Run 行），在 **50ms hook 之外、Run 创建/启动前** 调 `RunEnvironmentProvider.prepare`；成功 → 创建 Run、`toolContext.worktreePath=cwd`、`RunV2.sandboxId=sandboxId`；`defer` → 回 queued（同上）；`ok:false,defer:false` → 若允许 degraded 则用 `workspace.path`（并发 1）继续，否则 `scheduler.rejected`/queued 等修复，**不 failed**。
+- **结束**：Run 终态事务后调用 `release`；`release` 只向 Git outbox 入队 finalize（DB 插入，<5ms），不等待网络；不改变 Run 状态。
+- **G3 验收**：`RunV2.sandboxId="git:<cwd>"`（degraded 为 `workspace:<id>`）；`AC-KRN-01/02/03/04/05/06/07` 由 Git 设计 §10 验收；t68 需新增单测覆盖 `beforeStart` defer/deny 与 prepare 失败路径（不得 failed）。
+
+### 16.3 并发门禁
+
+- 任一活跃 Run 为非隔离（degraded/off，`sandboxId` 不以 `git:` 开头）时，该工作区**强制并发 1**；第二个 Run 的准入返回 defer。
+- 仅当所有活跃 Run 都有 `git:*` sandbox、Git worktree 租约/写锁就绪时，才允许把 `kernel.maxWorkspaceRuns` 升到 2（默认仍 1，需显式配置+租约断言）。
+- G3 之前，t68 的并发保持 §7.2 的 1，不得提前开放。
+
+### 16.4 迁移/兼容
+
+- kernel v2 迁移不变（`user_version` 仍由内核管理）；Git 表独立 `git_schema`，**不读写 `user_version`**。
+- `RunV2.sandboxId` 的 v1 值 `workspace:<id>` 对非 Git Run 保留；G3 时 Git Run 使用 `git:<worktree>`。
+- 若 t68 已先行合并：补一次 hook 结果处理/注入 `RunEnvironmentProvider` 的增量迁移；未补前 Git 侧 G3 保持关闭，G1/G2 可独立推进。
+
+> **t79 修订记录**：本 §16 由 t79 按 t77 F1 增补；与 `docs/team/git-parallel-design.md` §4.4/§7.3/§16 对齐。
