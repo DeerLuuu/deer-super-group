@@ -7,6 +7,7 @@ import type { AgentStatus, BoardKind, MessageKind, PermissionMode, TaskStatus } 
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   ready: "待运行",
+  queued: "排队中",
   running: "进行中",
   blocked: "等待依赖",
   review: "评审中",

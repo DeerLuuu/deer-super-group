@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -7,6 +7,7 @@ import {
   type LegacyProviderFields,
 } from "../shared/models.js";
 import { resolveApiKeyEnv, resolveBaseUrlEnv } from "./env.js";
+import { assertKernelEventPayload, isKernelEventType } from "./execution/eventRegistry.js";
 import { CanvasSchema, QuestionSchema } from "../shared/interactive.js";
 import type { DeerCanvas, DeerQuestion, QuestionAnswers } from "../shared/interactive.js";
 import type {
@@ -219,6 +220,34 @@ CREATE INDEX IF NOT EXISTS idx_chat_questions_msg
   ON chat_questions(message_id);
 `;
 
+/**
+ * t68 内核 DDL（在 v1→v2 迁移补齐列之后执行；索引必须晚于列存在）。
+ * 新库：SCHEMA 建基础表 → 补列 → 本 DDL → user_version=2。
+ */
+const KERNEL_TABLES = `
+CREATE TABLE IF NOT EXISTS scheduler_state (
+  workspace_id TEXT PRIMARY KEY,
+  paused INTEGER NOT NULL DEFAULT 0,
+  paused_reason TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+`;
+
+const KERNEL_INDEXES = `
+CREATE UNIQUE INDEX IF NOT EXISTS ux_events_idem
+  ON events(idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_runs_attempt ON runs(task_id, attempt);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_runs_active
+  ON runs(task_id) WHERE status IN ('queued','running','waiting_human');
+CREATE INDEX IF NOT EXISTS idx_runs_heartbeat ON runs(status, heartbeat_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_ready ON tasks(workspace_id, status, next_run_at);
+`;
+
 function newId(prefix: string): string {
   const uuid =
     globalThis.crypto?.randomUUID?.() ??
@@ -290,6 +319,12 @@ function toTask(row: Row): Task {
     createdAt: String(row.created_at),
     startedAt: row.started_at == null ? null : String(row.started_at),
     endedAt: row.ended_at == null ? null : String(row.ended_at),
+    priority: row.priority == null ? 50 : Number(row.priority),
+    queuedAt: row.queued_at == null ? null : String(row.queued_at),
+    blockedReason: row.blocked_reason == null ? null : String(row.blocked_reason),
+    failureKind: row.failure_kind == null ? null : String(row.failure_kind),
+    attemptCount: row.attempt_count == null ? 0 : Number(row.attempt_count),
+    nextRunAt: row.next_run_at == null ? null : String(row.next_run_at),
   };
 }
 
@@ -304,6 +339,21 @@ function toRun(row: Row): Run {
     endedAt: row.ended_at == null ? null : String(row.ended_at),
     tokenIn: Number(row.token_in ?? 0),
     tokenOut: Number(row.token_out ?? 0),
+    attempt: row.attempt == null ? 1 : Number(row.attempt),
+    modelProfileId: row.model_profile_id == null ? null : String(row.model_profile_id),
+    modelId: row.model_id == null ? null : String(row.model_id),
+    permissionSnapshot: row.permission_snapshot == null ? null : (String(row.permission_snapshot) as Run["permissionSnapshot"]),
+    sandboxId: row.sandbox_id == null ? null : String(row.sandbox_id),
+    retryOfRunId: row.retry_of_run_id == null ? null : String(row.retry_of_run_id),
+    heartbeatAt: row.heartbeat_at == null ? null : String(row.heartbeat_at),
+    leaseOwner: row.lease_owner == null ? null : String(row.lease_owner),
+    leaseExpiresAt: row.lease_expires_at == null ? null : String(row.lease_expires_at),
+    checkpointRef: row.checkpoint_ref == null ? null : String(row.checkpoint_ref),
+    checkpointStep: row.checkpoint_step == null ? 0 : Number(row.checkpoint_step),
+    costUsd: row.cost_usd == null ? 0 : Number(row.cost_usd),
+    errorCode: row.error_code == null ? null : String(row.error_code),
+    retryable: Number(row.retryable ?? 0) === 1,
+    steps: row.steps == null ? 0 : Number(row.steps),
   };
 }
 
@@ -431,15 +481,30 @@ function toSummary(row: Row): TaskSummary {
   };
 }
 
+export interface StoreOptions {
+  /** 迁移备份目录；默认与数据库同目录。测试可指向不可写路径验证 fail-closed。 */
+  backupDirectory?: string;
+}
+
 export class Store {
   readonly db: DatabaseSync;
+  private readonly databasePath: string;
+  private readonly backupDirectory: string | undefined;
+  /** 最近一次成功且校验通过的迁移备份路径（t83 F3）。 */
+  lastBackupPath: string | null = null;
   private listeners = new Set<(event: EventRecord) => void>();
+  /** t68：事务中待提交事件（COMMIT 后再通知 renderer）。 */
+  private txDepth = 0;
+  private pendingEvents: EventRecord[] = [];
 
-  constructor(databasePath: string) {
+  constructor(databasePath: string, options: StoreOptions = {}) {
+    this.databasePath = databasePath;
+    this.backupDirectory = options.backupDirectory;
     if (databasePath !== ":memory:") {
       mkdirSync(path.dirname(databasePath), { recursive: true });
     }
     this.db = new DatabaseSync(databasePath);
+    const legacyDatabase = this.tableExists("tasks");
     this.db.exec(SCHEMA);
 
     // Existing databases created before reasoning_content support.
@@ -461,6 +526,278 @@ export class Store {
         "ALTER TABLE agents ADD COLUMN permission TEXT NOT NULL DEFAULT 'workspace_write'",
       );
     }
+
+    // t68：事件/投影/调度 schema（v2）。旧库补列并为存量实体写基线事件。
+    // t83 F3：迁移/备份失败必须关闭连接并拒绝启动，避免泄漏锁文件。
+    try {
+      this.migrateKernelSchema(legacyDatabase, databasePath);
+    } catch (error) {
+      try {
+        this.db.close();
+      } catch {
+        // ignore close error
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * t83 F3：WAL checkpoint + SQLite VACUUM INTO 生成一致性备份，并打开备份做 integrity_check。
+   * 任何一步失败都抛错，调用方（迁移）必须拒绝启动，不得继续写 user_version=2。
+   */
+  backupDatabase(backupDirectory = this.backupDirectory): string {
+    if (this.databasePath === ":memory:") {
+      throw new Error("cannot backup an in-memory database");
+    }
+    const base = `${this.databasePath}.v1-backup`;
+    let target = base;
+    if (backupDirectory) {
+      mkdirSync(backupDirectory, { recursive: true });
+      target = path.join(backupDirectory, path.basename(base));
+    }
+    if (existsSync(target)) {
+      target = `${target}-${Date.now()}`;
+    }
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const escaped = target.replace(/'/g, "''");
+    this.db.exec(`VACUUM INTO '${escaped}'`);
+    const check = new DatabaseSync(target);
+    try {
+      const result = check.prepare("PRAGMA integrity_check").get() as {
+        integrity_check?: string;
+      };
+      if (String(result?.integrity_check ?? "") !== "ok") {
+        throw new Error(`backup integrity_check failed: ${target}`);
+      }
+    } finally {
+      check.close();
+    }
+    this.lastBackupPath = target;
+    return target;
+  }
+
+  private tableExists(name: string): boolean {
+    const row = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(name) as Row | undefined;
+    return Boolean(row);
+  }
+
+  private ensureColumn(table: string, name: string, definition: string): void {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name?: string;
+    }>;
+    if (!columns.some((column) => column.name === name)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+    }
+  }
+
+  private migrateKernelSchema(legacyDatabase: boolean, databasePath?: string): void {
+    const versionRow = this.db.prepare("PRAGMA user_version").get() as {
+      user_version?: number;
+    };
+    const version = Number(versionRow?.user_version ?? 0);
+    if (version >= 2) return;
+
+    // 旧库先钉在 v1：备份或迁移失败时 user_version 仍为 1，应用拒绝启动。
+    if (legacyDatabase && version < 1) {
+      this.db.exec("PRAGMA user_version = 1");
+    }
+    if (legacyDatabase && databasePath && databasePath !== ":memory:") {
+      // t83 F3：备份必须成功且可校验；失败直接抛出，不进入 DDL。
+      this.backupDatabase();
+    }
+
+    const columns: Array<[string, string, string]> = [
+      ["tasks", "priority", "INTEGER NOT NULL DEFAULT 50"],
+      ["tasks", "queued_at", "TEXT"],
+      ["tasks", "blocked_reason", "TEXT"],
+      ["tasks", "failure_kind", "TEXT"],
+      ["tasks", "attempt_count", "INTEGER NOT NULL DEFAULT 0"],
+      ["tasks", "next_run_at", "TEXT"],
+      ["runs", "attempt", "INTEGER NOT NULL DEFAULT 1"],
+      ["runs", "model_profile_id", "TEXT"],
+      ["runs", "model_id", "TEXT"],
+      ["runs", "permission_snapshot", "TEXT"],
+      ["runs", "sandbox_id", "TEXT"],
+      ["runs", "retry_of_run_id", "TEXT"],
+      ["runs", "heartbeat_at", "TEXT"],
+      ["runs", "lease_owner", "TEXT"],
+      ["runs", "lease_expires_at", "TEXT"],
+      ["runs", "checkpoint_ref", "TEXT"],
+      ["runs", "checkpoint_step", "INTEGER NOT NULL DEFAULT 0"],
+      ["runs", "cost_usd", "REAL NOT NULL DEFAULT 0"],
+      ["runs", "error_code", "TEXT"],
+      ["runs", "retryable", "INTEGER NOT NULL DEFAULT 0"],
+      ["runs", "steps", "INTEGER NOT NULL DEFAULT 0"],
+      // t83 F4：旧 v1 事件默认 1；内核新写显式 schemaVersion=2。
+      ["events", "schema_version", "INTEGER NOT NULL DEFAULT 1"],
+      ["events", "idempotency_key", "TEXT"],
+      ["events", "correlation_id", "TEXT"],
+      ["events", "causation_id", "TEXT"],
+      ["events", "occurred_at", "TEXT"],
+      ["events", "recorded_at", "TEXT"],
+    ];
+
+    // DDL + 基线 + 归一 + 版本号同事务；任何一步失败回滚，user_version 保持 1。
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const [table, name, definition] of columns) {
+        this.ensureColumn(table, name, definition);
+      }
+      this.db.exec(KERNEL_TABLES);
+      // 旧库可能有多条同任务 active Run；先归一（编号 + 去重），否则唯一索引会失败。
+      if (legacyDatabase) this.normalizeLegacyRuns();
+      this.db.exec(KERNEL_INDEXES);
+      this.db.exec(
+        "UPDATE events SET occurred_at = COALESCE(occurred_at, created_at), recorded_at = COALESCE(recorded_at, created_at) WHERE occurred_at IS NULL OR recorded_at IS NULL",
+      );
+      if (legacyDatabase) this.seedLegacySnapshots();
+      this.db
+        .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .run(2, now());
+      this.db.exec("PRAGMA user_version = 2");
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // ignore rollback failure
+      }
+      throw new Error(
+        `kernel migration failed (user_version stays 1${
+          this.lastBackupPath ? `, backup: ${this.lastBackupPath}` : ""
+        }): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private normalizeLegacyRuns(): void {
+    const runs = this.db
+      .prepare("SELECT * FROM runs ORDER BY task_id ASC, started_at ASC, id ASC")
+      .all() as Row[];
+    const attempts = new Map<string, number>();
+    for (const row of runs) {
+      const taskId = String(row.task_id);
+      const attempt = (attempts.get(taskId) ?? 0) + 1;
+      attempts.set(taskId, attempt);
+      this.db
+        .prepare("UPDATE runs SET attempt = ?, heartbeat_at = COALESCE(heartbeat_at, started_at) WHERE id = ?")
+        .run(attempt, String(row.id));
+    }
+    // 同一 task 多个 active Run：保留最新一条，其余标记 failed（DUPLICATE_ACTIVE），
+    // 保证 ux_runs_active 部分唯一索引可建立。
+    const activeRows = this.db
+      .prepare(
+        "SELECT id, task_id FROM runs WHERE status IN ('queued','running','waiting_human') ORDER BY task_id ASC, started_at DESC, id DESC",
+      )
+      .all() as Array<{ id?: string; task_id?: string }>;
+    const seen = new Set<string>();
+    for (const row of activeRows) {
+      const taskId = String(row.task_id);
+      if (!seen.has(taskId)) {
+        seen.add(taskId);
+        continue;
+      }
+      this.db
+        .prepare(
+          "UPDATE runs SET status = 'failed', error = 'duplicate active run during migration', error_code = 'DUPLICATE_ACTIVE', retryable = 1, ended_at = ? WHERE id = ?",
+        )
+        .run(now(), String(row.id));
+    }
+  }
+
+  /**
+   * 旧库迁移：为 tasks / runs 写 `kernel.legacy_snapshot` 基线事件，
+   * 让重建投影不必解释全部历史事件语义；旧事件保留只读（trace 仍可看）。
+   */
+  private seedLegacySnapshots(): void {
+    const tasks = this.db.prepare("SELECT * FROM tasks").all() as Row[];
+    for (const row of tasks) {
+      const task = toTask(row);
+      this.insertLegacySnapshot("task", task.id, task);
+    }
+    // 旧库 runs 没有 attempt：按 started_at + id 给每个 task 编号。
+    const runs = this.db
+      .prepare("SELECT * FROM runs ORDER BY task_id ASC, started_at ASC, id ASC")
+      .all() as Row[];
+    const attempts = new Map<string, number>();
+    for (const row of runs) {
+      const taskId = String(row.task_id);
+      const attempt = (attempts.get(taskId) ?? 0) + 1;
+      attempts.set(taskId, attempt);
+      this.db
+        .prepare("UPDATE runs SET attempt = ?, heartbeat_at = COALESCE(heartbeat_at, started_at) WHERE id = ?")
+        .run(attempt, String(row.id));
+    }
+    const refreshedRuns = this.db.prepare("SELECT * FROM runs").all() as Row[];
+    for (const row of refreshedRuns) {
+      const run = toRun(row);
+      this.insertLegacySnapshot("run", run.id, run);
+    }
+    this.db.exec(
+      "UPDATE tasks SET attempt_count = (SELECT COUNT(*) FROM runs WHERE runs.task_id = tasks.id) WHERE attempt_count = 0",
+    );
+  }
+
+  private insertLegacySnapshot(entity: "task" | "run", id: string, value: Task | Run): void {
+    const createdAt = now();
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO events
+           (id, aggregate_type, aggregate_id, type, actor, payload, created_at,
+            schema_version, idempotency_key, occurred_at, recorded_at)
+         VALUES (?, ?, ?, 'kernel.legacy_snapshot', 'system', ?, ?, 2, ?, ?, ?)`,
+      )
+      .run(
+        newId("evt"),
+        entity,
+        id,
+        JSON.stringify({ entity, value }),
+        createdAt,
+        `legacy:snapshot:${entity}:${id}`,
+        createdAt,
+        createdAt,
+      );
+  }
+
+  /** t68：唯一事务入口（同步；事件监听器在 COMMIT 后触发）。 */
+  withTransaction<T>(fn: () => T): T {
+    if (this.txDepth > 0) return fn();
+    this.db.exec("BEGIN IMMEDIATE");
+    this.txDepth = 1;
+    try {
+      const result = fn();
+      this.db.exec("COMMIT");
+      this.txDepth = 0;
+      this.flushPendingEvents();
+      return result;
+    } catch (error) {
+      this.txDepth = 0;
+      this.pendingEvents = [];
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    }
+  }
+
+  private flushPendingEvents(): void {
+    const events = this.pendingEvents;
+    this.pendingEvents = [];
+    for (const event of events) this.emitEvent(event);
+  }
+
+  private emitEvent(event: EventRecord): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch {
+        // ignore listener errors
+      }
+    }
   }
 
   close(): void {
@@ -478,13 +815,52 @@ export class Store {
     type: string;
     actor: string;
     payload?: unknown;
+    schemaVersion?: number;
+    idempotencyKey?: string | null;
+    correlationId?: string | null;
+    causationId?: string | null;
+    occurredAt?: string;
   }): EventRecord {
+    return this.appendEventIdempotent(input).event;
+  }
+
+  /**
+   * t68：幂等 append。若 idempotencyKey 已存在，返回已有事件且不重复写/不重复通知。
+   * 必须在 withTransaction 内与投影写一起调用，保证「事件+投影」原子。
+   */
+  appendEventIdempotent(input: {
+    aggregateType: string;
+    aggregateId: string;
+    type: string;
+    actor: string;
+    payload?: unknown;
+    schemaVersion?: number;
+    idempotencyKey?: string | null;
+    correlationId?: string | null;
+    causationId?: string | null;
+    occurredAt?: string;
+  }): { event: EventRecord; created: boolean } {
+    const idempotencyKey = input.idempotencyKey ?? null;
+    const schemaVersion = input.schemaVersion ?? 1;
+    // t83 F6：所有 schemaVersion=2 的内核事件在 append 前做 zod 严格校验。
+    if (schemaVersion === 2 && isKernelEventType(input.type)) {
+      assertKernelEventPayload(input.type, input.payload ?? {}, schemaVersion);
+    }
+    if (idempotencyKey) {
+      const existing = this.db
+        .prepare("SELECT * FROM events WHERE idempotency_key = ?")
+        .get(idempotencyKey) as Row | undefined;
+      if (existing) return { event: this.toEventRecord(existing), created: false };
+    }
     const id = newId("evt");
-    const createdAt = now();
+    const occurredAt = input.occurredAt ?? now();
+    const recordedAt = now();
     const result = this.db
       .prepare(
-        `INSERT INTO events (id, aggregate_type, aggregate_id, type, actor, payload, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO events
+           (id, aggregate_type, aggregate_id, type, actor, payload, created_at,
+            schema_version, idempotency_key, correlation_id, causation_id, occurred_at, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -493,7 +869,13 @@ export class Store {
         input.type,
         input.actor,
         JSON.stringify(input.payload ?? {}),
-        createdAt,
+        occurredAt,
+        schemaVersion,
+        idempotencyKey,
+        input.correlationId ?? null,
+        input.causationId ?? null,
+        occurredAt,
+        recordedAt,
       );
     const event: EventRecord = {
       seq: Number(result.lastInsertRowid),
@@ -503,16 +885,36 @@ export class Store {
       type: input.type,
       actor: input.actor,
       payload: input.payload ?? {},
-      createdAt,
+      createdAt: occurredAt,
+      schemaVersion,
+      idempotencyKey,
+      correlationId: input.correlationId ?? null,
+      causationId: input.causationId ?? null,
+      occurredAt,
+      recordedAt,
     };
-    for (const listener of this.listeners) {
-      try {
-        listener(event);
-      } catch {
-        // ignore listener errors
-      }
-    }
-    return event;
+    if (this.txDepth > 0) this.pendingEvents.push(event);
+    else this.emitEvent(event);
+    return { event, created: true };
+  }
+
+  private toEventRecord(row: Row): EventRecord {
+    return {
+      seq: Number(row.seq),
+      id: String(row.id),
+      aggregateType: String(row.aggregate_type),
+      aggregateId: String(row.aggregate_id),
+      type: String(row.type),
+      actor: String(row.actor),
+      payload: parseJson<unknown>(row.payload, {}),
+      createdAt: String(row.created_at),
+      schemaVersion: row.schema_version == null ? 1 : Number(row.schema_version),
+      idempotencyKey: row.idempotency_key == null ? null : String(row.idempotency_key),
+      correlationId: row.correlation_id == null ? null : String(row.correlation_id),
+      causationId: row.causation_id == null ? null : String(row.causation_id),
+      occurredAt: row.occurred_at == null ? String(row.created_at) : String(row.occurred_at),
+      recordedAt: row.recorded_at == null ? String(row.created_at) : String(row.recorded_at),
+    };
   }
 
   listEvents(filter: { aggregateId?: string; aggregateType?: string; limit?: number } = {}): EventRecord[] {
@@ -531,16 +933,29 @@ export class Store {
     const rows = this.db
       .prepare(`SELECT * FROM events ${where} ORDER BY seq ASC LIMIT ${limit}`)
       .all(...params) as Row[];
-    return rows.map((row) => ({
-      seq: Number(row.seq),
-      id: String(row.id),
-      aggregateType: String(row.aggregate_type),
-      aggregateId: String(row.aggregate_id),
-      type: String(row.type),
-      actor: String(row.actor),
-      payload: parseJson<unknown>(row.payload, {}),
-      createdAt: String(row.created_at),
-    }));
+    return rows.map((row) => this.toEventRecord(row));
+  }
+
+  /** t68：按任务 + 其全部 Run 聚合取事件（trace 兼容旧 tool.* 事件）。 */
+  /** t83 F8：按 seq 游标分页读取，供完整重建（不静默截断）。 */
+  listEventsAfter(afterSeq: number, limit = 500): EventRecord[] {
+    const pageSize = Math.max(1, Math.min(limit, 1000));
+    const rows = this.db
+      .prepare("SELECT * FROM events WHERE seq > ? ORDER BY seq ASC LIMIT ?")
+      .all(afterSeq, pageSize) as Row[];
+    return rows.map((row) => this.toEventRecord(row));
+  }
+
+  listEventsForTask(taskId: string, limit = 2000): EventRecord[] {
+    const runIds = (
+      this.db.prepare("SELECT id FROM runs WHERE task_id = ?").all(taskId) as Row[]
+    ).map((row) => String(row.id));
+    const ids = [taskId, ...runIds];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(`SELECT * FROM events WHERE aggregate_id IN (${placeholders}) ORDER BY seq ASC LIMIT ?`)
+      .all(...ids, Math.max(1, Math.min(limit, 5000))) as Row[];
+    return rows.map((row) => this.toEventRecord(row));
   }
 
   // workspaces -----------------------------------------------------------
@@ -706,27 +1121,56 @@ export class Store {
   // tasks ----------------------------------------------------------------
 
   createTask(input: CreateTaskInput & { ownerId?: string | null; dependsOn?: string[] }): Task {
-    const task: Task = {
-      id: newId("task"),
-      workspaceId: input.workspaceId,
-      title: input.title,
-      description: input.description,
-      acceptance: input.acceptance ?? [],
-      status: "ready",
-      ownerId: input.ownerId ?? null,
-      dependsOn: input.dependsOn ?? [],
-      branch: null,
-      worktree: null,
-      summary: null,
-      createdAt: now(),
-      startedAt: null,
-      endedAt: null,
-    };
+    return this.withTransaction(() => {
+      const dependsOn = input.dependsOn ?? [];
+      const dependsSatisfied = dependsOn.every(
+        (dependencyId) => this.getTask(dependencyId)?.status === "done",
+      );
+      const task: Task = {
+        id: newId("task"),
+        workspaceId: input.workspaceId,
+        title: input.title,
+        description: input.description,
+        acceptance: input.acceptance ?? [],
+        status: dependsSatisfied ? "ready" : "blocked",
+        ownerId: input.ownerId ?? null,
+        dependsOn,
+        branch: null,
+        worktree: null,
+        summary: null,
+        createdAt: now(),
+        startedAt: null,
+        endedAt: null,
+        priority: 50,
+        queuedAt: null,
+        blockedReason: dependsSatisfied ? null : "waiting_dependencies",
+        failureKind: null,
+        attemptCount: 0,
+        nextRunAt: null,
+      };
+      this.insertTaskProjection(task);
+      this.appendEventIdempotent({
+        aggregateType: "task",
+        aggregateId: task.id,
+        type: "task.created",
+        actor: "user",
+        payload: { task },
+        schemaVersion: 2,
+        idempotencyKey: `task:${task.id}:created`,
+      });
+      return task;
+    });
+  }
+
+  /** t68：供内核/迁移复用的任务投影写入。 */
+  insertTaskProjection(task: Task): void {
     this.db
       .prepare(
         `INSERT INTO tasks
-         (id, workspace_id, title, description, acceptance, status, owner_id, depends_on, branch, worktree, summary, created_at, started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, workspace_id, title, description, acceptance, status, owner_id, depends_on,
+          branch, worktree, summary, created_at, started_at, ended_at,
+          priority, queued_at, blocked_reason, failure_kind, attempt_count, next_run_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
@@ -743,15 +1187,13 @@ export class Store {
         task.createdAt,
         task.startedAt,
         task.endedAt,
+        task.priority ?? 50,
+        task.queuedAt ?? null,
+        task.blockedReason ?? null,
+        task.failureKind ?? null,
+        task.attemptCount ?? 0,
+        task.nextRunAt ?? null,
       );
-    this.appendEvent({
-      aggregateType: "task",
-      aggregateId: task.id,
-      type: "task.created",
-      actor: "user",
-      payload: { title: task.title, dependsOn: task.dependsOn },
-    });
-    return task;
   }
 
   getTask(id: string): Task | null {
@@ -770,44 +1212,75 @@ export class Store {
     id: string,
     patch: Partial<Pick<Task, "title" | "description" | "acceptance" | "status" | "ownerId" | "dependsOn" | "branch" | "worktree" | "summary" | "startedAt" | "endedAt">>,
   ): Task {
-    const columns: Record<string, string> = {
-      title: "title",
-      description: "description",
-      acceptance: "acceptance",
-      status: "status",
-      ownerId: "owner_id",
-      dependsOn: "depends_on",
-      branch: "branch",
-      worktree: "worktree",
-      summary: "summary",
-      startedAt: "started_at",
-      endedAt: "ended_at",
-    };
-    const sets: string[] = [];
-    const params: Array<string | number | null> = [];
-    for (const [key, column] of Object.entries(columns)) {
-      if (!(key in patch)) continue;
-      const value = (patch as Record<string, unknown>)[key];
-      sets.push(`${column} = ?`);
-      if (Array.isArray(value)) params.push(JSON.stringify(value));
-      else params.push((value as string | number | null | undefined) ?? null);
-    }
-    if (sets.length) {
+    return this.withTransaction(() => {
+      const before = this.getTask(id);
+      if (!before) throw new Error(`task not found: ${id}`);
+      const columns: Record<string, string> = {
+        title: "title",
+        description: "description",
+        acceptance: "acceptance",
+        status: "status",
+        ownerId: "owner_id",
+        dependsOn: "depends_on",
+        branch: "branch",
+        worktree: "worktree",
+        summary: "summary",
+        startedAt: "started_at",
+        endedAt: "ended_at",
+      };
+      const sets: string[] = [];
+      const params: Array<string | number | null> = [];
+      for (const [key, column] of Object.entries(columns)) {
+        if (!(key in patch)) continue;
+        const value = (patch as Record<string, unknown>)[key];
+        sets.push(`${column} = ?`);
+        if (Array.isArray(value)) params.push(JSON.stringify(value));
+        else params.push((value as string | number | null | undefined) ?? null);
+      }
+      if (!sets.length) return before;
       params.push(id);
       this.db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params);
-    }
-    const task = this.getTask(id);
-    if (!task) throw new Error(`task not found: ${id}`);
-    if (patch.status) {
-      this.appendEvent({
-        aggregateType: "task",
-        aggregateId: id,
-        type: `task.${patch.status}`,
-        actor: "system",
-        payload: { status: patch.status },
-      });
-    }
-    return task;
+
+      const statusPatch = patch.status;
+      if (patch.dependsOn && !statusPatch) {
+        const satisfied = (patch.dependsOn ?? []).every(
+          (dependencyId) => this.getTask(dependencyId)?.status === "done",
+        );
+        const desired = satisfied ? "ready" : "blocked";
+        if (before.status === "ready" || before.status === "blocked") {
+          this.db
+            .prepare("UPDATE tasks SET status = ?, blocked_reason = ? WHERE id = ?")
+            .run(desired, satisfied ? null : "waiting_dependencies", id);
+        }
+        this.appendEventIdempotent({
+          aggregateType: "task",
+          aggregateId: id,
+          type: "task.updated",
+          actor: "system",
+          payload: { patch: { dependsOn: patch.dependsOn } },
+          schemaVersion: 2,
+        });
+      } else if (statusPatch) {
+        this.appendEventIdempotent({
+          aggregateType: "task",
+          aggregateId: id,
+          type: "task.status_changed",
+          actor: "system",
+          payload: { from: before.status, to: statusPatch, reason: "store.updateTask" },
+          schemaVersion: 2,
+        });
+      } else {
+        this.appendEventIdempotent({
+          aggregateType: "task",
+          aggregateId: id,
+          type: "task.updated",
+          actor: "system",
+          payload: { patch },
+          schemaVersion: 2,
+        });
+      }
+      return this.getTask(id) ?? before;
+    });
   }
 
   // runs -----------------------------------------------------------------
