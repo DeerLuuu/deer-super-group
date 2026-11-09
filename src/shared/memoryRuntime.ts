@@ -187,27 +187,36 @@ export class MemoryRuntime {
       return { ok: false, error: { code: "MEMORY_CONFLICT", message: "entry is not archived" } };
     }
     const now = new Date().toISOString();
-    core.db
-      .prepare(
-        `UPDATE board_entries
-         SET status = 'active', archived_at = NULL, archived_by = NULL, archive_reason = NULL, updated_at = ?
-         WHERE workspace_id = ? AND id = ? AND status = 'archived'`,
-      )
-      .run(now, workspaceId, entryId);
+    try {
+      this.store.withTransaction(() => {
+        core.db
+          .prepare(
+            `UPDATE board_entries
+             SET status = 'active', archived_at = NULL, archived_by = NULL, archive_reason = NULL,
+                 stale = 0, updated_at = ?
+             WHERE workspace_id = ? AND id = ? AND status = 'archived'`,
+          )
+          .run(now, workspaceId, entryId);
+        this.store.appendEvent({
+          aggregateType: "board",
+          aggregateId: entry.id,
+          type: "board.restored",
+          actor: "user",
+          payload: { entryId: entry.id, board: entry.board, kind: entry.kind },
+        });
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          code: "MEMORY_UNAVAILABLE",
+          message: `restore failed; retry: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
     core.rebuildIndex();
     const restored = core.getBoard(workspaceId, entryId);
     if (!restored) return { ok: false, error: { code: "MEMORY_NOT_FOUND", message: "entry not found after restore" } };
-    try {
-      this.store.appendEvent({
-        aggregateType: "board",
-        aggregateId: restored.id,
-        type: "board.restored",
-        actor: "user",
-        payload: { entryId: restored.id, board: restored.board, kind: restored.kind },
-      });
-    } catch {
-      // audit is best effort
-    }
     return { ok: true, value: restored };
   }
 
@@ -300,6 +309,9 @@ export class MemoryRuntime {
     this.validateWorkspace(input.workspaceId);
     if (input.agentId) this.validateAgent(input.workspaceId, input.agentId);
     const task = input.taskId ? this.store.getTask(input.taskId) : null;
+    if (input.taskId && (!task || task.workspaceId !== input.workspaceId)) {
+      error("MEMORY_INVALID_INPUT", "task does not belong to workspace");
+    }
     return this.require().buildContext({
       workspaceId: input.workspaceId,
       actor: input.agentId ? { kind: "agent", id: input.agentId, name: input.agentId } : HUMAN,

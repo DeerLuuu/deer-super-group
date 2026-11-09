@@ -261,7 +261,7 @@ export default function MemoryWorkbench({
     try {
       const result = await window.deer.searchMemory({
         workspaceId,
-        agentId: tab === "memo" ? activeAgentId : undefined,
+        agentId: scopes.has("memo") ? activeAgentId : undefined,
         query: query.trim(),
         scopes: [...scopes],
         limit: 50,
@@ -346,7 +346,7 @@ export default function MemoryWorkbench({
               刷新
             </button>
             <button type="button" className="primary small" onClick={() => setPublishOpen(true)}>
-              + 发布条目
+              + 发布记忆条目
             </button>
           </div>
         </header>
@@ -687,13 +687,12 @@ function BoardTab({
 }) {
   return (
     <>
-      <div className="memory-domain-tabs" role="tablist" aria-label="黑板领域">
+      <div className="memory-domain-tabs" role="group" aria-label="黑板领域">
         {domains.map(([domain, count]) => (
           <button
             key={domain}
             type="button"
-            role="tab"
-            aria-selected={domain === boardName}
+            aria-pressed={domain === boardName}
             className={`chip ${domain === boardName ? "active" : ""}`}
             onClick={() => onSelectBoard(domain)}
           >
@@ -730,7 +729,7 @@ function BoardTab({
         <EmptyState
           title={domains.length === 0 ? "还没有记忆条目" : "这个领域还没有条目"}
           description="发布一条原子化的事实、决策、问题或产物，与团队共享上下文。"
-          actions={[{ label: "+ 发布条目", onClick: onPublish, primary: true }]}
+          actions={[{ label: "+ 发布记忆条目", onClick: onPublish, primary: true }]}
         />
       ) : null}
       <div className="memory-list">
@@ -1254,7 +1253,15 @@ function ActionDialog({
         <div className="form modal-form">
           <label>
             TTL 天数（留空 = 永不过期）
-            <input type="number" min={1} max={365} value={ttl} onChange={(event) => setTtl(event.target.value)} />
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={ttl}
+              aria-label="TTL 天数"
+              aria-describedby="ttl-help"
+              onChange={(event) => setTtl(event.target.value)}
+            />
           </label>
           <p className="muted tiny" id="ttl-help">到期只会生成归档建议，不会自动删除。</p>
         </div>

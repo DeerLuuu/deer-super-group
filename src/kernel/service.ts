@@ -915,9 +915,15 @@ export class AppService {
     const tasks = this.store.listTasks(workspaceId);
     const router = this.ensureRouter(workspaceId);
     const task = taskId ? this.store.getTask(taskId) : null;
-    if (taskId && !task) throw new Error(`task not found: ${taskId}`);
+    if (taskId && (!task || task.workspaceId !== workspaceId)) {
+      throw new Error(`task not found in workspace: ${taskId}`);
+    }
+    const explicitAgent = agentId ? this.store.getAgent(agentId) : null;
+    if (agentId && (!explicitAgent || explicitAgent.workspaceId !== workspaceId)) {
+      throw new Error(`agent not found in workspace: ${agentId}`);
+    }
     const agent = agentId
-      ? this.store.getAgent(agentId)
+      ? explicitAgent
       : task?.ownerId
         ? this.store.getAgent(task.ownerId)
         : router;

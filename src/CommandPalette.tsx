@@ -28,7 +28,7 @@ export type PanelAction =
 
 type PaletteAction = {
   id: string;
-  group: "导航" | "新建" | "面板" | "任务" | "成员" | "邮件" | "黑板" | "Git";
+  group: "导航" | "新建" | "面板" | "任务" | "成员" | "邮件" | "记忆" | "Git";
   label: string;
   hint?: string;
   run: () => void;
@@ -38,7 +38,7 @@ export const CREATE_LABELS: Record<CreateIntent, string> = {
   task: "新建任务",
   plan: "规划任务（Router 拆解目标）",
   mail: "发邮件",
-  board: "发布黑板条目",
+  board: "发布记忆条目",
   member: "新建成员",
 };
 
@@ -87,7 +87,7 @@ export default function CommandPalette({
     { id: "team", label: "团队", hint: "进度、成员与星图" },
     { id: "chat", label: "对话", hint: "与 Router 讨论、上下文" },
     { id: "mailbox", label: "邮箱", hint: "团队内部消息" },
-    { id: "board", label: "黑板", hint: "领域共享记忆" },
+    { id: "board", label: "记忆", hint: "黑板、备忘录、检索与归档" },
     { id: "settings", label: "设置", hint: "模型与运行配置" },
   ];
 
@@ -177,7 +177,7 @@ export default function CommandPalette({
     for (const board of boards) {
       list.push({
         id: `board-${board}`,
-        group: "黑板",
+        group: "记忆",
         label: board,
         hint: `${snapshot.boardEntries.filter((entry) => entry.board === board).length} 条`,
         run: () => onOpenBoard(board),
@@ -247,7 +247,7 @@ export default function CommandPalette({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="搜索任务 / 成员 / 邮件 / 黑板，或输入命令…"
+          placeholder="搜索任务 / 成员 / 邮件 / 记忆，或输入命令…"
           aria-label="搜索或命令"
           aria-activedescendant={results[clamped] ? `palette-item-${results[clamped].id}` : undefined}
         />
