@@ -252,18 +252,23 @@ scripts/
 项目使用 Git worktree 做并行开发，最多 3 个 active 分支，统一放在 `branches/`：
 
 ```bash
-pnpm branch:start t61 dotenv-sensitive-paths
+pnpm branch:start t68 execution-kernel
+pnpm branch:sync t68-execution-kernel
 pnpm branch:list
-pnpm branch:finish t61-dotenv-sensitive-paths
-pnpm branch:remove t61-dotenv-sensitive-paths
+pnpm branch:finish t68-execution-kernel
+pnpm branch:remove t68-execution-kernel
 ```
 
 规则：
 
-- 一个任务一个 `feature/<task-id>-<slug>` 分支；
+- `branch:start` 先从最新 `origin/main` 起步；
+- 每个功能开始前、提 PR 前必须运行 `branch:sync`；
+- **一个功能 / 一个分支 / 一个 PR**，遵循最小功能原则；
+- 不混入无关重构、格式化、依赖升级或顺手修复；
 - 在 `branches/<task-id>-<slug>/` 中开发、验证；
 - `main` 只接受 PR 合并；
-- `branch:finish` 会 push 并尝试 `gh pr create`，不自动合并；
+- `branch:finish` 会检查是否已包含最新 main、push 并尝试 `gh pr create`，不自动合并；
+- PR 按 [`.github/pull_request_template.md`](.github/pull_request_template.md) 填写；
 - 同时最多 3 个 worktree。
 
 详细流程见 [AGENTS.md](AGENTS.md) §8 与 [branches/README.md](branches/README.md)。
