@@ -10,6 +10,24 @@ import { resolveApiKeyEnv, resolveBaseUrlEnv } from "./env.js";
 import { assertKernelEventPayload, isKernelEventType } from "./execution/eventRegistry.js";
 import { CanvasSchema, QuestionSchema } from "../shared/interactive.js";
 import type { DeerCanvas, DeerQuestion, QuestionAnswers } from "../shared/interactive.js";
+import {
+  PollError,
+  decisionSummary,
+  evaluatePoll,
+  isPollExpired,
+  normalizeCreatePoll,
+  validateSelections,
+} from "../shared/poll.js";
+import type {
+  CastPollInput,
+  ClosePollInput,
+  CreatePollInput,
+  Poll,
+  PollBallot,
+  PollDecision,
+  PollOption,
+  PollStatus,
+} from "../shared/poll.js";
 import type {
   Agent,
   AgentStatus,
@@ -218,6 +236,69 @@ CREATE INDEX IF NOT EXISTS idx_chat_questions_status
   ON chat_questions(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_chat_questions_msg
   ON chat_questions(message_id);
+
+CREATE TABLE IF NOT EXISTS polls (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  scope_id TEXT,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL,
+  max_selections INTEGER,
+  threshold_rule TEXT NOT NULL DEFAULT 'gt',
+  threshold_value INTEGER NOT NULL DEFAULT 3,
+  quorum INTEGER NOT NULL DEFAULT 0,
+  allow_abstain INTEGER NOT NULL DEFAULT 0,
+  anonymous INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'open',
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  closes_at TEXT,
+  closed_at TEXT,
+  decision_ref TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_polls_ws_status
+  ON polls(workspace_id, status, created_at);
+
+CREATE TABLE IF NOT EXISTS poll_options (
+  id TEXT PRIMARY KEY,
+  poll_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  source_type TEXT NOT NULL DEFAULT 'manual',
+  source_id TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_poll_options_poll
+  ON poll_options(poll_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS poll_ballots (
+  id TEXT PRIMARY KEY,
+  poll_id TEXT NOT NULL,
+  voter_id TEXT NOT NULL,
+  voter_type TEXT NOT NULL,
+  selections TEXT NOT NULL DEFAULT '[]',
+  submitted_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(poll_id, voter_id)
+);
+CREATE INDEX IF NOT EXISTS idx_poll_ballots_poll
+  ON poll_ballots(poll_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS poll_decisions (
+  id TEXT PRIMARY KEY,
+  poll_id TEXT NOT NULL UNIQUE,
+  workspace_id TEXT NOT NULL,
+  adopted_option_ids TEXT NOT NULL DEFAULT '[]',
+  insufficient_quorum INTEGER NOT NULL DEFAULT 0,
+  summary TEXT NOT NULL,
+  board_entry_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_poll_decisions_ws
+  ON poll_decisions(workspace_id, created_at);
 `;
 
 /**
@@ -1648,6 +1729,324 @@ export class Store {
       if (Number(result.changes) > 0) expired.push(id);
     }
     return expired;
+  }
+
+  // polls ---------------------------------------------------------------
+
+  createPoll(input: CreatePollInput): Poll {
+    const normalized = normalizeCreatePoll(input);
+    if (!this.getWorkspace(normalized.workspaceId)) {
+      throw new PollError("POLL_INVALID_INPUT", "workspace not found");
+    }
+    if (!normalized.createdBy.trim()) {
+      throw new PollError("POLL_INVALID_INPUT", "createdBy required");
+    }
+    const pollId = newId("poll");
+    this.withTransaction(() => {
+      this.db.prepare(
+        `INSERT INTO polls
+          (id, workspace_id, scope, scope_id, title, description, mode, max_selections,
+           threshold_rule, threshold_value, quorum, allow_abstain, anonymous, status,
+           created_by, created_at, closes_at, closed_at, decision_ref)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL, NULL)`,
+      ).run(
+        pollId,
+        normalized.workspaceId,
+        normalized.scope,
+        normalized.scopeId,
+        normalized.title,
+        normalized.description,
+        normalized.mode,
+        normalized.maxSelections,
+        normalized.thresholdRule,
+        normalized.thresholdValue,
+        normalized.quorum,
+        normalized.allowAbstain ? 1 : 0,
+        normalized.anonymous ? 1 : 0,
+        normalized.createdBy,
+        now(),
+        normalized.closesAt,
+      );
+      normalized.options.forEach((option, index) => {
+        this.db.prepare(
+          `INSERT INTO poll_options
+            (id, poll_id, label, description, source_type, source_id, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          newId("popt"),
+          pollId,
+          option.label,
+          option.description,
+          option.sourceType,
+          option.sourceId,
+          index,
+        );
+      });
+      this.appendEvent({
+        aggregateType: "poll",
+        aggregateId: pollId,
+        type: "poll.created",
+        actor: normalized.createdBy,
+        payload: {
+          workspaceId: normalized.workspaceId,
+          scope: normalized.scope,
+          mode: normalized.mode,
+          optionCount: normalized.options.length,
+          thresholdRule: normalized.thresholdRule,
+          thresholdValue: normalized.thresholdValue,
+          quorum: normalized.quorum,
+          closesAt: normalized.closesAt,
+        },
+      });
+      this.appendEvent({
+        aggregateType: "poll",
+        aggregateId: pollId,
+        type: "poll.opened",
+        actor: normalized.createdBy,
+        payload: {
+          workspaceId: normalized.workspaceId,
+          scope: normalized.scope,
+          mode: normalized.mode,
+          optionCount: normalized.options.length,
+        },
+      });
+    });
+    return this.requirePoll(pollId);
+  }
+
+  listPolls(workspaceId: string, status?: PollStatus, limit = 100): Poll[] {
+    if (!this.getWorkspace(workspaceId)) throw new PollError("POLL_INVALID_INPUT", "workspace not found");
+    const rows = this.db.prepare(
+      "SELECT id FROM polls WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?",
+    ).all(workspaceId, Math.max(1, Math.min(500, limit))) as Row[];
+    return rows
+      .map((row) => this.getPoll(String(row.id)))
+      .filter((poll): poll is Poll => poll !== null)
+      .filter((poll) => !status || poll.status === status);
+  }
+
+  getPoll(pollId: string): Poll | null {
+    const row = this.db.prepare("SELECT * FROM polls WHERE id = ?").get(pollId) as Row | undefined;
+    if (!row) return null;
+    if (row.status === "open" && isPollExpired({
+      status: String(row.status) as PollStatus,
+      closesAt: row.closes_at == null ? null : String(row.closes_at),
+    }, now())) {
+      const changed = this.db.prepare(
+        "UPDATE polls SET status = 'expired' WHERE id = ? AND status = 'open'",
+      ).run(pollId);
+      if (Number(changed.changes ?? 0) > 0) {
+        this.appendEvent({
+          aggregateType: "poll",
+          aggregateId: pollId,
+          type: "poll.expired",
+          actor: "system",
+          payload: { workspaceId: String(row.workspace_id) },
+        });
+      }
+      row.status = "expired";
+    }
+    const options = this.db.prepare(
+      "SELECT * FROM poll_options WHERE poll_id = ? ORDER BY sort_order, id",
+    ).all(pollId) as Row[];
+    const ballots = this.db.prepare(
+      "SELECT * FROM poll_ballots WHERE poll_id = ? ORDER BY updated_at, id",
+    ).all(pollId) as Row[];
+    const decisionRow = this.db.prepare(
+      "SELECT * FROM poll_decisions WHERE poll_id = ?",
+    ).get(pollId) as Row | undefined;
+    return this.toPoll(row, options, ballots, decisionRow);
+  }
+
+  castPoll(input: CastPollInput): Poll {
+    const poll = this.requirePoll(input.pollId);
+    if (poll.status === "closed") throw new PollError("POLL_CLOSED", "poll is closed");
+    if (poll.status === "expired") throw new PollError("POLL_EXPIRED", "poll is expired");
+    if (poll.status !== "open") throw new PollError("POLL_CLOSED", "poll is not open");
+    this.ensurePollVoter(poll.workspaceId, input.voterId, input.voterType);
+    const selections = validateSelections(poll, input.selections);
+    const existing = this.db.prepare(
+      "SELECT * FROM poll_ballots WHERE poll_id = ? AND voter_id = ?",
+    ).get(input.pollId, input.voterId) as Row | undefined;
+    const previous = existing ? parseJson<string[]>(existing.selections, []) : [];
+    const unchanged = existing && previous.length === selections.length && previous.every((id, index) => id === selections[index]);
+    if (unchanged) return this.requirePoll(input.pollId);
+    const timestamp = now();
+    this.withTransaction(() => {
+      if (existing) {
+        this.db.prepare(
+          "UPDATE poll_ballots SET voter_type = ?, selections = ?, updated_at = ?, revision = revision + 1 WHERE id = ?",
+        ).run(input.voterType, JSON.stringify(selections), timestamp, String(existing.id));
+      } else {
+        this.db.prepare(
+          `INSERT INTO poll_ballots
+            (id, poll_id, voter_id, voter_type, selections, submitted_at, updated_at, revision)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        ).run(newId("pballot"), input.pollId, input.voterId, input.voterType, JSON.stringify(selections), timestamp, timestamp);
+      }
+      const revision = existing ? Number(existing.revision ?? 1) + 1 : 1;
+      this.appendEvent({
+        aggregateType: "poll",
+        aggregateId: input.pollId,
+        type: "poll.voted",
+        actor: input.voterId,
+        payload: {
+          workspaceId: poll.workspaceId,
+          voterType: input.voterType,
+          selectionCount: selections.length,
+          revision,
+        },
+      });
+    });
+    return this.requirePoll(input.pollId);
+  }
+
+  closePoll(input: ClosePollInput): Poll {
+    const poll = this.requirePoll(input.pollId);
+    if (poll.status === "closed") return poll;
+    if (
+      input.actor !== poll.createdBy &&
+      input.actor !== "facilitator" &&
+      input.actor !== "admin"
+    ) {
+      throw new PollError("POLL_FORBIDDEN", "only creator/facilitator/admin can close poll");
+    }
+    const timestamp = now();
+    const result = evaluatePoll(poll, poll.ballots);
+    const decisionId = newId("pdec");
+    const summary = decisionSummary(poll, result);
+    let boardEntryId: string | null = null;
+    this.withTransaction(() => {
+      if (result.adoptedOptionIds.length > 0) {
+        const boardEntry = this.postBoard({
+          workspaceId: poll.workspaceId,
+          board: "decisions",
+          author: input.actor,
+          kind: "decision",
+          content: summary,
+          confidence: "high",
+        });
+        boardEntryId = boardEntry.id;
+      }
+      this.db.prepare(
+        `INSERT INTO poll_decisions
+          (id, poll_id, workspace_id, adopted_option_ids, insufficient_quorum, summary, board_entry_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        decisionId,
+        poll.id,
+        poll.workspaceId,
+        JSON.stringify(result.adoptedOptionIds),
+        result.insufficientQuorum ? 1 : 0,
+        summary,
+        boardEntryId,
+        timestamp,
+      );
+      this.db.prepare(
+        "UPDATE polls SET status = 'closed', closed_at = ?, decision_ref = ? WHERE id = ?",
+      ).run(timestamp, boardEntryId, poll.id);
+      this.appendEvent({
+        aggregateType: "poll",
+        aggregateId: poll.id,
+        type: "poll.closed",
+        actor: input.actor,
+        payload: {
+          workspaceId: poll.workspaceId,
+          adoptedCount: result.adoptedOptionIds.length,
+          insufficientQuorum: result.insufficientQuorum,
+          reason: input.reason ?? null,
+        },
+      });
+      this.appendEvent({
+        aggregateType: "poll",
+        aggregateId: poll.id,
+        type: "poll.decided",
+        actor: input.actor,
+        payload: {
+          workspaceId: poll.workspaceId,
+          decisionId,
+          adoptedCount: result.adoptedOptionIds.length,
+          boardEntryId,
+          insufficientQuorum: result.insufficientQuorum,
+        },
+      });
+    });
+    return this.requirePoll(poll.id);
+  }
+
+  private requirePoll(pollId: string): Poll {
+    const poll = this.getPoll(pollId);
+    if (!poll) throw new PollError("POLL_NOT_FOUND", "poll not found");
+    return poll;
+  }
+
+  private ensurePollVoter(workspaceId: string, voterId: string, voterType: "human" | "agent"): void {
+    if (!voterId.trim()) throw new PollError("POLL_INVALID_INPUT", "voterId required");
+    if (voterType === "human") return;
+    if (voterType !== "agent") throw new PollError("POLL_INVALID_INPUT", "invalid voterType");
+    const row = this.db.prepare(
+      "SELECT 1 AS hit FROM agents WHERE id = ? AND workspace_id = ?",
+    ).get(voterId, workspaceId) as Row | undefined;
+    if (!row) throw new PollError("POLL_FORBIDDEN", "agent does not belong to workspace");
+  }
+
+  private toPoll(row: Row, options: Row[], ballots: Row[], decisionRow?: Row): Poll {
+    const optionList: PollOption[] = options.map((option) => ({
+      id: String(option.id),
+      pollId: String(option.poll_id),
+      label: String(option.label),
+      description: String(option.description ?? ""),
+      sourceType: String(option.source_type ?? "manual") as PollOption["sourceType"],
+      sourceId: option.source_id == null ? null : String(option.source_id),
+      sortOrder: Number(option.sort_order ?? 0),
+    }));
+    const ballotList: PollBallot[] = ballots.map((ballot) => ({
+      id: String(ballot.id),
+      pollId: String(ballot.poll_id),
+      voterId: String(ballot.voter_id),
+      voterType: String(ballot.voter_type) as PollBallot["voterType"],
+      selections: parseJson<string[]>(ballot.selections, []),
+      submittedAt: String(ballot.submitted_at),
+      updatedAt: String(ballot.updated_at),
+      revision: Number(ballot.revision ?? 1),
+    }));
+    const base = {
+      id: String(row.id),
+      workspaceId: String(row.workspace_id),
+      scope: String(row.scope) as Poll["scope"],
+      scopeId: row.scope_id == null ? null : String(row.scope_id),
+      title: String(row.title),
+      description: String(row.description ?? ""),
+      mode: String(row.mode) as Poll["mode"],
+      maxSelections: row.max_selections == null ? null : Number(row.max_selections),
+      thresholdRule: String(row.threshold_rule) as Poll["thresholdRule"],
+      thresholdValue: Number(row.threshold_value ?? 3),
+      quorum: Number(row.quorum ?? 0),
+      allowAbstain: Number(row.allow_abstain ?? 0) === 1,
+      anonymous: Number(row.anonymous ?? 0) === 1,
+      status: String(row.status) as Poll["status"],
+      createdBy: String(row.created_by),
+      createdAt: String(row.created_at),
+      closesAt: row.closes_at == null ? null : String(row.closes_at),
+      closedAt: row.closed_at == null ? null : String(row.closed_at),
+      decisionRef: row.decision_ref == null ? null : String(row.decision_ref),
+      options: optionList,
+      ballots: ballotList,
+    };
+    const result = evaluatePoll(base, ballotList);
+    const decision: PollDecision | null = decisionRow
+      ? {
+          id: String(decisionRow.id),
+          pollId: String(decisionRow.poll_id),
+          workspaceId: String(decisionRow.workspace_id),
+          adoptedOptionIds: parseJson<string[]>(decisionRow.adopted_option_ids, []),
+          insufficientQuorum: Number(decisionRow.insufficient_quorum ?? 0) === 1,
+          summary: String(decisionRow.summary),
+          boardEntryId: decisionRow.board_entry_id == null ? null : String(decisionRow.board_entry_id),
+          createdAt: String(decisionRow.created_at),
+        }
+      : null;
+    return { ...base, result, decision };
   }
 
   // board ----------------------------------------------------------------

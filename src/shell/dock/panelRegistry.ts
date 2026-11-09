@@ -19,6 +19,7 @@ export type PanelKey =
   | "runs"
   | "mailbox"
   | "board"
+  | "polls"
   | "settings";
 
 export type PanelDef = {
@@ -117,6 +118,18 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     minHeight: 280,
     closable: true,
     defaultGroup: "main",
+  },
+  polls: {
+    key: "polls",
+    title: "投票",
+    component: "polls",
+    routeTab: null,
+    renderer: "onlyWhenVisible",
+    minWidth: 430,
+    minHeight: 320,
+    closable: true,
+    defaultGroup: "main",
+    defaultClosed: true,
   },
   settings: {
     key: "settings",

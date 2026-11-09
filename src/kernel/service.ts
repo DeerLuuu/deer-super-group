@@ -62,6 +62,13 @@ import { GitService } from "../git/gitService.js";
 import type { FinalizeRunInput } from "../git/types.js";
 import { MemoryRuntime } from "../shared/memoryRuntime.js";
 import { createMemoryTools } from "../shared/memoryTools.js";
+import type {
+  CastPollInput,
+  ClosePollInput,
+  CreatePollInput,
+  Poll,
+  PollStatus,
+} from "../shared/poll.js";
 
 const PERMISSION_MODES: PermissionMode[] = [
   "read_only",
@@ -1407,6 +1414,29 @@ export class AppService {
 
   postBoard(input: PostBoardInput): BoardEntry {
     return this.store.postBoard(input);
+  }
+
+  listPolls(workspaceId: string, status?: PollStatus): Poll[] {
+    if (!this.store.getWorkspace(workspaceId)) throw new Error(`workspace not found: ${workspaceId}`);
+    return this.store.listPolls(workspaceId, status);
+  }
+
+  getPoll(pollId: string): Poll {
+    const poll = this.store.getPoll(pollId);
+    if (!poll) throw new Error(`poll not found: ${pollId}`);
+    return poll;
+  }
+
+  createPoll(input: CreatePollInput): Poll {
+    return this.store.createPoll(input);
+  }
+
+  castPoll(input: CastPollInput): Poll {
+    return this.store.castPoll(input);
+  }
+
+  closePoll(input: ClosePollInput): Poll {
+    return this.store.closePoll(input);
   }
 
   getSettings(): LlmSettingsInfo {
