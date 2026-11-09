@@ -17,7 +17,7 @@
 | D-R3 | **行级评审独立于 kernel review**（Q5）：`review_decision` 与 `merge.approved` 是两套审计；前者是后者的前置门禁 | kernel review 是任务完成语义；行级评审是代码质量/合并语义；二者可分别配置，不能互相冒充 |
 | D-R4 | **blocker 未解决阻止合并**；`review.mode=required` 时 merge queue 无法进入 merging | DESIGN 要求；advisory 模式仅警告，off 保留旧行为 |
 | D-R5 | **评论正文只存事实表，不写事件 payload**；事件只含 id/枚举/计数/hash | 避免正文进入事件回放/日志；审计可追溯 |
-| D-R6 | **作者不能批准自己的变更**；Agent 不能批准/开 blocker/resolve blocker；人类评审人必须属于同一 workspace | P0 人类治理；单用户应用默认本地人类 `user` 为评审人 |
+| D-R6 | **作者严格 = `task.ownerId` 且仅当它是 Agent**；作者不能批准自己的变更；**人类 requester/提交者不是作者，自评是显式例外**；Agent 不能批准/开 blocker/resolve blocker；人类评审人必须属于同一 workspace | P0 人类治理；单用户应用默认本地人类 `user` 为评审人 |
 | D-R7 | **默认 rollout：已有 workspace 迁移为 `advisory`，新建 workspace 为 `required`**；UI 显式提示，可切换 | 不突然阻断既有合并；团队模式推荐 required，新项目默认强制 |
 | D-R8 | **不新增 Dock 面板**；评审区嵌在任务详情，panel key 仍为 `tasks`；深链 `#/tasks?t=&review=1` | DESIGN §8 右栏/任务详情；C09 六 tab 约束；减少布局回归 |
 | D-R9 | **diff 解析/缓存放在主进程**；渲染层只拿分页后的行和线程，不把整仓库 patch 过 IPC | 大 diff、安全边界、主进程可取 git 数据；渲染层保持轻量 |
@@ -51,6 +51,7 @@
 - 不做多 PR/stacked diff、跨仓库 diff、非 Git provider 的 diff API。
 - 不把行级评论写进 kernel task schema；不改 `src/kernel/` 的 review 状态机。
 - 不做多人类账号/SSO；P0 以本地人类 `user` + Agent 成员为身份模型，P1 扩展多用户。
+- **P0 的 `required_approvals` 固定为 1**（单一本地 human）；多 human reviewer/多 approvals 属 P1，不进入 P0 API/UI/AC。
 
 ### 1.3 术语
 
@@ -178,7 +179,7 @@ CREATE TABLE IF NOT EXISTS review_schema (
 CREATE TABLE IF NOT EXISTS review_config (
   workspace_id TEXT PRIMARY KEY,
   mode TEXT NOT NULL DEFAULT 'advisory',        -- required | advisory | off
-  required_approvals INTEGER NOT NULL DEFAULT 1,
+  required_approvals INTEGER NOT NULL DEFAULT 1 CHECK (required_approvals = 1), -- P0 固定 1；P1 放宽
   notify_mailbox INTEGER NOT NULL DEFAULT 1,
   board_summary INTEGER NOT NULL DEFAULT 1,
   max_diff_bytes INTEGER NOT NULL DEFAULT 5242880,
@@ -202,7 +203,7 @@ CREATE TABLE IF NOT EXISTS review_targets (
   merge_base_sha TEXT NOT NULL,
   diff_hash TEXT NOT NULL,                      -- sha256(canonical patch)
   status TEXT NOT NULL,                         -- pending|approved|changes_requested|stale|unavailable
-  required_approvals INTEGER NOT NULL DEFAULT 1,
+  required_approvals INTEGER NOT NULL DEFAULT 1 CHECK (required_approvals = 1), -- P0 固定 1
   blocker_count INTEGER NOT NULL DEFAULT 0,
   approval_count INTEGER NOT NULL DEFAULT 0,
   last_decision_id TEXT,
@@ -552,7 +553,7 @@ function reanchorThread(thread, oldHead, newHead): ReanchorResult {
 | 分配/移除/替换 reviewer | ❌ | ❌ | ❌（需 captain） | ✅ | ❌ |
 
 - **P0 禁止 Agent 评论**（D-R15）：Agent 作者/Agent advisory 均只读；`review_comments.author_kind` 保留 `agent` 仅用于历史/P1，P0 service 拒绝 `author_kind=agent` 写入（`REVIEW_FORBIDDEN`）。
-- 作者严格定义为 `task.ownerId` 且仅当 owner 是 Agent；**人类 requester/提交者不是作者**，被分配后可评审/评论。ownerId 缺失时 `author_agent_id=NULL`，人类可评、Agent 仍只读；审计 `review.author_unknown`。
+- 作者严格定义为 `task.ownerId` 且仅当 owner 是 Agent；**人类 requester/提交者不是作者，自评是显式例外**。人类 requester/提交者被分配后可评审/评论；ownerId 缺失时 `author_agent_id=NULL`，人类可评、Agent 仍只读；审计 `review.author_unknown`。
 - `review.mode=off` 时人类仍可只读/评论，但 UI 明示「当前评审不阻塞合并」；Agent 仍只读；`off` 不隐藏已有数据。
 
 ### 6.3 Blocker 语义
@@ -609,14 +610,15 @@ function reanchorThread(thread, oldHead, newHead): ReanchorResult {
 
 ### 7.4 审批计数、修订与门禁
 
-- `required_approvals` 默认 1，可配置 1–3；只统计 `reviewer_kind=human`、`role IN ('reviewer','merge_captain')`、同 head、`is_current=1`、decision=approve。
+- **P0 `required_approvals` 固定为 1**；schema `CHECK(required_approvals=1)`，API/config/UI 传 >1 返回 `REVIEW_LIMIT`（明确“P0 仅允许 1 个 human approval，多 approvals 属 P1”），不静默 clamp。只统计 `reviewer_kind=human`、`role IN ('reviewer','merge_captain')`、同 head、`is_current=1`、decision=approve。
+- 多 human reviewer/多 approvals 是 P1；P0 只有本地 human `user`，因此 2 approvals 不可配置、不可验收。
 - `changes_requested`：任一 required reviewer 的**当前** decision 为 request_changes ⇒ target `changes_requested`；该 reviewer 后续 `approve` 覆盖旧值后，target 重新计算；不要求删除旧 revision。
 - `request_changes→approve`：旧 revision 保留 `is_current=0`，新 approve 当前化；blocker 仍须为 0；更新事件带 `revision/supersedesId`。
 - `comment→approve`：comment 不阻塞；approve 覆盖 comment；审批计数只算 approve。
 - `approve→request_changes`：反向覆盖，target 立即回 changes_requested，合并队列回 waiting_review。
 - 移除/替换 reviewer：其当前 decision 设 `is_current=0`、`invalidated_reason='reviewer_removed'`；target 重算（不足 approvals → pending；有当前 changes → changes_requested）；queue 回 `waiting_review`。历史保留。
 - 如果 reviewer 同时是作者（Agent）→ 分配拒绝；人类 requester 自评允许（因为 author 是 Agent 或 null）。
-- 设置变更（required_approvals 降低/模式降级）不追溯旧 head 的 decision 历史，但必须清 merge approval/checks waive 并回 waiting_review（§10.4）。
+- 设置变更（模式降级/变更）不追溯旧 head 的 decision 历史，但必须清 merge approval/checks waive 并回 waiting_review（§10.5）。
 
 ### 7.5 Reviewer 移除/替换
 
@@ -713,7 +715,7 @@ IPC/UI 映射：
 - `approved_head_sha` 只能由 human merge captain 在 review gate pass 后写入；**reviewer approve 不写它**。
 - `review_decisions.head_sha == approved_head_sha == queue.head_sha` 三者必须一致才 merging；head 变则全部失效。
 - `merge.approved` 事件 payload 增加 `reviewTargetId`/`reviewDecisionIds`（只 id），保持旧字段；旧 UI 可忽略。
-- 如果 review mode 从 required 改为 advisory/off，现有 approved_head_sha 不清空？改配置事件审计，gate 立即按新配置；已写入的批准仍绑定 head；P0 建议改配置后要求重新批准（事件 `merge.approval_reset`），避免用旧批准绕过新门禁。
+- 配置变更（含 required→off/advisory、advisory→required、requiredApprovals 降低）**不在本节保留任何“不清空/建议”分支**，一律按 §10.5 执行：必须 confirm，清 `approved_head_sha`/`checks_waived`，queue 回 `waiting_review`，写 `review.config_changed` + `merge.approval_reset`；与 AC-RV-32 完全一致。
 
 ---
 
@@ -916,7 +918,7 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 
 ### 10.4 权限/错误
 
-- `REVIEW_FORBIDDEN`：非 workspace 成员/作者 Agent 尝试 approve/blocker/comment；Agent 写入评论一律拒绝；`REVIEW_STALE`：head/base 不匹配；`REVIEW_BLOCKED`：未解决 blocker；`REVIEW_LIMIT`：超长/超量；`REVIEW_NOT_FOUND`；`REVIEW_UNAVAILABLE`；`REVIEW_CONFIG_CONFIRM_REQUIRED`：降级配置未确认清批准。
+- `REVIEW_FORBIDDEN`：非 workspace 成员/作者 Agent 尝试 approve/blocker/comment；Agent 写入评论一律拒绝；`REVIEW_STALE`：head/base 不匹配；`REVIEW_BLOCKED`：未解决 blocker；`REVIEW_LIMIT`：超长/超量，或 P0 `required_approvals>1`；`REVIEW_NOT_FOUND`；`REVIEW_UNAVAILABLE`；`REVIEW_CONFIG_CONFIRM_REQUIRED`：降级配置未确认清批准。
 - IPC 返回 `{ok,error}` 的 mutation 统一；读接口抛错由 UI `formatError`。
 - 审计事件 idempotency key 示例：`review:thread:create:{target}:{hash}`、`review:decision:{target}:{reviewer}:{head}:{revision}`。
 
@@ -925,14 +927,14 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 - `saveReviewConfig` 统一写 `review.config_changed` 事件（workspace aggregate，payload 见 §11.1；author/actor 人类）。
 - 危险变更：
   - `required → advisory/off`；
-  - `required_approvals` 降低（如 2→1）；
+  - `required_approvals` 降低（P1；P0 固定 1，不可降低）；
   - `notify_mailbox`/`board_summary` 不触发清批准。
 - 当危险变更影响存在 `approved_head_sha` 或 `checks_waived` 的活动队列项：
   - 必须 `confirmResets=true`（UI 确认 Modal，明示「将清除合并批准/checks 豁免并回等待评审」）；
   - 未确认 → `REVIEW_CONFIG_CONFIRM_REQUIRED`，不改配置；
   - 确认后同事务：清 `approved_head_sha`、`checks_waived`/waive 元数据（若属该 head）、队列回 `waiting_review`，写 `merge.approval_reset` + `review.config_changed`。
 - required→off/advisory 后，review decisions 仍保留历史；gate 立即按新模式；不再要求 review。
-- advisory→required **不**自动清已有 merge approval？为防用旧批准绕过新门禁，同样要求显式确认并清 `approved_head_sha`（可 P1 细化）；P0 统一危险变更清单包含 advisory→required。
+- advisory→required **不保留旧批准**：同样要求显式确认并清 `approved_head_sha`，防止用旧批准绕过新门禁；P0 危险变更清单包含 advisory→required。
 - 配置变更不影响已合并项；只影响 open/waiting_review/ready/updating 等活动项。
 - 测试：required→off 清 approved/checks 并回 waiting_review；confirm 缺失拒绝；advisory→required 清旧批准；事件 audit。
 
@@ -945,6 +947,7 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | type | aggregate | payload（无正文） | 幂等键 |
 |------|-----------|-------------------|--------|
 | `review.target_created` | task | `{targetId,taskId,headSha,baseSha,diffHash}` | `review:target:{taskId}:{headSha}:{baseSha}` |
+| `review.author_unknown` | task | `{targetId,taskId,ownerId,actor}` | `review:author-unknown:{targetId}` |
 | `review.requested` | task | `{targetId,reviewerId,role}` | `review:req:{targetId}:{reviewerId}` |
 | `review.thread_created` | task | `{targetId,threadId,filePath,lineStart,severity}` | `review:thread:{targetId}:{threadId}` |
 | `review.comment_added` | task | `{targetId,threadId,commentId,authorId}` | `review:comment:{commentId}` |
@@ -1082,8 +1085,8 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | AC-RV-07 | 线程创建/回复/编辑软删/解决/重开；评论正文不入事件；`context_before/after` JSON 字符串 round-trip，malformed 回退 `[]`，≤3 行 clamp | unit |
 | AC-RV-08 | severity：blocker 只能 reviewer/captain 创建/升级；作者不能降级 | unit |
 | AC-RV-09 | 未解决 blocker（含 outdated）→ gate `REVIEW_BLOCKED`；解决后通过 | unit/integration |
-| AC-RV-10 | 作者 Agent 不能 approve/解决 blocker；**Agent 不能评论/回复**；人类 requester 可评；越权返回 `REVIEW_FORBIDDEN` | unit |
-| AC-RV-11 | required_approvals=1/2；approved 计数；`request_changes→approve`、`comment→approve` 覆盖当前值且历史保留；重复决策幂等；`removeReviewer` 令其当前 decision 失效、target/queue 回 waiting_review；`replaceReviewer` 后新 reviewer approve 才通过；旧 revision 可查但不计数 | unit/integration |
+| AC-RV-10 | 作者=task.ownerId Agent（仅 Agent）；人类 requester/提交者不是作者，**自评是显式例外**；Agent 作者不能 approve/解决 blocker/评论；越权返回 `REVIEW_FORBIDDEN` | unit |
+| AC-RV-11 | **P0 required_approvals 固定为 1**；API/config/UI 传 >1 返回 `REVIEW_LIMIT` 且不写入；2 approvals 归 P1、不进入 P0 AC；approved 计数；`request_changes→approve`、`comment→approve` 覆盖当前值且历史保留；重复决策幂等；`removeReviewer` 令其当前 decision 失效、target/queue 回 waiting_review；`replaceReviewer` 后新 reviewer approve 才通过；旧 revision 可查但不计数 | unit/integration |
 | AC-RV-12 | approve 绑 head；head 不匹配 `REVIEW_STALE`；旧 decision 不能用于新 head | unit |
 | AC-RV-13 | mergeQueue.approve 在 required gate 未过时拒绝，不写 `approved_head_sha`、不发 `merge.approved` | integration |
 | AC-RV-14 | gate pass + merge captain approve 后 `approved_head_sha=head`；reviewer approve 不写 merge approval（Q5） | integration |
@@ -1091,7 +1094,7 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | AC-RV-16 | head/base 变化同时清 `approved_head_sha`/review decision/线程锚点；reanchor moved/outdated 正确 | integration |
 | AC-RV-17 | reanchor 失败 → outdated；blocker 仍阻止；不自动 resolve | unit |
 | AC-RV-18 | review unavailable 且 required → fail-closed `REVIEW_UNAVAILABLE`；advisory/off 不受影响 | integration |
-| AC-RV-19 | 事件 zod/schemaVersion=2；`review.comment_added/edited/deleted`、`review.reviewer_removed/replaced`、`review.config_changed` 全部注册；非法 payload 不落库；事件无正文；audit 可查 | unit |
+| AC-RV-19 | 事件 zod/schemaVersion=2；`review.author_unknown`、`review.comment_added/edited/deleted`、`review.reviewer_removed/replaced`、`review.config_changed` 全部注册；非法 payload 不落库；事件无正文；audit 可查 | unit |
 | AC-RV-20 | 邮箱：Agent recipient 才发信、local human 只 UI/Toast 不发 mailbox；requested/decision/blocker 去重键含 recipient+target+head+event、脱敏、refs 正确；notify 失败不阻断 | unit |
 | AC-RV-21 | 黑板摘要：approved/changes_requested 写 decision/warning，仅摘要+refs，不复制全文 | integration |
 | AC-RV-22 | UI SSR：header/文件树/diff/线程/footer/空态/错误/aria-live；无 Monaco bundle | SSR |
@@ -1102,7 +1105,7 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | AC-RV-27 | 迁移失败/回滚：review unavailable、off 恢复旧合并、备份可恢复 | integration |
 | AC-RV-28 | 深链 `#/tasks?t=&review=1`/命令面板；不新增 Dock panel；现有 tasks 面板不回归 | unit/manual |
 | AC-RV-29 | Git/队列/任务既有测试全绿；`pnpm typecheck/build/test` | 三命令 |
-| AC-RV-30 | 作者/requester 语义：owner Agent 快照 authorAgentId；ownerId 缺失/迁移兼容；人类 requester 不自判作者；服务端拒绝 Agent 自批与 Agent 评论 | unit/integration |
+| AC-RV-30 | 作者/requester 语义：作者严格 `task.ownerId` Agent；target 快照 authorAgentId/requesterId；人类 requester 不是作者且自评是显式例外；ownerId 缺失/迁移兼容；服务端拒绝 Agent 自批与 Agent 评论 | unit/integration |
 | AC-RV-31 | reanchor fixtures：rebase 行移、base 前进、rename、删除行、重复上下文、二进制/超大、文件删除；唯一匹配 moved，否则 outdated；outdated blocker 仍阻断 | unit/integration |
 | AC-RV-32 | 配置变更：required→off/advisory、requiredApprovals 降低、advisory→required 写 `review.config_changed`；未 confirm 拒绝；确认后清 approved_head_sha/checks_waived 并回 waiting_review；已合并项不受影响 | integration |
 | AC-RV-33 | `review_decisions` 修订历史：同 reviewer/head 多次提交 revision 递增、旧行 is_current=0、partial unique 索引生效；当前计数/历史查询正确 | unit |
@@ -1111,7 +1114,7 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 
 - `fixtures/review/`：临时 git repo 脚本（base/main、feature 分支、rename/delete/binary/large diff/rebase）；`review-patches/*.patch` 固定 parser 用例；`xss.md`；`large.diff` 生成器。
 - **reanchor 专用 fixture**：`rebase-shift`（同一上下文整体 +2 行）、`base-advance`（head 不变、base 前进）、`deleted-line`（旧行 `-`）、`duplicate-context`（同 3 行上下文出现两次）、`rename`（a→b）、`binary`/`too-large`、`file-deleted`；每个 fixture 断言 moved/outdated 与 blocker 状态。
-- **JSON/迁移 fixture**：`context_before/after` 正常/非法 JSON/超 3 行；旧 target 缺 `author_agent_id` 的回填与 `review.author_unknown`。
+- **JSON/迁移 fixture**：`context_before/after` 正常/非法 JSON/超 3 行；旧 target 缺 `author_agent_id` 的回填与 `review.author_unknown` 事件（payload/幂等）。
 - 测试不访问网络：provider mock；邮件/黑板 mock；DB 临时目录；真实 GitExec 本地 bare remote。
 - UI mock `window.deer.review.*`；SSR + react-test-renderer（现有依赖），不新增 jsdom/RTL。
 
@@ -1189,15 +1192,16 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | 数据/迁移失败 | 中 | 独立 schema/备份/回滚；review unavailable 不破坏 Git |
 | 与 kernel review UI 混淆 | 中 | 两个状态分开展示/Q5 文案；不自动同步 |
 
-### 17.2 开放问题（需 Captain/设计裁决）
+### 17.2 P1/开放项（不影响 P0 当前默认）
 
-1. **review.mode 默认**：本设计 D-R7（已有 advisory/新建 required）是否接受？还是所有 Git workspace 默认 required？
-2. **P0 多 required approvals UI**：API 支持 1–3、默认 1；P0 UI 是否暴露 >1，或仅配置/API 支持？
-3. **P1 多用户身份**：本地 `user` 之外的 human reviewer 映射/邮箱，需要多用户/权限子系统（P1），P0 不实现。
+1. **review.mode 默认**：本设计按 D-R7 执行（已有 advisory/新建 required）；是否统一所有 Git workspace 为 required 属 P1 产品决策，不阻塞 P0 默认实现。
+2. **P1 多 human 身份/多 approvals**：P0 固定 `required_approvals=1` 且只有本地 human `user`；>1 明确 `REVIEW_LIMIT`，多 reviewer/邮箱映射归 P1，不进入 P0 AC。
+3. **P1 增强**：Monaco split、GitHub 原生 review 导入、captain override、Agent suggestion-only 评论等，均不阻塞 P0。
 
-### 17.2.1 已定（本轮 requirements 关闭）
+### 17.2.1 本轮已处理（仍有 P1/开放项）
 
-- **作者/requester**：作者严格 `task.ownerId` Agent；人类提交者可自评；target 快照 `authorAgentId`/`requesterId`；ownerId 缺失兼容见 D-R14/§4.2。
+- **作者/requester（本轮关闭）**：**不新增 `Task.createdBy`**；作者严格=`task.ownerId` 且仅当它是 Agent；`requester_id/requester_kind` 快照仅用于审计/通知，不参与作者判定；人类 requester/提交者自评是显式例外；ownerId 缺失兼容见 D-R14/§4.2。
+- **多 approvals（归 P1）**：P0 `required_approvals=1`，API/config/UI 传 >1 返回 `REVIEW_LIMIT`；AC-RV-11 不再要求 2 approvals。
 - **outdated blocker**：继续阻断（D-R11），不自动 resolve；评审人确认/解决。
 - **decision 修订**：最新值 + 历史（D-R13）；`request_changes→approve`/`comment→approve`/删除 reviewer 均有 AC-RV-11。
 - **Agent 评论**：P0 禁止（D-R15）；工具只读；AC-RV-10。
@@ -1273,12 +1277,14 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 - [x] 文件影响面/阶段/非目标（§16/§17）
 - [x] 只读代码/文档，未改实现代码
 
-## 20. t142 requirements-round-2 修订记录
+## 20. t142/t147/t149 requirements 修订记录（本轮已处理，仍有开放项）
+
+> 本节记录已落实项；**不代表全部关闭**。P1/开放项见 §17.2，不影响 P0 当前默认（单一 human、`required_approvals=1`、已有 workspace advisory/新建 required）。
 
 | # | 审查项 | 修订 | 位置 |
 |---|--------|------|------|
 | 1 | decision 最新值/修订、覆盖历史、request_changes→approve/comment→approve、移除 reviewer | 追加修订 + `is_current` + 历史；`request_changes→approve`、`comment→approve` 允许；移除/替换 reviewer 使当前 decision 失效；AC-RV-11 覆盖 | §4.1/§4.2/§7.3/§7.4/§7.5/AC-RV-11 |
-| 2 | 作者/createdBy/requester 与人类自评 | 选择“作者严格 = task.ownerId 且仅 Agent”；target 快照 `author_agent_id`/`requester_id`；人类 requester 可评；ownerId 缺失/迁移兼容；服务端按快照校验 | D-R14/§4.2/§6.2/§7.1/§14.1/AC-RV-30 |
+| 2 | 作者/createdBy/requester 与人类自评 | **不新增 `Task.createdBy`**；作者严格 = task.ownerId 且仅 Agent；target 快照 `author_agent_id`/`requester_id`；**requester 快照仅审计/通知，不参与作者判定**；人类 requester/提交者自评是显式例外；ownerId 缺失/迁移兼容；服务端按快照校验 | D-R14/§4.2/§6.2/§7.1/§14.1/AC-RV-30 |
 | 3 | 可执行 re-anchor 算法 + fixtures | 旧/新 blob + `git diff -U3`；旧行+上下文唯一匹配优先；rename/delete/binary/超大/重复→outdated；rebase/base 前进/删除/重复 fixture | §5.5.1–§5.5.4/§15.3/AC-RV-31 |
 | 4 | comment_edited/comment_deleted 事件 | 增加两事件（仅 id/actor/body_hash）并写 eventRegistry/AC-RV-19/fixtures；增加编辑/软删 API | §10.2/§11.1/§11.3/AC-RV-19 |
 | 5 | P0 禁止 Agent 评论 | 矩阵删去 Agent 评论权限；工具只读；删 `allow_agent_comments`；AC-RV-10/§12 覆盖 | D-R15/§6.2/§10.3/§12/AC-RV-10 |
@@ -1287,6 +1293,11 @@ review.threads(taskId, {file?, status?}) -> 线程正文（同 workspace，Agent
 | 8 | recipient 解析/去重/local human 无邮箱 | local human 只 UI/Toast；Agent 才 mailbox；去重键含 recipient；补 local 无邮箱测试 | §11.2/AC-RV-20 |
 | 9 | config_changed/降级清批准 | 新增 `review.config_changed`；required→off/advisory、approvals 降低、advisory→required 必须 confirm；清 approved_head_sha/checks_waived 回 waiting_review | §10.5/§11.1/AC-RV-32 |
 | 10 | waived 状态 | P0 删除 `waived`；`review.mode=off` 不是 waived；gate/status/queue/type 同步移除；无 review waive 路径 | D-R16/§4.2/§8.3/§10.1/AC-RV-02 |
+| 11 | §8.5 与 §10.5 配置行为不一致 | 删除“不清空/建议”旧段；§8.5 明确指向 §10.5：危险变更必须 confirm、清 approved_head_sha/checks_waived、回 waiting_review、写 config_changed/merge.approval_reset；与 AC-RV-32 一致 | §8.5/§10.5/AC-RV-32 |
+| 12 | P0 多 approvals 不可执行 | P0 `required_approvals` 固定 1；schema CHECK/API/UI >1 → `REVIEW_LIMIT`；多 approvals 归 P1；AC-RV-11 删除 2 approvals | §1.2/§4.1/§7.4/AC-RV-11/§17.2 |
+| 13 | `review.author_unknown` 无可注册事件 | §11.1 增加 task aggregate 事件（payload targetId/taskId/ownerId/actor、幂等键），AC-RV-19/夹具同步 | §11.1/AC-RV-19/§15.3 |
+| 14 | D-R6/矩阵作者例外不明确 | D-R6 与 §6.2 明确作者=ownerId Agent；人类 requester/提交者不是作者，自评是显式例外；AC-RV-10/30 改为可判定断言 | D-R6/§6.2/AC-RV-10/AC-RV-30 |
+| 15 | 开放项/“已关闭”措辞不一致 | §17.2 改为 P1/开放项且不影响 P0 默认；§17.2.1/§20 改为“本轮已处理，仍有开放项”；明确不新增 Task.createdBy | §17.2/§17.2.1/§20 |
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 
