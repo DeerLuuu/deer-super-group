@@ -1,0 +1,336 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+export interface GitOutput {
+  stdout: string;
+  stderr: string;
+  code: number;
+}
+
+export interface GitExecOptions {
+  cwd?: string;
+  timeoutMs?: number;
+  maxBuffer?: number;
+  env?: Record<string, string>;
+}
+
+const TOKEN_PATTERNS: RegExp[] = [
+  /gh[pousr]_[A-Za-z0-9]{20,}/g,
+  /github_pat_[A-Za-z0-9_]{20,}/g,
+  /Bearer\s+[A-Za-z0-9._-]+/gi,
+  /https?:\/\/[^/\s]+:[^/\s]+@/gi,
+  /token=[^&\s]+/gi,
+];
+
+export function redactSecrets(value: string): string {
+  let result = value;
+  for (const pattern of TOKEN_PATTERNS) {
+    result = result.replace(pattern, "[REDACTED]");
+  }
+  return result;
+}
+
+function isSafeRef(value: string): boolean {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 200 &&
+    !/[\0-\x1f\x7f~^:?*[\\\s]/.test(value) &&
+    !value.includes("..") &&
+    !value.startsWith("-")
+  );
+}
+
+function isSafePath(value: string): boolean {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 260 &&
+    !/[\0-\x1f\x7f]/.test(value) &&
+    !value.includes("..") &&
+    !value.startsWith("-")
+  );
+}
+
+function isSafeBranch(value: string): boolean {
+  return /^deer\/[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(value);
+}
+
+/**
+ * argv-only allowlist. The first optional pair may be an isolated
+ * `-c core.hooksPath=<runtimeRoot>/hooks-empty`; all other -c are forbidden.
+ */
+export function validateGitArgs(
+  args: string[],
+  hooksPath?: string,
+): { ok: true; args: string[] } | { ok: false; reason: string } {
+  if (!Array.isArray(args) || args.length === 0) return { ok: false, reason: "empty argv" };
+  const argv = [...args];
+  if (argv[0] === "-c") {
+    const setting = argv[1] ?? "";
+    if (!hooksPath || setting !== `core.hooksPath=${hooksPath}`) {
+      return { ok: false, reason: "forbidden -c setting" };
+    }
+    argv.splice(0, 2);
+  }
+  if (argv.some((item) => item.startsWith("-c") && item !== "-c")) {
+    return { ok: false, reason: "forbidden -c option" };
+  }
+  if (argv.some((item) => item === "--exec" || item.startsWith("!") || item === "-f")) {
+    return { ok: false, reason: "forbidden option" };
+  }
+  const command = argv[0] ?? "";
+  const rest = argv.slice(1);
+  if (command === "--version") return { ok: true, args: argv };
+  if (command === "rev-parse") {
+    if (rest.length < 1) return { ok: false, reason: "rev-parse requires a ref" };
+    const first = rest[0] ?? "";
+    if (first.startsWith("--")) {
+      const allowed = new Set([
+        "--show-toplevel",
+        "--verify",
+        "--abbrev-ref",
+        "--git-dir",
+        "--git-common-dir",
+        "--git-path",
+        "--is-inside-work-tree",
+      ]);
+      if (!allowed.has(first)) return { ok: false, reason: "rev-parse flag" };
+      if (first === "--git-path") {
+        if (rest.length !== 2 || !isSafePath(rest[1])) return { ok: false, reason: "git-path arg" };
+      }
+      return { ok: true, args: argv };
+    }
+    if (!isSafeRef(first) && !/^[^:]+:.+$/.test(first)) {
+      return { ok: false, reason: "unsafe rev-parse ref" };
+    }
+    return { ok: true, args: argv };
+  }
+  if (command === "remote") {
+    if (rest[0] === "-v") return { ok: true, args: argv };
+    if (rest[0] === "get-url" && rest.length === 2 && isSafeRef(rest[1])) return { ok: true, args: argv };
+    return { ok: false, reason: "remote shape" };
+  }
+  if (command === "config") {
+    if (rest[0] === "--get" && rest.length === 2 && isSafeRef(rest[1])) return { ok: true, args: argv };
+    return { ok: false, reason: "config shape" };
+  }
+  if (command === "status") {
+    if (rest[0] === "--porcelain" || rest[0] === "--porcelain=v1" || rest[0] === "--porcelain=v2") {
+      const extra = rest.slice(1);
+      if (extra.every((item) => item === "-z")) return { ok: true, args: argv };
+    }
+    return { ok: false, reason: "status shape" };
+  }
+  if (command === "diff") {
+    const allowed = new Set([
+      "--cached",
+      "--name-only",
+      "--name-status",
+      "--numstat",
+      "--stat",
+      "--quiet",
+      "--diff-filter=U",
+      "-z",
+    ]);
+    let unified = false;
+    for (const item of rest) {
+      if (item.startsWith("--unified=")) {
+        if (!/^--unified=\d+$/.test(item)) return { ok: false, reason: "unified" };
+        unified = true;
+        continue;
+      }
+      if (item.startsWith("-")) {
+        if (!allowed.has(item)) return { ok: false, reason: `diff flag: ${item}` };
+        continue;
+      }
+      // Revision expressions such as `<sha>~1` are safe for read-only diffs.
+      if (!isSafeRef(item) && !/^[0-9a-f]{7,64}~1$/i.test(item)) {
+        return { ok: false, reason: "unsafe diff ref" };
+      }
+    }
+    void unified;
+    return { ok: true, args: argv };
+  }
+  if (command === "log") {
+    if (rest[0] === "-n" && rest[1] === "1" && rest[2]?.startsWith("--format=")) {
+      return { ok: true, args: argv };
+    }
+    return { ok: false, reason: "log shape" };
+  }
+  if (command === "show") {
+    if (rest.length === 0 || (rest.length === 1 && isSafeRef(rest[0]))) return { ok: true, args: argv };
+    return { ok: false, reason: "show shape" };
+  }
+  if (command === "cat-file") {
+    if (rest[0] === "-p" && rest[1] && isSafeRef(rest[1])) return { ok: true, args: argv };
+    return { ok: false, reason: "cat-file shape" };
+  }
+  if (command === "merge-base") {
+    if (rest[0] === "--is-ancestor" && rest.length === 3 && isSafeRef(rest[1]) && isSafeRef(rest[2])) {
+      return { ok: true, args: argv };
+    }
+    if (rest.length === 2 && isSafeRef(rest[0]) && isSafeRef(rest[1])) return { ok: true, args: argv };
+    return { ok: false, reason: "merge-base shape" };
+  }
+  if (command === "patch-id") {
+    return { ok: true, args: argv };
+  }
+  if (command === "check-ref-format") {
+    if (rest[0] === "--branch" && rest[1] && isSafeRef(rest[1])) return { ok: true, args: argv };
+    return { ok: false, reason: "check-ref-format shape" };
+  }
+  if (command === "worktree") {
+    const sub = rest[0];
+    if (sub === "list" && rest[1] === "--porcelain") return { ok: true, args: argv };
+    if (sub === "prune" && rest.length === 1) return { ok: true, args: argv };
+    if (sub === "remove") {
+      const target = rest.find((item) => !item.startsWith("-"));
+      if (target && isSafePath(target)) return { ok: true, args: argv };
+    }
+    if (sub === "add") {
+      let index = 1;
+      let branch: string | undefined;
+      if (rest[index] === "--detach") index += 1;
+      if (rest[index] === "-b") {
+        branch = rest[index + 1];
+        index += 2;
+      }
+      const worktreePath = rest[index];
+      const ref = rest[index + 1];
+      if (!branch || isSafeBranch(branch)) {
+        if (worktreePath && isSafePath(worktreePath) && ref && isSafeRef(ref)) {
+          return { ok: true, args: argv };
+        }
+      }
+    }
+    return { ok: false, reason: "worktree shape" };
+  }
+  if (command === "branch") {
+    if (rest[0] === "--list" && rest.length === 2) return { ok: true, args: argv };
+    if (rest[0] === "-D" && rest.length === 2 && isSafeBranch(rest[1])) return { ok: true, args: argv };
+    return { ok: false, reason: "branch shape" };
+  }
+  if (command === "add") {
+    if (rest[0] === "-A" && rest.length === 1) return { ok: true, args: argv };
+    return { ok: false, reason: "add shape" };
+  }
+  if (command === "commit") {
+    if (rest[0] === "--no-verify" && rest[1] === "-m" && rest.length === 3) return { ok: true, args: argv };
+    return { ok: false, reason: "commit shape" };
+  }
+  if (command === "format-patch") {
+    if (rest[0] === "-1" && rest[1] && rest[2] === "--stdout" && isSafeRef(rest[1])) {
+      return { ok: true, args: argv };
+    }
+    return { ok: false, reason: "format-patch shape" };
+  }
+  if (command === "fetch") {
+    if (rest.length === 0) return { ok: true, args: argv };
+    if (rest[0] && isSafeRef(rest[0]) && (rest.length === 1 || (rest.length === 2 && isSafeRef(rest[1])))) {
+      return { ok: true, args: argv };
+    }
+    return { ok: false, reason: "fetch shape" };
+  }
+  if (command === "push") {
+    const argsRest = rest.filter((item) => item !== "--no-verify" && item !== "-u");
+    const target = argsRest[1] ?? "";
+    const [from, to] = target.split(":");
+    if (argsRest.length === 2 && isSafeRef(argsRest[0]) && isSafeBranch(from) && isSafeBranch(to ?? from)) {
+      return { ok: true, args: argv };
+    }
+    return { ok: false, reason: "push shape (only deer/* branches)" };
+  }
+  if (command === "merge") {
+    if (rest[0] === "--ff-only" && rest[1] && isSafeRef(rest[1])) return { ok: true, args: argv };
+    return { ok: false, reason: "merge shape" };
+  }
+  if (command === "merge-tree") {
+    if (rest[0] === "--write-tree" && rest.length === 3 && isSafeRef(rest[1]) && isSafeRef(rest[2])) {
+      return { ok: true, args: argv };
+    }
+    return { ok: false, reason: "merge-tree shape" };
+  }
+  return { ok: false, reason: `unsupported git command: ${command}` };
+}
+
+function allowEnv(input?: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of [
+    "PATH",
+    "HOME",
+    "USERPROFILE",
+    "SystemRoot",
+    "ComSpec",
+    "TEMP",
+    "TMP",
+    "LANG",
+    "LC_ALL",
+  ]) {
+    const value = process.env[key];
+    if (value) env[key] = value;
+  }
+  Object.assign(env, input ?? {});
+  env.GIT_TERMINAL_PROMPT = "0";
+  return env;
+}
+
+export class RepoLock {
+  private readonly tails = new Map<string, Promise<void>>();
+
+  async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.tails.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.tails.set(key, previous.then(() => current));
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.tails.get(key) === current) this.tails.delete(key);
+    }
+  }
+}
+
+export class GitExec {
+  private readonly hooksPath: string;
+  readonly lock = new RepoLock();
+
+  constructor(hooksPath: string) {
+    this.hooksPath = hooksPath;
+  }
+
+  async run(args: string[], opts: GitExecOptions = {}): Promise<GitOutput> {
+    const validated = validateGitArgs(args, this.hooksPath);
+    if (!validated.ok) {
+      throw Object.assign(new Error(validated.reason), { code: "GIT_FORBIDDEN" });
+    }
+    const fullArgs = [ "-c", `core.hooksPath=${this.hooksPath}`, ...validated.args ];
+    try {
+      const result = await execFileAsync("git", fullArgs, {
+        cwd: opts.cwd,
+        timeout: opts.timeoutMs ?? 30_000,
+        maxBuffer: opts.maxBuffer ?? 4 * 1024 * 1024,
+        windowsHide: true,
+        env: allowEnv(opts.env),
+      });
+      return {
+        stdout: redactSecrets(result.stdout),
+        stderr: redactSecrets(result.stderr),
+        code: 0,
+      };
+    } catch (error) {
+      const err = error as { stdout?: string; stderr?: string; code?: number | string; message?: string };
+      return {
+        stdout: redactSecrets(err.stdout ?? ""),
+        stderr: redactSecrets(err.stderr ?? err.message ?? "git failed"),
+        code: typeof err.code === "number" ? err.code : 1,
+      };
+    }
+  }
+}

@@ -25,6 +25,14 @@ import type {
   Task,
   Workspace,
 } from "./types.js";
+import type {
+  GitSettings,
+  MergeQueueItem,
+  MergeQueueSnapshot,
+  RepoDiagnostics,
+  TaskVcs,
+  TaskVcsSnapshot,
+} from "../git/types.js";
 
 export interface DeerApi {
   listWorkspaces(): Promise<Workspace[]>;
@@ -58,6 +66,21 @@ export interface DeerApi {
   listChatQuestions(workspaceId: string, agentId?: string): Promise<ChatQuestionRecord[]>;
   answerChatQuestion(input: AnswerChatQuestionInput): Promise<AnswerChatQuestionResult>;
   cancelChatQuestion(input: CancelChatQuestionInput): Promise<CancelChatQuestionResult>;
+  // t96：Git 并行开发 / VCS / 合并队列
+  gitDiagnose(workspaceId: string): Promise<RepoDiagnostics>;
+  getTaskVcs(taskId: string): Promise<TaskVcsSnapshot>;
+  gitCreatePr(taskId: string): Promise<TaskVcsSnapshot["vcs"]>;
+  gitCleanup(taskId: string): Promise<void>;
+  gitOpenPr(taskId: string): Promise<string | null>;
+  getGitSettings(workspaceId: string): Promise<GitSettings>;
+  saveGitSettings(workspaceId: string, settings: Partial<GitSettings>): Promise<GitSettings>;
+  mergeQueue(workspaceId: string): Promise<MergeQueueSnapshot>;
+  mergeEnqueue(taskId: string): Promise<MergeQueueItem>;
+  mergeApprove(taskId: string): Promise<MergeQueueItem>;
+  mergeWaiveChecks(taskId: string, reason: string): Promise<MergeQueueItem>;
+  mergeStart(taskId: string): Promise<MergeQueueItem>;
+  mergeProcess(workspaceId: string): Promise<MergeQueueItem>;
+  gitRecover(workspaceId: string): Promise<number>;
   onChatEvent(listener: (event: ChatEvent) => void): () => void;
   onEvent(listener: (event: EventRecord) => void): () => void;
 }

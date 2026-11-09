@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { AppService } from "../src/kernel/service.js";
@@ -12,6 +12,7 @@ import type {
   PostBoardInput,
   SendMessageInput,
 } from "../src/shared/types.js";
+import type { GitSettings } from "../src/git/types.js";
 
 let win: BrowserWindow | null = null;
 let service: AppService | null = null;
@@ -142,6 +143,37 @@ app.whenReady().then(() => {
   handle("chat:question:cancel", (input: CancelChatQuestionInput) =>
     getService().cancelChatQuestion(input),
   );
+  // t96：Git 并行开发 / VCS / 合并队列
+  handle("git:diagnose", (workspaceId: string) => getService().git.diagnose(workspaceId));
+  handle("git:task-vcs", (taskId: string) => getService().git.getTaskVcs(taskId));
+  handle("git:create-pr", (taskId: string) => getService().git.createPr(taskId));
+  handle("git:cleanup", (taskId: string) => getService().git.cleanup(taskId));
+  handle("git:open-pr", async (taskId: string) => {
+    const url = await getService().git.openPrUrl(taskId);
+    if (!url) return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+    if (parsed.protocol !== "https:") return null;
+    await shell.openExternal(parsed.toString());
+    return parsed.toString();
+  });
+  handle("git:settings:get", (workspaceId: string) => getService().git.getSettings(workspaceId));
+  handle("git:settings:save", (workspaceId: string, settings: Partial<GitSettings>) =>
+    getService().git.saveSettings(workspaceId, settings),
+  );
+  handle("git:merge-queue", (workspaceId: string) => getService().git.listQueue(workspaceId));
+  handle("git:merge-enqueue", (taskId: string) => getService().git.enqueue(taskId));
+  handle("git:merge-approve", (taskId: string) => getService().git.approve(taskId));
+  handle("git:merge-waive", (taskId: string, reason: string) =>
+    getService().git.waiveChecks(taskId, reason),
+  );
+  handle("git:merge-start", (taskId: string) => getService().git.mergeStart(taskId));
+  handle("git:merge-process", (workspaceId: string) => getService().git.processQueue(workspaceId));
+  handle("git:recover", (workspaceId: string) => getService().git.recover(workspaceId));
   // t58 IF-05：auto_risk 高风险 → 人类审批弹窗（主进程推送 + 人工回执，单次 requestId）。
   service?.onRiskApproval((request) => {
     win?.webContents.send("risk:approval", request);

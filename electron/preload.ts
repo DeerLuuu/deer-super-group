@@ -13,6 +13,7 @@ import type {
   PostBoardInput,
   SendMessageInput,
 } from "../src/shared/types.js";
+import type { GitSettings } from "../src/git/types.js";
 
 const api: DeerApi = {
   listWorkspaces: () => ipcRenderer.invoke("workspace:list"),
@@ -59,6 +60,23 @@ const api: DeerApi = {
     ipcRenderer.invoke("chat:question:answer", input),
   cancelChatQuestion: (input: CancelChatQuestionInput) =>
     ipcRenderer.invoke("chat:question:cancel", input),
+  // t96：Git 并行开发 / VCS / 合并队列
+  gitDiagnose: (workspaceId: string) => ipcRenderer.invoke("git:diagnose", workspaceId),
+  getTaskVcs: (taskId: string) => ipcRenderer.invoke("git:task-vcs", taskId),
+  gitCreatePr: (taskId: string) => ipcRenderer.invoke("git:create-pr", taskId),
+  gitCleanup: (taskId: string) => ipcRenderer.invoke("git:cleanup", taskId),
+  gitOpenPr: (taskId: string) => ipcRenderer.invoke("git:open-pr", taskId),
+  getGitSettings: (workspaceId: string) => ipcRenderer.invoke("git:settings:get", workspaceId),
+  saveGitSettings: (workspaceId: string, settings: Partial<GitSettings>) =>
+    ipcRenderer.invoke("git:settings:save", workspaceId, settings),
+  mergeQueue: (workspaceId: string) => ipcRenderer.invoke("git:merge-queue", workspaceId),
+  mergeEnqueue: (taskId: string) => ipcRenderer.invoke("git:merge-enqueue", taskId),
+  mergeApprove: (taskId: string) => ipcRenderer.invoke("git:merge-approve", taskId),
+  mergeWaiveChecks: (taskId: string, reason: string) =>
+    ipcRenderer.invoke("git:merge-waive", taskId, reason),
+  mergeStart: (taskId: string) => ipcRenderer.invoke("git:merge-start", taskId),
+  mergeProcess: (workspaceId: string) => ipcRenderer.invoke("git:merge-process", workspaceId),
+  gitRecover: (workspaceId: string) => ipcRenderer.invoke("git:recover", workspaceId),
   onChatEvent: (listener: (event: ChatEvent) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: ChatEvent) => listener(payload);
     ipcRenderer.on("chat:event", wrapped);

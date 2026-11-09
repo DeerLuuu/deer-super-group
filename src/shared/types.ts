@@ -485,6 +485,8 @@ export interface CreateTaskInput {
   title: string;
   description: string;
   acceptance: string[];
+  /** t96：软所有权声明（glob；P1 UI，API 先落）。 */
+  scopePaths?: string[];
 }
 
 export interface PlanTask {
