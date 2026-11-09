@@ -59,6 +59,7 @@ export interface Agent {
 
 export type TaskStatus =
   | "ready"
+  | "queued"
   | "running"
   | "blocked"
   | "review"
@@ -81,9 +82,27 @@ export interface Task {
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
+  /** t68 内核：调度优先级（数字越大越先，默认 50）。 */
+  priority?: number;
+  /** t68 内核：入队时间（queued）。 */
+  queuedAt?: string | null;
+  /** t68 内核：blocked 原因（waiting_dependencies/dependency_failed/dependency_cancelled/manual）。 */
+  blockedReason?: string | null;
+  /** t68 内核：最终失败分类（review_rejected/retry_exhausted/...）。 */
+  failureKind?: string | null;
+  /** t68 内核：已创建的 Run 数（= 下一次 attempt）。 */
+  attemptCount?: number;
+  /** t68 内核：自动重试的下一可启动时间。 */
+  nextRunAt?: string | null;
 }
 
-export type RunStatus = "running" | "completed" | "failed" | "cancelled";
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "waiting_human"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface Run {
   id: Id;
@@ -95,6 +114,22 @@ export interface Run {
   endedAt: string | null;
   tokenIn: number;
   tokenOut: number;
+  /** t68 内核：同 Task 内单调递增的尝试序号。 */
+  attempt?: number;
+  modelProfileId?: string | null;
+  modelId?: string | null;
+  permissionSnapshot?: PermissionMode | null;
+  sandboxId?: string | null;
+  retryOfRunId?: string | null;
+  heartbeatAt?: string | null;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  checkpointRef?: string | null;
+  checkpointStep?: number;
+  costUsd?: number;
+  errorCode?: string | null;
+  retryable?: boolean;
+  steps?: number;
 }
 
 export interface EventRecord {
@@ -106,6 +141,13 @@ export interface EventRecord {
   actor: string;
   payload: unknown;
   createdAt: string;
+  /** t68 事件 v2 字段（旧事件可为 undefined/默认）。 */
+  schemaVersion?: number;
+  idempotencyKey?: string | null;
+  correlationId?: string | null;
+  causationId?: string | null;
+  occurredAt?: string;
+  recordedAt?: string;
 }
 
 export type MessageKind = "request" | "report" | "question" | "decision" | "artifact" | "review";
@@ -281,7 +323,63 @@ export interface Snapshot {
   messages: MailboxMessage[];
   boardEntries: BoardEntry[];
   settings: LlmSettingsInfo;
+  /** t68：最近 Run（可选，UI 逐步接入）。 */
+  runs?: Run[];
+  /** t68：调度器快照（可选，UI 逐步接入）。 */
+  scheduler?: SchedulerSnapshot;
 }
+
+export interface SchedulerQueueItem {
+  taskId: Id;
+  title: string;
+  priority: number;
+  queuedAt: string | null;
+  ownerId: Id | null;
+}
+
+export interface RunSummary {
+  id: Id;
+  taskId: Id;
+  attempt: number;
+  agentId: Id;
+  status: RunStatus;
+  startedAt: string;
+  heartbeatAt: string | null;
+  endedAt: string | null;
+  errorCode: string | null;
+}
+
+export interface SchedulerSnapshot {
+  workspaceId: Id;
+  paused: boolean;
+  pausedReason: string | null;
+  limits: {
+    maxGlobal: number;
+    maxWorkspace: number;
+    maxPerAgent: number;
+  };
+  counts: Record<TaskStatus, number>;
+  activeRuns: RunSummary[];
+  queue: SchedulerQueueItem[];
+  updatedAt: IsoDate;
+}
+
+export type KernelErrorCode =
+  | "INVALID_TRANSITION"
+  | "INVALID_DEPENDENCY"
+  | "DEPENDENCY_LOCKED"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "PAUSED"
+  | "LIMIT_REACHED"
+  | "NO_AVAILABLE_AGENT"
+  | "HOOK_REJECTED"
+  | "IDEMPOTENT_REPLAY"
+  | "INTERNAL";
+
+export type KernelResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { code: KernelErrorCode; message: string; details?: unknown } };
 
 export interface CreateAgentInput {
   workspaceId: Id;

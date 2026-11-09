@@ -17,6 +17,8 @@ import type {
   PermissionMode,
   PostBoardInput,
   RiskApprovalRequest,
+  Run,
+  SchedulerSnapshot,
   SendMessageInput,
   Snapshot,
   Task,
@@ -35,6 +37,11 @@ import { runAgentLoop } from "./loop.js";
 import { Store } from "./store.js";
 import { fullThrottleBudget, withFullThrottle } from "./permission.js";
 import { RISK_APPROVAL_TIMEOUT_MS } from "../shared/approval.js";
+import {
+  ExecutionKernel,
+  type RunExecutionContext,
+  type RunExecutionResult,
+} from "./execution/kernel.js";
 
 const PERMISSION_MODES: PermissionMode[] = [
   "read_only",
@@ -146,9 +153,9 @@ export class AppService {
   readonly store: Store;
   private readonly listeners = new Set<(event: EventRecord) => void>();
   private readonly chatListeners = new Set<(event: ChatEvent) => void>();
-  private readonly runningTasks = new Set<string>();
-  private readonly aborts = new Map<string, AbortController>();
   private readonly chatAborts = new Map<string, AbortController>();
+  /** t68：执行内核（事件/状态机/调度/重试/恢复）。 */
+  private readonly kernel: ExecutionKernel;
   /**
    * DESIGN §15.4：Full Throttle 会话级状态（key = `workspaceId:agentId`）。
    * 仅会话级：不持久化、不写回 Agent 默认值、不随应用启动恢复；Agent 无工具可自行开启。
@@ -175,6 +182,11 @@ export class AppService {
         }
       }
     });
+    this.kernel = new ExecutionKernel({
+      store: this.store,
+      dataDir,
+      executor: (ctx) => this.executeRun(ctx),
+    });
   }
 
   onEvent(listener: (event: EventRecord) => void): () => void {
@@ -198,7 +210,7 @@ export class AppService {
   }
 
   close(): void {
-    for (const controller of this.aborts.values()) controller.abort();
+    this.kernel.dispose();
     this.store.close();
   }
 
@@ -757,56 +769,61 @@ export class AppService {
     return created.map((task) => this.store.getTask(task.id) ?? task);
   }
 
+  // ---------------------------------------------------------------- kernel
+  // t68：任务执行统一走 ExecutionKernel（事件/状态机/调度/重试/恢复）。
+  // runTask 保留为兼容别名（入队 + 等待终态）；旧 UI/IPC 无需改动。
+
   async runTask(taskId: string): Promise<void> {
-    if (this.runningTasks.has(taskId)) throw new Error("task is already running");
-    const task = this.store.getTask(taskId);
-    if (!task) throw new Error(`task not found: ${taskId}`);
-    if (task.status === "running") throw new Error("task is already running");
-    if (task.status === "done") throw new Error("task is already done");
+    await this.kernel.runTask(taskId);
+  }
 
-    for (const dependencyId of task.dependsOn) {
-      const dependency = this.store.getTask(dependencyId);
-      if (!dependency || dependency.status !== "done") {
-        throw new Error(`dependency is not done: ${dependency?.title ?? dependencyId}`);
-      }
-    }
+  startTask(taskId: string): Task {
+    return this.kernel.startTask(taskId);
+  }
 
+  cancelTask(taskId: string): Task {
+    return this.kernel.cancelTask(taskId);
+  }
+
+  retryTask(taskId: string): Task {
+    return this.kernel.retryTask(taskId);
+  }
+
+  cancelRun(runId: string): Run {
+    return this.kernel.cancelRun(runId);
+  }
+
+  listRuns(taskId: string): Run[] {
+    return this.kernel.listRuns(taskId);
+  }
+
+  pauseScheduler(workspaceId: string, reason?: string): SchedulerSnapshot {
+    return this.kernel.pauseScheduler(workspaceId, reason);
+  }
+
+  resumeScheduler(workspaceId: string): SchedulerSnapshot {
+    return this.kernel.resumeScheduler(workspaceId);
+  }
+
+  getScheduler(workspaceId: string): SchedulerSnapshot {
+    return this.kernel.getScheduler(workspaceId);
+  }
+
+  rebuildProjections(): ReturnType<ExecutionKernel["rebuildProjections"]> {
+    return this.kernel.rebuildProjections();
+  }
+
+  /** 内核执行器：一次 Run 的 LLM/工具执行（不含生命周期/状态写入，由 kernel 负责）。 */
+  private async executeRun(ctx: RunExecutionContext): Promise<RunExecutionResult> {
+    const { run, task, agent, signal, heartbeat, checkpoint } = ctx;
     const workspace = this.store.getWorkspace(task.workspaceId);
     if (!workspace) throw new Error("workspace not found");
-
-    const agents = this.store.listAgents(task.workspaceId).filter((agent) => !agent.isRouter);
-    const agent =
-      (task.ownerId ? this.store.getAgent(task.ownerId) : null) ??
-      agents.find((candidate) => candidate.status !== "running") ??
-      null;
-    if (!agent) {
-      throw new Error("no available member. Create a member first, then run the task.");
-    }
 
     const settings = this.store.getLlmSettings();
     const profile = resolveModelProfile(settings, agent.model);
     const provider = resolveProvider(settings, profile.providerId);
     const client = createLlmClientForModel(settings, profile);
     const model = profile.modelId;
-    const run = this.store.createRun(taskId, agent.id);
-    const controller = new AbortController();
-    this.runningTasks.add(taskId);
-    this.aborts.set(run.id, controller);
-    this.store.updateTask(taskId, {
-      status: "running",
-      ownerId: agent.id,
-      startedAt: new Date().toISOString(),
-      worktree: workspace.path,
-      branch: `deer/${task.id}`,
-    });
-    this.store.updateAgentStatus(agent.id, "running");
-    this.store.appendEvent({
-      aggregateType: "task",
-      aggregateId: taskId,
-      type: "run.started",
-      actor: `agent:${agent.name}`,
-      payload: { runId: run.id, agentId: agent.id, model },
-    });
 
     const registry = new ToolRegistry().registerAll(createBuiltinTools());
     // DESIGN §15.4：满血模式预算覆盖（仅提示/预算，不改权限门禁）。
@@ -821,7 +838,7 @@ export class AppService {
       agentId: agent.id,
       agentName: agent.name,
       store: this.store,
-      signal: controller.signal,
+      signal,
       // DESIGN §15.2：权限是执行层硬门禁。
       permission: agent.permission,
       // t58 IF-05：auto_risk 高风险 → 人类审批 UI（renderer 弹窗，单次生效；Agent 无自行批准路径）。
@@ -849,96 +866,62 @@ export class AppService {
       ) {
         this.store.appendEvent({
           aggregateType: "task",
-          aggregateId: taskId,
+          aggregateId: task.id,
           type,
           actor: `agent:${agent.name}`,
           payload: limitPayload(payload),
         });
+        if (type === "run.step") {
+          const step =
+            payload && typeof payload === "object" && "step" in payload
+              ? Number((payload as { step?: unknown }).step)
+              : 0;
+          heartbeat({ steps: step });
+          checkpoint({ step });
+        }
       }
     };
 
-    try {
-      const result = await runAgentLoop({
-        client,
-        model,
-        maxSteps: budget ? 30 * budget.maxStepsFactor : undefined,
-        maxOutputTokens: budget?.maxOutputTokens ?? profile.maxOutputTokens,
-        reasoningEffort:
-          budget?.reasoningEffort ??
-          (profile.thinkingEnabled ? profile.thinkingEffort : undefined),
-        thinkingEnabled: profile.thinkingEnabled,
-        thinkingStyle: thinkingStyleFor(provider, profile.modelId),
-        systemPrompt,
-        userMessage: `Start now. Task id: ${task.id}\nTitle: ${task.title}`,
-        tools: registry,
-        toolContext,
-        signal: controller.signal,
-        onEvent: emit,
-      });
+    const result = await runAgentLoop({
+      client,
+      model,
+      maxSteps: budget ? 30 * budget.maxStepsFactor : undefined,
+      maxOutputTokens: budget?.maxOutputTokens ?? profile.maxOutputTokens,
+      reasoningEffort:
+        budget?.reasoningEffort ??
+        (profile.thinkingEnabled ? profile.thinkingEffort : undefined),
+      thinkingEnabled: profile.thinkingEnabled,
+      thinkingStyle: thinkingStyleFor(provider, profile.modelId),
+      systemPrompt,
+      userMessage: `Start now. Task id: ${task.id}\nTitle: ${task.title}`,
+      tools: registry,
+      toolContext,
+      signal,
+      onEvent: emit,
+    });
 
-      const updated = this.store.getTask(taskId);
-      if (updated && updated.status !== "done") {
-        this.store.updateTask(taskId, {
-          status: "done",
-          summary: result.text || "任务完成。",
-          endedAt: new Date().toISOString(),
-        });
-        this.store.saveSummary({
-          taskId,
-          runId: run.id,
-          goal: task.title,
-          changes: [],
-          files: [],
-          tests: [],
-          decisions: [],
-          risks: [],
-          openQuestions: [],
-        });
-      }
+    this.store.saveSummary({
+      taskId: task.id,
+      runId: run.id,
+      goal: task.title,
+      changes: [],
+      files: [],
+      tests: [],
+      decisions: [],
+      risks: [],
+      openQuestions: [],
+    });
 
-      this.store.updateRun(run.id, {
-        status: "completed",
-        endedAt: new Date().toISOString(),
-        tokenIn: result.usage.inputTokens,
-        tokenOut: result.usage.outputTokens,
-      });
-      this.store.updateAgentStatus(agent.id, "idle");
-      this.store.appendEvent({
-        aggregateType: "task",
-        aggregateId: taskId,
-        type: "run.completed",
-        actor: `agent:${agent.name}`,
-        payload: { runId: run.id, usage: result.usage },
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.store.updateRun(run.id, {
-        status: "failed",
-        error: message,
-        endedAt: new Date().toISOString(),
-      });
-      this.store.updateTask(taskId, {
-        status: "failed",
-        endedAt: new Date().toISOString(),
-      });
-      this.store.updateAgentStatus(agent.id, "idle");
-      this.store.appendEvent({
-        aggregateType: "task",
-        aggregateId: taskId,
-        type: "run.failed",
-        actor: `agent:${agent.name}`,
-        payload: { runId: run.id, error: message },
-      });
-      throw error;
-    } finally {
-      this.runningTasks.delete(taskId);
-      this.aborts.delete(run.id);
-      this.store.updateAgentStatus(agent.id, "idle");
-    }
+    return {
+      summary: result.text || "任务完成。",
+      tokenIn: result.usage.inputTokens,
+      tokenOut: result.usage.outputTokens,
+      steps: result.steps,
+    };
   }
 
   getTaskTrace(taskId: string): EventRecord[] {
-    return this.store.listEvents({ aggregateId: taskId, limit: 1000 });
+    return this.store.listEventsForTask(taskId, 2000);
   }
 
   sendMessage(input: SendMessageInput): MailboxMessage {
