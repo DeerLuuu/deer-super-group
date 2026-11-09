@@ -149,6 +149,7 @@ export interface MemoryHit {
   agentId: string | null;
   kind: string;
   sourceRef: string | null;
+  refs: string[];
   title: string;
   snippet: string;
   content: string;

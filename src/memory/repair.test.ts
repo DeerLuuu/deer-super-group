@@ -90,7 +90,7 @@ describe("t105 repair: source/agent migration", () => {
     expect(memory.getBoard("ws", userBoard.id)?.source).toBe("user");
     expect(memory.getBoard("ws", userBoard.id)?.sourceRef).toBeNull();
     expect(memory.getBoard("ws", agentBoard.id)?.source).toBe("agent");
-    expect(memory.getBoard("ws", agentBoard.id)?.sourceRef).toBe("Ray");
+    expect(memory.getBoard("ws", agentBoard.id)?.sourceRef).toBe("agent-ray");
     expect(memory.listMemos("ws", "agent-ray")[0]?.sourceRef).toBe("agent-ray");
     expect(memory.listMemos("ws", "agent-ray")[0]?.id).toBe(memo.id);
 
@@ -99,14 +99,16 @@ describe("t105 repair: source/agent migration", () => {
     const legacyAgent = store.postBoard({ workspaceId: "ws", board: "backend", author: "Ray", kind: "fact", content: "legacy agent" });
     const legacyMemo = store.addMemo({ workspaceId: "ws", agentId: "agent-ray", kind: "lesson", content: "legacy memo" });
     expect(memory.getBoard("ws", legacyUser.id)?.source).toBe("user");
-    expect(memory.getBoard("ws", legacyAgent.id)?.sourceRef).toBe("Ray");
+    expect(memory.getBoard("ws", legacyAgent.id)?.sourceRef).toBe("agent-ray");
     expect(memory.getMemo("ws", "agent-ray", legacyMemo.id)?.sourceRef).toBe("agent-ray");
 
-    // Upgrade path: a t99 database has memory_schema=1 and no repair triggers.
+    // Upgrade path: a v2 database has name-based source_ref and old triggers.
+    store.db.prepare("UPDATE board_entries SET source_ref = 'Ray' WHERE id = ?").run(agentBoard.id);
     store.db.exec("DROP TRIGGER IF EXISTS trg_board_source_user; DROP TRIGGER IF EXISTS trg_board_source_ref; DROP TRIGGER IF EXISTS trg_memo_source_ref;");
-    store.db.exec("UPDATE memory_schema SET version = 1 WHERE version = 2");
+    store.db.exec("UPDATE memory_schema SET version = 2 WHERE version = 3");
     const upgraded = new MemoryStore(store, { clock: new FixedClock(now) });
-    expect(upgraded.schemaVersion).toBe(2);
+    expect(upgraded.schemaVersion).toBe(3);
+    expect(upgraded.getBoard("ws", agentBoard.id)?.sourceRef).toBe("agent-ray");
     const triggers = store.db.prepare("SELECT name FROM sqlite_master WHERE type='trigger'").all() as Array<{ name: string }>;
     expect(triggers.map((row) => row.name)).toEqual(expect.arrayContaining(["trg_board_source_user", "trg_board_source_ref", "trg_memo_source_ref"]));
   });
@@ -221,6 +223,53 @@ describe("t105 repair: context budget and working layers", () => {
     expect(context.hits.filter((hit) => hit.entityType === "board").length).toBeLessThanOrEqual(3);
     expect(context.usedTokens).toBeLessThanOrEqual(context.maxTokens);
     expect(context.text).toContain("Working memory");
+
+    const tight = service.buildContext({
+      workspaceId: ws,
+      actor: agentA,
+      mode: "worker",
+      taskId: "task-main",
+      taskTitle: "main",
+      dependencies: ["dep-0", "dep-1", "dep-2", "dep-3"],
+      budgetTokens: 400,
+      contextWindow: 20_000,
+      remainingTokens: 400,
+    });
+    expect(tight.usedTokens).toBeLessThanOrEqual(400);
+    if (tight.text.length === 0) expect(tight.degradedReason ?? tight.skippedReason).toBeTruthy();
+  });
+
+  it("filters task-scoped decisions by refs so task A does not see task B decisions", () => {
+    const { memory, service, ws } = setup();
+    memory.createBoard({
+      workspaceId: ws,
+      board: "backend",
+      author: "agent:ray",
+      kind: "decision",
+      content: "alpha decision task A",
+      confidence: "high",
+      refs: ["task:task-a"],
+      source: "agent",
+    });
+    memory.createBoard({
+      workspaceId: ws,
+      board: "backend",
+      author: "agent:ray2",
+      kind: "decision",
+      content: "alpha decision task B",
+      confidence: "high",
+      refs: ["task:task-b"],
+      source: "agent",
+    });
+    const context = service.buildContext({
+      workspaceId: ws,
+      actor: agentA,
+      mode: "router",
+      taskId: "task-a",
+      query: "alpha",
+    });
+    expect(context.text).toContain("decision task A");
+    expect(context.text).not.toContain("decision task B");
   });
 });
 
@@ -247,6 +296,12 @@ describe("t105 repair: validation, state matrix, sweep and privacy", () => {
     expect(ownRun.ok).toBe(true);
     if (ownRun.ok) expect(ownRun.value.agentId).toBe("agent-a");
     expect(service.onRunCompleted(agentB, "task-a", "run-a", ws).ok).toBe(false);
+
+    const humanBoard = unwrap(service.postBoard(human, { workspaceId: ws, board: "backend", kind: "fact", content: "human board" }));
+    expect(humanBoard.source).toBe("user");
+    expect(humanBoard.sourceRef).toBeNull();
+    const humanMemo = unwrap(service.createMemo(human, { workspaceId: ws, agentId: "agent-a", kind: "lesson", content: "human memo" }));
+    expect(humanMemo.sourceRef).toBe("agent-a");
   });
 
   it("blocks verify/promote on expired/archived entries and archive approval on non-active", () => {
@@ -264,6 +319,7 @@ describe("t105 repair: validation, state matrix, sweep and privacy", () => {
     const memo = memory.createMemo({ workspaceId: ws, agentId: "agent-a", kind: "lesson", content: "expiring memo", expiresInDays: 1 });
     clock.advanceDays(2);
     expect(() => memory.verifyMemo(ws, "agent-a", memo.id, "user")).toThrow(MemoryError);
+    expect(() => memory.promoteMemo(ws, "agent-a", memo.id, "user", "backend")).toThrow(MemoryError);
   });
 
   it("isolates sweep per workspace, emits failure/expiry events and counts only 0->1 stale", () => {
@@ -291,6 +347,24 @@ describe("t105 repair: validation, state matrix, sweep and privacy", () => {
     expect(store.listEvents({ aggregateType: "board" }).some((event) => event.type === "board.proposal_expired")).toBe(true);
   });
 
+  it("does not merge local sweep counts when a fault rolls back after stale or proposal", () => {
+    const { memory, clock, ws } = setup();
+    const staleBoard = board(memory, ws, "stale fault board");
+    clock.advanceDays(31);
+    const staleFault = memory.sweep(ws, { faultAfter: "stale" });
+    expect(staleFault.failedWorkspaces).toBe(1);
+    expect(staleFault.staleMarked).toBe(0);
+    const rawStale = memory.db.prepare("SELECT stale FROM board_entries WHERE id = ?").get(staleBoard.id) as { stale: number };
+    expect(Number(rawStale.stale)).toBe(0);
+
+    const ttl = board(memory, ws, "proposal fault board", { ttlDays: 1 });
+    clock.advanceDays(2);
+    const proposalFault = memory.sweep(ws, { faultAfter: "proposal" });
+    expect(proposalFault.failedWorkspaces).toBe(1);
+    expect(proposalFault.ttlProposed).toBe(0);
+    expect(memory.listProposals(ws, "pending").some((proposal) => proposal.entryId === ttl.id)).toBe(false);
+  });
+
   it("filters memos at SQL/load and counts only the agent's own memo stats", () => {
     const { store, service, memory, clock, ws } = setup();
     service.createMemo(agentA, { workspaceId: ws, agentId: "agent-a", kind: "lesson", content: "alpha a" });
@@ -314,6 +388,7 @@ describe("t105 repair: dedupe/diversity and comparator", () => {
     const second = board(memory, ws, "alpha same source two");
     const sameSource = memory.search({ workspaceId: ws, query: "alpha", limit: 50 });
     expect(sameSource.hits).toHaveLength(1);
+    expect(sameSource.hits[0]?.sourceRef).toBe("agent:ray");
     expect(new Set(sameSource.hits[0]?.citations)).toEqual(new Set([`board:${first.id}`, `board:${second.id}`]));
 
     for (let i = 0; i < 5; i += 1) {
@@ -327,8 +402,8 @@ describe("t105 repair: dedupe/diversity and comparator", () => {
     expect(compareIds("a", "B")).toBeGreaterThan(0);
     expect(compareIds("B", "a")).toBeLessThan(0);
     expect(compareIds("same", "same")).toBe(0);
-    expect(compareIds("ä", "z")).toBeGreaterThan(0);
-    expect([..."b,a,B,ä,z".split(",")].sort(compareIds)).toEqual(["B", "a", "b", "z", "ä"]);
+    expect(compareIds("盲", "z")).toBeGreaterThan(0);
+    expect([..."b,a,B,盲,z".split(",")].sort(compareIds)).toEqual(["B", "a", "b", "z", "盲"]);
   });
 });
 

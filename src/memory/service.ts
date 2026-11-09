@@ -100,7 +100,7 @@ export class MemoryService {
         ...input,
         author: this.authorOf(actor),
         source: actor.kind === "human" ? "user" : "agent",
-        sourceRef: actor.id ?? null,
+        sourceRef: actor.kind === "human" ? null : actor.id,
         pinned: actor.kind === "human" ? input.pinned === true : false,
       });
     });
@@ -192,7 +192,7 @@ export class MemoryService {
       return this.store.createMemo({
         ...input,
         source: actor.kind === "human" ? "user" : "agent",
-        sourceRef: actor.id ?? null,
+        sourceRef: actor.kind === "human" ? input.agentId : actor.id,
       });
     });
   }

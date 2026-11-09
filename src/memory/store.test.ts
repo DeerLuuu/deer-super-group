@@ -127,14 +127,14 @@ describe("MemoryStore migration and schema", () => {
     });
 
     const memory = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(memory.schemaVersion).toBe(2);
+    expect(memory.schemaVersion).toBe(3);
     expect(memory.backupPath).not.toBeNull();
     expect(existsSync(memory.backupPath as string)).toBe(true);
     expect((store.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
 
     const board = memory.getBoard("ws-old", legacy.id);
     expect(board?.source).toBe("agent");
-    expect(board?.sourceRef).toBe("Router");
+    expect(board?.sourceRef).toBe("agent-router");
     expect(board?.status).toBe("active");
     expect(board?.contentHash).toHaveLength(64);
     expect(memory.listMemos("ws-old", "agent-old")[0]?.status).toBe("active");
@@ -144,7 +144,7 @@ describe("MemoryStore migration and schema", () => {
 
     const domainsBefore = memory.listDomains("ws-old").length;
     const reopened = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(reopened.schemaVersion).toBe(2);
+    expect(reopened.schemaVersion).toBe(3);
     expect(reopened.listDomains("ws-old")).toHaveLength(domainsBefore);
   });
 
@@ -163,7 +163,7 @@ describe("MemoryStore migration and schema", () => {
     expect(tables).toHaveLength(0);
 
     const recovered = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(recovered.schemaVersion).toBe(2);
+    expect(recovered.schemaVersion).toBe(3);
   });
 
   it("keeps old postBoard/addMemo/saveSummary call paths working after migration", () => {

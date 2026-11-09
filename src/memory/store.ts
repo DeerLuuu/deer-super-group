@@ -183,7 +183,7 @@ export class MemoryStore {
   private migrate(fault: "after-ddl" | null): void {
     const version = this.schemaVersion;
     const upgrade = version >= 1;
-    if (version >= 2) {
+    if (version >= 3) {
       this.ensureFts();
       return;
     }
@@ -267,11 +267,12 @@ export class MemoryStore {
       this.db.prepare(`
         UPDATE board_entries
            SET source = ${sourceExpr},
-               source_ref = CASE WHEN lower(author) = 'user' THEN NULL
-                                 ELSE COALESCE(source_ref,
-                                   (SELECT a.name FROM agents a
+               source_ref = CASE WHEN lower(author) = 'user' OR source = 'user' THEN NULL
+                                 ELSE COALESCE(
+                                   (SELECT a.id FROM agents a
                                      WHERE a.workspace_id = board_entries.workspace_id
-                                       AND a.name = board_entries.author LIMIT 1), author)
+                                       AND a.name = board_entries.author LIMIT 1),
+                                   source_ref, author)
                             END,
                status = COALESCE(NULLIF(status, ''), 'active'),
                stale = COALESCE(stale, 0),
@@ -291,26 +292,29 @@ export class MemoryStore {
       this.db.prepare("UPDATE summaries SET agent_id = COALESCE(agent_id, (SELECT owner_id FROM tasks WHERE id = summaries.task_id), (SELECT agent_id FROM runs WHERE task_id = summaries.task_id ORDER BY started_at DESC LIMIT 1)), agent_name = COALESCE(agent_name, (SELECT a.name FROM agents a JOIN runs r ON r.agent_id = a.id WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1)), model = COALESCE(model, (SELECT r.model_id FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1)), token_in = COALESCE(token_in, (SELECT r.token_in FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1), 0), token_out = COALESCE(token_out, (SELECT r.token_out FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1), 0), duration_ms = COALESCE(duration_ms, 0)").run();
 
       // Legacy Store.postBoard/addMemo paths do not know about source metadata.
-      // Triggers keep those integration paths correct without touching Store.
+      // Drop/recreate so v2 databases that still have name-based triggers are fixed.
       this.db.exec(`
-        CREATE TRIGGER IF NOT EXISTS trg_board_source_user
+        DROP TRIGGER IF EXISTS trg_board_source_user;
+        DROP TRIGGER IF EXISTS trg_board_source_ref;
+        DROP TRIGGER IF EXISTS trg_memo_source_ref;
+        CREATE TRIGGER trg_board_source_user
         AFTER INSERT ON board_entries
         WHEN NEW.source = 'agent' AND lower(NEW.author) = 'user'
         BEGIN
           UPDATE board_entries SET source = 'user', source_ref = NULL WHERE id = NEW.id;
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_board_source_ref
+        CREATE TRIGGER trg_board_source_ref
         AFTER INSERT ON board_entries
         WHEN NEW.source = 'agent' AND NEW.source_ref IS NULL
         BEGIN
           UPDATE board_entries
              SET source_ref = COALESCE(
-               (SELECT a.name FROM agents a
+               (SELECT a.id FROM agents a
                  WHERE a.workspace_id = NEW.workspace_id AND a.name = NEW.author LIMIT 1),
                NEW.author)
            WHERE id = NEW.id;
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_memo_source_ref
+        CREATE TRIGGER trg_memo_source_ref
         AFTER INSERT ON memos
         WHEN NEW.source_ref IS NULL
         BEGIN
@@ -320,14 +324,14 @@ export class MemoryStore {
 
       this.backfillDomains();
       this.backfillHashes();
-      this.db.prepare("INSERT OR IGNORE INTO memory_schema (version, applied_at) VALUES (2, ?)").run(now);
+      this.db.prepare("INSERT OR IGNORE INTO memory_schema (version, applied_at) VALUES (3, ?)").run(now);
       this.db.prepare("INSERT OR IGNORE INTO memory_index_state (id, dirty, entry_count, fts_available, last_indexed_at) VALUES ('memory', 1, 0, 0, NULL)").run();
       this.store.appendEvent({
         aggregateType: "memory",
         aggregateId: "memory",
         type: "memory.migrated",
         actor: "system",
-        payload: { schemaVersion: 2, fromVersion: version, backup: backupPath !== null },
+        payload: { schemaVersion: 3, fromVersion: version, backup: backupPath !== null },
       });
     });
 
@@ -1180,6 +1184,9 @@ export class MemoryStore {
       const memo = this.getMemo(workspaceId, agentId, memoId);
       if (!memo) throw new MemoryError("MEMORY_NOT_FOUND", "memo not found");
       if (memo.status !== "active") throw new MemoryError("MEMORY_CONFLICT", "memo is not active");
+      if (memo.expiresAt && Date.parse(memo.expiresAt) <= Date.parse(this.clock.now())) {
+        throw new MemoryError("MEMORY_CONFLICT", "memo is expired");
+      }
       if (memo.promotedToBoardId) throw new MemoryError("MEMORY_CONFLICT", "memo already promoted");
       const entry = this.createBoard({
         workspaceId,
@@ -1512,7 +1519,7 @@ export class MemoryStore {
           ttlAt: entry.ttlAt, expiresAt: null, pinned: entry.pinned, nowIso: now,
           staleAfterDays: this.config.staleAfterDays,
         });
-        hits.push(this.hit({ entityType, entry, kind: entry.kind, sourceRef: entry.sourceRef, title: firstLine(entry.content), content: entry.content, snippet: snippetAround(entry.content, [], 400), source: entry.source, confidence: entry.confidence, citations: [`board:${entry.id}`], scored, board: entry.board, agentId: null }));
+        hits.push(this.hit({ entityType, entry, kind: entry.kind, sourceRef: entry.sourceRef, refs: entry.refs, title: firstLine(entry.content), content: entry.content, snippet: snippetAround(entry.content, [], 400), source: entry.source, confidence: entry.confidence, citations: [`board:${entry.id}`], scored, board: entry.board, agentId: null }));
       } else if (entityType === "memo") {
         const memo = entity as Memo;
         const scored = scoreEntity({
@@ -1521,7 +1528,7 @@ export class MemoryStore {
           evidenceAt: null, ttlAt: null, expiresAt: memo.expiresAt, pinned: false, nowIso: now,
           staleAfterDays: this.config.staleAfterDays,
         });
-        hits.push(this.hit({ entityType, entry: memo, kind: memo.kind, sourceRef: memo.sourceRef, title: memo.kind, content: memo.content, snippet: snippetAround(memo.content, [], 400), source: memo.source, confidence: memo.confidence, citations: [`memo:${memo.id}`], scored, board: null, agentId: memo.agentId }));
+        hits.push(this.hit({ entityType, entry: memo, kind: memo.kind, sourceRef: memo.sourceRef, refs: [], title: memo.kind, content: memo.content, snippet: snippetAround(memo.content, [], 400), source: memo.source, confidence: memo.confidence, citations: [`memo:${memo.id}`], scored, board: null, agentId: memo.agentId }));
       } else {
         const summary = entity as TaskSummary;
         const confidence: Confidence = summary.outcome === "completed" ? "high" : "medium";
@@ -1531,7 +1538,7 @@ export class MemoryStore {
           evidenceAt: null, ttlAt: null, expiresAt: null, pinned: false, nowIso: now,
           staleAfterDays: this.config.staleAfterDays,
         });
-        hits.push(this.hit({ entityType, entry: summary, kind: "summary", sourceRef: null, title: summary.goal, content: summary.goal, snippet: snippetAround(summary.goal, [], 400), source: "task", confidence, citations: [`summary:${summary.id}`], scored, board: null, agentId: summary.agentId }));
+        hits.push(this.hit({ entityType, entry: summary, kind: "summary", sourceRef: null, refs: summary.evidenceRefs, title: summary.goal, content: summary.goal, snippet: snippetAround(summary.goal, [], 400), source: "task", confidence, citations: [`summary:${summary.id}`], scored, board: null, agentId: summary.agentId }));
       }
     }
     return hits;
@@ -1542,6 +1549,7 @@ export class MemoryStore {
     entry: Entity;
     kind: string;
     sourceRef: string | null;
+    refs: string[];
     title: string;
     content: string;
     snippet: string;
@@ -1562,6 +1570,7 @@ export class MemoryStore {
       agentId: input.agentId,
       kind: input.kind,
       sourceRef: input.sourceRef,
+      refs: input.refs,
       title: input.title,
       snippet: input.snippet,
       content: input.content,
@@ -1651,12 +1660,14 @@ export class MemoryStore {
   }
 
   /** Up to three pinned/decision board entries, used for the working/semantic prelude. */
-  pinnedDecisionHits(workspaceId: string, limit = 3): MemoryHit[] {
+  pinnedDecisionHits(workspaceId: string, limit = 3, taskIds: string[] = []): MemoryHit[] {
     this.assertMigrated();
     this.ensureWorkspace(workspaceId);
     const now = this.clock.now();
+    const taskRefs = new Set(taskIds.filter(Boolean).map((id) => `task:${id}`));
     const entries = this.listBoard(workspaceId, { limit: 500 })
       .filter((entry) => entry.status === "active" && (entry.pinned || entry.kind === "decision"))
+      .filter((entry) => taskRefs.size === 0 || entry.refs.length === 0 || entry.refs.some((ref) => taskRefs.has(ref)))
       .slice(0, Math.max(0, Math.min(3, limit)));
     return entries.map((entry) => {
       const scored = scoreEntity({
@@ -1680,6 +1691,7 @@ export class MemoryStore {
         entry,
         kind: entry.kind,
         sourceRef: entry.sourceRef,
+        refs: entry.refs,
         title: firstLine(entry.content),
         content: entry.content,
         snippet: snippetAround(entry.content, [], 400),
@@ -1695,7 +1707,10 @@ export class MemoryStore {
 
   // ---------------------------------------------------------------- maintenance
 
-  sweep(workspaceId?: string, options: { faultWorkspace?: string } = {}): MemoryMaintenanceResult {
+  sweep(
+    workspaceId?: string,
+    options: { faultWorkspace?: string; faultAfter?: "stale" | "proposal" } = {},
+  ): MemoryMaintenanceResult {
     this.assertMigrated();
     if (workspaceId) this.ensureWorkspace(workspaceId);
     const started = Date.now();
@@ -1720,6 +1735,7 @@ export class MemoryStore {
     };
     for (const row of workspaceRows) {
       const ws = String(row.id);
+      const local = { staleMarked: 0, ttlProposed: 0, cooldownSkipped: 0, memosExpired: 0, proposalsExpired: 0 };
       try {
         this.store.withTransaction(() => {
           if (options.faultWorkspace === ws) throw new Error("injected sweep failure");
@@ -1736,7 +1752,10 @@ export class MemoryStore {
           const memoStale = this.db.prepare(
             "UPDATE memos SET stale = 1 WHERE workspace_id = ? AND status = 'active' AND stale = 0 AND COALESCE(last_verified_at, created_at) <= ?",
           ).run(ws, staleCutoff);
-          result.staleMarked += Number(boardStale.changes ?? 0) + Number(memoStale.changes ?? 0);
+          local.staleMarked = Number(boardStale.changes ?? 0) + Number(memoStale.changes ?? 0);
+          if (options.faultAfter === "stale" && (!options.faultWorkspace || options.faultWorkspace === ws)) {
+            throw new Error("injected sweep failure after stale");
+          }
 
           const candidates = this.db.prepare(
             `SELECT e.* FROM board_entries e
@@ -1748,14 +1767,17 @@ export class MemoryStore {
           for (const candidate of candidates) {
             const entry = this.toBoard(candidate);
             this.proposeArchive({ workspaceId: ws, entryId: entry.id, reason: "ttl_expired", proposedBy: "system", enforceCooldown: true });
-            result.ttlProposed += 1;
+            local.ttlProposed += 1;
           }
           const skipped = this.db.prepare(
             `SELECT COUNT(*) AS n FROM board_entries e
               WHERE e.workspace_id = ? AND e.status = 'active' AND e.pinned = 0 AND e.ttl_at IS NOT NULL AND e.ttl_at <= ?
                 AND EXISTS (SELECT 1 FROM board_archive_proposals p WHERE p.entry_id = e.id AND p.status = 'rejected' AND p.decided_at IS NOT NULL AND p.decided_at > ?)`,
           ).get(ws, now, rejectCutoff) as Row;
-          result.cooldownSkipped += Number(skipped.n ?? 0);
+          local.cooldownSkipped = Number(skipped.n ?? 0);
+          if (options.faultAfter === "proposal" && (!options.faultWorkspace || options.faultWorkspace === ws)) {
+            throw new Error("injected sweep failure after proposal");
+          }
 
           const expiredMemos = this.db.prepare(
             "SELECT id, agent_id FROM memos WHERE workspace_id = ? AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?",
@@ -1772,7 +1794,7 @@ export class MemoryStore {
               payload: { workspaceId: ws, agentId: String(memo.agent_id) },
             });
           }
-          result.memosExpired += expiredMemos.length;
+          local.memosExpired = expiredMemos.length;
 
           const expiredProposals = this.db.prepare(
             "SELECT id, entry_id FROM board_archive_proposals WHERE workspace_id = ? AND status = 'pending' AND proposed_at <= ?",
@@ -1789,8 +1811,13 @@ export class MemoryStore {
               payload: { workspaceId: ws, proposalId: String(proposal.id) },
             });
           }
-          result.proposalsExpired += expiredProposals.length;
+          local.proposalsExpired = expiredProposals.length;
         });
+        result.staleMarked += local.staleMarked;
+        result.ttlProposed += local.ttlProposed;
+        result.cooldownSkipped += local.cooldownSkipped;
+        result.memosExpired += local.memosExpired;
+        result.proposalsExpired += local.proposalsExpired;
       } catch {
         result.failedWorkspaces += 1;
         this.store.appendEvent({
@@ -1883,9 +1910,9 @@ export class MemoryStore {
 
   private resolveAgentSourceRef(workspaceId: string, author: string): string | null {
     const row = this.db
-      .prepare("SELECT name FROM agents WHERE workspace_id = ? AND name = ? LIMIT 1")
+      .prepare("SELECT id FROM agents WHERE workspace_id = ? AND name = ? LIMIT 1")
       .get(workspaceId, author) as Row | undefined;
-    return row?.name ? String(row.name) : author;
+    return row?.id ? String(row.id) : author;
   }
 
   private normalizeTags(raw: string[]): string[] {

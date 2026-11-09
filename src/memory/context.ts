@@ -118,13 +118,22 @@ export class MemoryContextBuilder {
       hits = hits.filter((hit) => !hit.expired);
     }
 
-    // Pinned/decision prelude is capped at three; it is board-shared and never
-    // includes private memos. Own memo visibility is already enforced by search.
-    const pinned = this.store
-      .pinnedDecisionHits(input.workspaceId, 3)
-      .filter((hit) => !hit.expired && !hit.stale);
+    const taskRefs = new Set(
+      [input.taskId, ...(input.dependencies ?? [])].filter(Boolean).map((id) => `task:${id}`),
+    );
+    const pinned = taskRefs.size > 0
+      ? this.store
+          .pinnedDecisionHits(input.workspaceId, 3, [...taskRefs].map((ref) => ref.slice("task:".length)))
+          .filter((hit) => !hit.expired && !hit.stale)
+      : [];
     const merged = [...pinned, ...hits];
-    const deduped = dedupeForContext(merged);
+    const deduped = dedupeForContext(merged).filter((hit) => {
+      if (hit.entityType !== "board") return true;
+      if (!(hit.pinned || hit.kind === "decision")) return true;
+      // Task-scoped context must not pull in decisions pinned by another task.
+      if (taskRefs.size === 0 || hit.refs.length === 0) return true;
+      return hit.refs.some((ref) => taskRefs.has(ref));
+    });
 
     // Working memory: current task + up to three dependency summaries, <=600 tokens.
     const workingLines: string[] = [];
@@ -146,6 +155,21 @@ export class MemoryContextBuilder {
     while (workingLines.length > 0 && workingTokens(workingLines) > this.store.config.workingMaxTokens) {
       workingLines.pop();
     }
+    // Then fit working memory into what remains after the fixed header/section overhead.
+    const headerTokens = estimateTokens(UNTRUSTED_HEADER);
+    const workingAllowance = Math.max(0, maxTokens - headerTokens - 20);
+    const beforeTrim = [...workingLines];
+    while (workingLines.length > 0 && workingTokens(workingLines) > workingAllowance) {
+      workingLines.pop();
+    }
+    if (workingLines.length === 0 && beforeTrim.length > 0 && workingTokens([beforeTrim[0]]) > workingAllowance) {
+      this.store.recordContextEvent("memory.context_skipped", input.workspaceId, {
+        code: "WORKING_OVERFLOW",
+        mode: input.mode,
+        maxTokens,
+      });
+      return emptyContext(maxTokens, "budget", "WORKING_OVERFLOW");
+    }
     const workingSection: MemoryContextSection | null =
       workingLines.length > 0
         ? {
@@ -161,7 +185,7 @@ export class MemoryContextBuilder {
 
     const episodic = deduped.filter((hit) => hit.entityType === "summary");
     const semantic = deduped.filter((hit) => hit.entityType !== "summary");
-    const overhead = estimateTokens(UNTRUSTED_HEADER) + workingTokens(workingLines) + 20;
+    const overhead = headerTokens + workingTokens(workingLines) + 20;
     const hitBudget = Math.max(0, maxTokens - overhead);
     const capped = truncateBudget(
       [...episodic, ...semantic],
@@ -209,11 +233,11 @@ export class MemoryContextBuilder {
     const usedTokens = estimateTokens(text);
     if (usedTokens > maxTokens) {
       this.store.recordContextEvent("memory.context_skipped", input.workspaceId, {
-        code: "BUDGET_OVERFLOW",
+        code: "CONTEXT_OVERFLOW",
         mode: input.mode,
         maxTokens,
       });
-      return emptyContext(maxTokens, "budget", null, capped.budget.omitted);
+      return emptyContext(maxTokens, "budget", "CONTEXT_OVERFLOW", capped.budget.omitted);
     }
     return {
       text,
