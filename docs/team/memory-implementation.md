@@ -1,7 +1,7 @@
-# 记忆系统核心实现记录（t99）
+# 记忆系统核心实现记录（t99 + t105 repair）
 
 > 设计基线：`docs/team/memory-system-design.md`（t74 + t86 修订，t89 复审 pass）。
-> 实现分支：`feature/t99-memory-core`（worktree `branches/t99-memory-core`，基于 `origin/main` 24ba09a）。
+> 实现分支：`feature/t99-memory-core`（worktree `branches/t99-memory-core`，基于 `origin/main` 24ba09a；t105 repair 同分支/同 PR #3）。
 > 范围：记忆核心存储/迁移/检索/TTL/治理；**不包含** AppService、IPC、工具、UI 集成（t99 明确 out of scope）。
 > 日期：2026-11-10（Asia/Shanghai）。
 
@@ -21,7 +21,7 @@
 - owner 四层过滤：SQL、store、service、context；
 - 检索预算/去重/来源引用/untrusted 注入边界；
 - 事件审计（payload 不含正文/query）、migration additive/备份/回滚；
-- 24 条确定性核心测试。
+- 24 条确定性核心测试（t105 repair 后 5 文件 / 38 条）。
 
 **未修改** `src/kernel/store.ts`：`MemoryStore` 组合复用既有 `Store.db`、`Store.withTransaction`、`Store.backupDatabase`，避免把新的记忆行为塞进旧方法；服务/工具/IPC 接入是后续任务（见 §8）。
 
@@ -51,18 +51,19 @@
 
 - `board_entries`：`source/source_ref/ttl_at/last_verified_at/verified_by/evidence_at/status/archived_at/archived_by/archive_reason/promoted_to_id/stale/updated_at/content_hash`。
 - `memos`：`confidence/source/source_ref/source_task_id/source_run_id/expires_at/status/stale/last_verified_at/verified_by/promoted_to_board_id/updated_at/content_hash`。
-- `summaries`：`workspace_id/attempt/outcome/next_steps/evidence_refs/agent_name/model/token_in/token_out/duration_ms/content_hash/embedding`。
-- 新表：`memory_schema`、`board_domains`、`board_archive_proposals`（含 `entry_snapshot TEXT`）、`memory_index_state`、`memory_fts`（6 列 + trigram）。
+- `summaries`：`workspace_id/attempt/outcome/next_steps/evidence_refs/agent_id/agent_name/model/token_in/token_out/duration_ms/content_hash/embedding`。
+- 新表：`memory_schema`（version 2）、`board_domains`、`board_archive_proposals`（含 `entry_snapshot TEXT`，早期表用 PRAGMA 守卫 ALTER）、`memory_index_state`、`memory_fts`（6 列 + trigram）。
 - 索引：board_domains workspace；archive workspace/status/proposedAt、entry/status/decidedAt、pending 部分唯一；summaries task/run；memos agent/status/time；board workspace/board/status/time。
 
 ### 3.2 迁移保证
 
 - 首次迁移前对文件库执行 `VACUUM INTO` 备份（复用 `Store.backupDatabase`，含 `integrity_check`）；`:memory:` 跳过。
 - `Store.withTransaction` 包裹 ALTER/新表/backfill/memory_schema 写入；任何 DDL/回填失败整体回滚，`Store.user_version` 不被记忆修改。
-- 旧行回填：source/status/updated_at/content_hash/domains；memo confidence/source/status/stale；summary workspaceId（从 tasks）、outcome（done=completed）、attempt、agent/model/token/duration。
+- 旧行回填：source（author='user' → user，其余 agent）/sourceRef（agents.name，memo=agentId）/status/updated_at/content_hash/domains；memo confidence/source/status/stale；summary workspaceId（从 tasks）、outcome（done=completed）、attempt、agent_id（task.owner_id → run.agent_id）、agent/model/token/duration。
+- 旧 `Store.postBoard/addMemo` 集成路径用 AFTER INSERT trigger 推断 source/sourceRef；`memory_schema` 从 t99 的 1 升级到 2，re-run 幂等。
 - 二次构造 `MemoryStore` 幂等；`memory_schema` 独立版本，不与 t68 `user_version=2` 混用。
 - FTS 在 schema 提交后创建；创建失败不阻塞迁移，`ftsAvailable=false` 并走 LIKE；`memory_index_state` 记录 dirty/available。
-- 已用测试验证：旧库备份、迁移失败回滚、旧 `Store.postBoard/addMemo/saveSummary` 路径、二次迁移幂等。
+- 已用测试验证：旧库备份、迁移失败回滚、早期 proposal 表 snapshot 守卫、旧 `Store.postBoard/addMemo/saveSummary` 路径、t99 v1→v2 升级、二次迁移幂等。
 
 ---
 
@@ -90,10 +91,10 @@ SELECT entity_type, entity_id,
 - FTS 候选经可见性/状态过滤后，对**参与排序的可见候选**做结果集 min-max：
   - `rankMin = min(rank)`（最负=最佳）→ rel=1；`rankMax = max(rank)` → rel=0；全等=1。
 - `MemoryScoreBreakdown` 保留 `relevance/rawRank/normalization/confidence/freshness/typeWeight/pinBoost/verifiedBoost/evidenceBoost/penalty/score`。
-- 固定 score：`rel^0.8 × confidence × freshness × typeWeight × pin × verified × evidence × penalty`，round6；tie-break `score DESC → pinned → verified → freshness → createdAt → id`。
-- 去重：按 contentHash 保留最高分并合并 citations（最多 5）。
+- 固定 score：`rel^0.8 × confidence × freshness × typeWeight × pin × verified × evidence × penalty`，round6；tie-break `score DESC → pinned → verified → freshness → createdAt → id`，id 使用纯 `a < b` 字典序（非 localeCompare）。
+- 去重：按 contentHash 保留最高分；同 `source+sourceRef+kind` 合并；合并 citations（最多 5）；每 board/agent 最多 3 条（context 同规则）。
 - 预算：`estimateTokens=ceil(chars/3)`；默认 semantic 900 / episodic 700，全局不超 maxTokens；超出计 omitted。
-- 测试覆盖：3 次命中 > 1 次、tag 命中 > 正文噪声、>200 命中最优项保留、中文 2 字 LIKE、FTS 中文 3 字、注入输入不抛异常、重复调用确定性、内容指纹去重/citations。
+- 测试覆盖：3 次命中 > 1 次、tag 命中 > 正文噪声、>200 命中最优项保留、中文 2 字 LIKE、FTS 中文 3 字、注入输入不抛异常、重复调用确定性、内容指纹去重/citations、同源合并/上限。
 
 ---
 
@@ -103,11 +104,14 @@ SELECT entity_type, entity_id,
 - TTL 到期只产生 pending 归档提议，不自动归档；pinned 永不自动提议。
 - `entry_snapshot` 在提议时写入（board/kind/confidence/TTL/lastVerified/pin/hash/preview）；提议后 verify/pin/TTL 变化将 pending 置 superseded；批准卡可读取快照。
 - 提案过期 30d；reject 后 7 天内自动 sweep 不重提，期满可重提；人工可显式提议（P0 低层允许，服务人类）。
+- verify/promote 仅 active 且非 expired；archive-approve 要求 entry active；重复 approve 返回 `MEMORY_PROPOSAL_CLOSED`；memo verify 同理。
 - stale：Clock 计算 ISO cutoff，参数绑定，SQL 不使用 `datetime()`；29.9d 不 stale、30.0d/31d stale；lastVerifiedAt 优先、否则 createdAt；verify 清除 stale。
+- sweep：逐 workspace 事务 + 错误隔离，失败写 `memory.sweep_failed`；memo expiry/proposal expiry 各写事件；staleMarked 只统计 stale 0→1。
 - memo 过期：status=expired，不删除；搜索默认排除。
 - Run 成功只刷新 board `evidence_at`；memo 没有 evidenceAt，只用 sourceTaskId/sourceRunId。
 - 服务层 human-only：pin/verify/setTtl/archive propose/decide/promote/ memo verify/archive/promote/sweep；Agent 调用返回 `MEMORY_FORBIDDEN` 并写 `memory.command_rejected`（无正文）。
-- owner：listMemos 必须 agentId；search 的 memo 候选强制 `input.agentId`；snapshot 未传 agentId 返回空 memos；context 只装配 actor 自己的 memo。
+- owner：listMemos 必须 agentId；search 的 memo 候选强制 `input.agentId` 且 SQL/loadEntities 按 agent_id 过滤；snapshot 未传 agentId 返回空 memos、Agent counts 只统计自身；context 只装配 actor 自己的 memo。
+- workspace/agent/task/run：store 校验 workspace 存在、agent 属于 workspace、task/run 属于 workspace；service 额外校验 Agent 仅自身 run/actor；跨 workspace/非法 id 测试覆盖。
 
 ---
 
@@ -135,8 +139,8 @@ pnpm test                              # pass（见下）
 
 - `pnpm typecheck`：通过（无输出错误）。
 - `pnpm build`：Vite 392 modules + electron main/preload 构建通过；>500KB chunk 为既有警告。
-- `pnpm test`：**25 文件 / 313 条全部通过**（其中记忆核心 4 文件 / 24 条；既有 21 文件 / 289 条无回归）。
-- 记忆核心：`pnpm vitest run src/memory` → **4 文件 / 24 条**通过（store 11、retrieval 7、privacy 3、context 3）。
+- `pnpm test`：**26 文件 / 327 条全部通过**（其中记忆核心 5 文件 / 38 条；既有 21 文件 / 289 条无回归）。
+- 记忆核心：`pnpm vitest run src/memory` → **5 文件 / 38 条**通过（store 11、retrieval 7、privacy 3、context 3、repair 14）。
 
 ### 7.2 测试覆盖映射
 
@@ -145,8 +149,9 @@ pnpm test                              # pass（见下）
 | schema/迁移/备份/回滚/旧库 | `store.test.ts` migration 3 条 |
 | TTL/stale 29.9/30/31、verify fallback、reject 冷却、snapshot | `store.test.ts` lifecycle |
 | 六权重/ORDER BY/>200/trigram/LIKE/minmax/breakdown/去重 | `retrieval.test.ts` 7 条 |
-| owner 四层过滤/人类治理/Agent 无治理路径 | `privacy.test.ts` 3 条 |
+| owner 四层过滤/人类治理/Agent 无治理路径 | `privacy.test.ts` 3 条 + `repair.test.ts` validation |
 | 预算/引用/untrusted/私有 memo 不注入 | `context.test.ts` 3 条 |
+| t105 source/agent_id/context/working/sweep/dedupe/limits/privacy | `repair.test.ts` 14 条 |
 
 ### 7.3 未覆盖/后续
 
@@ -185,3 +190,26 @@ pnpm test                              # pass（见下）
 - 代码回滚：revert 本 PR；`src/memory/` 与集成调用点移除。
 - DB：迁移前 `Store.backupDatabase()` 生成 `.v1-backup`；恢复备份文件即可。新列/新表可忽略，不破坏旧 Store 读取。
 - 关闭记忆：后续集成 `memory.enabled=0` 只走旧路径；本 PR 未接生产启动，不改变现有行为。
+
+---
+
+## 11. t105 repair（round 2）
+
+同分支 `feature/t99-memory-core` / 同 PR #3，针对评审 R1–R12 的修复，不新建 PR。
+
+| # | 修复 | 落点/测试 |
+|---|------|-----------|
+| 1 | source 推断 + sourceRef | fresh migration `author='user' → user`，agent 用 `agents.name`；memo `source_ref=agentId`；Store.postBoard/addMemo 用 AFTER INSERT trigger；`repair.test.ts` user/agent/old-path fixture |
+| 2 | contextBudget 公式 | `resolveContextBudget = min(contextWindow*15%, remaining, mode cap)`；<200 返回空并写 `memory.context_skipped`；build try/catch 写 `memory.context_failed`；budget=100/fault/used<=max 测试 |
+| 3 | working / 依赖 / pinned | dependency summaries ≤3，pinned/decision ≤3，working 600 上限，owner/预算；`repair.test.ts` working fixture |
+| 4 | summaries.agent_id | PRAGMA guard column + `TaskSummary.agentId`；task.owner_id→run.agent_id 回填；saveSummary 写入；迁移/写入测试 |
+| 5 | 输入边界 | content ≤2000、tags ≤10/单个≤24、kind/confidence 枚举集中 store 校验；边界测试 |
+| 6 | 状态矩阵 | verify/promote 仅 active 且非 expired；archive-approve 要求 active；重复 approve/ archived/expired 测试 |
+| 7 | sweep 隔离/事件/计数 | 逐 workspace 事务；失败写 `memory.sweep_failed`；memo.expired / board.proposal_expired 事件；staleMarked 仅 0→1；失败注入/事件计数测试 |
+| 8 | 同源/多样性 | contentHash + source+sourceRef+kind 合并；citations 合并；每 board/agent ≤3；fixture 断言 |
+| 9 | 确定性 tie-break | `compareIds` 纯 `<`/`>` 字典序，无 `localeCompare`；跨 locale/重复调用测试 |
+| 10 | workspace/actor 校验 | store 校验 workspace/agent/task/run；service Agent 仅自身；跨 workspace/非法 id 测试 |
+| 11 | memo SQL/计数隐私 | loadEntities memo 加 `agent_id`；snapshot Agent counts 仅自身；SQL/计数断言 |
+| 12 | 早期 proposal 表 | `PRAGMA table_info` 守卫 `ALTER ... entry_snapshot`；旧行 null 回退；早期表迁移测试 |
+
+**t105 验证**：`pnpm typecheck` 0；`pnpm build` 0；`pnpm test` **26 文件 / 327 条**（memory 5 文件 / 38 条，其中 repair 14 条）全通过。设计 `memory_schema` 由 1 升级为 2；t99 旧库可幂等升级。

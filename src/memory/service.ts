@@ -63,6 +63,7 @@ export interface SummaryInput {
   openQuestions?: string[];
   nextSteps?: string[];
   evidenceRefs?: string[];
+  agentId?: string | null;
   attempt?: number;
   outcome?: TaskSummary["outcome"];
   agentName?: string | null;
@@ -70,6 +71,11 @@ export interface SummaryInput {
   tokenIn?: number;
   tokenOut?: number;
   durationMs?: number;
+}
+
+export interface MemoryServiceOptions {
+  /** Test-only context fault injection. */
+  contextFault?: "throw";
 }
 
 /**
@@ -81,23 +87,27 @@ export interface SummaryInput {
 export class MemoryService {
   private readonly contextBuilder: MemoryContextBuilder;
 
-  constructor(private readonly store: MemoryStore) {
-    this.contextBuilder = new MemoryContextBuilder(store);
+  constructor(private readonly store: MemoryStore, options: MemoryServiceOptions = {}) {
+    this.contextBuilder = new MemoryContextBuilder(store, {
+      faultInjection: options.contextFault,
+    });
   }
 
   postBoard(actor: MemoryActor, input: CreateBoardInput): MemoryResult<BoardEntry> {
-    return this.run(() =>
-      this.store.createBoard({
+    return this.run(() => {
+      this.validateActor(actor, input.workspaceId);
+      return this.store.createBoard({
         ...input,
         author: this.authorOf(actor),
         source: actor.kind === "human" ? "user" : "agent",
         sourceRef: actor.id ?? null,
         pinned: actor.kind === "human" ? input.pinned === true : false,
-      }),
-    );
+      });
+    });
   }
 
   listBoard(actor: MemoryActor, input: BoardListInput): BoardEntry[] {
+    this.validateActor(actor, input.workspaceId);
     return this.store.listBoard(input.workspaceId, {
       board: input.board,
       status: input.status,
@@ -173,10 +183,12 @@ export class MemoryService {
 
   createMemo(actor: MemoryActor, input: CreateMemoInput): MemoryResult<Memo> {
     return this.run(() => {
+      this.validateActor(actor, input.workspaceId);
       if (actor.kind === "agent" && input.agentId !== actor.id) {
         this.store.auditRejected(this.authorOf(actor), input.workspaceId, "memo.write");
         throw new MemoryError("MEMORY_PRIVATE_SCOPE", "agent can only write its own memo");
       }
+      this.store.ensureAgent(input.workspaceId, input.agentId);
       return this.store.createMemo({
         ...input,
         source: actor.kind === "human" ? "user" : "agent",
@@ -186,6 +198,7 @@ export class MemoryService {
   }
 
   listMemos(actor: MemoryActor, workspaceId: string, agentId: string, options: { includeArchived?: boolean; limit?: number } = {}): Memo[] {
+    this.validateActor(actor, workspaceId);
     if (actor.kind === "agent" && actor.id !== agentId) return [];
     return this.store.listMemos(workspaceId, agentId, {
       includeArchived: actor.kind === "human" ? options.includeArchived : false,
@@ -212,6 +225,7 @@ export class MemoryService {
   }
 
   search(actor: MemoryActor, input: MemorySearchInput): MemorySearchResult {
+    this.validateActor(actor, input.workspaceId);
     return this.store.search({
       ...input,
       agentId: actor.kind === "agent" ? actor.id : input.agentId ?? null,
@@ -221,6 +235,7 @@ export class MemoryService {
   }
 
   snapshot(actor: MemoryActor, workspaceId: string, options: MemorySnapshotOptions = {}): MemorySnapshot {
+    this.validateActor(actor, workspaceId);
     const agentId = actor.kind === "agent" ? actor.id : options.agentId ?? null;
     const snapshot = this.store.snapshot(workspaceId, {
       ...options,
@@ -234,6 +249,7 @@ export class MemoryService {
   }
 
   buildContext(input: MemoryContextInput): MemoryContext {
+    this.validateActor(input.actor, input.workspaceId);
     return this.contextBuilder.build(input);
   }
 
@@ -244,14 +260,33 @@ export class MemoryService {
 
   /** Run-completion hook for later service integration; only board evidenceAt changes. */
   onRunCompleted(actor: MemoryActor, taskId: string, runId: string, workspaceId?: string): MemoryResult<number> {
-    return this.run(() => this.store.onRunCompleted(taskId, runId, workspaceId));
+    return this.run(() => {
+      const ws = workspaceId ?? this.store.workspaceForTask(taskId);
+      if (!ws) throw new MemoryError("MEMORY_INVALID_INPUT", "task/workspace not found");
+      this.validateActor(actor, ws);
+      if (actor.kind === "agent") this.store.ensureRunActor(ws, runId, actor.id);
+      return this.store.onRunCompleted(taskId, runId, ws);
+    });
   }
 
   saveSummary(actor: MemoryActor, input: SummaryInput): MemoryResult<TaskSummary> {
     return this.run(() => {
-      if (actor.kind === "agent" && !input.taskId) throw new MemoryError("MEMORY_INVALID_INPUT", "taskId required");
+      this.validateActor(actor, input.workspaceId);
+      if (actor.kind === "agent") {
+        const agentId = input.agentId ?? actor.id;
+        if (agentId !== actor.id) {
+          throw new MemoryError("MEMORY_FORBIDDEN", "agent can only ingest its own run summary");
+        }
+        this.store.ensureRunActor(input.workspaceId, input.runId, actor.id);
+        return this.store.saveSummary({ ...input, agentId });
+      }
       return this.store.saveSummary(input);
     });
+  }
+
+  private validateActor(actor: MemoryActor, workspaceId: string): void {
+    this.store.ensureWorkspace(workspaceId);
+    if (actor.kind === "agent") this.store.ensureAgent(workspaceId, actor.id);
   }
 
   private authorOf(actor: MemoryActor): string {

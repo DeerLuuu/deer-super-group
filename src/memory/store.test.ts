@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+﻿import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,8 +28,39 @@ function setup(options: { ftEnabled?: boolean; config?: Record<string, number> }
     "/tmp/deer-memory-test",
     clock.now(),
   );
+  for (const [id, name] of [["agent-a", "a"], ["agent-b", "b"], ["agent-memo", "memo"], ["agent-ray", "ray"], ["a", "a"]] as const) {
+    seedAgent(store, "ws-test", id, name);
+  }
   cleanups.push(() => store.close());
   return { store, clock, memory, ws: "ws-test" };
+}
+
+function seedAgent(store: Store, workspaceId: string, id: string, name: string, now = "2026-01-01T00:00:00.000Z") {
+  store.db.prepare(
+    "INSERT OR IGNORE INTO agents (id, workspace_id, name, role, created_at) VALUES (?, ?, ?, 'member', ?)",
+  ).run(id, workspaceId, name, now);
+}
+
+function seedWorkspace(store: Store, id: string, now = "2026-01-01T00:00:00.000Z") {
+  store.db.prepare(
+    "INSERT OR IGNORE INTO workspaces (id, name, path, created_at) VALUES (?, ?, ?, ?)",
+  ).run(id, id, `/tmp/${id}`, now);
+}
+
+function seedTaskRun(
+  store: Store,
+  workspaceId: string,
+  taskId: string,
+  runId: string,
+  agentId: string,
+  now = "2026-01-01T00:00:00.000Z",
+) {
+  store.db.prepare(
+    "INSERT OR IGNORE INTO tasks (id, workspace_id, title, description, acceptance, status, owner_id, depends_on, created_at) VALUES (?, ?, ?, '', '[]', 'done', ?, '[]', ?)",
+  ).run(taskId, workspaceId, taskId, agentId, now);
+  store.db.prepare(
+    "INSERT OR IGNORE INTO runs (id, task_id, agent_id, status, started_at, token_in, token_out) VALUES (?, ?, ?, 'completed', ?, 0, 0)",
+  ).run(runId, taskId, agentId, now);
 }
 
 function unwrap<T>(result: MemoryResult<T>): T {
@@ -79,6 +110,9 @@ describe("MemoryStore migration and schema", () => {
       kind: "fact",
       content: "legacy alpha fact",
     });
+    seedWorkspace(store, "ws-old");
+    seedAgent(store, "ws-old", "agent-old", "old");
+    seedAgent(store, "ws-old", "agent-router", "Router");
     store.addMemo({ workspaceId: "ws-old", agentId: "agent-old", kind: "lesson", content: "legacy memo" });
     store.saveSummary({
       taskId: "task-old",
@@ -93,22 +127,24 @@ describe("MemoryStore migration and schema", () => {
     });
 
     const memory = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(memory.schemaVersion).toBe(1);
+    expect(memory.schemaVersion).toBe(2);
     expect(memory.backupPath).not.toBeNull();
     expect(existsSync(memory.backupPath as string)).toBe(true);
     expect((store.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
 
     const board = memory.getBoard("ws-old", legacy.id);
     expect(board?.source).toBe("agent");
+    expect(board?.sourceRef).toBe("Router");
     expect(board?.status).toBe("active");
     expect(board?.contentHash).toHaveLength(64);
     expect(memory.listMemos("ws-old", "agent-old")[0]?.status).toBe("active");
+    expect(memory.listMemos("ws-old", "agent-old")[0]?.sourceRef).toBe("agent-old");
     expect(memory.getSummaryForTask("task-old")?.contentHash).toHaveLength(64);
     expect(memory.snapshot("ws-old").domains[0]?.name).toBe("Legacy");
 
     const domainsBefore = memory.listDomains("ws-old").length;
     const reopened = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(reopened.schemaVersion).toBe(1);
+    expect(reopened.schemaVersion).toBe(2);
     expect(reopened.listDomains("ws-old")).toHaveLength(domainsBefore);
   });
 
@@ -127,7 +163,7 @@ describe("MemoryStore migration and schema", () => {
     expect(tables).toHaveLength(0);
 
     const recovered = new MemoryStore(store, { clock: new FixedClock("2026-01-01T00:00:00.000Z") });
-    expect(recovered.schemaVersion).toBe(1);
+    expect(recovered.schemaVersion).toBe(2);
   });
 
   it("keeps old postBoard/addMemo/saveSummary call paths working after migration", () => {
@@ -135,23 +171,26 @@ describe("MemoryStore migration and schema", () => {
     const oldBoard = store.postBoard({
       workspaceId: ws,
       board: "legacy",
-      author: "Router",
+      author: "user",
       kind: "fact",
       content: "old path",
     });
     const oldMemo = store.addMemo({ workspaceId: ws, agentId: "a", kind: "lesson", content: "old memo" });
     expect(memory.getBoard(ws, oldBoard.id)?.content).toBe("old path");
+    expect(memory.getBoard(ws, oldBoard.id)?.source).toBe("user");
+    expect(memory.getBoard(ws, oldBoard.id)?.sourceRef).toBeNull();
     expect(memory.listMemos(ws, "a")[0]?.content).toBe("old memo");
     expect(oldMemo.agentId).toBe("a");
   });
 
   it("normalizes board domains and preserves memo provenance/tags", () => {
-    const { memory, ws } = setup();
+    const { memory, store, ws } = setup();
     const first = createBoard(memory, ws, "domain one", { board: "Frontend" });
     const second = createBoard(memory, ws, "domain two", { board: "  frontend  " });
     expect(first.board).toBe("Frontend");
     expect(second.board).toBe("frontend");
     expect(memory.listDomains(ws)).toHaveLength(1);
+    seedTaskRun(store, ws, "task-9", "run-9", "agent-a");
     const memo = memory.createMemo({
       workspaceId: ws,
       agentId: "agent-a",
@@ -258,17 +297,19 @@ describe("MemoryStore lifecycle and governance primitives", () => {
   });
 
   it("Run success only refreshes board evidenceAt, never memo evidence", () => {
-    const { memory, clock, ws } = setup();
+    const { memory, store, clock, ws } = setup();
+    seedTaskRun(store, ws, "t1", "r1", "agent-ray");
     const board = createBoard(memory, ws, "evidence board", { refs: ["task:t1", "run:r1"] });
-    const memo = memory.createMemo({ workspaceId: ws, agentId: "a", kind: "lesson", content: "evidence memo", sourceTaskId: "t1" });
+    const memo = memory.createMemo({ workspaceId: ws, agentId: "agent-memo", kind: "lesson", content: "evidence memo", sourceTaskId: "t1" });
     clock.advanceDays(1);
     expect(memory.onRunCompleted("t1", "r1", ws)).toBe(1);
     expect(memory.getBoard(ws, board.id)?.evidenceAt).not.toBeNull();
-    expect(memory.getMemo(ws, "a", memo.id)?.lastVerifiedAt).toBeNull();
+    expect(memory.getMemo(ws, "agent-memo", memo.id)?.lastVerifiedAt).toBeNull();
   });
 
   it("summary upsert is idempotent by run and content hash is stable", () => {
     const { memory, store, ws } = setup();
+    seedTaskRun(store, ws, "task-1", "run-1", "agent-ray");
     const first = memory.saveSummary({
       taskId: "task-1",
       runId: "run-1",

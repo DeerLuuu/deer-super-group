@@ -116,6 +116,7 @@ export interface TaskSummary extends SharedTaskSummary {
   outcome: "completed" | "failed" | "cancelled";
   nextSteps: string[];
   evidenceRefs: string[];
+  agentId: string | null;
   agentName: string | null;
   model: string | null;
   tokenIn: number;
@@ -146,6 +147,8 @@ export interface MemoryHit {
   workspaceId: string;
   board: string | null;
   agentId: string | null;
+  kind: string;
+  sourceRef: string | null;
   title: string;
   snippet: string;
   content: string;
@@ -241,6 +244,8 @@ export interface MemoryContext {
   maxTokens: number;
   truncated: boolean;
   omitted: number;
+  skippedReason: string | null;
+  degradedReason: string | null;
 }
 
 export interface MemoryMaintenanceResult {
@@ -250,6 +255,7 @@ export interface MemoryMaintenanceResult {
   cooldownSkipped: number;
   memosExpired: number;
   proposalsExpired: number;
+  failedWorkspaces: number;
   indexRepaired: boolean;
   durationMs: number;
 }
@@ -266,6 +272,7 @@ export interface MemoryConfig {
   semanticMaxTokens: number;
   candidateLimit: number;
   searchLimit: number;
+  contextWindow: number;
   repoDocsEnabled: false;
 }
 
@@ -281,8 +288,20 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   semanticMaxTokens: 900,
   candidateLimit: 200,
   searchLimit: 50,
+  contextWindow: 128_000,
   repoDocsEnabled: false,
 };
+
+export const BOARD_KINDS: ReadonlyArray<BoardKind> = [
+  "fact",
+  "decision",
+  "question",
+  "warning",
+  "artifact",
+  "link",
+];
+export const MEMO_KINDS: ReadonlyArray<MemoKind> = ["lesson", "failure", "shortcut", "preference"];
+export const CONFIDENCES: ReadonlyArray<Confidence> = ["low", "medium", "high"];
 
 export type MemoryErrorCode =
   | "MEMORY_INVALID_INPUT"

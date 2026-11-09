@@ -19,6 +19,9 @@ function setup(ftsEnabled = true) {
     "/tmp/deer-retrieval",
     clock.now(),
   );
+  memory.db.prepare(
+    "INSERT OR IGNORE INTO agents (id, workspace_id, name, role, created_at) VALUES ('a', 'ws', 'a', 'member', ?)",
+  ).run(clock.now());
   cleanups.push(() => store.close());
   return { memory, clock, ws: "ws" };
 }
@@ -39,9 +42,10 @@ function memo(memory: MemoryStore, ws: string, agentId: string, content: string,
 describe("memory retrieval", () => {
   it("maps bm25 monotonically: three hits beat one hit and keeps a breakdown", () => {
     const { memory, ws } = setup();
-    const one = board(memory, ws, "alpha beta gamma delta");
-    const three = board(memory, ws, "alpha alpha alpha beta gamma delta");
+    const one = memory.createBoard({ workspaceId: ws, board: "backend", author: "agent:one", kind: "fact", content: "alpha beta gamma delta", source: "agent" });
+    const three = memory.createBoard({ workspaceId: ws, board: "backend", author: "agent:three", kind: "fact", content: "alpha alpha alpha beta gamma delta", source: "agent" });
     const result = memory.search({ workspaceId: ws, query: "alpha" });
+    expect(result.hits).toHaveLength(2);
     expect(result.hits[0]?.id).toBe(three.id);
     expect(result.hits[0]?.breakdown.normalization).toBe("minmax");
     expect(result.hits[0]?.breakdown.rawRank).toBeLessThan(0);
@@ -53,7 +57,7 @@ describe("memory retrieval", () => {
   it("uses six bm25 weights so tag hits beat body noise", () => {
     const { memory, ws } = setup();
     const tagged = memo(memory, ws, "a", "noise xyz", ["alpha"]);
-    const body = memo(memory, ws, "a", "alpha xyz", []);
+    const body = memory.createMemo({ workspaceId: ws, agentId: "a", kind: "failure", content: "alpha xyz", source: "agent" });
     const result = memory.search({ workspaceId: ws, agentId: "a", scopes: ["memo"], query: "alpha" });
     expect(result.hits[0]?.id).toBe(tagged.id);
     expect(result.hits[1]?.id).toBe(body.id);
@@ -62,9 +66,12 @@ describe("memory retrieval", () => {
   it("orders FTS candidates before LIMIT so the best item is not cut at >200 hits", () => {
     const { memory, ws } = setup();
     const noise = "alpha filler text";
-    for (let i = 0; i < 204; i += 1) board(memory, ws, `${noise} ${i}`);
-    const best = board(memory, ws, `${"alpha ".repeat(40)}best`);
+    for (let i = 0; i < 204; i += 1) {
+      memory.createBoard({ workspaceId: ws, board: "backend", author: `agent:noise-${i}`, kind: "fact", content: `${noise} ${i}`, source: "agent" });
+    }
+    const best = memory.createBoard({ workspaceId: ws, board: "backend", author: "agent:best", kind: "fact", content: `${"alpha ".repeat(40)}best`, source: "agent" });
     const result = memory.search({ workspaceId: ws, query: "alpha", limit: 50 });
+    expect(result.hits).toHaveLength(3);
     expect(result.hits[0]?.id).toBe(best.id);
   });
 

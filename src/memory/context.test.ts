@@ -20,6 +20,11 @@ function setup() {
     "/tmp/deer-context",
     clock.now(),
   );
+  for (const [id, name] of [["agent-a", "a"], ["agent-b", "b"]] as const) {
+    memory.db.prepare(
+      "INSERT OR IGNORE INTO agents (id, workspace_id, name, role, created_at) VALUES (?, ?, ?, 'member', ?)",
+    ).run(id, "ws", name, clock.now());
+  }
   cleanups.push(() => store.close());
   return { service: new MemoryService(memory), memory, ws: "ws" };
 }

@@ -188,23 +188,49 @@ export function sortHits(hits: MemoryHit[]): MemoryHit[] {
       Number(b.verified) - Number(a.verified) ||
       b.breakdown.freshness - a.breakdown.freshness ||
       (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0) ||
-      a.id.localeCompare(b.id),
+      compareIds(a.id, b.id),
   );
 }
 
-/** Same contentHash -> one hit; merge citations so the result remains explainable. */
-export function dedupeHits(hits: MemoryHit[]): MemoryHit[] {
-  const seen = new Map<string, MemoryHit>();
+/** Locale-independent id comparator; sorted output must not depend on ICU locale. */
+export function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Merge content duplicates and same-source duplicates, then cap each
+ * board/agent group (and summaries) to maxPerSource. Citations are merged.
+ */
+export function dedupeHits(hits: MemoryHit[], maxPerSource = 3): MemoryHit[] {
+  const byContent = new Map<string, MemoryHit>();
+  const bySource = new Map<string, MemoryHit>();
+  const groupCounts = new Map<string, number>();
   const out: MemoryHit[] = [];
   for (const hit of sortHits(hits)) {
-    const existing = seen.get(hit.contentHash);
-    if (!existing) {
-      const copy: MemoryHit = { ...hit, citations: [...hit.citations] };
-      seen.set(hit.contentHash, copy);
-      out.push(copy);
+    const contentHit = byContent.get(hit.contentHash);
+    if (contentHit) {
+      contentHit.citations = [...new Set([...contentHit.citations, ...hit.citations])].slice(0, 5);
       continue;
     }
-    existing.citations = [...new Set([...existing.citations, ...hit.citations])].slice(0, 5);
+    const sourceKey = `${hit.entityType}\u0000${hit.source}\u0000${hit.sourceRef ?? ""}\u0000${hit.kind}`;
+    const sourceHit = bySource.get(sourceKey);
+    if (sourceHit) {
+      sourceHit.citations = [...new Set([...sourceHit.citations, ...hit.citations])].slice(0, 5);
+      continue;
+    }
+    const groupKey =
+      hit.entityType === "board"
+        ? `board\u0000${hit.board ?? ""}`
+        : hit.entityType === "memo"
+          ? `agent\u0000${hit.agentId ?? ""}`
+          : "summary";
+    const count = groupCounts.get(groupKey) ?? 0;
+    if (count >= maxPerSource) continue;
+    const copy: MemoryHit = { ...hit, citations: [...hit.citations] };
+    byContent.set(hit.contentHash, copy);
+    bySource.set(sourceKey, copy);
+    groupCounts.set(groupKey, count + 1);
+    out.push(copy);
   }
   return out;
 }
@@ -244,6 +270,19 @@ export function truncateBudget(
 
 export function contextBudget(config: MemoryConfig, mode: "worker" | "router"): number {
   return mode === "router" ? config.routerMaxTokens : config.maxContextTokens;
+}
+
+/** DESIGN §8.4: min(contextWindow*15%, remaining, mode cap). */
+export function resolveContextBudget(
+  config: MemoryConfig,
+  mode: "worker" | "router",
+  contextWindow?: number,
+  remaining?: number,
+): number {
+  const modeCap = contextBudget(config, mode);
+  const windowCap = contextWindow && contextWindow > 0 ? Math.floor(contextWindow * 0.15) : modeCap;
+  const remainingCap = remaining === undefined ? modeCap : Math.max(0, remaining);
+  return Math.max(0, Math.min(modeCap, windowCap, remainingCap));
 }
 
 export function renderHitLine(hit: MemoryHit): string {
