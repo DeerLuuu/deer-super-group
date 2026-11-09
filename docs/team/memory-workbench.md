@@ -78,3 +78,14 @@ pnpm test        # 32 文件 / 436 用例（含 memory runtime 3 + MemoryWorkben
 - 关闭入口：UI/命令面板可回到旧 BoardView（保留 `board` panel key）；`MemoryRuntime` 失败自动降级。
 - 代码回滚：删除 `memoryRuntime.ts`/`memoryTools.ts`/`MemoryWorkbench.tsx`，还原 `App.tsx`/`TeamDashboard.tsx`/`CommandPalette.tsx`/`panelRegistry.ts`/`styles.css`/IPC/preload/main/service；核心 `src/memory/` 不动，DB 新增表可保留（memory_schema 独立）。
 - 数据：MemoryStore 自有迁移备份 `memory_schema`，不触碰 kernel `user_version`。
+
+## 7. t132 repair-round-2 记录
+
+- **F1 跨 workspace 校验**：`MemoryRuntime.buildContext` 校验 `taskId` 存在且 `task.workspaceId===workspaceId`（不匹配抛 `MEMORY_INVALID_INPUT`），并校验 agent 归属；`AppService.getContext` 对显式 task/agent 做同一 workspace 校验，错误分别 `task not found in workspace` / `agent not found in workspace`。新增 runtime + getContext 跨 workspace 测试（A 请求 B 的 task/agent 一律拒绝，不返回 B 数据）。
+- **F2 按 scope 决定 agentId**：`MemoryWorkbench.runSearch` 改为 `agentId: scopes.has("memo") ? activeAgentId : undefined`；board 页勾选 memo scope 时仍按当前成员检索。交互测试断言 board 页搜索调用带 `agentId:"a1"`。
+- **F3 ARIA**：顶层三页签保持 WAI tabs（`aria-controls`/`tabIndex`/Arrow/Home/End/tabpanel）；领域 chip 从伪 tab 改为 `role="group"` + `aria-pressed`，不再缺 tabpanel。
+- **F4 组件交互测试**：`MemoryWorkbench.test.tsx` 使用 react-test-renderer + mock `window.deer`/localStorage/document，覆盖 pin、TTL（30 天）、memo 搜索过滤、archive restore、搜索预算（120/2000）与 citation（`board:b1`）、snapshot 失败 `role=alert` + 重试。
+- **F5 restore 事务**：`restoreBoardEntry` 的 UPDATE 与 `board.restored` 事件放入同一 `store.withTransaction`；失败返回 `MEMORY_UNAVAILABLE` 并回滚，恢复时清 `stale=0`。新增 appendEvent 注入失败测试，断言条目仍 archived、重试成功。
+- **F6 术语**：面板/导航/命令面板统一「记忆」；创建动作「发布记忆条目」；CommandPalette group `记忆`、hint/placeholder 同步；黑板保留为页签/领域子视图术语。
+- **验证**：typecheck 0；build 0（399 modules）；test **32 文件 / 439 用例**（memoryRuntime 5 + MemoryWorkbench 3）。
+- **scope**：本 repair 修改 `src/kernel/service.ts`（t123 已扩展的接线文件；t132 原始 in-scope 未列出）以满足 getContext 校验；其余 kernel 实现未动。
