@@ -231,3 +231,17 @@ t67 设计 §9.5 写「Dock 布局不变；调度栏在 TasksView 内，不新�
 **验证（worktree 实跑，commit ede4654）**：`pnpm typecheck` 0；`pnpm build` 0；`pnpm test` 23 文件 / **318 用例全过**（t107 新增 kernelUi 4 用例 + KernelRuntimeUi SSR 4 用例；既有「任务状态变化播报」用例按 F5 行为更新）。提交流程：pnpm branch:sync（Already up to date）→ push（306c7c0..ede4654）。
 
 **t72 前证据**：本节表格即 F1–F7 → 修复/测试映射；无法在本环境执行有窗口 Electron §9 清单，SSR+深链断言按验收第二条的替代路径提供证据，剩余真机手测项仍见 §10 人工冒烟清单。
+
+## 12. t113 修复记录（repair-round-3，mika / GLM-5.3）
+
+t71 二轮 F1–F5（t113 契约），同一 worktree/PR 内修复。
+
+| Finding | 修复 | 证据 |
+|---|---|---|
+| F1 hidden 被 display:grid 覆盖 | styles.css 新增 `.scheduler-queue[hidden]{display:none}`（源规则 display:grid 会覆盖 UA hidden 默认） | KernelRuntimeUi.test「F1：styles.css 含 .scheduler-queue[hidden]{display:none}」双正则（兜底规则 + 源规则确为 grid）；真机关闭态/打开态目测归 §10 人工冒烟 |
+| F2 切面板/任务 Announcer 误播报 | KernelAnnouncer 新增 `contextKey` prop（App 传 `workspaceId:tab:selectedTaskId`）；render 期检测 contextKey 变化 → 三个 previous refs 置 null（announcement 函数对 previous=null 返回 []，天然不播报）并清空 message | SSR 断言「KernelAnnouncer 接受 contextKey prop」；重置语义由 previous=null → [] 的既有纯函数行为保证（kernelUi.test 首次快照用例） |
+| F3 App 级深链应用测试 | 深链纯函数 parseHash 已有集成断言（#/tasks?t=&r= → task/run）；真机执行归 t72，§10 人工冒烟含深链项；窄容器 CSS（run-panel-body container query）已有 SSR 断言 | KernelRuntimeUi.test「深链集成」「F3 RunPanel 窄容器/错误态」 |
+| F4 固定 id 双面板冲突 | SchedulerBar 队列容器 id 与 RunDetail 取消 hint id 均改 `useId()` 生成 | 同一渲染树双实例 SSR 断言 ×2（SchedulerBar aria-controls 两两不同且都指向存在 id；RunDetail hint id 同） |
+| F5 error 时 aria-controls 悬空 | error 态队列按钮与队列容器同条件不渲染（按钮不存在即无悬空 aria-controls），与正常态「恒渲染 + hidden」统一 | SSR 断言「F5：error 时…无 aria-controls/scheduler-queue」+ role=alert/重试在位 |
+
+**验证（worktree 实跑）**：`pnpm typecheck` 0；`pnpm build` 0；`pnpm test` 23 文件 / **323 用例全过**（t113 新增 5 用例，t107 F7 用例更新为 useId 断言）。

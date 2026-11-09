@@ -254,7 +254,7 @@ describe("t107 SSR 交互断言", () => {
     },
   } as unknown as Parameters<typeof RunPanel>[0]["snapshot"];
 
-  it("F7：队列容器始终渲染，关闭时带 hidden；aria-controls 指向的 id 恒存在", () => {
+  it("F7：队列容器始终渲染，关闭时带 hidden；aria-controls 指向唯一 id（useId）", () => {
     // SchedulerBar 默认 queueOpen=false → 容器渲染且 hidden。
     const html = renderToStaticMarkup(
       <SchedulerBar
@@ -270,9 +270,71 @@ describe("t107 SSR 交互断言", () => {
         onOpenRuns={noop}
       />,
     );
-    expect(html).toContain('id="scheduler-queue"');
-    expect(html).toContain('aria-controls="scheduler-queue"');
-    expect(html).toMatch(/<div[^>]*id="scheduler-queue"[^>]*hidden/);
+    // t113：id 改为 useId 生成（前缀 «r…»），按钮 aria-controls 与容器 id 一致。
+    const controlMatch = html.match(/aria-controls="([^"]+)"/);
+    expect(controlMatch).not.toBeNull();
+    const queueId = controlMatch![1];
+    expect(html).toContain(`id="${queueId}"`);
+    expect(html).toMatch(new RegExp(`<div[^>]*id="${queueId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*hidden`));
+  });
+
+  // t113 F4：同一树中双面板同时渲染，队列 id 互不相同（useId 唯一化）。
+  it("F4：同一渲染树中两个 SchedulerBar 的队列 id 互不相同", () => {
+    const html = renderToStaticMarkup(
+      <>
+        <SchedulerBar
+          scheduler={scheduler}
+          tasks={[task()]}
+          agents={[agent]}
+          loading={false}
+          error={null}
+          busy={null}
+          onRetryLoad={noop}
+          onPause={noop}
+          onResume={noop}
+          onOpenRuns={noop}
+        />
+        <SchedulerBar
+          scheduler={scheduler}
+          tasks={[task()]}
+          agents={[agent]}
+          loading={false}
+          error={null}
+          busy={null}
+          onRetryLoad={noop}
+          onPause={noop}
+          onResume={noop}
+          onOpenRuns={noop}
+        />
+      </>,
+    );
+    const ids = [...html.matchAll(/aria-controls="([^"]+)"/g)].map((m) => m[1]);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]);
+    // 每个按钮的 aria-controls 都指向真实存在的容器 id。
+    for (const id of ids) expect(html).toContain(`id="${id}"`);
+  });
+
+  // t113 F5：error 态队列按钮与容器都不渲染 → 无悬空 aria-controls。
+  it("F5：error 时队列按钮与容器都不渲染，无 aria-controls", () => {
+    const html = renderToStaticMarkup(
+      <SchedulerBar
+        scheduler={null}
+        tasks={[task()]}
+        agents={[agent]}
+        loading={false}
+        error="读取失败"
+        busy={null}
+        onRetryLoad={noop}
+        onPause={noop}
+        onResume={noop}
+        onOpenRuns={noop}
+      />,
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("重试");
+    expect(html).not.toContain("aria-controls");
+    expect(html).not.toContain("scheduler-queue");
   });
 
   it("F3：RunPanel 操作常驻渲染，不可用时 disabled 并带原因（aria-describedby）", () => {
@@ -343,11 +405,84 @@ describe("t107 SSR 交互断言", () => {
     expect(html).toContain("仅运行中（running）的 Run 可以取消");
   });
 
+  // t113 F4：同一树中两个 RunDetail（双面板同屏）的 hint id 不冲突。
+  it("F4：同一渲染树中两个 RunDetail 的取消 hint id 互不相同", () => {
+    const html = renderToStaticMarkup(
+      <>
+        <RunHistory
+          task={task()}
+          runs={[run({ status: "completed" })]}
+          agents={[agent]}
+          events={[]}
+          loading={false}
+          error={null}
+          selectedRunId="run-1"
+          busy={null}
+          onRetryLoad={noop}
+          onSelectRun={noop}
+          onCancelRun={noop}
+          onOpenRunPanel={noop}
+          onRetryTask={noop}
+        />
+        <RunHistory
+          task={task({ id: "t2" })}
+          runs={[run({ id: "run-2", status: "completed" })]}
+          agents={[agent]}
+          events={[]}
+          loading={false}
+          error={null}
+          selectedRunId="run-2"
+          busy={null}
+          onRetryLoad={noop}
+          onSelectRun={noop}
+          onCancelRun={noop}
+          onOpenRunPanel={noop}
+          onRetryTask={noop}
+        />
+      </>,
+    );
+    const ids = [...html.matchAll(/aria-describedby="([^"]*run-cancel-hint[^"]*)"/g)].map(
+      (m) => m[1],
+    );
+    expect(ids.length).toBeGreaterThanOrEqual(2);
+    expect(ids[0]).not.toBe(ids[1]);
+    for (const id of ids) expect(html).toContain(`id="${id}"`);
+  });
+
   it("深链集成：#/tasks?t=&r= 解析出任务与 Run 选择", async () => {
     const { parseHash } = await import("./shared/deeplink");
     const route = parseHash("#/tasks?t=t1&r=run-1");
     expect(route.tab).toBe("tasks");
     expect(route.task).toBe("t1");
     expect(route.run).toBe("run-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// t113 repair-round-3：CSS 隐藏规则 / Announcer contextKey / 深链纯函数
+// ---------------------------------------------------------------------------
+
+describe("t113 CSS 与 Announcer", () => {
+  it("F1：styles.css 含 .scheduler-queue[hidden]{display:none}（display:grid 覆盖 UA hidden 的兜底）", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { resolve } = await import("node:path");
+    const css = await readFile(resolve(__dirname, "styles.css"), "utf8");
+    expect(css).toMatch(/\.scheduler-queue\[hidden\]\s*\{\s*display:\s*none/);
+    // 源规则确实使用 display:grid（证明兜底必要）。
+    expect(css).toMatch(/\.scheduler-queue\s*\{[^}]*display:\s*grid/);
+  });
+
+  it("F2：KernelAnnouncer 接受 contextKey prop（SSR 渲染不报错）", async () => {
+    const { default: KernelAnnouncer } = await import("./KernelAnnouncer");
+    const html = renderToStaticMarkup(
+      <KernelAnnouncer
+        tasks={[task()]}
+        scheduler={null}
+        runs={[]}
+        contextKey="ws:tasks:t1"
+      />,
+    );
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
   });
 });

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { Agent, EventRecord, Run, Task } from "./shared/types";
 import { PERMISSION_LABELS } from "./shared/copy";
 import {
@@ -50,6 +51,8 @@ export function RunDetail({
 }) {
   const timeline = runTimelineEvents(events, run.id).sort((a, b) => a.seq - b.seq);
   const cancelBusy = busy === `run:${run.id}`;
+  // t113 F4：hint id 用 useId 前缀，双面板（任务页 + Runs 面板）同时渲染不撞 id。
+  const cancelHintId = `${useId()}-run-cancel-hint`;
   return (
     <div className="run-detail" data-run-id={run.id}>
       <div className="run-detail-head">
@@ -80,7 +83,7 @@ export function RunDetail({
                 ? "取消该 Run：会中止执行，任务将被标记为失败（RUN_CANCELLED）"
                 : "仅运行中（running）的 Run 可以取消"
             }
-            aria-describedby={canCancelRun(run) ? undefined : `run-cancel-hint-${run.id}`}
+            aria-describedby={canCancelRun(run) ? undefined : cancelHintId}
           >
             {cancelBusy ? "取消中…" : "取消 Run"}
           </button>
@@ -172,7 +175,7 @@ export function RunDetail({
 
       {/* t107 F3：取消不可用时的可见原因（aria-describedby 引用）。 */}
       {!canCancelRun(run) && (
-        <div id={`run-cancel-hint-${run.id}`} className="muted tiny task-action-hint">
+        <div id={cancelHintId} className="muted tiny task-action-hint">
           仅运行中（running）的 Run 可以取消；历史 Run 不可取消。
         </div>
       )}

@@ -2247,12 +2247,13 @@ export default function App() {
         />
       )}
 
-      {/* t69：任务/Run/调度状态变化的 aria-live 播报（视觉隐藏） */}
+      {/* t69：任务/Run/调度状态变化的 aria-live 播报（视觉隐藏）。t113：contextKey 变化静默重置基线。 */}
       <KernelAnnouncer
         tasks={snapshot.tasks}
         scheduler={scheduler}
         runs={taskRuns}
         actionMessage={kernelAnnouncement}
+        contextKey={`${snapshot.workspace.id}:${tab}:${selectedTaskId ?? "-"}`}
       />
 
       {/* C26：全局 toast */}

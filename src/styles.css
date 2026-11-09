@@ -4798,6 +4798,12 @@ label.check input {
   gap: 6px;
 }
 
+/* t113 F1：display:grid 会覆盖 UA 的 [hidden] 默认 display:none —— 显式兜底，
+   确保关闭态不可见（配合 SSR 断言 hidden 属性存在）。 */
+.scheduler-queue[hidden] {
+  display: none;
+}
+
 .scheduler-queue-head {
   display: flex;
   justify-content: space-between;

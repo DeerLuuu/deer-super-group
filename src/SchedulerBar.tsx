@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { Agent, SchedulerSnapshot, Task } from "./shared/types";
 import {
   formatClockTime,
@@ -29,8 +29,8 @@ type SchedulerBarProps = {
 /**
  * t69 调度栏：任务面板头部（设计 §9.4）。
  * - 运行中 / 排队计数、并发上限、暂停/恢复；
- * - 队列可展开（键盘可聚焦、点击选中任务）；
- * - loading/error 态；错误用 role=alert，操作结果由 App toast + KernelAnnouncer 播报。
+ * - 队列可展开（键盘可聚焦、点击选中任务）；t113：容器恒渲染、id 用 useId 唯一化（多面板安全）；
+ * - loading/error 态；错误用 role=alert；t113 F5：error 时队列按钮与容器都不渲染（按钮不存在即无悬空 aria-controls）。
  */
 export default function SchedulerBar({
   scheduler,
@@ -47,6 +47,7 @@ export default function SchedulerBar({
   onSelectTask,
 }: SchedulerBarProps) {
   const [queueOpen, setQueueOpen] = useState(false);
+  const queueId = useId();
   const agentById = useMemo(
     () => new Map(agents.map((agent) => [agent.id, agent])),
     [agents],
@@ -90,12 +91,13 @@ export default function SchedulerBar({
           )}
         </div>
         <div className="scheduler-actions">
-          {queued > 0 && !compact && (
+          {/* t113 F5：error 时队列按钮隐藏（与队列容器同条件渲染，aria-controls 永不悬空）。 */}
+          {!error && queued > 0 && !compact && (
             <button
               type="button"
               className="ghost tiny"
               aria-expanded={queueOpen}
-              aria-controls="scheduler-queue"
+              aria-controls={queueId}
               onClick={() => setQueueOpen((open) => !open)}
             >
               队列 {queued} {queueOpen ? "▴" : "▾"}
@@ -138,9 +140,9 @@ export default function SchedulerBar({
         </div>
       )}
 
-      {/* t107 F7：队列容器始终渲染（关闭时 hidden），aria-controls 指向的 id 恒存在。 */}
+      {/* t107 F7 + t113：队列容器始终渲染（关闭时 hidden + CSS display:none 兜底）；id 用 useId 唯一化。 */}
       {!error && queued > 0 && !compact && (
-        <div className="scheduler-queue" id="scheduler-queue" hidden={!queueOpen}>
+        <div className="scheduler-queue" id={queueId} hidden={!queueOpen}>
           <div className="scheduler-queue-head">
             <span className="section-label">排队任务（按优先级 / FIFO）</span>
             <span className="muted tiny">同一工作区同时只运行 1 个</span>
