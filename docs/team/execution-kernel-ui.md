@@ -213,3 +213,21 @@ t67 设计 §9.5 写「Dock 布局不变；调度栏在 TasksView 内，不新�
 - **任务级 trace 与 Run 级事件的边界**：Run 时间线只显示 `aggregateId=runId` 的事件；tool/assistant 任务级事件仍在任务 trace，避免错配。后续可在事件 payload 补 `runId` 做精确归集。
 - **手动编辑 run 优先级/预算/看门狗**：属 t70+ 系统范围，本任务不实现。
 - **无头环境人工冒烟**：见 §9；t71 评审应在有窗口环境执行，若发现视觉/焦点问题由本人后续修复。
+
+## 11. t107 修复记录（repair-round-2，mika / GLM-5.3）
+
+依据 t71 评审 F1–F7 在同一 worktree/PR 内修复，commit `ede4654`（已推送 origin/feature/t69-execution-kernel-ui，PR #5）。
+
+| Finding | 修复 | 证据 |
+|---|---|---|
+| F1 恢复调度无二次确认 | ConfirmIntent 增加 `resume`；`handleRequestResumeScheduler` 统一 setPendingConfirm({kind:"resume"})（三处入口：SchedulerBar/RunPanel/任务页经 onResume 传入）；确认后执行 resumeScheduler；文案抽为纯函数 `kernelConfirmCopy`（含 resume，非危险样式） | kernelUi.test「kernelConfirmCopy：resume 有独立文案且 danger=false」 |
+| F2 缺 Electron 手测/交互断言 | 无窗口环境不可跑 §9 清单 → 补 RunPanel/RunHistory/SchedulerBar SSR 交互断言 + 深链集成测试（窄容器 run-panel-body、错误态 role=alert、disabled 按钮、#/tasks?t=&r= 解析） | KernelRuntimeUi.test「t107 SSR 交互断言」4 条 |
+| F3 操作按钮条件渲染 | 任务页与 RunPanel 的 运行/重试/批准/拒绝/取消 全部常驻渲染：disabled={!gate.enabled||busy} + title 原因 + aria-describedby 指向可见 inline 提示（task-action-hint / run-panel-action-hint）；RunDetail 取消 Run 同样常驻 + disabled + 原因 | KernelRuntimeUi.test F3 两条（failed 任务下按钮全在、hint 存在、非运行 Run disabled+原因） |
+| F4 tone 映射缺失 | eventTone：task.review_rejected→error；run.cancelled/task.cancelled（含 cancelled 子串）→warn | kernelUi.test「关键事件 tone」9 断言 |
+| F5 Announcer 新增 id 不播报、activeRuns 未纳入 | taskStatusAnnouncements/runStatusAnnouncements 对 previous 中不存在的新 id 以「新任务…/…新增（状态）」播报（首次快照 previous=null 仍不播报）；KernelAnnouncer 用 useMemo 合并 展示 Runs ∪ scheduler.activeRuns 后做 diff | kernelUi.test「任务/Run 新增 id 播报」+ 既有首次快照用例更新（c 为新增→3 条，第 3 条含「新任务」） |
+| F6 评审备注 autoFocus | KernelConfirmModal 改传 Modal `initialFocusRef={notesRef}`（textarea ref），移除 autoFocus | App.tsx KernelConfirmModal（结构变更；焦点行为由 Modal first-focus 保证） |
+| F7 队列容器条件渲染致 aria-controls 悬空 | SchedulerBar 队列容器在 queued>0 且非 compact 时始终渲染，关闭时 `hidden={!queueOpen}`；aria-controls 指向的 id 恒存在 | KernelRuntimeUi.test F7（html 匹配 `id="scheduler-queue"` 且 hidden 属性存在） |
+
+**验证（worktree 实跑，commit ede4654）**：`pnpm typecheck` 0；`pnpm build` 0；`pnpm test` 23 文件 / **318 用例全过**（t107 新增 kernelUi 4 用例 + KernelRuntimeUi SSR 4 用例；既有「任务状态变化播报」用例按 F5 行为更新）。提交流程：pnpm branch:sync（Already up to date）→ push（306c7c0..ede4654）。
+
+**t72 前证据**：本节表格即 F1–F7 → 修复/测试映射；无法在本环境执行有窗口 Electron §9 清单，SSR+深链断言按验收第二条的替代路径提供证据，剩余真机手测项仍见 §10 人工冒烟清单。
