@@ -26,7 +26,7 @@
   - `majority`：票数 > 总 ballot 的 50%；
   - `percent`：票数 / 总 ballot ≥ `thresholdValue`%；
   - 只有达到 quorum 的 poll 才标记采纳项；quorum 未达到时 `insufficientQuorum=true`、`adoptedOptionIds=[]`，仍写一条可审计 decision 记录但不生成黑板 decision 条目。
-- **decision 落库**：close 时总是写 `poll_decisions`；有采纳项时同时通过既有 `Store.postBoard` 写入 `decisions` 黑板条目，并把条目 id 存入 `decision_ref` / `poll_decisions.board_entry_id`。decision summary 含 poll 标题、采纳候选与票数；无采纳时说明原因。
+- **decision 落库**：close 时总是写 `poll_decisions`；有采纳项时通过 `MemoryRuntime.postBoard(HUMAN)`（t152 起）写入 `decisions` 黑板条目（source=user/sourceRef=null/domain/FTS/contentHash 完整），并把条目 id 存入 `decision_ref` / `poll_decisions.board_entry_id`。decision summary 含 poll 标题、采纳候选与票数；无采纳时说明原因。t136 初版曾用 `Store.postBoard`，t152 已修正。
 - **匿名**：`anonymous` 只影响展示层；审计 ballot 仍保留 voter；UI 不展示 ballot 身份列表。
 
 ## 3. 代码入口
@@ -62,3 +62,9 @@
 - 关闭时 quorum 未达到仍保留一条 decision 审计记录（flag `insufficient_quorum=1`），但不产生采纳项、不写黑板 decision；这是对 DESIGN §14.2「不产生 decision」的可审计化实现，若要求完全不落 decision 行可在 P1 调整。
 - 投票人目前是本地单用户 `user` + 同 workspace agent；跨工作区投票/角色权重/导出审计报告不在本 PR。
 - UI 仅提供本地单用户视角；多用户实时协同留到 Hub 阶段。
+
+## 7. t140 集成更新
+
+- t152 修复后 t153 复审 pass；PR #8 squash merge 到 main `d51b189`；t140 集成报告见 `docs/team/team-poll-final.md`。
+- decision 以 `MemoryRuntime.postBoard(HUMAN)` 写入；poll get/cast/close 带 workspace 校验，human actor/voter 固定 user；匿名仅返回 viewer ballot。
+- 当前 main-only 验证：typecheck/build 0；`pnpm test` 36 文件 / 463 用例（Poll 24）；根目录 `pnpm test` 会纳入 `branches/t144-watchdog-cost` 副本（69/911）。
