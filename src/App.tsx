@@ -22,6 +22,12 @@ import StatusBadge from "./StatusBadge";
 import EmptyState from "./EmptyState";
 import ChatContent from "./ChatContent";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
+import {
+  answerAlreadySent,
+  isComposerFocusWithin,
+  isEditableElement,
+  shouldAutoOpenQuestion,
+} from "./interactive/questionFlow";
 import type { QuestionValues } from "./shared/interactive";
 import CommandPalette, {
   CREATE_LABELS,
@@ -502,20 +508,38 @@ export default function App() {
     void loadChat().catch((error) => setError(errorText(error)));
   }, [snapshot?.workspace.id, contextTaskId, loadChat]);
 
-  // t64 §6.3：待回答问题自动打开（DEC-10：对话面板可见 / 有焦点 / 无其他弹窗 /
-  // 输入框无草稿 / 未延后 / 每个问题只自动开一次）。
+  // t64 §6.3 / t80 F6：待回答问题自动打开（DEC-10）。纯函数 shouldAutoOpenQuestion
+  // 统一判定「对话面板可见 / 窗口有焦点 / 无其他弹窗 / composer 未聚焦且无草稿 /
+  // 未延后 / 每个问题只自动开一次 / Router 不在回复」。
   useEffect(() => {
     if (!snapshot || !questionsLoaded) return;
     if (activeQuestion || riskApproval || settingsOpen) return;
-    if (tab !== "chat" || chatBusy || chatInput.trim()) return;
-    if (typeof document !== "undefined") {
-      if (!document.hasFocus()) return;
-      if (document.querySelector('[role="dialog"]')) return;
-    }
-    const candidate = pendingQuestions.find(
-      (question) =>
-        !deferredQuestionIds.includes(question.id) &&
-        !autoOpenedQuestionIdsRef.current.has(question.id),
+    const windowFocused = typeof document === "undefined" ? false : document.hasFocus();
+    const otherModalOpen =
+      typeof document === "undefined"
+        ? false
+        : Boolean(document.querySelector('[role="dialog"]'));
+    const activeElement =
+      typeof document === "undefined"
+        ? null
+        : (document.activeElement as
+            | { tagName?: string; isContentEditable?: boolean; closest?: (selector: string) => unknown }
+            | null);
+    const composerFocused =
+      Boolean(activeElement) &&
+      (isEditableElement(activeElement) || isComposerFocusWithin(activeElement));
+    const candidate = pendingQuestions.find((question) =>
+      shouldAutoOpenQuestion({
+        questionsLoaded,
+        panelVisible: tab === "chat",
+        windowFocused,
+        otherModalOpen,
+        composerFocused,
+        composerHasDraft: Boolean(chatInput.trim()),
+        chatBusy,
+        deferred: deferredQuestionIds.includes(question.id),
+        alreadyAutoOpened: autoOpenedQuestionIdsRef.current.has(question.id),
+      }),
     );
     if (!candidate) return;
     autoOpenedQuestionIdsRef.current.add(candidate.id);
@@ -899,11 +923,11 @@ export default function App() {
 
   /**
    * t64：对话发送的唯一实现（composer 与「回答表单」都走这里）。
-   * 回答回流时失败要额外 toast（回答已落库、消息未发出）。
+   * t80 F5：回答回流失败时由调用方提供 onFailure（带「重新发送回答」action 的 toast）。
    */
   async function sendChatText(
     text: string,
-    options: { failureToast?: string } = {},
+    options: { failureToast?: string; onFailure?: () => void } = {},
   ): Promise<boolean> {
     const current = snapshotRef.current;
     const router = current?.agents.find((agent) => agent.isRouter);
@@ -930,7 +954,9 @@ export default function App() {
       return true;
     } catch (error) {
       setError(errorText(error));
-      if (options.failureToast) {
+      if (options.onFailure) {
+        options.onFailure();
+      } else if (options.failureToast) {
         pushToast({ kind: "error", message: options.failureToast });
       }
       return false;
@@ -938,6 +964,28 @@ export default function App() {
       setChatBusy(false);
       void loadChat().catch((error) => setError(errorText(error)));
     }
+  }
+
+  /**
+   * t80 F5：「重新发送回答」——重发前 loadChat 对比最后一条消息内容 === answerText，
+   * 已存在则不重复发送（幂等兜底；服务端回答状态机仍是唯一事实源）。
+   */
+  async function resendAnswer(answerText: string) {
+    const current = snapshotRef.current;
+    const router = current?.agents.find((agent) => agent.isRouter);
+    if (!current || !router) return;
+    try {
+      const messages = await window.deer.listChat(current.workspace.id, router.id);
+      setChatMessages(messages);
+      if (answerAlreadySent(messages, answerText)) {
+        pushToast({ kind: "info", message: "该回答已在对话中，未重复发送" });
+        return;
+      }
+    } catch (error) {
+      pushToast({ kind: "error", message: `读取对话失败：${errorText(error)}` });
+      return;
+    }
+    void sendChatText(answerText, { failureToast: "重新发送回答失败，请稍后重试" });
   }
 
   async function handleSendChat() {
@@ -1029,9 +1077,19 @@ export default function App() {
         return { ok: true };
       }
       pushToast({ kind: "success", message: "回答已提交，Router 继续" });
-      // 不 await：弹窗立即关闭、对话继续流式输出；失败时 toast 提示可在对话中重试。
-      void sendChatText(result.answerText, {
-        failureToast: "回答已保存，但发送失败；可在对话中重试",
+      // 不 await：弹窗立即关闭、对话继续流式输出。
+      // t80 F5：失败时 toast 带「重新发送回答」action；重发前会按最后一条消息去重。
+      const answerText = result.answerText;
+      void sendChatText(answerText, {
+        onFailure: () =>
+          pushToast({
+            kind: "error",
+            message: "回答已保存，但发送失败",
+            action: {
+              label: "重新发送回答",
+              onClick: () => void resendAnswer(answerText),
+            },
+          }),
       });
       return { ok: true };
     } catch (error) {

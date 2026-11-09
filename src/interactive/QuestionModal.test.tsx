@@ -104,6 +104,46 @@ describe("QuestionModal SSR（AC-09/14）", () => {
     expect(html).toContain('aria-label="必填"');
   });
 
+  it("t80 F4：radiogroup/legend 的 aria-labelledby 指向存在的 legend id", () => {
+    const html = renderModal();
+    const labelledBy = Array.from(html.matchAll(/aria-labelledby="([^"]+)"/g)).map(
+      (match) => match[1],
+    );
+    // single / multi / confirm 三组 + 文本控件的 aria-label 不在此列。
+    expect(labelledBy.length).toBeGreaterThanOrEqual(3);
+    for (const id of labelledBy) {
+      expect(html).toContain(`id="${id}"`);
+      expect(id.endsWith("-legend")).toBe(true);
+    }
+    // 文本控件有可访问名称（aria-label）。
+    expect(html).toContain('<textarea');
+    expect(html).toContain('aria-label="补充说明"');
+    // 初始无错误时组级 aria-invalid=false。
+    expect(html).toContain('aria-invalid="false"');
+  });
+
+  it("t80 F4：字段错误时组级 aria-invalid=true 且 aria-describedby 指向错误文本", () => {
+    const html = renderToStaticMarkup(
+      <QuestionModal
+        question={record()}
+        index={0}
+        total={1}
+        busy={false}
+        initialErrors={[
+          { fieldId: "notes", code: "too_long", message: "「补充说明」最多 500 字" },
+        ]}
+        onSubmit={async () => ({ ok: true })}
+        onDefer={() => undefined}
+        onCancel={async () => undefined}
+      />,
+    );
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain("「补充说明」最多 500 字");
+    const describedBy = html.match(/aria-describedby="([^"]+)"/)?.[1];
+    expect(describedBy).toBeTruthy();
+    expect(html).toContain(`id="${describedBy}"`);
+  });
+
   it("选项/字段文本被转义，不渲染 HTML/Markdown", () => {
     const malicious: DeerQuestion = {
       ...definition,

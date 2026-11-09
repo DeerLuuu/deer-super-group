@@ -169,6 +169,33 @@ function isMindmapTree(artifact: DeerCanvas): boolean {
   return true;
 }
 
+/**
+ * t80 F7：按折叠后的可见布局裁剪 artifact，供 Mermaid / SVG 导出使用。
+ * - 只保留可见节点；
+ * - 只保留两端都可见的边；
+ * - 只保留仍被可见节点引用的分组（保持原顺序）。
+ */
+export function visibleCanvasArtifact(artifact: DeerCanvas, layout: CanvasLayout): DeerCanvas {
+  const visibleIds = new Set(
+    layout.nodes.filter((node) => !node.hidden).map((node) => node.node.id),
+  );
+  const nodes = artifact.nodes.filter((node) => visibleIds.has(node.id));
+  const edges = artifact.edges.filter(
+    (edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to),
+  );
+  const referencedGroups = new Set(
+    nodes
+      .map((node) => node.groupId)
+      .filter((groupId): groupId is string => Boolean(groupId)),
+  );
+  return {
+    ...artifact,
+    nodes,
+    edges,
+    groups: artifact.groups.filter((group) => referencedGroups.has(group.id)),
+  };
+}
+
 /** 校验生成结果：只允许受控指令集；返回 null 表示安全。 */
 export function validateMermaid(text: string): string | null {
   // 先把标签内容挖空，避免「label 里出现 style 字样」被误判为指令。

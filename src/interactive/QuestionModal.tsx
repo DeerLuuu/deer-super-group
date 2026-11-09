@@ -28,6 +28,7 @@ export default function QuestionModal({
   total,
   busy,
   initialValues,
+  initialErrors,
   onDraftChange,
   onSubmit,
   onDefer,
@@ -39,6 +40,8 @@ export default function QuestionModal({
   total: number;
   busy: boolean;
   initialValues?: QuestionValues;
+  /** t80 F4：可选初始字段错误（服务端回填/SSR 测试）；默认空。 */
+  initialErrors?: QuestionFieldError[];
   onDraftChange?: (values: QuestionValues) => void;
   onSubmit: (values: QuestionValues) => Promise<QuestionSubmitResult>;
   onDefer: () => void;
@@ -54,7 +57,7 @@ export default function QuestionModal({
   const [values, setValues] = useState<QuestionValues>(() =>
     initialValues ?? defaultValues(definition),
   );
-  const [errors, setErrors] = useState<QuestionFieldError[]>([]);
+  const [errors, setErrors] = useState<QuestionFieldError[]>(() => initialErrors ?? []);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [cancelArmed, setCancelArmed] = useState(false);
@@ -191,14 +194,16 @@ export default function QuestionModal({
           {definition.fields.map((field, fieldIndex) => {
             const error = errorsByField.get(field.id);
             const controlId = `${formId}-${field.id}`;
+            const legendId = `${formId}-${field.id}-legend`;
             const describedBy = describeError(field.id);
             return (
               <fieldset
                 key={field.id}
                 className={`question-field${error ? " has-error" : ""}${field.kind === "confirm" && field.danger ? " danger" : ""}`}
                 aria-describedby={describedBy}
+                aria-invalid={Boolean(error)}
               >
-                <legend>
+                <legend id={legendId}>
                   {field.label}
                   {field.required ? (
                     <span className="question-required" aria-label="必填">
@@ -214,7 +219,12 @@ export default function QuestionModal({
                   <div className="question-field-desc muted tiny">{field.description}</div>
                 )}
                 {field.kind === "single" && (
-                  <div className="question-options" role="radiogroup" aria-labelledby={controlId}>
+                  <div
+                    className="question-options"
+                    role="radiogroup"
+                    aria-labelledby={legendId}
+                    aria-invalid={Boolean(error)}
+                  >
                     {field.options.map((option, optionIndex) => (
                       <label key={option.id} className="question-option">
                         <input
@@ -246,7 +256,12 @@ export default function QuestionModal({
                   </div>
                 )}
                 {field.kind === "multi" && (
-                  <div className="question-multi" role="group" aria-labelledby={controlId}>
+                  <div
+                    className="question-multi"
+                    role="group"
+                    aria-labelledby={legendId}
+                    aria-invalid={Boolean(error)}
+                  >
                     <div className="question-count muted tiny">
                       已选{" "}
                       {Array.isArray(values[field.id]) ? (values[field.id] as string[]).length : 0}/
@@ -299,6 +314,7 @@ export default function QuestionModal({
                     {field.multiline ? (
                       <textarea
                         id={controlId}
+                        aria-label={field.label}
                         ref={(element) => {
                           if (fieldIndex === 0) initialFocusRef.current = element;
                           fieldRefs.current.set(field.id, element);
@@ -320,6 +336,7 @@ export default function QuestionModal({
                     ) : (
                       <input
                         id={controlId}
+                        aria-label={field.label}
                         ref={(element) => {
                           if (fieldIndex === 0) initialFocusRef.current = element;
                           fieldRefs.current.set(field.id, element);
@@ -339,7 +356,12 @@ export default function QuestionModal({
                   </div>
                 )}
                 {field.kind === "confirm" && (
-                  <div className="question-options question-confirm" role="radiogroup">
+                  <div
+                    className="question-options question-confirm"
+                    role="radiogroup"
+                    aria-labelledby={legendId}
+                    aria-invalid={Boolean(error)}
+                  >
                     <label className="question-option">
                       <input
                         type="radio"

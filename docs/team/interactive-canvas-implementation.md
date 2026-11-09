@@ -4,7 +4,7 @@
 - **实现依据**：`docs/team/interactive-canvas-design.md`（t63，3049 行）
 - **执行者**：ray（Frontend Engineer: layout，DeepSeek 顶替 mika 席位）
 - **模型路由**：`deepseek-official/deepseek-flash`（GLM 席位暂用 DeepSeek，AGENTS §1）
-- **分支 / worktree**：`feature/t64-interactive-canvas` @ `branches/t64-interactive-canvas/`（AGENTS §8）；已合并 `main`（`494faef`，含 t63 设计文档与 Windows worktree 路径修复）后复跑三命令。
+- **分支 / worktree**：`feature/t64-interactive-canvas` @ `branches/t64-interactive-canvas/`（AGENTS §8）；已合并 `main`（`494faef` t63 设计文档、`7fb747a` 分支脚本修复）后复跑三命令。
 - **验证命令**：`pnpm typecheck` / `pnpm build` / `pnpm test`
 - **下游**：t65 评审（ivy）→ t66 集成验收（kai）
 
@@ -219,23 +219,24 @@ pending ──submit(校验通过)──▶ answered（终态）
 | 命令 | 退出码 | 结果 |
 |------|--------|------|
 | `pnpm typecheck` | 0 | `tsc --noEmit` 无错误 |
-| `pnpm build` | 0 | `dist/assets/index-*.css` 197.76 kB（gzip 21.94 kB）；`dist/assets/index-*.js` 1,069.05 kB（gzip 293.76 kB）；`dist-electron/main.cjs` 924.4 kB；`preload.cjs` 3.5 kB |
-| `pnpm test` | 0 | **19 个测试文件 / 206 条用例全部通过** |
+| `pnpm build` | 0 | `dist/assets/index-*.css` 198.12 kB（gzip 21.98 kB）；`dist/assets/index-*.js` 1,072.61 kB（gzip 294.94 kB）；`dist-electron/main.cjs` 924.4 kB；`preload.cjs` 3.5 kB |
+| `pnpm test` | 0 | **20 个测试文件 / 246 条用例全部通过**（t80 repair-round-2 后） |
 
-> 测试基线：t64 开始前为 10 文件 / 101 条（t60 基线）。本任务新增 9 个测试文件 / 105 条用例。
+> 测试基线：t64 开始前为 10 文件 / 101 条（t60 基线）。t64 新增 9 个测试文件 / 105 条；t80 repair 再新增 1 个测试文件 / 40 条（见 §17）。
 
 ### 11.2 新增测试清单
 
 | 文件 | 数量 | 覆盖 |
 |------|------|------|
 | `src/shared/interactive.test.ts` | 36 | fence/大小写/CRLF/未闭合/用户消息不解析/快路径/块上限/E_JSON/E_PROTOCOL/E_VERSION/E_SCHEMA（未知字段/重复 id/端点/自环/分组引用/81 节点/241 边）/E_TOO_LARGE/重复边去重/控制符清洗/HTML 保留为文本/四类字段/问题 schema/答案校验/格式化/压缩/流式剥离/稳定键/expiresAt/prompt |
-| `src/canvas/layout.test.ts` | 17 | 四类图确定性、TB/LR 分层、relates 不参与分层、环、分组折叠、mindmap 径向/折叠/无根/深树、roadmap 泳道排序/空分组/折叠、bounds、fitView、80 节点性能 smoke |
-| `src/canvas/export.test.ts` | 13 | 四类 Mermaid、mindmap 降级、标签注入、白名单校验、SVG 转义/无脚本/无外链、4096 限制、文件名安全 |
-| `src/canvas/interaction.test.ts` | 7 | 单击延时详情、双击不闪详情、窗口内二次点击、拖拽阈值、计时器隔离、cancel、Esc 逐级 |
+| `src/canvas/layout.test.ts` | 22 | 四类图确定性、TB/LR 分层、relates 不参与分层、环、分组折叠、mindmap 径向/折叠/无根/深树、roadmap 泳道排序/空分组/折叠、bounds、fitView、80 节点性能 smoke、详情浮窗翻转、缩放锚点 |
+| `src/canvas/export.test.ts` | 17 | 四类 Mermaid、mindmap 降级、标签注入、白名单校验、SVG 转义/无脚本/无外链、4096 限制、文件名安全、折叠后可见集导出 |
+| `src/canvas/interaction.test.ts` | 9 | 单击延时详情、双击不闪详情、窗口内二次点击、拖拽阈值、计时器隔离、cancel、Esc 逐级、浮层滚轮不缩放 |
 | `src/kernel/interactive.test.ts` | 14 | ingest 幂等/事件、四字段落库、非法块事件、回答 changed/answerText、重复回答、篡改拒绝、过期清算、取消幂等、已答后取消、跨工作区隔离、E_BUSY、E_NOT_FOUND、context 交互段、原始消息保留 |
-| `src/canvas/CanvasArtifact.test.tsx` | 6 | 四类画布 SSR、状态双编码、恶意标签转义、无链接、卡片结构、回退卡片 |
-| `src/interactive/QuestionModal.test.tsx` | 3 | 四字段/ARIA/队列/隐私、选项转义、busy 态 |
+| `src/canvas/CanvasArtifact.test.tsx` | 14 | 四类画布 SSR、状态双编码、恶意标签转义、无链接、卡片结构、回退卡片、详情 SSR/placement、导出菜单 role=group、t64 样式 token 检查 |
+| `src/interactive/QuestionModal.test.tsx` | 5 | 四字段/ARIA/队列/隐私、选项转义、busy 态、legend id 引用/aria-invalid |
 | `src/interactive/QuestionCard.test.tsx` | 4 | pending/answered/expired/cancelled、缺失记录 |
+| `src/interactive/questionFlow.test.ts` | 19 | 回答重发去重（F5）、composer 焦点判定（F6）、自动弹窗条件组合 |
 | `src/ChatContent.test.tsx` | 5 | 分段渲染、用户消息不解析、非法回退、流式剥离、问题状态缺失 |
 
 ### 11.3 静态检查
@@ -343,6 +344,18 @@ pending ──submit(校验通过)──▶ answered（终态）
 19. Mock 与真实模型各触发一次画布/提问；真实模型不遵循协议时退化为普通文本。
 20. `rg "dangerouslySetInnerHTML|innerHTML|eval\(|new Function" src` 无命中；`package.json`/`pnpm-lock.yaml` 无变化。
 
+**t80 追加手工项（F1–F11）**
+
+21. 打开靠**底部**的节点详情：浮窗翻转到节点上方，关闭/聚焦/复制动作完整可见；超长 note 在浮窗内滚动，不裁剪。
+22. 键盘 Enter 打开详情后焦点在第一个动作（聚焦 1 跳）；Esc/关闭/空白点击后焦点回到节点；Tab 可离开浮窗。
+23. 1 跳聚焦后 Tab 到 dim 节点：opacity 恢复 1，焦点环可见。
+24. 导出菜单：键盘 Tab 进入菜单按钮、Esc 关闭并回焦「导出」；不再有 role=menu 假语义。
+25. 折叠路线图泳道后再导出 Mermaid/SVG：文件里不出现被折叠的节点/边；展开后恢复。
+26. 选中节点后点 +/-：以该节点为锚点缩放（无选中时以容器中心）。
+27. 在详情 note / 图例 / 工具栏内滚轮：只滚动该浮层，画布不缩放。
+28. 回答发送失败（可断网或在 mock 下注入异常）：toast 出现「重新发送回答」；若对话最后已有该回答，重发时提示已存在、不重复发送。
+29. composer 输入框/发送按钮聚焦时新问题到达：不自动弹窗，仅卡片 + info toast。
+
 ---
 
 ## 16. 运行与复现
@@ -365,4 +378,28 @@ pnpm test
 
 ---
 
-> 本文件为 t64 实现交付；评审（t65）请重点复核 §10 安全实现、§12 AC 映射与 §13 偏差；集成（t66）请按 §15 手工清单与三命令复跑。
+## 17. t80 修复记录（repair-round-2）
+
+依据 t65 评审的 11 项 findings（F1–F11）在 t64 同一 worktree/PR 内修复，不扩大功能范围。
+
+| Finding | 修复 | 关键文件 | 测试/证据 |
+|---------|------|----------|-----------|
+| F1 详情浮窗被裁剪 | `placeDetailPosition` 纯函数按浮窗**实测尺寸**定位（`ResizeObserver` 测量）；下方放不下且上方放得下→翻转，否则夹取；CSS `max-height: calc(100% - 16px); overflow:auto` 兜底 | `CanvasArtifact.tsx`、`layout.ts`、`styles.css` | `layout.test.ts` 4 条（顶部/底部翻转/上下都放不下/左夹取+缩放）、CSS 断言、手工项 21 |
+| F2 详情打开不移动焦点 | 详情容器/首个动作加 ref；打开后聚焦首个动作；Esc/关闭/空白/再次单击均 `closeDetail()` 回焦节点；非模态不圈禁 Tab；抽出 `CanvasNodeDetail` 便于 SSR | `CanvasArtifact.tsx` | `CanvasArtifact.test.tsx` 详情 SSR 2 条、手工项 22 |
+| F3 dim 节点聚焦仍 0.25 | `.canvas-node.dimmed:focus-visible { opacity:1; outline… }` + 内描边 | `styles.css` | 样式断言、手工项 23 |
+| F4 表单组无可访问名称 | legend 加 `id`；radiogroup/group `aria-labelledby` 指向 legend；textarea/input 加 `aria-label`；fieldset/组加 `aria-invalid`；新增可选 `initialErrors` | `QuestionModal.tsx` | `QuestionModal.test.tsx` 新增 2 条（id 引用/控件名称/aria-invalid true/false） |
+| F5 回答失败无重试/去重 | `sendChatText` 支持 `onFailure`；失败 toast 带「重新发送回答」action → `resendAnswer()` 先 `listChat` 去重（最后用户消息/最后消息 === answerText 则不发）；`questionFlow.answerAlreadySent` 纯函数 | `App.tsx`、`questionFlow.ts` | `questionFlow.test.ts` 6 条、手工项 28 |
+| F6 自动弹窗未排除 composer | 自动打开条件收敛到 `shouldAutoOpenQuestion`；`isEditableElement` + `isComposerFocusWithin`（含 composer 内按钮）排除焦点；保留无草稿/未延后/只自动开一次等条件 | `App.tsx`、`questionFlow.ts` | `questionFlow.test.ts` 13 条（条件矩阵 + composer 焦点）、手工项 29 |
+| F7 导出未按折叠可见集 | `CanvasArtifact` 通过 `onVisibleLayoutChange` 回传折叠布局；`visibleCanvasArtifact()` 过滤隐藏节点/边/空分组；Mermaid/SVG 均用可见集 | `CanvasArtifact.tsx`、`CanvasCard.tsx`、`export.ts` | `export.test.ts` 4 条（折叠后节点/边/分组、Mermaid、SVG、未折叠对照）、手工项 25 |
+| F8 +/- 未以选中节点为锚点 | `nodeScreenAnchor()` 纯函数 + `selectedZoomAnchor()`（详情/选中/聚焦优先级）；按钮与键盘 +/- 都用它，无选中回退容器中心 | `CanvasArtifact.tsx`、`layout.ts` | `layout.test.ts` 锚点 1 条、手工项 26 |
+| F9 新样式裸颜色 | t64 段三处阴影改 `color-mix(var(--bg))`；`#ff7b72` → `var(--status-failed)` | `styles.css` | 样式断言（t64 段无 hex/rgb/rgba） |
+| F10 浮层滚轮触发画布缩放 | wheel handler 先 `isCanvasOverlayWheelTarget(event.target)`（`.canvas-detail/.canvas-legend/.canvas-toolbar`）→ 直接 return，不 `preventDefault` | `CanvasArtifact.tsx`、`interaction.ts` | `interaction.test.ts` 2 条、手工项 27 |
+| F11 假 menu 无键盘模式 | 改为 `role="group"` 普通按钮组（`CanvasExportMenu`）；Esc 关闭并回焦触发按钮；去掉 `aria-haspopup="menu"`，用 `aria-expanded/aria-controls` | `CanvasCard.tsx` | `CanvasArtifact.test.tsx` 2 条、手工项 24 |
+
+**t80 验证**：`pnpm typecheck` 0；`pnpm build` 0（js 1,072.61 kB / gzip 294.94 kB，css 198.12 kB / gzip 21.98 kB，electron main 924.4 kB）；`pnpm test` 0（20 文件 / 246 用例；新增 `questionFlow.test.ts` 19 条，其余为既有文件内补充，共 +40 条）。
+
+**范围**：仅 `src/canvas/`、`src/interactive/`、`src/styles.css`、`src/App.tsx`、`docs/team/`；未改 `dist/`、`dist-electron/`、协议/存储/IPC 契约。
+
+---
+
+> 本文件为 t64 实现 + t80 修复交付；评审（t65 复审）请重点复核 §17 的 F1–F11 与 §15 手工项；集成（t66）请按 §15 手工清单与三命令复跑。

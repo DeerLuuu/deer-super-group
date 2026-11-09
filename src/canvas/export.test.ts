@@ -8,6 +8,7 @@ import {
   sanitizeMermaidLabel,
   toMermaid,
   validateMermaid,
+  visibleCanvasArtifact,
 } from "./export.js";
 import { computeCanvasLayout } from "./layout.js";
 
@@ -259,5 +260,53 @@ describe("文件名安全", () => {
 
   it("空标题回退 canvas", () => {
     expect(canvasFileSlug("   ")).toBe("canvas");
+  });
+});
+
+describe("t80 F7：导出按折叠后可见集", () => {
+  function collapsedRoadmap() {
+    const artifact = roadmap();
+    const collapsedLayout = computeCanvasLayout(artifact, { collapsedGroups: ["p1"] });
+    const visible = visibleCanvasArtifact(artifact, collapsedLayout);
+    return { artifact, collapsedLayout, visible };
+  }
+
+  it("visibleCanvasArtifact 过滤隐藏节点/相关边/空分组", () => {
+    const { visible } = collapsedRoadmap();
+    // roadmap(): p1 有 a，p2 有 b；折叠 p1 后只剩 b。
+    expect(visible.nodes.map((node) => node.id)).toEqual(["b"]);
+    expect(visible.edges).toHaveLength(0);
+    expect(visible.groups.map((group) => group.id)).toEqual(["p2"]);
+  });
+
+  it("折叠后 Mermaid 不包含隐藏节点，仍通过白名单", () => {
+    const { visible } = collapsedRoadmap();
+    const result = toMermaid(visible);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.text).toContain("B");
+    expect(result.text).not.toContain('"A"');
+    expect(result.text).not.toContain('subgraph g0["P1"]');
+    expect(validateMermaid(result.text)).toBeNull();
+  });
+
+  it("折叠后 SVG 不渲染隐藏节点", () => {
+    const { visible, collapsedLayout } = collapsedRoadmap();
+    const result = renderCanvasSvg(visible, collapsedLayout, FALLBACK_CANVAS_THEME);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.text).not.toContain(">A<");
+    expect(result.text).toContain(">B<");
+  });
+
+  it("未折叠时导出包含全部节点", () => {
+    const artifact = roadmap();
+    const layout = computeCanvasLayout(artifact);
+    const result = toMermaid(visibleCanvasArtifact(artifact, layout));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.text).toContain('"A"');
+      expect(result.text).toContain('"B"');
+    }
   });
 });

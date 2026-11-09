@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DeerCanvas } from "../shared/interactive.js";
-import CanvasArtifact from "./CanvasArtifact.js";
-import CanvasCard from "./CanvasCard.js";
+import CanvasArtifact, { CanvasNodeDetail } from "./CanvasArtifact.js";
+import CanvasCard, { CanvasExportMenu } from "./CanvasCard.js";
 import CanvasFallback from "./CanvasFallback.js";
+import type { PositionedNode } from "./layout.js";
 
 /**
  * t64：画布组件 SSR 结构与安全断言（设计 §13.3 / AC-02/03/08/14）。
@@ -183,5 +185,145 @@ describe("CanvasFallback SSR（AC-07）", () => {
     expect(html).toContain("画布数据无效");
     expect(html).not.toContain("canvas-node");
     expect(html).toContain("查看原始数据");
+  });
+});
+
+function detailNode(): PositionedNode {
+  return {
+    node: {
+      id: "a",
+      label: "写协议",
+      kind: "step",
+      status: "done",
+      note: "协议先行",
+      meta: "P0",
+    },
+    x: 40,
+    y: 120,
+    w: 176,
+    h: 52,
+    depth: 0,
+    hidden: false,
+    dimmed: false,
+    groupId: "p0",
+    children: [],
+    hiddenDescendants: 0,
+    branchCollapsed: false,
+  };
+}
+
+function detailArtifact(): DeerCanvas {
+  return {
+    protocol: "deer-canvas",
+    version: 1,
+    kind: "flowchart",
+    title: "详情",
+    nodes: [detailNode().node],
+    edges: [],
+    groups: [{ id: "p0", label: "P0" }],
+  };
+}
+
+describe("t80 F1/F2：CanvasNodeDetail SSR", () => {
+  it("非模态 dialog + 首个动作 + 上下翻转标记 + 屏幕坐标", () => {
+    const html = renderToStaticMarkup(
+      <CanvasNodeDetail
+        node={detailNode()}
+        artifact={detailArtifact()}
+        placement={{ left: 12, top: 34, placement: "above" }}
+        focused={false}
+        onClose={() => undefined}
+        onToggleFocus={() => undefined}
+        onClearFocus={() => undefined}
+        onCopy={() => undefined}
+      />,
+    );
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="false"');
+    expect(html).toContain("节点详情：写协议");
+    expect(html).toContain('data-placement="above"');
+    expect(html).toContain("left:12px");
+    expect(html).toContain("top:34px");
+    expect(html).toContain("聚焦 1 跳");
+    expect(html).toContain("关闭");
+    expect(html).toContain("协议先行");
+  });
+
+  it("聚焦状态下首个动作改为退出聚焦，并提供清除聚焦", () => {
+    const html = renderToStaticMarkup(
+      <CanvasNodeDetail
+        node={detailNode()}
+        artifact={detailArtifact()}
+        placement={{ left: 8, top: 8, placement: "below" }}
+        focused
+        onClose={() => undefined}
+        onToggleFocus={() => undefined}
+        onClearFocus={() => undefined}
+        onCopy={() => undefined}
+      />,
+    );
+    expect(html).toContain("退出 1 跳聚焦");
+    expect(html).toContain("清除聚焦");
+  });
+});
+
+describe("t80 F11：导出菜单为普通按钮组", () => {
+  it("role=group + aria-label + 三个普通按钮（不再是假 menu）", () => {
+    const html = renderToStaticMarkup(
+      <CanvasExportMenu
+        id="export-menu"
+        onCopyMermaid={() => undefined}
+        onDownloadMermaid={() => undefined}
+        onDownloadSvg={() => undefined}
+      />,
+    );
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="导出画布"');
+    expect(html).toContain('id="export-menu"');
+    expect(html).not.toContain('role="menu"');
+    expect(html).not.toContain("menuitem");
+    expect(html).toContain("复制 Mermaid");
+    expect(html).toContain("下载 SVG");
+  });
+
+  it("触发按钮与菜单用 aria-controls / aria-expanded 关联", () => {
+    const html = renderToStaticMarkup(
+      <CanvasCard
+        artifactKey="m#b0"
+        artifact={detailArtifact()}
+        raw="{}"
+        onToast={() => undefined}
+      />,
+    );
+    expect(html).toContain("aria-controls=");
+    expect(html).toContain("aria-expanded=");
+  });
+});
+
+describe("t80 F3/F9：t64 样式使用 token 且 dim 节点可恢复焦点", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const start = css.indexOf("t64：交互画布与提问表单");
+  const t64Section = start >= 0 ? css.slice(start) : "";
+
+  it("定位到 t64 样式段", () => {
+    expect(t64Section.length).toBeGreaterThan(1000);
+  });
+
+  it("新增画布/提问样式无裸颜色（无 hex / rgb() / rgba()）", () => {
+    expect(t64Section).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(t64Section).not.toMatch(/\brgba?\(/);
+  });
+
+  it("dim 节点 :focus-visible 恢复全亮并保留焦点环", () => {
+    expect(t64Section).toMatch(
+      /\.canvas-node\.dimmed:focus-visible\s*\{[^}]*opacity:\s*1\s*;/,
+    );
+    expect(t64Section).toContain("outline: 2px solid var(--accent)");
+  });
+
+  it("详情浮窗有 max-height + 内部滚动兜底（F1）", () => {
+    const block = t64Section.slice(t64Section.indexOf(".canvas-detail {"));
+    expect(block).toContain("max-height: calc(100% - 16px)");
+    expect(block).toContain("overflow: auto");
   });
 });

@@ -3702,7 +3702,7 @@ label.check input {
   background: var(--panel-2);
   border: 1px solid var(--border-2);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 70%, transparent);
 }
 
 .canvas-menu button {
@@ -3970,6 +3970,18 @@ label.check input {
   opacity: 0.25;
 }
 
+/* t80 F3：1 跳聚焦时 Tab 到 dim 节点必须恢复全亮且焦点环可见（设计 §4.5/§7.10）。 */
+.canvas-node.dimmed:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.canvas-node.dimmed:focus-visible .canvas-shape {
+  stroke: var(--canvas-focus);
+  stroke-width: 2;
+}
+
 .canvas-node.lod-1 .canvas-node-label,
 .canvas-node.lod-1 .canvas-node-meta {
   display: none;
@@ -4153,7 +4165,7 @@ label.check input {
   border: 1px solid var(--border-2);
   border-radius: 10px;
   background: var(--panel);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--bg) 70%, transparent);
   font-size: 11px;
 }
 
@@ -4210,13 +4222,16 @@ label.check input {
   z-index: 20;
   width: 280px;
   max-width: min(300px, calc(100% - 16px));
+  /* t80 F1：实测高度定位之外再留 max-height + 内部滚动兜底（极端窄窗/超长 note）。 */
+  max-height: calc(100% - 16px);
+  overflow: auto;
   display: grid;
   gap: 6px;
   padding: 10px;
   border: 1px solid var(--border-2);
   border-radius: 10px;
   background: var(--panel);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--bg) 75%, transparent);
   font-size: 11px;
 }
 
@@ -4560,7 +4575,7 @@ label.check input {
   border: 1px solid color-mix(in srgb, var(--status-failed) 45%, var(--border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--status-failed) 10%, transparent);
-  color: #ff7b72;
+  color: var(--status-failed);
   font-size: 12px;
 }
 

@@ -5,7 +5,9 @@ import {
   computeCanvasLayout,
   fitView,
   nodeDegrees,
+  nodeScreenAnchor,
   oneHopNeighbors,
+  placeDetailPosition,
 } from "./layout.js";
 
 /**
@@ -375,5 +377,87 @@ describe("bounds / fitView / 邻域", () => {
     expect(elapsed).toBeLessThan(1000);
     const second = computeCanvasLayout(big);
     expect(first.nodes.map((node) => node.y)).toEqual(second.nodes.map((node) => node.y));
+  });
+});
+
+describe("t80 F1：详情浮窗按实测尺寸 clamp/翻转", () => {
+  const detail = { w: 280, h: 120 };
+
+  it("节点位于顶部：浮窗在下方且不越界", () => {
+    const placement = placeDetailPosition({
+      node: { x: 40, y: 20, w: 176, h: 52 },
+      view: { x: 0, y: 0, scale: 1 },
+      container: { w: 400, h: 300 },
+      detail,
+    });
+    expect(placement.placement).toBe("below");
+    expect(placement.top).toBe(84); // 20 + 52 + 12
+    expect(placement.left).toBe(40);
+    expect(placement.top + detail.h).toBeLessThanOrEqual(300 - 8);
+  });
+
+  it("节点位于底部（t66 实测场景）：浮窗翻转到上方且底部动作不被裁剪", () => {
+    const placement = placeDetailPosition({
+      node: { x: 60, y: 240, w: 176, h: 52 },
+      view: { x: 0, y: 0, scale: 1 },
+      container: { w: 420, h: 300 },
+      detail,
+    });
+    expect(placement.placement).toBe("above");
+    expect(placement.top).toBe(240 - 12 - 120); // 108
+    expect(placement.top).toBeGreaterThanOrEqual(8);
+    expect(placement.top + detail.h).toBeLessThanOrEqual(300 - 8);
+  });
+
+  it("上下都放不下：夹取到可视区（CSS 内部滚动兜底）", () => {
+    const placement = placeDetailPosition({
+      // 节点本身很高（例如缩放后），上下都没有浮窗空间。
+      node: { x: 10, y: 5, w: 176, h: 395 },
+      view: { x: 0, y: 0, scale: 1 },
+      container: { w: 420, h: 300 },
+      detail: { w: 280, h: 200 },
+    });
+    expect(placement.placement).toBe("below");
+    expect(placement.top).toBe(300 - 200 - 8); // 92
+    expect(placement.top + 200).toBeLessThanOrEqual(292);
+  });
+
+  it("左侧越界被夹取；缩放后按屏幕坐标计算", () => {
+    const placement = placeDetailPosition({
+      node: { x: 900, y: 20, w: 176, h: 52 },
+      view: { x: 0, y: 0, scale: 2 },
+      container: { w: 400, h: 300 },
+      detail,
+    });
+    expect(placement.left).toBe(400 - 280 - 8);
+    const top = placeDetailPosition({
+      node: { x: 90, y: 20, w: 20, h: 20 },
+      view: { x: 0, y: 0, scale: 2 },
+      container: { w: 400, h: 400 },
+      detail,
+    });
+    // 屏幕底部 = 40*2 = 80；80 + 12 = 92
+    expect(top.top).toBe(92);
+  });
+});
+
+describe("t80 F8：缩放锚点使用选中节点屏幕坐标", () => {
+  it("有节点时返回节点中心屏幕坐标；无节点返回 null", () => {
+    const node = {
+      node: { id: "a", label: "A", kind: "step" as const, status: "planned" as const },
+      x: 100,
+      y: 50,
+      w: 100,
+      h: 40,
+      depth: 0,
+      hidden: false,
+      dimmed: false,
+      groupId: null,
+      children: [],
+      hiddenDescendants: 0,
+      branchCollapsed: false,
+    };
+    expect(nodeScreenAnchor(node, { x: 20, y: 10, scale: 2 })).toEqual({ x: 320, y: 150 });
+    expect(nodeScreenAnchor(null, { x: 0, y: 0, scale: 1 })).toBeNull();
   });
 });

@@ -113,3 +113,16 @@ export function nextEscapeLayer(state: {
   if (state.selected) return "selection";
   return "none";
 }
+
+/**
+ * t80 F10：滚轮事件若发生在画布浮层（详情/图例/工具栏）内，画布不应缩放、
+ * 也不应 preventDefault（让浮层自己滚动）。
+ */
+export const CANVAS_OVERLAY_SELECTOR = ".canvas-detail, .canvas-legend, .canvas-toolbar";
+
+export function isCanvasOverlayWheelTarget(
+  target: { closest?: (selector: string) => unknown } | null | undefined,
+): boolean {
+  if (!target || typeof target.closest !== "function") return false;
+  return Boolean(target.closest(CANVAS_OVERLAY_SELECTOR));
+}

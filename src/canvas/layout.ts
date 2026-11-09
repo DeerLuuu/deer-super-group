@@ -943,6 +943,79 @@ export function nodeDegrees(
   return { incoming, outgoing };
 }
 
+// ---------------------------------------------------------------------------
+// t80 F1/F8：详情浮窗定位与缩放锚点（纯函数，便于单测）
+// ---------------------------------------------------------------------------
+
+export interface ScreenViewport {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+/** 节点的屏幕坐标锚点（节点中心）；用于 +/- 缩放以选中节点为锚点（F8）。 */
+export function nodeScreenAnchor(
+  node: PositionedNode | null | undefined,
+  view: ScreenViewport,
+): { x: number; y: number } | null {
+  if (!node) return null;
+  return {
+    x: round2(view.x + (node.x + node.w / 2) * view.scale),
+    y: round2(view.y + (node.y + node.h / 2) * view.scale),
+  };
+}
+
+export interface DetailPlacementInput {
+  node: Pick<PositionedNode, "x" | "y" | "w" | "h">;
+  view: ScreenViewport;
+  container: { w: number; h: number };
+  detail: { w: number; h: number };
+  offset?: number;
+  margin?: number;
+}
+
+export interface DetailPlacement {
+  left: number;
+  top: number;
+  /** 浮窗位于节点的下方还是上方（F1：底部节点自动翻转）。 */
+  placement: "below" | "above";
+}
+
+/**
+ * 节点详情浮窗定位（F1）：按浮窗**实际尺寸**计算。
+ * - 优先在节点下方；下方放不下且上方放得下 → 翻转到上方；
+ * - 上下都放不下 → 夹取到可视区（配合 CSS max-height + 内部滚动）；
+ * - 左侧夹取，不超出容器。
+ */
+export function placeDetailPosition(input: DetailPlacementInput): DetailPlacement {
+  const offset = input.offset ?? 12;
+  const margin = input.margin ?? 8;
+  const { node, view, container, detail } = input;
+  const nodeLeft = view.x + node.x * view.scale;
+  const nodeTop = view.y + node.y * view.scale;
+  const nodeBottom = view.y + (node.y + node.h) * view.scale;
+  const maxLeft = Math.max(margin, container.w - detail.w - margin);
+  const maxTop = Math.max(margin, container.h - detail.h - margin);
+  const belowTop = nodeBottom + offset;
+  const aboveTop = nodeTop - offset - detail.h;
+
+  let placement: "below" | "above" = "below";
+  let top = belowTop;
+  if (belowTop > maxTop) {
+    if (aboveTop >= margin) {
+      placement = "above";
+      top = aboveTop;
+    } else {
+      top = clamp(belowTop, margin, maxTop);
+    }
+  }
+  return {
+    left: round2(clamp(nodeLeft, margin, maxLeft)),
+    top: round2(clamp(top, margin, maxTop)),
+    placement,
+  };
+}
+
 /** 状态 → CSS 变量名（颜色来自主题 token，不接受模型色值）。 */
 export function statusVariable(status: CanvasStatus): string {
   const token =

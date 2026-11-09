@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  CANVAS_OVERLAY_SELECTOR,
   CLICK_DETAIL_DELAY_MS,
   createNodeClickState,
+  isCanvasOverlayWheelTarget,
   isDragGesture,
   nextEscapeLayer,
   resolveNodeClick,
@@ -109,5 +111,25 @@ describe("节点点击状态机", () => {
       "selection",
     );
     expect(nextEscapeLayer({ detailOpen: false, focused: false, selected: false })).toBe("none");
+  });
+});
+
+describe("t80 F10：浮层内滚轮不缩放画布", () => {
+  it("selector 覆盖详情/图例/工具栏", () => {
+    for (const part of ["canvas-detail", "canvas-legend", "canvas-toolbar"]) {
+      expect(CANVAS_OVERLAY_SELECTOR).toContain(part);
+    }
+  });
+
+  it("命中浮层的 target 返回 true；画布空白/节点返回 false", () => {
+    const target = (matched: string | null) => ({
+      closest: (selector: string) => (matched && selector.includes(matched) ? {} : null),
+    });
+    expect(isCanvasOverlayWheelTarget(target("canvas-detail"))).toBe(true);
+    expect(isCanvasOverlayWheelTarget(target("canvas-legend"))).toBe(true);
+    expect(isCanvasOverlayWheelTarget(target("canvas-toolbar"))).toBe(true);
+    expect(isCanvasOverlayWheelTarget(target(null))).toBe(false);
+    expect(isCanvasOverlayWheelTarget(null)).toBe(false);
+    expect(isCanvasOverlayWheelTarget(undefined)).toBe(false);
   });
 });

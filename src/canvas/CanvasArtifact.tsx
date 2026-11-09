@@ -7,6 +7,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   CANVAS_KIND_LABEL,
@@ -25,13 +26,17 @@ import {
   computeCanvasLayout,
   fitView,
   nodeDegrees,
+  nodeScreenAnchor,
   oneHopNeighbors,
+  placeDetailPosition,
   type CanvasLayout,
+  type DetailPlacement,
   type PositionedNode,
 } from "./layout";
 import {
   CLICK_DETAIL_DELAY_MS,
   createNodeClickState,
+  isCanvasOverlayWheelTarget,
   nextEscapeLayer,
   resolveNodeClick,
   type NodeClickState,
@@ -46,7 +51,6 @@ import {
 
 const LOD_TITLE = 0.55;
 const LOD_FULL = 0.9;
-const DETAIL_OFFSET = 12;
 const DETAIL_MAX_WIDTH = 300;
 
 type View = { x: number; y: number; scale: number };
@@ -123,15 +127,21 @@ export default function CanvasArtifact({
   artifact,
   height = "clamp(240px, 34vh, 420px)",
   compact = false,
+  onVisibleLayoutChange,
 }: {
   artifact: DeerCanvas;
   /** 视口高度（CSS 值；放大时由 CanvasCard 传入更大值）。 */
   height?: number | string;
   compact?: boolean;
+  /** t80 F7：回传折叠后的可见布局，供 CanvasCard 按可见集导出 Mermaid/SVG。 */
+  onVisibleLayoutChange?: (layout: CanvasLayout) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const detailRef = useRef<HTMLDivElement | null>(null);
+  const detailFirstActionRef = useRef<HTMLButtonElement | null>(null);
   const markerId = `arrow-${useId().replace(/[:]/g, "")}`;
   const [size, setSize] = useState({ w: 0, h: 0 });
+  const [detailSize, setDetailSize] = useState({ w: 0, h: 0 });
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 });
   const viewRef = useRef<View>({ x: 0, y: 0, scale: 1 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -166,6 +176,11 @@ export default function CanvasArtifact({
     () => (focusedId ? oneHopNeighbors(artifact, focusedId) : null),
     [artifact, focusedId],
   );
+
+  // t80 F7：折叠状态变化后把可见布局回传给 CanvasCard（导出与所见一致）。
+  useEffect(() => {
+    onVisibleLayoutChange?.(layout);
+  }, [layout, onVisibleLayoutChange]);
 
   const applyView = useCallback((next: View) => {
     viewRef.current = next;
@@ -227,6 +242,8 @@ export default function CanvasArtifact({
     const element = containerRef.current;
     if (!element) return;
     const onWheel = (event: WheelEvent) => {
+      // t80 F10：详情/图例/工具栏内的滚轮不缩放画布，也不阻止其自身滚动。
+      if (isCanvasOverlayWheelTarget(event.target as Element | null)) return;
       event.preventDefault();
       const rect = element.getBoundingClientRect();
       const factor = Math.exp(-event.deltaY * 0.0015);
@@ -235,6 +252,27 @@ export default function CanvasArtifact({
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
+
+  // t80 F1：用 ref 测量详情浮窗实际高度（CSS 另有 max-height + 内部滚动兜底）。
+  useEffect(() => {
+    if (!detailId) return;
+    const element = detailRef.current;
+    if (!element) return;
+    const update = () => {
+      setDetailSize({ w: element.offsetWidth, h: element.offsetHeight });
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [detailId]);
+
+  // t80 F2：打开详情后把焦点移到首个动作；Tab 可离开（非模态，不圈禁）。
+  useEffect(() => {
+    if (!detailId) return;
+    detailFirstActionRef.current?.focus();
+  }, [detailId]);
 
   useEffect(() => {
     return () => {
@@ -260,9 +298,9 @@ export default function CanvasArtifact({
 
   function handleNodeClick(nodeId: string, event: React.MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
-    // 再次单击同一节点：关闭详情（设计 §4.5）。
+    // 再次单击同一节点：关闭详情并回焦（设计 §4.5 / t80 F2）。
     if (detailId === nodeId) {
-      setDetailId(null);
+      closeDetail();
       setSelectedId(nodeId);
       return;
     }
@@ -291,7 +329,7 @@ export default function CanvasArtifact({
       detailTimerRef.current = null;
     }
     clickStateRef.current = { ...clickStateRef.current, pendingNodeId: null, pendingAt: 0 };
-    setDetailId(null);
+    if (detailId) closeDetail();
     setFocusedId((current) => {
       const next = current === nodeId ? null : nodeId;
       if (next) {
@@ -317,7 +355,7 @@ export default function CanvasArtifact({
     setDetailId(nodeId);
   }
 
-  function closeDetail(restoreFocus = false) {
+  function closeDetail(restoreFocus = true) {
     const node = detailId;
     setDetailId(null);
     if (restoreFocus && node) {
@@ -326,6 +364,19 @@ export default function CanvasArtifact({
       );
       element?.focus();
     }
+  }
+
+  /** t80 F8：+/- 缩放锚点——优先详情节点，其次选中/聚焦节点，最后回退容器中心。 */
+  function selectedZoomAnchor(): { x: number; y: number } | null {
+    const anchorId = detailId ?? selectedId ?? focusedId;
+    if (!anchorId) return null;
+    const node = layout.nodes.find((item) => item.node.id === anchorId) ?? null;
+    return nodeScreenAnchor(node, viewRef.current);
+  }
+
+  function zoomBy(factor: number) {
+    const anchor = selectedZoomAnchor();
+    zoomAt(factor, anchor?.x, anchor?.y);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -377,12 +428,12 @@ export default function CanvasArtifact({
       case "+":
       case "=":
         event.preventDefault();
-        zoomAt(1.2);
+        zoomBy(1.2);
         break;
       case "-":
       case "_":
         event.preventDefault();
-        zoomAt(1 / 1.2);
+        zoomBy(1 / 1.2);
         break;
       case "0":
         event.preventDefault();
@@ -448,7 +499,7 @@ export default function CanvasArtifact({
     const second = now - lastBackgroundClickRef.current <= 400;
     lastBackgroundClickRef.current = now;
     if (detailId) {
-      closeDetail(false);
+      closeDetail();
       setSelectedId(null);
       return;
     }
@@ -488,15 +539,18 @@ export default function CanvasArtifact({
     detailId !== null ? layout.nodes.find((node) => node.node.id === detailId) ?? null : null;
   const detailPos = detailNode ? computeDetailPosition(detailNode) : null;
 
-  function computeDetailPosition(node: PositionedNode): { left: number; top: number } {
-    const screenX = view.x + node.x * view.scale;
-    const screenY = view.y + (node.y + node.h) * view.scale + DETAIL_OFFSET;
-    const maxLeft = Math.max(8, size.w - DETAIL_MAX_WIDTH - 8);
-    const maxTop = Math.max(8, size.h - 120);
-    return {
-      left: clamp(screenX, 8, maxLeft),
-      top: clamp(screenY, 8, maxTop),
-    };
+  /**
+   * t80 F1：按浮窗**实测尺寸**定位；未测量前用 280×180 估算，测量后自动纠正。
+   * 底部空间不足时翻转到节点上方，并夹取在容器内。
+   */
+  function computeDetailPosition(node: PositionedNode): DetailPlacement {
+    const measured = detailSize.h > 0 ? detailSize : { w: DETAIL_MAX_WIDTH, h: 180 };
+    return placeDetailPosition({
+      node,
+      view,
+      container: size,
+      detail: measured,
+    });
   }
 
   const focusTitle = focusedId ? nodeTitle(focusedId) : null;
@@ -737,7 +791,7 @@ export default function CanvasArtifact({
             type="button"
             className="ghost tiny"
             aria-label="缩小画布"
-            onClick={() => zoomAt(1 / 1.2)}
+            onClick={() => zoomBy(1 / 1.2)}
           >
             −
           </button>
@@ -748,7 +802,7 @@ export default function CanvasArtifact({
             type="button"
             className="ghost tiny"
             aria-label="放大画布"
-            onClick={() => zoomAt(1.2)}
+            onClick={() => zoomBy(1.2)}
           >
             ＋
           </button>
@@ -825,85 +879,23 @@ export default function CanvasArtifact({
         </div>
 
         {detailNode && detailPos && (
-          <div
-            className="canvas-detail"
-            role="dialog"
-            aria-modal="false"
-            aria-label={`节点详情：${detailNode.node.label}`}
-            style={{ left: detailPos.left, top: detailPos.top }}
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                event.stopPropagation();
-                closeDetail(true);
-              }
+          <CanvasNodeDetail
+            detailRef={detailRef}
+            firstActionRef={detailFirstActionRef}
+            node={detailNode}
+            artifact={artifact}
+            placement={detailPos}
+            focused={Boolean(focusedId)}
+            onClose={() => closeDetail()}
+            onToggleFocus={() => toggleFocus(detailNode.node.id)}
+            onClearFocus={() => {
+              setFocusedId(null);
+              closeDetail();
             }}
-          >
-            <div className="canvas-detail-head">
-              <strong>{detailNode.node.label}</strong>
-              <button type="button" className="ghost tiny" onClick={() => closeDetail(true)}>
-                关闭
-              </button>
-            </div>
-            <div className="canvas-detail-meta muted tiny">
-              {NODE_KIND_LABEL[detailNode.node.kind]} · {CANVAS_STATUS_LABEL[detailNode.node.status]}
-              {detailNode.node.meta ? ` · ${detailNode.node.meta}` : ""}
-            </div>
-            {detailNode.node.note && <p className="canvas-detail-note">{detailNode.node.note}</p>}
-            <div className="canvas-detail-meta muted tiny">
-              {detailNode.groupId
-                ? `分组：${artifact.groups.find((group) => group.id === detailNode.groupId)?.label ?? detailNode.groupId}`
-                : "未分组"}
-              {" · "}
-              上游 {nodeDegrees(artifact, detailNode.node.id).incoming} / 下游{" "}
-              {nodeDegrees(artifact, detailNode.node.id).outgoing}
-            </div>
-            {detailNode.node.refs && (
-              <div className="canvas-detail-meta muted tiny">
-                引用：
-                {[
-                  detailNode.node.refs.taskId ? `任务 ${detailNode.node.refs.taskId}` : "",
-                  detailNode.node.refs.messageId ? `消息 ${detailNode.node.refs.messageId}` : "",
-                  detailNode.node.refs.board ? `黑板 ${detailNode.node.refs.board}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || "—"}
-              </div>
-            )}
-            <div className="canvas-detail-actions">
-              <button
-                type="button"
-                className="ghost tiny"
-                onClick={() => toggleFocus(detailNode.node.id)}
-              >
-                聚焦 1 跳
-              </button>
-              {focusedId && (
-                <button type="button" className="ghost tiny" onClick={() => setFocusedId(null)}>
-                  清除聚焦
-                </button>
-              )}
-              <button
-                type="button"
-                className="ghost tiny"
-                onClick={() => {
-                  void copyWithFallback(detailNode.node.id, setAnnouncement);
-                }}
-              >
-                复制节点 ID
-              </button>
-              <button
-                type="button"
-                className="ghost tiny"
-                onClick={() => {
-                  void copyWithFallback(detailNode.node.label, setAnnouncement);
-                }}
-              >
-                复制标题
-              </button>
-            </div>
-          </div>
+            onCopy={(value) => {
+              void copyWithFallback(value, setAnnouncement);
+            }}
+          />
         )}
       </div>
       {layout.hiddenNodeCount > 0 && (
@@ -921,6 +913,109 @@ export default function CanvasArtifact({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * t80 F1/F2：节点详情浮窗（非模态 popover）。
+ * - 按实测尺寸由 `placeDetailPosition` 决定位置（底部节点翻转/夹取）；
+ * - 打开后由父组件把焦点移到首个动作；Tab 可离开，不圈禁。
+ * 导出为独立组件便于 SSR 断言（role/aria/first action/placement）。
+ */
+export function CanvasNodeDetail({
+  node,
+  artifact,
+  placement,
+  focused,
+  detailRef,
+  firstActionRef,
+  onClose,
+  onToggleFocus,
+  onClearFocus,
+  onCopy,
+}: {
+  node: PositionedNode;
+  artifact: DeerCanvas;
+  placement: DetailPlacement;
+  focused: boolean;
+  detailRef?: RefObject<HTMLDivElement | null>;
+  firstActionRef?: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  onToggleFocus: () => void;
+  onClearFocus: () => void;
+  onCopy: (value: string) => void;
+}) {
+  const degrees = nodeDegrees(artifact, node.node.id);
+  const groupLabel = node.groupId
+    ? artifact.groups.find((group) => group.id === node.groupId)?.label ?? node.groupId
+    : null;
+  return (
+    <div
+      ref={detailRef}
+      className="canvas-detail"
+      data-placement={placement.placement}
+      role="dialog"
+      aria-modal="false"
+      aria-label={`节点详情：${node.node.label}`}
+      style={{ left: placement.left, top: placement.top }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <div className="canvas-detail-head">
+        <strong>{node.node.label}</strong>
+        <button type="button" className="ghost tiny" onClick={onClose}>
+          关闭
+        </button>
+      </div>
+      <div className="canvas-detail-meta muted tiny">
+        {NODE_KIND_LABEL[node.node.kind]} · {CANVAS_STATUS_LABEL[node.node.status]}
+        {node.node.meta ? ` · ${node.node.meta}` : ""}
+      </div>
+      {node.node.note && <p className="canvas-detail-note">{node.node.note}</p>}
+      <div className="canvas-detail-meta muted tiny">
+        {groupLabel ? `分组：${groupLabel}` : "未分组"} · 上游 {degrees.incoming} / 下游{" "}
+        {degrees.outgoing}
+      </div>
+      {node.node.refs && (
+        <div className="canvas-detail-meta muted tiny">
+          引用：
+          {[
+            node.node.refs.taskId ? `任务 ${node.node.refs.taskId}` : "",
+            node.node.refs.messageId ? `消息 ${node.node.refs.messageId}` : "",
+            node.node.refs.board ? `黑板 ${node.node.refs.board}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ") || "—"}
+        </div>
+      )}
+      <div className="canvas-detail-actions">
+        <button
+          ref={firstActionRef}
+          type="button"
+          className="ghost tiny"
+          onClick={onToggleFocus}
+        >
+          {focused ? "退出 1 跳聚焦" : "聚焦 1 跳"}
+        </button>
+        {focused && (
+          <button type="button" className="ghost tiny" onClick={onClearFocus}>
+            清除聚焦
+          </button>
+        )}
+        <button type="button" className="ghost tiny" onClick={() => onCopy(node.node.id)}>
+          复制节点 ID
+        </button>
+        <button type="button" className="ghost tiny" onClick={() => onCopy(node.node.label)}>
+          复制标题
+        </button>
+      </div>
     </div>
   );
 }
