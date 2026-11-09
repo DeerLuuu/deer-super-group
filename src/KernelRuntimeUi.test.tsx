@@ -535,3 +535,189 @@ describe("t117 Announcer 基线重置（纯函数）", () => {
     expect(schedulerAnnouncement(baseline.scheduler, baseline.scheduler)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// t121：KernelAnnouncer 组件 rerender 行为（react-test-renderer）
+// 依赖说明：react-test-renderer@19.3.1 为 devDependency（仅测试），版本与 react 对齐；
+// 不进入生产 bundle（vite build 无引用），符合最小功能原则。
+// ---------------------------------------------------------------------------
+
+describe("t121 KernelAnnouncer rerender 行为", () => {
+  // react-test-renderer 未带类型声明（19.x 移除）；仅测试使用，按 any 引入。
+  type RtrModule = {
+    default: {
+      create: (node: React.ReactElement) => {
+        root: { findByType: (type: string) => { props: { children: unknown } } };
+        update: (node: React.ReactElement) => void;
+        unmount: () => void;
+      };
+    };
+    act: (fn: () => Promise<void> | void) => Promise<void>;
+  };
+  const loadRtr = async (): Promise<RtrModule> => {
+    // @ts-expect-error react-test-renderer 19.x 不带类型声明（仅测试依赖，按结构化类型引入）
+    const mod = (await import("react-test-renderer")) as RtrModule;
+    return mod;
+  };
+
+  it("mount → 切 contextKey（同数据）→ 数据变化 → 切 workspace 的完整状态机", async () => {
+    const { default: TestRenderer, act } = await loadRtr();
+    const { default: KernelAnnouncer } = await import("./KernelAnnouncer");
+
+    const tasksA = () => [task({ id: "a", status: "ready" })];
+    let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+    const text = () =>
+      String((renderer as NonNullable<typeof renderer>).root.findByType("div").props.children ?? "");
+
+    // 1) 首次 mount（在 act 内）：不播报。
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <KernelAnnouncer tasks={tasksA()} scheduler={null} runs={[]} contextKey="ws1:tasks:a" />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 2) 同 contextKey 数据刷新（同数据）：仍不播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer tasks={tasksA()} scheduler={null} runs={[]} contextKey="ws1:tasks:a" />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 3) 数据变化（a ready→queued）：播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "queued" })]}
+          scheduler={null}
+          runs={[]}
+          contextKey="ws1:tasks:a"
+        />,
+      );
+    });
+    expect(text()).toContain("排队中");
+
+    // 4) 切 contextKey（tasks → chat，同数据）：message 清空、无新增播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "queued" })]}
+          scheduler={null}
+          runs={[]}
+          contextKey="ws1:chat:a"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 5) 切回 tasks（同数据，基线以当前数据静默重建）→ 再数据变化（a queued→running）：播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "queued" })]}
+          scheduler={null}
+          runs={[]}
+          contextKey="ws1:tasks:a"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "a", status: "running" })]}
+          scheduler={null}
+          runs={[]}
+          contextKey="ws1:tasks:a"
+        />,
+      );
+    });
+    expect(text()).toContain("进行中");
+
+    // 6) 切 workspace（contextKey 换 ws2 + 全新数据）：静默建基线，零误播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "z", status: "ready" })]}
+          scheduler={null}
+          runs={[]}
+          contextKey="ws2:tasks:z"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 7) 新 workspace 内第一次变化（z ready→done，同 contextKey）照常播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[task({ id: "z", status: "done" })]}
+          scheduler={null}
+          runs={[]}
+          contextKey="ws2:tasks:z"
+        />,
+      );
+    });
+    expect(text()).toContain("已交付");
+
+    renderer!.unmount();
+  });
+
+  it("Run 状态变化在切 tab 后首次变化也能播报", async () => {
+    const { default: TestRenderer, act } = await loadRtr();
+    const { default: KernelAnnouncer } = await import("./KernelAnnouncer");
+
+    let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+    const text = () =>
+      String((renderer as NonNullable<typeof renderer>).root.findByType("div").props.children ?? "");
+
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <KernelAnnouncer
+          tasks={[]}
+          scheduler={null}
+          runs={[run({ id: "r1", status: "running" })]}
+          contextKey="ws1:tasks:t1"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+
+    // 切 chat 再切回（同数据，基线重建）→ r1 running→completed 播报。
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[]}
+          scheduler={null}
+          runs={[run({ id: "r1", status: "running" })]}
+          contextKey="ws1:chat:t1"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[]}
+          scheduler={null}
+          runs={[run({ id: "r1", status: "running" })]}
+          contextKey="ws1:tasks:t1"
+        />,
+      );
+    });
+    expect(text()).toBe("");
+    await act(async () => {
+      renderer!.update(
+        <KernelAnnouncer
+          tasks={[]}
+          scheduler={null}
+          runs={[run({ id: "r1", status: "completed" })]}
+          contextKey="ws1:tasks:t1"
+        />,
+      );
+    });
+    expect(text()).toContain("已完成");
+    renderer!.unmount();
+  });
+});

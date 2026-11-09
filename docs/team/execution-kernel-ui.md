@@ -261,3 +261,15 @@ t114 F1：t113 的 contextKey 重置把 previous refs 置 **null**，导致切 t
 3. 切 workspace：基线=新 workspace 当前数据，对同数据 diff 为空（不误播报）。
 
 **验证**：typecheck 0 / build 0 / test 23 文件 **326/326**（t117 +3）。未改 src/kernel/、未混 Git/记忆改动。
+
+## 14. t121 修复记录（repair-round-5，mika / GLM-5.3）
+
+补 KernelAnnouncer **组件级 rerender 行为测试**（t114 复审要求；t117 已修实现，本任务补测试证据）。
+
+- 依赖：`react-test-renderer@19.3.1` 新增为 **devDependency**（仅测试，版本与 react 19.3.1 对齐；不进生产 bundle——vite build 产物无引用，见验证）。react-test-renderer 19.x 不带类型声明，测试内按结构化类型引入并注释说明（最小功能/评审披露）。
+- 用例 1「完整状态机」（KernelRuntimeUi.test「t121 KernelAnnouncer rerender 行为」）：
+  1) mount（act 内）无播报；2) 同 contextKey 同数据刷新无播报；3) 数据变化 ready→queued 播报「排队中」；4) 切 contextKey tasks→chat（同数据）message 清空无新增；5) 切回 tasks（同数据）清空 → 再数据变化 queued→running 播报「进行中」（t114 F1 回归点：不被 previous=null 吞）；6) 切 workspace（ws2+全新数据）静默零误播报；7) 新 workspace 内首变化 ready→done 播报「已交付」。
+- 用例 2：Run 同理——切 chat→切回→r1 running→completed 播报「已完成」。
+- 注：contextKey 切换与数据变化分两帧 rerender（与 App 真实行为一致——切 tab 是独立渲染，数据随后经快照刷新到达）；同一帧内同时切 contextKey+变数据按「切上下文」语义静默处理，属设计预期（基线=当前数据）。
+
+**验证**：typecheck 0 / build 0（devDep 不进 bundle）/ test 23 文件 **328/328**（t121 +2）。
