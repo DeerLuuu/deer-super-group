@@ -59,13 +59,6 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "settings", label: "设置", hint: "配置模型与运行参数" },
 ];
 
-// C09：侧栏按「工作 / 协作 / 系统」三组组织。
-const NAV_GROUPS: Array<{ label: string; tabs: Tab[] }> = [
-  { label: "工作", tabs: ["tasks", "team", "chat"] },
-  { label: "协作", tabs: ["mailbox", "board"] },
-  { label: "系统", tabs: ["settings"] },
-];
-
 type TaskStatusFilter = "all" | TaskStatus;
 
 function time(iso: string): string {
@@ -1034,29 +1027,14 @@ export default function App() {
           </div>
         )}
 
-        <nav className="nav" aria-label="主导航">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.label} className="nav-group">
-              {!sidebarCollapsed && <div className="nav-group-label">{group.label}</div>}
-              {group.tabs.map((tabId) => {
-                const item = TABS.find((entry) => entry.id === tabId);
-                if (!item) return null;
-                return (
-                  <button
-                    key={item.id}
-                    className={`nav-item ${tab === item.id ? "active" : ""}`}
-                    onClick={() => openPanel(item.id)}
-                    title={sidebarCollapsed ? `${item.label} · ${item.hint}` : undefined}
-                    aria-current={tab === item.id ? "page" : undefined}
-                  >
-                    <span className="nav-label">{item.label}</span>
-                    {!sidebarCollapsed && <span className="nav-hint">{item.hint}</span>}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
+        {!sidebarCollapsed && (
+          <div className="sidebar-panel-hint">
+            <div className="section-label">面板</div>
+            <p className="muted tiny">
+              使用上方 Dock 标签或 <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 切换面板。
+            </p>
+          </div>
+        )}
 
         {!sidebarCollapsed && (
           <div className="sidebar-footer">

@@ -271,6 +271,25 @@ button:disabled {
   margin-bottom: 6px;
 }
 
+.sidebar-panel-hint {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-panel-hint p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.sidebar-panel-hint kbd {
+  font: inherit;
+  font-size: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  padding: 1px 4px;
+  background: var(--bg);
+}
+
 /* C09：导航分组 + 折叠图标栏 */
 .nav {
   padding: 10px;
