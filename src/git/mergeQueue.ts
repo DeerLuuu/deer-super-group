@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { ChecksRunner } from "./checksRunner.js";
 import { detectConflict, verifyIntegratedContent } from "./branchOps.js";
+import { emitGitEvent } from "./events.js";
 import type { GitExec } from "./gitExec.js";
 import type { GitStore } from "./gitStore.js";
 import type {
@@ -60,7 +61,7 @@ function event(
   taskId?: string,
 ): void {
   try {
-    store.appendEvent({
+    emitGitEvent(store, {
       aggregateType: taskId ? "task" : "workspace",
       aggregateId: taskId ?? workspaceId,
       type,
@@ -529,26 +530,52 @@ export class MergeQueue {
             state: "merged",
             mergeCommitSha: pr.mergedCommitSha,
             lastError: null,
+            approvedHeadSha: null,
+            checksWaived: false,
           });
           this.recordTaskVcs(item, "merged", pr.mergedCommitSha);
         } else if (pr.mergeable === "conflicting") {
           this.deps.gitStore.updateQueue(item.id, {
-            state: "waiting_review",
+            state: "blocked",
             headSha: pr.headSha || item.headSha,
             approvedHeadSha: null,
             checksWaived: false,
             lastError: "recovered_conflict",
           });
+          event(this.deps.store, workspaceId, "merge.blocked", {
+            queueId: item.id,
+            reason: "recovered_conflict",
+          }, item.taskId);
+        } else if (
+          pr.state === "unknown" ||
+          pr.state === "closed" ||
+          pr.mergeable === "unknown"
+        ) {
+          this.deps.gitStore.updateQueue(item.id, {
+            state: "blocked",
+            headSha: pr.headSha || item.headSha,
+            approvedHeadSha: null,
+            checksWaived: false,
+            lastError: "recovery_unknown",
+          });
         } else {
           this.deps.gitStore.updateQueue(item.id, {
             state: "ready",
             headSha: pr.headSha || item.headSha,
+            approvedHeadSha: null,
+            checksWaived: false,
             lastError: null,
           });
         }
         repaired += 1;
       } catch {
-        this.deps.gitStore.updateQueue(item.id, { state: "blocked", lastError: "recovery_unknown" });
+        this.deps.gitStore.updateQueue(item.id, {
+          state: "blocked",
+          approvedHeadSha: null,
+          checksWaived: false,
+          lastError: "recovery_unknown",
+        });
+        repaired += 1;
       }
     }
     return repaired;

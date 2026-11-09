@@ -72,7 +72,7 @@
 ```text
 pnpm typecheck   # exit 0
 pnpm build       # exit 0（vite + build-electron）
-pnpm test        # 22 files / 314 tests passed（Git 专项 25）
+pnpm test        # 23 files / 330 tests passed（t104 基线 22/316；Git 专项 36 + GitPanels loading 3）
 ```
 
 Git 专项覆盖：GitExec 白名单/脱敏/真实命令；迁移 6 列/旧库；CommitGuard；worktree 创建/容量/defer/`.deer-git` 回退/finalize/清理；MergeQueue 批准/一次合并/三种 mergeMethod/冲突/本地 ready/幂等 enqueue；admission；Manual/Local/async provider；bare remote push；enterprise REST（mock fetch）；waive；崩溃 reconcile；kernel run.started sandbox 一致性/容量 defer；abort+finalize；ChecksRunner 成功/失败；squash 内容校验；Git 事件 type/schema。全部零网络。
@@ -83,30 +83,33 @@ Git 专项覆盖：GitExec 白名单/脱敏/真实命令；迁移 6 列/旧库�
 |-------|------|-----------|
 | AC-WT-01/02/03 | 已实现 | degraded 回退、branch/worktree、attempt 复用；Git 测试 |
 | AC-WT-04 | 已实现 | 3 槽容量 + kernel beforeStart defer（queued/attempt 0/无 Run）测试 |
-| AC-WT-05/06/07 | 部分 | 创建失败清理、no_changes/commit、reconcile；崩溃进程级夹具为 reconcile 层，非 OS kill |
-| AC-WT-08/09/10/11/16 | 已实现 | 路径前缀校验、exclude、冲突分支、`.deer-git` 回退/清理 |
-| AC-WT-12/13/14/15 | 部分 | 软所有权 API `scopePaths` 落库；取消保留/preserve 有逻辑；stale 接管有 reclaim，未逐项测试 |
-| AC-GIT-01 | 部分 | 白名单实现 + 合法/危险形状测试；未按 29 行逐条表驱动 |
-| AC-GIT-02..13 | 部分 | commit/push/脱敏/无 shell/PR 幂等/错误码已实现；未全部对应测试 |
-| AC-EVT-01/02/04/05 | 部分 | `events.ts` 34 type 正则 + zod payload 测试；未注册到 t68 eventRegistry |
-| AC-MQ-01..06/12 | 部分 | 队列/一次一个/checks/approved_head_sha/恢复/冲突去重/三种 merge 有测试；完整 AC 未逐条 |
-| AC-MQ-05/08/09/10/11/13 | 部分 | 冲突任务、waive、tree 校验、local/manual ready、head 变化 reset；细节需补 |
-| AC-PR-01..11 | 部分 | GitHub/Manual/Local、REST enterprise mock；无真实网络/企业 host 集成 |
-| AC-MIG-01/05/06 | 已实现 | 表创建/迁移/旧库升级；AC-MIG-06 测试 |
-| AC-KRN-01..07 | 已实现/部分 | run.started sandbox、prepare cwd、defer、degraded、abort/finalize；kill -9 级 fencing 未做 |
-| AC-KRN-08/AC-TYPE-01 | 部分 | async provider 形状 + kernel environment hook；未加 type-level snapshots |
-| UI/键盘/ARIA/窄屏 | 组件完成，**未挂载** | `src/git/ui/GitPanels.tsx` + IPC；`src/App.tsx`/`src/TeamDashboard.tsx` 仍 out of scope，运行应用无入口（t103） |
+| AC-WT-05/06/07 | failed | 创建失败清理、no_changes/commit、reconcile 已实现；崩溃进程级夹具仅 reconcile 层，未做 OS kill 级 |
+| AC-WT-08/09/10/11/16 | passed | realpath/lstat + symlink/junction 逃逸测试（AC-WT-08）；exclude、冲突分支、`.deer-git` 回退/清理 |
+| AC-WT-12/13/14/15 | passed | `scopePaths` 落库；AC-WT-13 cancel WIP/preserve 集成测试；AC-WT-14 stale reclaim（`git.worktree_reclaimed`）；AC-WT-15 busy defer |
+| AC-GIT-01 | passed | 29 行表驱动（§5.2.1 #1–#29）+ 危险变体拒绝；`git.test.ts` t111 AC-GIT-01 |
+| AC-GIT-02..13 | failed | commit/push/脱敏/无 shell/错误码与 PR-11 并发有测试；其余未逐条覆盖，真实 gh/企业 host 未集成 |
+| AC-EVT-01/02/04/05 | passed | `emitGitEvent` 先 zod 校验再写 eventStore；34 type 注册 t68 registry；非法 payload 不落库测试 |
+| AC-MQ-06 | passed | mergeQueue.recover merged/conflict/unknown 夹具；approval/waiver 清理；二次 recover 不重复 |
+| AC-MQ-01..05/12 | failed | 队列/一次一个/checks/approved/merge 测试已有；未逐条覆盖 |
+| AC-MQ-05/08/09/10/11/13 | failed | 冲突任务、waive、tree 校验、local/manual ready、head 变化 reset 有实现但未逐条测试 |
+| AC-PR-11 | passed | B3 RepoLock/DB 唯一占位 + 并发 createPr 返回同一 PR |
+| AC-PR-01..10 | failed | GitHub/Manual/Local、REST enterprise mock 有覆盖；真实网络/企业 host 未集成 |
+| AC-MIG-01/05/06 | passed | 表创建/迁移/旧库升级；AC-MIG-06 测试 |
+| AC-KRN-01..04/06/07 | passed | run.started sandbox、prepare cwd、defer、degraded、abort/finalize 测试 |
+| AC-KRN-05 | passed（模拟） | stale owner token finalize 拒绝、reclaim/busy 夹具；真实 kill -9 级仍为模拟 |
+| AC-KRN-08/AC-TYPE-01 | passed | `git.test.ts` 类型探针（prepare 含 agentId、Git/Kernel 类型互赋、TaskVcs/MergeQueueItem/RepoDiagnostics 字段快照） |
+| UI/键盘/ARIA/窄屏 | passed（manual-only 细节见 §8） | t103 已挂载；t111 加 loading/aria-busy；SSR loading 测试 3 项；Esc/Tab/焦点环/窄屏用 mock fixture Electron 冒烟（手动例外） |
 
 ## 5. 遗留项 / 阻塞
 
-1. **UI 挂载（高，t103）**：组件与 IPC 已交付，但未接入 App/TeamDashboard；运行应用无入口。
+1. **UI 挂载（已关闭）**：t103 已接入 App/TeamDashboard；t111 增加 loading/aria-busy，详见 §8。
 2. **真实网络/企业 host（中）**：GitHub REST 用 mock fetch 验证 URL/解析；真实 gh、限流、企业 host 未集成测试。
-3. **AC 逐条覆盖（中）**：Git 专项 25 个测试，未覆盖全部 62+ AC；缺 OS kill 级崩溃、完整并发写锁、PR 并发双 create、worktree 取消 preserve 逐项断言。
-4. **事件注册（中）**：`events.ts` 有 zod/type 校验，但尚未注册到 t68 eventRegistry；Git 事件仍走 `store.appendEvent`。
+3. **AC 逐条覆盖（中）**：t111 已补 AC-GIT-01 29 行、AC-WT-08/13/14/15、AC-MQ-06、AC-KRN-08/AC-TYPE-01；AC-GIT-02..13/AC-MQ-01..12 其余条目仍未逐条；OS kill 级真实进程夹具仍为模拟。
+4. **事件注册（已关闭）**：`emitGitEvent` 已注册 34 个 Git type 到 t68 eventRegistry，所有 Git 写入点统一走 zod + schemaVersion=2。
 5. **kernel 跨切面改动（流程）**：`src/kernel/execution/kernel.ts` 的 30 行 environment hook 不在 t102 原始 in-scope 列表，但为 run.started/投影一致所必需；请评审确认接受或调整 scope。
-6. **local/manual 自动合并（设计如此）**：队列停在 ready，需用户本地合并后调 `verifyIntegrated`；UI 未提供该按钮。
-7. **PR 并发幂等**：已有 open PR 时 refresh；并发 finalize 仍可能双 create，需 `git_jobs` commandId 串行/唯一索引兜底。
-8. **合并锁**：队列单进程一次一个；多实例/崩溃租约 fencing 未完整实现。
+6. **local/manual verifyIntegrated（P1 降级）**：后端 `verifyIntegrated` 已有，但 t111 outOfScope 含 electron/shared IPC，无法为 UI 新增通道；本任务显式降级为 P1（接受记录见 §8.4），MergeQueueModal 对 local/manual ready 只展示说明。
+7. **PR 并发幂等（已关闭）**：B3 用 RepoLock + DB 事务占位 + 唯一键，补并发 createPr 测试。
+8. **合并锁（未完成）**：队列单进程一次一个；多实例/崩溃租约 fencing 仍未完整实现。
 
 ## 6. 回滚
 
@@ -172,7 +175,82 @@ Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实�
 ### 7.6 遗留
 
 1. **t69 合并后 sync**（流程）：本次基于 t96 当前 App 挂载，t69 合入后需解 App/TeamDashboard/CommandPalette/deeplink/styles 冲突并复跑三命令。
-2. **组件内部 loading**：`TaskVcsPanel`/`MergeQueueModal` 首次加载期间先显示空态（组件在 `src/git/`，t103 out of scope 未改）；`GitSettingsPanel` 有「加载中…」。如需 skeleton，另开组件修复任务。
+2. **组件内部 loading（已修复 t111）**：`TaskVcsPanel`/`MergeQueueModal` 首次加载显示 `role=status` + `aria-busy`，不再先显示空态；`GitPanels.test.tsx` SSR 覆盖初始 loading。
 3. **无真实仓库/gh 端到端**：本次 mock fixture 验证 UI/IPC 形状；真实 Git 仓库、GitHub checks/PR、权限拒绝的端到端需 t104/集成环境验证。
-4. **合并队列 local/manual verifyIntegrated**：沿用 t96 遗留，UI 未提供该按钮。
+4. **合并队列 local/manual verifyIntegrated（P1 降级）**：t111 outOfScope 含 electron/shared IPC，无法新增 UI 通道；显式列为 P1，MergeQueueModal 对 local/manual ready 展示说明，待后续 IPC 任务提供按钮。
+
+## 8. t111 repair-round-2（B1–B4 / F5–F9）
+
+> t104 findings：B1 worktree realpath、B2 Git 事件未接 t68 registry、B3 PR 非幂等、B4 G3 fencing 未完成；F5 AC 覆盖、F6 recover、F7 UI 测试/loading、F8 文档计数、F9 local/manual verifyIntegrated。t111 在 PR #4 内修复，仅改 `src/git/` 与本文档。
+
+### 8.1 B1 realpath/lstat（AC-WT-08）
+
+- `worktreeManager.ts` 新增 `validateWorktreePath(runtimeRoot,target)`：路径 resolve 后必须在 root 内；逐段 `lstat` 拒绝 symlink/junction；对已存在祖先做 `realpathSync.native` 并再次确认在 realRoot 内；root 自身为 symlink 也拒绝。
+- `prepareSync` / `prepare`：创建前校验一次，`git worktree add` 后再次校验；reclaim/remove 前也校验，不安全路径标记 orphaned 且不执行删除。
+- 测试：`validateWorktreePath` traversal；Windows junction/目录 symlink 指向 runtimeRoot 外时 `prepareSync` 返回 `GIT_PATH_ESCAPE`，外部目录未被触碰（AC-WT-08）。
+
+### 8.2 B2 emitGitEvent + eventRegistry（AC-EVT-01/02/04/05）
+
+- `events.ts` 新增 `registerGitEventTypes()`：把 34 个 `GIT_EVENT_TYPES` 的 zod schema 注册进 t68 `EVENT_REGISTRY`（运行时扩展，不改 `src/kernel/` 文件；`isKernelEventType` 可查到）。
+- 新增 `emitGitEvent(store,input)`：先 `validateGitEvent`，再 `assertKernelEventPayload(type,payload,2)`，最后 `store.appendEvent({schemaVersion:2})`；所有 Git 写入点（`gitService.ts`、`mergeQueue.ts`、`worktreeManager.ts`）已替换，无 raw `store.appendEvent`。
+- 修正实际 payload 与 schema 不一致：`git.commit_blocked` 补 files/errorCode；PR 失败走带 branch/remote 的 `git.push_failed`；merge checks 事件允许 runner summary 字符串；recover 冲突/未知补 blocked。
+- 测试：34 type 注册可查；非法 `git.commit` payload 抛错且 events 表计数 0；合法事件 schema_version=2。
+
+### 8.3 B3 PR 幂等（AC-PR-11/AC-GIT-12）
+
+- `GitService` 新增 `prLock = new RepoLock()` 与 `ensurePullRequest()`：
+  - `pr:<workspace>:<provider>:<task>` 锁串行化同一 PR 的 check/create/refresh/upsert；
+  - `reservePr()` 用 `BEGIN IMMEDIATE` + `pr_records` 的 `(workspace,provider,task)` 唯一索引先占位（state=`creating`），跨进程冲突则回读；
+  - 已有可用 PR 只 refresh 并写 `pr.updated`；新建写 `pr.created`；失败置 state=`failed` 允许重试；并发第二个调用返回同一 PR。
+- finalize 的 autoCreatePr 与手动 `createPr` 统一走该 helper；不再有 check-then-create 分支。
+- 测试：两个并发 `service.createPr(taskId)` 共用同一 context/provider，`createCalls=1`、两条结果同一 PR number、`pr_records` 只有 1 行。
+
+### 8.4 B4 fencing token/run owner（AC-KRN-05/AC-WT-14/15）
+
+- worktree lease token = `git-service:<runId>:<attempt>`，写入 `git_worktrees.lease_owner`；prepare/复用/接管时更新。
+- `finalizeRun` 开始即校验：record 必须 active 且 `leaseOwner` 等于当前 runId/attempt 的 token；无 record 但同 task 已有其他 active run 时抛 `GIT_FENCING_STALE`；stale owner 在 commit/push/remove 前拒绝，`removeWorktree` 也接受 expected token。
+- 测试：stale `leaseOwner` finalize 抛错且 worktree 仍 active；旧 run 在 reclaim 后 finalize 抛 `GIT_FENCING_STALE`；terminal stale reclaim 成功且 busy live run 返回 `GIT_WORKTREE_BUSY`（AC-WT-14/15）。
+
+### 8.5 F5/F6 测试覆盖
+
+- `AC-GIT-01`：29 行 argv 表驱动（rev-parse/remote/config/status/diff/log/show/cat-file/merge-base/patch-id/worktree/branch/check-ref-format/add/commit/format-patch/fetch/push/merge/merge-tree）+ 危险变体拒绝。
+- `AC-TYPE-01`/`AC-KRN-08`：类型探针（prepare 含 agentId、Git/Kernel prepare 输入互赋、Git `PrepareRunResult` ok 赋给 kernel `RunEnvironment`、`GitRunEnvironmentProvider` 实现 `RunEnvironmentProvider`）+ `TaskVcs`/`MergeQueueItem`/`RepoDiagnostics` 字段快照测试。
+- `AC-WT-13`：cancel 生成 `wip(task)` 本地 commit、默认移除 worktree；preserveWorktreeOnCancel=true 保留目录。
+- `AC-MQ-06`：`mergeQueue.recover` 对 merging/updating：merged→merged+清 approval/waiver；conflicting→blocked+清理；provider unknown→blocked+清理；第二次 recover 不再处理，无重复 merge。
+- **AC 映射**见 §4（已从「部分」更新为 passed/failed；仍未完成项保留真实网络/OS kill/其余 AC 逐条）。
+
+### 8.6 F7 GitPanels loading + 测试/手动例外
+
+- `TaskVcsPanel` 首次加载 `role=status`「加载 Git 状态…」+ `aria-busy`；`MergeQueueModal` 打开时「加载合并队列…」+ `aria-busy`；`GitSettingsPanel` 加载 `role=status`「加载中…」；不再先显示空态。
+- 新增 `src/git/ui/GitPanels.test.tsx`（React SSR，不依赖 jsdom/RTL）：TaskVcsPanel 初始 loading 不显示空态；MergeQueueModal open/closed 与 loading；GitSettingsPanel 初始 loading。
+- **manual-only 例外**：仓库未安装 jsdom/@testing-library，Esc/Tab 焦点环/焦点回焦/窄屏 class 不做 RTL；按 t103 mock fixture Electron 构建产物冒烟（`docs/team/t103-task-vcs.png`、`t103-git-settings.png`、`t103-merge-queue.png`）记录：打开/关闭、Esc 关闭队列、Ctrl+K 命令、980×735 窄窗、深链聚焦。该例外已在本节固定，后续若引入 RTL 再替换。
+
+### 8.7 F8/F9
+
+- F8：§3 已更新为 t111 实测 **23 files / 330 tests**（t104 基线 22/316；Git 专项 36 + GitPanels 3），并注明 Git 专项。
+- F9：local/manual `verifyIntegrated` **P1 降级**。原因：t111 outOfScope 含 `electron/` 与 `src/shared/ipc.ts`，无法在不越界的情况下新增 `verifyIntegrated` IPC；真实调用后端已有但 UI 不提供按钮。MergeQueueModal 对 local/manual ready 展示说明，验收记录在本节与 §5.6；后续由独立 IPC/UI 任务提供。
+
+### 8.8 验证
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm typecheck` | ✅ 0 |
+| `pnpm build` | ✅ 0（393 modules；css 202.22 kB / gzip 22.60；js 1,085.33 kB / gzip 298.16；electron main 1.1mb、preload 4.9kb） |
+| `pnpm test` | ✅ 0（23 文件 / 330 用例；t111 新增 14：Git 11 + GitPanels 3；Git 专项 36） |
+
+### 8.9 改动文件（t111）
+
+```text
+src/git/worktreeManager.ts   B1 realpath/lstat + fencing token + reclaimed event
+src/git/events.ts            B2 emitGitEvent + 34 type registry + schema fixes
+src/git/gitService.ts        B3 ensurePullRequest + B4 finalize fencing + payload fixes
+src/git/mergeQueue.ts        B2 emit + F6 recover conflict/unknown cleanup
+src/git/ui/GitPanels.tsx     F7 loading/aria-busy + local/manual P1 note
+src/git/git.test.ts          B1–B4/F5/F6/AC tests
+src/git/ui/GitPanels.test.tsx F7 SSR loading tests
+docs/team/git-parallel-implementation.md
+```
+
+未改 `src/kernel/`、`electron/`、`src/SettingsView.tsx`、`src/memory/`、`dist*`。
+
 

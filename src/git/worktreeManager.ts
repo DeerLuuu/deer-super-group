@@ -1,13 +1,83 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { Store } from "../kernel/store.js";
 import { detectRepo, detectRepoSync, ensureHooksDir, runtimeHooksPath } from "./repo.js";
 import { GitExec, validateGitArgs } from "./gitExec.js";
 import { GitStore } from "./gitStore.js";
+import { emitGitEvent } from "./events.js";
 import type { GitSettings, PrepareRunInput, PrepareRunResult, WorktreeRecord } from "./types.js";
 
 const MAX_WORKTREES_HARD_LIMIT = 3;
+
+/**
+ * AC-WT-08：worktree 路径必须逐段校验，拒绝符号链接/junction 与 realpath 逃逸。
+ * 已存在段与目标本身都要检查；不存在段由祖先 realpath 约束。
+ */
+export function validateWorktreePath(
+  runtimeRoot: string,
+  target: string,
+): { ok: true } | { ok: false; reason: string } {
+  const root = path.resolve(runtimeRoot);
+  const resolved = path.resolve(target);
+  if (resolved === root || !resolved.startsWith(`${root}${path.sep}`)) {
+    return { ok: false, reason: "worktree path escapes runtime root" };
+  }
+  const relative = path.relative(root, resolved);
+  if (!relative || relative.split(path.sep).some((segment) => segment === ".." || segment === "")) {
+    return { ok: false, reason: "worktree path contains traversal" };
+  }
+  try {
+    const rootStat = lstatSync(root);
+    if (rootStat.isSymbolicLink()) return { ok: false, reason: "runtime root is a symlink" };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      return { ok: false, reason: "cannot stat runtime root" };
+    }
+  }
+  let current = root;
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+      return { ok: false, reason: "cannot stat worktree path segment" };
+    }
+    if (stat.isSymbolicLink()) {
+      return { ok: false, reason: "symlink or junction in worktree path" };
+    }
+  }
+  try {
+    let existing = resolved;
+    while (!existsSync(existing)) {
+      const parent = path.dirname(existing);
+      if (parent === existing) break;
+      existing = parent;
+    }
+    const realExisting = realpathSync.native(existing);
+    const realRoot = existsSync(root) ? realpathSync.native(root) : root;
+    if (realExisting !== realRoot && !realExisting.startsWith(`${realRoot}${path.sep}`)) {
+      return { ok: false, reason: "worktree realpath escapes runtime root" };
+    }
+  } catch {
+    return { ok: false, reason: "cannot resolve worktree realpath" };
+  }
+  return { ok: true };
+}
+
+function assertWorktreePath(runtimeRoot: string, target: string): PrepareRunResult | null {
+  const checked = validateWorktreePath(runtimeRoot, target);
+  if (checked.ok) return null;
+  return {
+    ok: false,
+    defer: false,
+    errorCode: "GIT_PATH_ESCAPE",
+    message: checked.reason,
+  };
+}
+
 
 function slugify(value: string): string {
   return value
@@ -23,6 +93,11 @@ export function branchName(taskId: string, title: string): string {
 
 function newWorktreeId(): string {
   return `wt_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+}
+
+/** Fencing lease token persisted in git_worktrees.lease_owner. */
+export function worktreeLeaseToken(runId: string, attempt: number): string {
+  return `git-service:${runId}:${attempt}`;
 }
 
 function runGitSync(
@@ -122,6 +197,11 @@ export class WorktreeManager {
       ) {
         return { ok: false, defer: true, retryAfterMs: 15_000, reason: "GIT_WORKTREE_BUSY" };
       }
+      const reclaimCheck = assertWorktreePath(
+        repo.runtimeRoot ?? path.join(workspace.path, ".deer"),
+        activeForTask.path,
+      );
+      if (reclaimCheck) return reclaimCheck;
       runGitSync(repo.root ?? workspace.path, ["worktree", "remove", "--force", activeForTask.path], hooks);
       runGitSync(repo.root ?? workspace.path, ["worktree", "prune"], hooks);
       try {
@@ -130,13 +210,18 @@ export class WorktreeManager {
         // best effort
       }
       this.gitStore.updateWorktree(activeForTask.id, { state: "removed" });
+      this.event(workspace.id, "task", task.id, "git.worktree_reclaimed", {
+        taskId: task.id,
+        branch: activeForTask.branch,
+        oldPath: activeForTask.path,
+        reason: "prepare",
+      });
     }
     const attempt = Math.max(1, Math.floor(input.attempt));
     const runtimeRoot = repo.runtimeRoot ?? path.join(workspace.path, ".deer");
     const worktreePath = path.join(runtimeRoot, "worktrees", task.id, String(attempt));
-    if (!path.resolve(worktreePath).startsWith(`${path.resolve(runtimeRoot)}${path.sep}`)) {
-      return { ok: false, defer: false, errorCode: "GIT_PATH_ESCAPE", message: "worktree path escapes runtime root" };
-    }
+    const pathCheck = assertWorktreePath(runtimeRoot, worktreePath);
+    if (pathCheck) return pathCheck;
     try {
       mkdirSync(path.dirname(worktreePath), { recursive: true });
     } catch (error) {
@@ -150,6 +235,8 @@ export class WorktreeManager {
     if (add.code !== 0) {
       return { ok: false, defer: false, errorCode: "GIT_WORKTREE_FAILED", message: add.stderr || "worktree add failed" };
     }
+    const postCheck = assertWorktreePath(runtimeRoot, worktreePath);
+    if (postCheck) return postCheck;
     const record: WorktreeRecord = {
       id: newWorktreeId(),
       workspaceId: workspace.id,
@@ -159,7 +246,7 @@ export class WorktreeManager {
       path: worktreePath,
       branch,
       state: "active",
-      leaseOwner: "git-service",
+      leaseOwner: worktreeLeaseToken(input.runId, attempt),
       leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       createdAt: this.now(),
       updatedAt: this.now(),
@@ -285,6 +372,15 @@ export class WorktreeManager {
     const existing = this.gitStore.getActiveWorktreeForTask(task.id);
     if (existing) {
       if (existing.runId === input.runId && existing.state === "active") {
+        const currentCheck = assertWorktreePath(
+          repo.runtimeRoot ?? path.join(workspace.path, ".deer"),
+          existing.path,
+        );
+        if (currentCheck) return currentCheck;
+        this.gitStore.updateWorktree(existing.id, {
+          leaseOwner: worktreeLeaseToken(input.runId, Math.max(1, Math.floor(input.attempt))),
+          leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
         return {
           ok: true,
           cwd: existing.path,
@@ -308,17 +404,19 @@ export class WorktreeManager {
           reason: "GIT_WORKTREE_BUSY",
         };
       }
+      const reclaimCheck = assertWorktreePath(
+        repo.runtimeRoot ?? path.join(workspace.path, ".deer"),
+        existing.path,
+      );
+      if (reclaimCheck) return reclaimCheck;
       await this.removeWorktree(existing, "reclaimed", input.workspaceId);
     }
 
     const attempt = Math.max(1, Math.floor(input.attempt));
     const runtimeRoot = repo.runtimeRoot ?? path.join(workspace.path, ".deer");
     const worktreePath = path.join(runtimeRoot, "worktrees", task.id, String(attempt));
-    const resolvedPath = path.resolve(worktreePath);
-    const resolvedRoot = path.resolve(runtimeRoot);
-    if (!resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
-      return { ok: false, defer: false, errorCode: "GIT_PATH_ESCAPE", message: "worktree path escapes runtime root" };
-    }
+    const pathCheck = assertWorktreePath(runtimeRoot, worktreePath);
+    if (pathCheck) return pathCheck;
     if (existsSync(worktreePath)) {
       try {
         rmSync(worktreePath, { recursive: true, force: true });
@@ -358,6 +456,8 @@ export class WorktreeManager {
         message: add.stderr || "worktree add failed",
       };
     }
+    const postCheck = assertWorktreePath(runtimeRoot, worktreePath);
+    if (postCheck) return postCheck;
 
     const record: WorktreeRecord = {
       id: newWorktreeId(),
@@ -368,7 +468,7 @@ export class WorktreeManager {
       path: worktreePath,
       branch,
       state: "active",
-      leaseOwner: "git-service",
+      leaseOwner: worktreeLeaseToken(input.runId, attempt),
       leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
       createdAt: this.now(),
       updatedAt: this.now(),
@@ -424,9 +524,24 @@ export class WorktreeManager {
     record: WorktreeRecord,
     reason: string,
     workspaceId = record.workspaceId,
+    expectedLeaseOwner?: string,
   ): Promise<void> {
+    if (expectedLeaseOwner && record.leaseOwner !== expectedLeaseOwner) {
+      throw new Error("GIT_FENCING_STALE: worktree lease owner changed");
+    }
     const repo = await this.repoFor(workspaceId);
     if (repo) {
+      const runtimeRoot = repo.repo.runtimeRoot ?? path.join(repo.repo.workspacePath, ".deer");
+      const checked = validateWorktreePath(runtimeRoot, record.path);
+      if (!checked.ok) {
+        this.gitStore.updateWorktree(record.id, { state: "orphaned" });
+        this.event(workspaceId, "task", record.taskId, "git.worktree_orphaned", {
+          taskId: record.taskId,
+          path: record.path,
+          reason: `unsafe path: ${checked.reason}`,
+        });
+        return;
+      }
       const git = repo.git;
       const cwd = repo.repo.root ?? repo.repo.workspacePath;
       await git.run(["worktree", "remove", "--force", record.path], { cwd, timeoutMs: 60_000 });
@@ -438,12 +553,21 @@ export class WorktreeManager {
       // best effort
     }
     this.gitStore.updateWorktree(record.id, { state: "removed" });
-    this.event(workspaceId, "task", record.taskId, "git.worktree_removed", {
-      taskId: record.taskId,
-      runId: record.runId,
-      path: record.path,
-      reason,
-    });
+    if (reason === "reclaimed") {
+      this.event(workspaceId, "task", record.taskId, "git.worktree_reclaimed", {
+        taskId: record.taskId,
+        branch: record.branch,
+        oldPath: record.path,
+        reason,
+      });
+    } else {
+      this.event(workspaceId, "task", record.taskId, "git.worktree_removed", {
+        taskId: record.taskId,
+        runId: record.runId ?? "",
+        path: record.path,
+        reason,
+      });
+    }
   }
 
   async reconcile(workspaceId: string): Promise<{ removed: number; orphaned: number }> {
@@ -481,7 +605,7 @@ export class WorktreeManager {
     payload: unknown,
   ): void {
     try {
-      this.store.appendEvent({
+      emitGitEvent(this.store, {
         aggregateType,
         aggregateId,
         type,

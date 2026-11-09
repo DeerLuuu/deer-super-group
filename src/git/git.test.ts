@@ -1,25 +1,46 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Store } from "../kernel/store.js";
 import { ExecutionKernel } from "../kernel/execution/kernel.js";
+import { EVENT_REGISTRY, isKernelEventType } from "../kernel/execution/eventRegistry.js";
+import type { KernelHooks, RunEnvironment } from "../kernel/execution/kernel.js";
 import { GitStore } from "./gitStore.js";
 import { GitExec, redactSecrets, validateGitArgs } from "./gitExec.js";
 import { CommitGuard } from "./commitGuard.js";
 import { ChecksRunner } from "./checksRunner.js";
 import { MergeQueue } from "./mergeQueue.js";
-import { WorktreeManager } from "./worktreeManager.js";
+import { WorktreeManager, validateWorktreePath } from "./worktreeManager.js";
 import { GitService } from "./gitService.js";
 import { verifyIntegratedContent, commitAll, pushBranch } from "./branchOps.js";
+import { detectRepoSync } from "./repo.js";
 import { LocalProvider, ManualProvider, GitHubProvider } from "./providers.js";
-import { GitRunEnvironmentProvider } from "./g3.js";
-import { GIT_EVENT_TYPES, gitEventTypeSchema, validateGitEvent } from "./events.js";
-import type { GitSettings, PrInfo, PrProvider, RepoInfo, TaskVcs } from "./types.js";
+import { GitRunEnvironmentProvider, type RunEnvironmentProvider } from "./g3.js";
+import { GIT_EVENT_TYPES, gitEventTypeSchema, validateGitEvent, emitGitEvent, registerGitEventTypes } from "./events.js";
+import type { GitErrorCode, GitSettings, MergeQueueItem, PrepareRunInput, PrepareRunResult, PrInfo, PrProvider, RepoDiagnostics, RepoInfo, TaskVcs, WorktreeRecord } from "./types.js";
 
 const dirs: string[] = [];
+
+// AC-KRN-08 / AC-TYPE-01：类型级契约快照（pnpm typecheck 即验证）。
+const typeProbePrepare: PrepareRunInput = {
+  workspaceId: "ws",
+  taskId: "t1",
+  runId: "r1",
+  attempt: 1,
+  agentId: "a1",
+};
+const typeProbeKernelInfo: Parameters<NonNullable<KernelHooks["beforeStart"]>>[0] = {
+  ...typeProbePrepare,
+  priority: 0,
+};
+const typeProbeKernelToGit: PrepareRunInput = typeProbeKernelInfo;
+const typeProbeGitToKernel: Parameters<GitRunEnvironmentProvider["prepare"]>[0] =
+  typeProbeKernelToGit;
+const typeProbeEnvironment: RunEnvironment = {} as Extract<PrepareRunResult, { ok: true }>;
+const typeProbeProvider: RunEnvironmentProvider = {} as GitRunEnvironmentProvider;
 
 function tempDir(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), "deer-git-"));
@@ -782,3 +803,410 @@ describe("tree verification", () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe("t111 repair — B1 realpath/lstat worktree paths", () => {
+  it("rejects traversal even when it resolves back under different spelling", () => {
+    const dir = initRepo();
+    const root = path.join(dir, ".deer");
+    mkdirSync(root, { recursive: true });
+    expect(validateWorktreePath(root, path.join(root, "..", "escape")).ok).toBe(false);
+    expect(validateWorktreePath(root, path.join(root, "worktrees", "task", "1")).ok).toBe(true);
+  });
+
+  it("rejects a symlink/junction target under runtimeRoot and does not touch it", () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const detected = detectRepoSync(dir, "main");
+    const root = detected.runtimeRoot ?? path.join(dir, ".deer");
+    const link = path.join(root, "worktrees", taskId, "1");
+    const outside = tempDir();
+    mkdirSync(path.dirname(link), { recursive: true });
+    symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+
+    const manager = new WorktreeManager(store, gitStore);
+    const result = manager.prepareSync({
+      workspaceId,
+      taskId,
+      runId: "run-symlink",
+      attempt: 1,
+      agentId: "agent",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok && !result.defer) {
+      expect(result.errorCode).toBe("GIT_PATH_ESCAPE");
+    }
+    expect(existsSync(outside)).toBe(true);
+  });
+});
+
+describe("t111 repair — B2 emitGitEvent/eventRegistry", () => {
+  it("registers all 34 Git event types and validates before append", () => {
+    registerGitEventTypes();
+    expect(GIT_EVENT_TYPES).toHaveLength(34);
+    for (const type of GIT_EVENT_TYPES) {
+      expect(isKernelEventType(type)).toBe(true);
+      expect((EVENT_REGISTRY as unknown as Record<string, unknown>)[type]).toBeTruthy();
+    }
+
+    const store = new Store(path.join(tempDir(), "events.db"));
+    expect(() =>
+      emitGitEvent(store, {
+        aggregateType: "task",
+        aggregateId: "t1",
+        type: "git.commit",
+        actor: "test",
+        payload: {},
+      }),
+    ).toThrow(/invalid Git event/);
+    expect(
+      (store.db.prepare("SELECT count(*) AS n FROM events WHERE type = 'git.commit'").get() as {
+        n: number;
+      }).n,
+    ).toBe(0);
+
+    const event = emitGitEvent(store, {
+      aggregateType: "task",
+      aggregateId: "t1",
+      type: "git.commit",
+      actor: "test",
+      payload: { runId: "r1", branch: "deer/t1", sha: "abc", files: [] },
+    });
+    expect(event.type).toBe("git.commit");
+    expect(
+      (store.db.prepare("SELECT schema_version FROM events WHERE id = ?").get(event.id) as {
+        schema_version: number;
+      }).schema_version,
+    ).toBe(2);
+  });
+});
+
+describe("t111 repair — B3 PR idempotency", () => {
+  it("serializes concurrent createPr and returns one provider PR", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    service.gitStore.upsertTaskVcs(vcsFor(taskId, workspaceId, "deer/t1-pr", "head-sha"));
+    const repo: RepoInfo = {
+      ok: true,
+      workspacePath: dir,
+      root: dir,
+      runtimeRoot: path.join(dir, ".deer"),
+      baseBranch: "main",
+      remote: null,
+      remoteKind: "none",
+      gitVersion: "2.40.0",
+    };
+    let creates = 0;
+    let refreshes = 0;
+    const prInfo = (): PrInfo => ({
+      provider: "github",
+      number: 41,
+      url: "https://example.invalid/pull/41",
+      state: "open",
+      headSha: "head-sha",
+      baseBranch: "main",
+      mergeable: "mergeable",
+      checks: [],
+      review: "approved",
+      mergedCommitSha: null,
+      updatedAt: new Date().toISOString(),
+    });
+    const provider: PrProvider = {
+      id: "github",
+      detect: async () => true,
+      createPr: async () => {
+        creates += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return prInfo();
+      },
+      refresh: async () => {
+        refreshes += 1;
+        return prInfo();
+      },
+      listChecks: async () => [],
+      merge: async () => ({ ...prInfo(), state: "merged" }),
+      close: async () => undefined,
+    };
+    const settings: GitSettings = { ...service.getSettings(workspaceId), autoCreatePr: true };
+    (service as unknown as { contextFor: () => Promise<unknown> }).contextFor = async () => ({
+      repo,
+      git: new GitExec(hooksFor(dir)),
+      provider,
+      settings,
+    });
+
+    const [first, second] = await Promise.all([
+      service.createPr(taskId),
+      service.createPr(taskId),
+    ]);
+    expect(creates).toBe(1);
+    expect(refreshes).toBeLessThanOrEqual(1);
+    expect(first.pr?.number).toBe(41);
+    expect(second.pr?.number).toBe(41);
+    expect(
+      (service.gitStore.db.prepare("SELECT count(*) AS n FROM pr_records").get() as { n: number }).n,
+    ).toBe(1);
+  });
+});
+
+describe("t111 repair — B4 fencing", () => {
+  it("rejects a stale worktree lease owner on finalize", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const run = store.createRun(taskId, "agent");
+    const prepared = service.beforeStart({
+      workspaceId,
+      taskId,
+      runId: run.id,
+      attempt: 1,
+      agentId: "agent",
+    });
+    expect(prepared).toMatchObject({ allow: true });
+    const record = service.gitStore.getWorktreeByRun(run.id);
+    expect(record?.state).toBe("active");
+    service.gitStore.updateWorktree(record!.id, { leaseOwner: "git-service:stale" });
+
+    await expect(
+      service.finalizeRun({ runId: run.id, taskId, status: "completed" }),
+    ).rejects.toThrow(/GIT_FENCING_STALE/);
+    expect(service.gitStore.getWorktreeByRun(run.id)?.state).toBe("active");
+  });
+});
+
+describe("t111 repair — AC-WT-13/14/15", () => {
+  it("creates a local WIP commit on cancel and removes the worktree by default", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const run = store.createRun(taskId, "agent");
+    const prepared = service.beforeStart({
+      workspaceId,
+      taskId,
+      runId: run.id,
+      attempt: 1,
+      agentId: "agent",
+    });
+    if (typeof prepared === "boolean" || !prepared.allow || !prepared.environment) {
+      throw new Error("worktree was not prepared");
+    }
+    writeFileSync(path.join(prepared.environment.cwd, "cancel.txt"), "wip\n");
+    await service.finalizeRun({ runId: run.id, taskId, status: "cancelled" });
+    const branch = service.gitStore.getTaskVcs(taskId)?.branch;
+    expect(branch).toBeTruthy();
+    expect(git(dir, ["log", "--format=%s", "-1", branch!])).toContain("wip(");
+    expect(existsSync(prepared.environment.cwd)).toBe(false);
+  });
+
+  it("reclaims a terminal stale worktree and defers a busy live one", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const first = store.createRun(taskId, "agent");
+    expect(
+      service.beforeStart({ workspaceId, taskId, runId: first.id, attempt: 1, agentId: "agent" }),
+    ).toMatchObject({ allow: true });
+    store.updateRun(first.id, { status: "completed" });
+    // createRun uses the kernel's (task, attempt) unique key; move the old
+    // attempt out of the way before creating the next attempt fixture.
+    store.db.prepare("UPDATE runs SET attempt = 2 WHERE id = ?").run(first.id);
+
+    const second = store.createRun(taskId, "agent");
+    const reclaimed = service.beforeStart({
+      workspaceId,
+      taskId,
+      runId: second.id,
+      attempt: 1,
+      agentId: "agent",
+    });
+    expect(reclaimed).toMatchObject({ allow: true });
+    expect(service.gitStore.getActiveWorktreeForTask(taskId)?.runId).toBe(second.id);
+    await expect(
+      service.finalizeRun({ runId: first.id, taskId, status: "completed" }),
+    ).rejects.toThrow(/GIT_FENCING_STALE/);
+    expect(
+      (store.db
+        .prepare("SELECT count(*) AS n FROM events WHERE type = 'git.worktree_reclaimed'")
+        .get() as { n: number }).n,
+    ).toBeGreaterThan(0);
+
+    const third = "run-busy-third";
+    store.db
+      .prepare("UPDATE runs SET lease_owner = ?, lease_expires_at = ? WHERE id = ?")
+      .run("active-owner", new Date(Date.now() + 60_000).toISOString(), second.id);
+    const busy = service.beforeStart({
+      workspaceId,
+      taskId,
+      runId: third,
+      attempt: 1,
+      agentId: "agent",
+    });
+    expect(busy).toMatchObject({ allow: false, reason: "GIT_WORKTREE_BUSY" });
+  });
+
+  it("preserves the worktree on cancel when configured", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId } = seedRepoTask(dir);
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    service.gitStore.saveConfig({
+      ...service.getSettings(workspaceId),
+      preserveWorktreeOnCancel: true,
+    });
+    const run = store.createRun(taskId, "agent");
+    const prepared = service.beforeStart({
+      workspaceId,
+      taskId,
+      runId: run.id,
+      attempt: 1,
+      agentId: "agent",
+    });
+    if (typeof prepared === "boolean" || !prepared.allow || !prepared.environment) {
+      throw new Error("worktree was not prepared");
+    }
+    writeFileSync(path.join(prepared.environment.cwd, "preserve.txt"), "wip\n");
+    await service.finalizeRun({ runId: run.id, taskId, status: "cancelled" });
+    expect(existsSync(prepared.environment.cwd)).toBe(true);
+  });
+});
+
+describe("t111 repair — AC-MQ-06 recovery", () => {
+  it("recovers merging/updating to merged/blocked and never merges twice", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    gitStore.upsertTaskVcs(vcsFor(taskId, workspaceId, "deer/t1-recover", "head-sha"));
+    const repo: RepoInfo = {
+      ok: true,
+      workspacePath: dir,
+      root: dir,
+      runtimeRoot: path.join(dir, ".deer"),
+      baseBranch: "main",
+      remote: null,
+      remoteKind: "none",
+      gitVersion: "2.40.0",
+    };
+    const provider = new MockProvider();
+    provider.merged = true;
+    const queue = new MergeQueue({
+      store,
+      gitStore,
+      checks: new ChecksRunner(),
+      contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider, settings: gitStore.getConfig(workspaceId) }),
+      createConflictTask: async () => ({ taskId: "conflict-task", created: true }),
+    });
+    const item = await queue.enqueue(taskId);
+    gitStore.updateQueue(item.id, {
+      state: "merging",
+      approvedHeadSha: item.headSha,
+      checksWaived: true,
+    });
+    expect(await queue.recover(workspaceId)).toBe(1);
+    const merged = gitStore.getQueueItem(item.id);
+    expect(merged?.state).toBe("merged");
+    expect(merged?.approvedHeadSha).toBeNull();
+    expect(merged?.checksWaived).toBe(false);
+    expect(await queue.recover(workspaceId)).toBe(0);
+
+    provider.merged = false;
+    provider.conflict = true;
+    gitStore.updateQueue(item.id, { state: "updating", approvedHeadSha: item.headSha, checksWaived: true });
+    expect(await queue.recover(workspaceId)).toBe(1);
+    expect(gitStore.getQueueItem(item.id)?.state).toBe("blocked");
+    expect(gitStore.getQueueItem(item.id)?.approvedHeadSha).toBeNull();
+    expect(gitStore.getQueueItem(item.id)?.checksWaived).toBe(false);
+
+    provider.conflict = false;
+    gitStore.updateQueue(item.id, { state: "updating", approvedHeadSha: item.headSha, checksWaived: true });
+    provider.refresh = async () => ({
+      provider: "github",
+      number: 7,
+      url: "https://example.invalid/pull/7",
+      state: "unknown",
+      headSha: item.headSha,
+      baseBranch: "main",
+      mergeable: "unknown",
+      checks: [],
+      review: "pending",
+      mergedCommitSha: null,
+      updatedAt: new Date().toISOString(),
+    });
+    expect(await queue.recover(workspaceId)).toBe(1);
+    expect(gitStore.getQueueItem(item.id)?.state).toBe("blocked");
+    expect(gitStore.getQueueItem(item.id)?.approvedHeadSha).toBeNull();
+    expect(gitStore.getQueueItem(item.id)?.checksWaived).toBe(false);
+  });
+});
+
+describe("t111 repair — AC-GIT-01 29-row argv table", () => {
+  it("accepts every designed argv shape and rejects unsafe variants", () => {
+    const hooks = "/tmp/deer-hooks";
+    const rows: Array<[string, string[]]> = [
+      ["#1", ["rev-parse", "--show-toplevel"]],
+      ["#2", ["rev-parse", "--verify", "HEAD"]],
+      ["#3", ["rev-parse", "--git-path", "info/exclude"]],
+      ["#4", ["rev-parse", "--git-common-dir"]],
+      ["#5", ["rev-parse", "HEAD:README.md"]],
+      ["#6", ["rev-parse", "HEAD"]],
+      ["#7", ["remote", "get-url", "origin"]],
+      ["#8", ["--version"]],
+      ["#9", ["config", "--get", "user.name"]],
+      ["#10", ["status", "--porcelain=v2", "-z"]],
+      ["#11", ["diff", "--name-status", "--diff-filter=U", "-z"]],
+      ["#12", ["log", "-n", "1", "--format=%H"]],
+      ["#13", ["show", "HEAD"]],
+      ["#14", ["cat-file", "-p", "HEAD"]],
+      ["#15", ["merge-base", "--is-ancestor", "main", "deer/t1"]],
+      ["#16", ["patch-id", "--stable"]],
+      ["#17", ["worktree", "add", "--detach", "/tmp/wt", "HEAD"]],
+      ["#18", ["worktree", "list", "--porcelain"]],
+      ["#19", ["worktree", "remove", "--force", "/tmp/wt"]],
+      ["#20", ["worktree", "prune"]],
+      ["#21", ["branch", "--list", "deer/*"]],
+      ["#22", ["check-ref-format", "--branch", "deer/t1"]],
+      ["#23", ["add", "-A"]],
+      ["#24", ["commit", "--no-verify", "-m", "msg"]],
+      ["#25", ["format-patch", "-1", "HEAD", "--stdout"]],
+      ["#26", ["fetch", "origin", "main"]],
+      ["#27", ["push", "--no-verify", "-u", "origin", "deer/t1:deer/t1"]],
+      ["#28", ["merge", "--ff-only", "main"]],
+      ["#29", ["merge-tree", "--write-tree", "main", "deer/t1"]],
+    ];
+    expect(rows).toHaveLength(29);
+    for (const [label, argv] of rows) {
+      expect(validateGitArgs(argv, hooks).ok, `${label} ${argv.join(" ")}`).toBe(true);
+    }
+    expect(validateGitArgs(["-c", `core.hooksPath=${hooks}`, "status", "--porcelain"], hooks).ok).toBe(true);
+    expect(validateGitArgs(["push", "origin", "main:main"]).ok).toBe(false);
+    expect(validateGitArgs(["push", "--force", "origin", "deer/t1:deer/t1"]).ok).toBe(false);
+    expect(validateGitArgs(["-c", "core.hooksPath=/elsewhere", "status", "--porcelain"], hooks).ok).toBe(false);
+    expect(validateGitArgs(["status", "--porcelain", "--exec=evil"]).ok).toBe(false);
+  });
+});
+
+describe("t111 repair — AC-TYPE-01 field snapshots", () => {
+  it("keeps the public Git UI/API field sets stable", () => {
+    const taskVcs: Array<keyof TaskVcs> = [
+      "taskId", "workspaceId", "mode", "branch", "baseBranch", "headSha", "pr",
+      "merge", "checksState", "conflictTaskId", "targetTaskId", "targetBranch",
+      "scopePaths", "degradedReason", "errorCode", "updatedAt",
+    ];
+    const queueItem: Array<keyof MergeQueueItem> = [
+      "id", "workspaceId", "taskId", "taskTitle", "provider", "prNumber", "prUrl",
+      "branch", "state", "position", "attempts", "headSha", "baseSha",
+      "approvedHeadSha", "checks", "checksWaived", "retryAt", "review",
+      "conflictTaskId", "lastError", "mergeCommitSha", "createdAt", "updatedAt",
+    ];
+    const diagnostics: Array<keyof RepoDiagnostics> = [
+      "workspaceId", "workspacePath", "mode", "root", "runtimeRoot", "gitVersion",
+      "remote", "baseBranch", "provider", "auth", "protection", "worktrees", "queue", "lastError",
+    ];
+    expect(taskVcs).toHaveLength(16);
+    expect(queueItem).toHaveLength(23);
+    expect(diagnostics).toHaveLength(14);
+    const prepare: PrepareRunInput = { workspaceId: "w", taskId: "t", runId: "r", attempt: 1, agentId: "a" };
+    expect(prepare.agentId).toBe("a");
+    const errorCode: GitErrorCode = "GIT_PATH_ESCAPE";
+    expect(errorCode).toBe("GIT_PATH_ESCAPE");
+  });
+});
+

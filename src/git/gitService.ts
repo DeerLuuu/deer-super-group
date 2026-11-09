@@ -1,16 +1,19 @@
 import path from "node:path";
 import type { Store } from "../kernel/store.js";
-import type { TaskVcs, GitSettings, MergeQueueItem, MergeQueueSnapshot, PrInfo, PrepareRunInput, PrepareRunResult, RepoDiagnostics, RepoInfo, FinalizeRunInput, TaskVcsSnapshot } from "./types.js";
+import type { Task } from "../shared/types.js";
+import type { TaskVcs, GitSettings, MergeQueueItem, MergeQueueSnapshot, PrInfo, PrProvider, PrepareRunInput, PrepareRunResult, RepoDiagnostics, RepoInfo, FinalizeRunInput, TaskVcsSnapshot } from "./types.js";
 import { DEFAULT_GIT_SETTINGS } from "./types.js";
 import { GitStore } from "./gitStore.js";
 import { GitExec, redactSecrets } from "./gitExec.js";
 import { detectRepo, ensureHooksDir, runtimeHooksPath } from "./repo.js";
 import { CommitGuard } from "./commitGuard.js";
-import { WorktreeManager } from "./worktreeManager.js";
+import { WorktreeManager, worktreeLeaseToken } from "./worktreeManager.js";
 import { ChecksRunner } from "./checksRunner.js";
 import { MergeQueue, type QueueContext } from "./mergeQueue.js";
 import { commitAll, pushBranch, revParse } from "./branchOps.js";
 import { pickProvider, compareUrl } from "./providers.js";
+import { emitGitEvent } from "./events.js";
+import { RepoLock } from "./gitExec.js";
 
 export interface GitServiceOptions {
   dataDir: string;
@@ -45,6 +48,7 @@ export class GitService {
   readonly queue: MergeQueue;
   private readonly checks = new ChecksRunner();
   private readonly repoCache = new Map<string, { repo: RepoInfo; at: number }>();
+  private readonly prLock = new RepoLock();
 
   constructor(private readonly options: GitServiceOptions) {
     this.gitStore = new GitStore(path.join(options.dataDir, "git.db"));
@@ -178,9 +182,27 @@ export class GitService {
 
   async finalizeRun(input: FinalizeRunInput): Promise<void> {
     const record = this.gitStore.getWorktreeByRun(input.runId);
-    if (!record) return;
+    if (!record) {
+      const active = this.gitStore.getActiveWorktreeForTask(input.taskId);
+      if (active && active.runId !== input.runId) {
+        throw new Error("GIT_FENCING_STALE: stale Run owner cannot finalize worktree");
+      }
+      return;
+    }
     const task = this.options.store.getTask(input.taskId);
     if (!task) return;
+    const run = this.options.store.getRun(input.runId);
+    const expectedLease = worktreeLeaseToken(input.runId, Math.max(1, run?.attempt ?? 1));
+    if (record.state === "removed" || record.state === "orphaned") {
+      const active = this.gitStore.getActiveWorktreeForTask(input.taskId);
+      if (active && active.runId !== input.runId) {
+        throw new Error("GIT_FENCING_STALE: stale Run owner cannot finalize worktree");
+      }
+      return;
+    }
+    if (record.state !== "active" || record.leaseOwner !== expectedLease) {
+      throw new Error("GIT_FENCING_STALE: stale Run owner cannot finalize worktree");
+    }
     const context = await this.contextFor(task.workspaceId);
     if (!context) {
       await this.worktrees.removeWorktree(record, "no-context");
@@ -206,7 +228,7 @@ export class GitService {
       });
       if (committed.ok && committed.commit) {
         commitSha = committed.commit.sha;
-        this.options.store.appendEvent({
+        emitGitEvent(this.options.store, {
           aggregateType: "task",
           aggregateId: task.id,
           type: "git.commit",
@@ -215,12 +237,17 @@ export class GitService {
         });
       } else if (!committed.ok) {
         errorCode = "GIT_COMMIT_BLOCKED";
-        this.options.store.appendEvent({
+        emitGitEvent(this.options.store, {
           aggregateType: "task",
           aggregateId: task.id,
           type: "git.commit_blocked",
           actor: "git-service",
-          payload: { runId: input.runId, reason: committed.reason ?? "blocked" },
+          payload: {
+            runId: input.runId,
+            files: [],
+            reason: committed.reason ?? "blocked",
+            errorCode,
+          },
         });
       }
     }
@@ -230,7 +257,7 @@ export class GitService {
       if (push && repo.remote && record.branch.startsWith("deer/")) {
         const pushed = await pushBranch({ git, cwd, remote: settings.remote ?? "origin", branch: record.branch });
         if (pushed.ok) {
-          this.options.store.appendEvent({
+          emitGitEvent(this.options.store, {
             aggregateType: "task",
             aggregateId: task.id,
             type: "git.pushed",
@@ -239,61 +266,50 @@ export class GitService {
           });
         } else {
           errorCode = pushed.error ?? "GIT_PUSH_NETWORK";
-          this.options.store.appendEvent({
+          emitGitEvent(this.options.store, {
             aggregateType: "task",
             aggregateId: task.id,
             type: "git.push_failed",
             actor: "git-service",
-            payload: { runId: input.runId, branch: record.branch, errorCode, retryable: true },
+            payload: {
+              runId: input.runId,
+              branch: record.branch,
+              remote: settings.remote ?? "origin",
+              errorCode,
+              retryable: true,
+            },
           });
         }
       }
       if (input.status === "completed" && settings.autoCreatePr) {
         try {
           const existingVcs = this.gitStore.getTaskVcs(task.id);
-          if (existingVcs?.pr && existingVcs.pr.state !== "closed") {
-            pr = await provider.refresh(repo, {
-              number: existingVcs.pr.number,
-              branch: record.branch,
-            });
-          } else {
-            pr = await provider.createPr({
-              repo,
-              head: record.branch,
-              base: settings.baseBranch,
-              title: task.title,
-              body: `Task: ${task.id}\n\n${task.description}`,
-            });
-          }
-          this.gitStore.upsertPrRecord({
-            provider: pr.provider,
-            workspaceId: task.workspaceId,
-            number: pr.number,
+          pr = await this.ensurePullRequest({
+            task,
             branch: record.branch,
-            url: pr.url,
-            taskId: task.id,
-            headSha: pr.headSha || commitSha,
             baseBranch: settings.baseBranch,
-            state: pr.state,
-            checks: pr.checks,
-            review: pr.review,
-            mergeable: pr.mergeable,
-          });
-          this.options.store.appendEvent({
-            aggregateType: "task",
-            aggregateId: task.id,
-            type: "pr.created",
-            actor: "git-service",
-            payload: { provider: pr.provider, number: pr.number, url: pr.url, headSha: pr.headSha || commitSha, base: settings.baseBranch },
+            headSha: commitSha,
+            provider,
+            repo,
+            title: task.title,
+            body: `Task: ${task.id}\n\n${task.description}`,
+            existingPr: existingVcs?.pr ?? null,
           });
         } catch (error) {
           errorCode = "PR_CREATE_FAILED";
-          this.options.store.appendEvent({
+          emitGitEvent(this.options.store, {
             aggregateType: "task",
             aggregateId: task.id,
             type: "git.push_failed",
             actor: "git-service",
-            payload: { runId: input.runId, errorCode, retryable: true, message: redactSecrets(error instanceof Error ? error.message : String(error)) },
+            payload: {
+              runId: input.runId,
+              branch: record.branch,
+              remote: settings.remote ?? "origin",
+              errorCode,
+              retryable: true,
+              message: redactSecrets(error instanceof Error ? error.message : String(error)),
+            },
           });
         }
       }
@@ -334,7 +350,12 @@ export class GitService {
     const preserve =
       input.status === "cancelled" && settings.preserveWorktreeOnCancel;
     if (!preserve) {
-      await this.worktrees.removeWorktree(record, `finalize:${input.status}`);
+      await this.worktrees.removeWorktree(
+        record,
+        `finalize:${input.status}`,
+        task.workspaceId,
+        expectedLease,
+      );
     }
   }
 
@@ -375,16 +396,17 @@ export class GitService {
     if (!context) throw new Error("git context unavailable");
     const vcs = this.gitStore.getTaskVcs(taskId);
     if (!vcs?.branch) throw new Error("task has no branch");
-    const pr =
-      vcs.pr && vcs.pr.state !== "closed"
-        ? await context.provider.refresh(context.repo, { number: vcs.pr.number, branch: vcs.branch })
-        : await context.provider.createPr({
-            repo: context.repo,
-            head: vcs.branch,
-            base: context.settings.baseBranch,
-            title: task.title,
-            body: `Task: ${task.id}\n\n${task.description}`,
-          });
+    const pr = await this.ensurePullRequest({
+      task,
+      branch: vcs.branch,
+      baseBranch: context.settings.baseBranch,
+      headSha: vcs.headSha,
+      provider: context.provider,
+      repo: context.repo,
+      title: task.title,
+      body: `Task: ${task.id}\n\n${task.description}`,
+      existingPr: vcs.pr,
+    });
     const updated: TaskVcs = {
       ...vcs,
       pr: {
@@ -401,8 +423,236 @@ export class GitService {
     return updated;
   }
 
-  async diagnose(workspaceId: string): Promise<RepoDiagnostics> {
-    const workspace = this.options.store.getWorkspace(workspaceId);
+  private getPrRow(
+    workspaceId: string,
+    provider: string,
+    taskId: string,
+  ): Record<string, unknown> | null {
+    return (
+      (this.gitStore.db
+        .prepare(
+          "SELECT * FROM pr_records WHERE workspace_id = ? AND provider = ? AND task_id = ?",
+        )
+        .get(workspaceId, provider, taskId) as Record<string, unknown> | undefined) ?? null
+    );
+  }
+
+  private prFromRow(row: Record<string, unknown>): PrInfo {
+    let checks: PrInfo["checks"] = [];
+    try {
+      const parsed = JSON.parse(String(row.checks_json ?? "[]"));
+      if (Array.isArray(parsed)) checks = parsed as PrInfo["checks"];
+    } catch {
+      checks = [];
+    }
+    return {
+      provider: String(row.provider) as PrInfo["provider"],
+      number: row.number == null ? null : Number(row.number),
+      url: row.url == null ? null : String(row.url),
+      state: String(row.state ?? "unknown") as PrInfo["state"],
+      headSha: String(row.head_sha ?? ""),
+      baseBranch: String(row.base_branch ?? ""),
+      mergeable: String(row.mergeable ?? "unknown") as PrInfo["mergeable"],
+      checks,
+      review: String(row.review_state ?? "unknown") as PrInfo["review"],
+      mergedCommitSha: null,
+      updatedAt: String(row.updated_at ?? now()),
+    };
+  }
+
+  private persistPr(
+    task: Task,
+    branch: string,
+    baseBranch: string,
+    pr: PrInfo,
+    headSha: string | null,
+  ): void {
+    this.gitStore.upsertPrRecord({
+      provider: pr.provider,
+      workspaceId: task.workspaceId,
+      number: pr.number,
+      branch,
+      url: pr.url,
+      taskId: task.id,
+      headSha: pr.headSha || headSha || "",
+      baseBranch,
+      state: pr.state,
+      checks: pr.checks,
+      review: pr.review,
+      mergeable: pr.mergeable,
+    });
+  }
+
+  /** B3：RepoLock + DB 占位唯一键，保证并发 create/refresh 只产生一个 PR。 */
+  private async ensurePullRequest(input: {
+    task: Task;
+    branch: string;
+    baseBranch: string;
+    headSha: string | null;
+    provider: PrProvider;
+    repo: RepoInfo;
+    title: string;
+    body: string;
+    existingPr?: { number: number | null } | null;
+  }): Promise<PrInfo> {
+    const key = `pr:${input.task.workspaceId}:${input.provider.id}:${input.task.id}`;
+    return this.prLock.withLock(key, async () => {
+      const current = this.getPrRow(input.task.workspaceId, input.provider.id, input.task.id);
+      const vcsPr = this.gitStore.getTaskVcs(input.task.id)?.pr ?? input.existingPr ?? null;
+      const existingUsable =
+        current &&
+        String(current.state) !== "creating" &&
+        String(current.state) !== "failed" &&
+        (current.number != null || current.url != null || String(current.state) !== "unknown");
+      if (existingUsable) {
+        const pr = await input.provider.refresh(input.repo, {
+          number: current.number == null ? null : Number(current.number),
+          branch: input.branch,
+        });
+        this.persistPr(input.task, input.branch, input.baseBranch, pr, input.headSha);
+        try {
+          emitGitEvent(this.options.store, {
+            aggregateType: "task",
+            aggregateId: input.task.id,
+            type: "pr.updated",
+            actor: "git-service",
+            payload: {
+              number: pr.number,
+              state: pr.state,
+              headSha: pr.headSha || input.headSha || "",
+              mergeable: pr.mergeable,
+            },
+          });
+        } catch {
+          // audit must not break PR refresh
+        }
+        return pr;
+      }
+      if (current?.state === "creating") {
+        const age = Date.now() - Date.parse(String(current.updated_at ?? ""));
+        if (Number.isFinite(age) && age < 30_000) {
+          throw new Error("PR_CREATE_IN_PROGRESS");
+        }
+      }
+      if (!current && vcsPr) {
+        const pr = await input.provider.refresh(input.repo, {
+          number: vcsPr.number,
+          branch: input.branch,
+        });
+        this.persistPr(input.task, input.branch, input.baseBranch, pr, input.headSha);
+        return pr;
+      }
+      this.reservePr(input.task, input.provider.id, input.branch, input.baseBranch, input.headSha);
+      const reserved = this.getPrRow(input.task.workspaceId, input.provider.id, input.task.id);
+      if (reserved?.number != null) {
+        const pr = await input.provider.refresh(input.repo, {
+          number: Number(reserved.number),
+          branch: input.branch,
+        });
+        this.persistPr(input.task, input.branch, input.baseBranch, pr, input.headSha);
+        return pr;
+      }
+      try {
+        const pr = await input.provider.createPr({
+          repo: input.repo,
+          head: input.branch,
+          base: input.baseBranch,
+          title: input.title,
+          body: input.body,
+        });
+        this.persistPr(input.task, input.branch, input.baseBranch, pr, input.headSha);
+        try {
+          emitGitEvent(this.options.store, {
+            aggregateType: "task",
+            aggregateId: input.task.id,
+            type: "pr.created",
+            actor: "git-service",
+            payload: {
+              provider: pr.provider,
+              number: pr.number,
+              url: pr.url,
+              headSha: pr.headSha || input.headSha || "",
+              base: input.baseBranch,
+            },
+          });
+        } catch {
+          // audit must not break PR creation
+        }
+        return pr;
+      } catch (error) {
+        this.gitStore.db
+          .prepare(
+            `UPDATE pr_records SET state = 'failed', updated_at = ?
+             WHERE workspace_id = ? AND provider = ? AND task_id = ?`,
+          )
+          .run(now(), input.task.workspaceId, input.provider.id, input.task.id);
+        throw error;
+      }
+    });
+  }
+
+  private reservePr(
+    task: Task,
+    provider: string,
+    branch: string,
+    baseBranch: string,
+    headSha: string | null,
+  ): void {
+    const db = this.gitStore.db;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.getPrRow(task.workspaceId, provider, task.id);
+      if (row) {
+        if (row.number == null) {
+          db.prepare(
+            `UPDATE pr_records SET state = 'creating', branch = ?, head_sha = ?,
+             base_branch = ?, updated_at = ? WHERE id = ?`,
+          ).run(branch, headSha ?? "", baseBranch, now(), String(row.id));
+        }
+        db.exec("COMMIT");
+        return;
+      }
+      try {
+        db.prepare(
+          `INSERT INTO pr_records
+           (id, provider, workspace_id, number, branch, url, task_id, head_sha,
+            base_branch, state, checks_json, review_state, mergeable, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        ).run(
+          `pr_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`,
+          provider,
+          task.workspaceId,
+          null,
+          branch,
+          null,
+          task.id,
+          headSha ?? "",
+          baseBranch,
+          "creating",
+          "[]",
+          "unknown",
+          "unknown",
+          now(),
+        );
+      } catch (error) {
+        // Another process reserved the unique (workspace, provider, task/branch) row.
+        db.exec("ROLLBACK");
+        const raced = this.getPrRow(task.workspaceId, provider, task.id);
+        if (raced?.number != null) return;
+        throw error;
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // already rolled back
+      }
+      throw error;
+    }
+  }
+
+  async diagnose(workspaceId: string): Promise<RepoDiagnostics> {    const workspace = this.options.store.getWorkspace(workspaceId);
     const settings = this.gitStore.getConfig(workspaceId);
     const repo = await this.repoFor(workspaceId);
     const provider = repo.ok ? await pickProvider(repo, settings.provider, settings.apiHost) : null;
@@ -544,13 +794,6 @@ export class GitService {
       baseBranch: input.baseBranch,
       targetTaskId: input.taskId,
       targetBranch: input.branch,
-    });
-    this.options.store.appendEvent({
-      aggregateType: "task",
-      aggregateId: task.id,
-      type: "merge.conflict_task_created",
-      actor: "merge-queue",
-      payload: { sourceTaskId: input.taskId, branch: input.branch, pr: input.prNumber },
     });
     return { taskId: task.id, created: true };
   }

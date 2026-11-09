@@ -13,15 +13,21 @@ export interface TaskVcsPanelProps {
 export function TaskVcsPanel({ taskId, onClose }: TaskVcsPanelProps) {
   const [snapshot, setSnapshot] = useState<TaskVcsSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loadedRef = useRef(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
+    if (!loadedRef.current) setLoading(true);
     try {
       setSnapshot(await window.deer.getTaskVcs(taskId));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      loadedRef.current = true;
+      setLoading(false);
     }
   }, [taskId]);
 
@@ -47,7 +53,7 @@ export function TaskVcsPanel({ taskId, onClose }: TaskVcsPanelProps) {
 
   const vcs = snapshot?.vcs;
   return (
-    <section aria-label="Git 状态" className="git-vcs-panel" style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
+    <section aria-label="Git 状态" aria-busy={loading} className="git-vcs-panel" style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
       <header>
         <h3>Git 状态</h3>
         {onClose ? (
@@ -57,7 +63,9 @@ export function TaskVcsPanel({ taskId, onClose }: TaskVcsPanelProps) {
         ) : null}
       </header>
       {error ? <p role="alert">{error}</p> : null}
-      {!vcs ? <p>尚未产生 Git 提交。</p> : (
+      {loading && !snapshot ? <p role="status">加载 Git 状态…</p> : null}
+      {!loading && !vcs && !error ? <p>尚未产生 Git 提交。</p> : null}
+      {vcs ? (
         <dl>
           <dt>分支</dt><dd>{vcs.branch ?? "—"}</dd>
           <dt>基线</dt><dd>{vcs.baseBranch ?? "—"}</dd>
@@ -74,7 +82,7 @@ export function TaskVcsPanel({ taskId, onClose }: TaskVcsPanelProps) {
           <dt>合并</dt><dd>{vcs.merge.state}{vcs.merge.commitSha ? ` · ${vcs.merge.commitSha.slice(0, 10)}` : ""}</dd>
           {vcs.degradedReason ? (<><dt>降级原因</dt><dd>{vcs.degradedReason}</dd></>) : null}
         </dl>
-      )}
+      ) : null}
       <div className="git-vcs-actions">
         <button type="button" disabled={busy || !vcs?.branch} onClick={() => void act(() => window.deer.gitCreatePr(taskId))}>
           创建 PR
@@ -99,12 +107,14 @@ export interface MergeQueueModalProps {
 export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalProps) {
   const [items, setItems] = useState<MergeQueueItem[]>([]);
   const [activeMerge, setActiveMerge] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [waiveReason, setWaiveReason] = useState("");
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const queue = await window.deer.mergeQueue(workspaceId);
       setItems(queue.items);
@@ -112,6 +122,8 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }, [workspaceId]);
 
@@ -167,6 +179,7 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
         className="git-queue-modal"
         role="dialog"
         aria-modal="true"
+        aria-busy={loading}
         aria-labelledby="git-queue-title"
         style={{ width: "min(720px, 96vw)", maxWidth: "96vw", maxHeight: "90vh", overflow: "auto", boxSizing: "border-box" }}
       >
@@ -175,7 +188,9 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
           <button ref={closeRef} type="button" onClick={onClose} aria-label="关闭合并队列">×</button>
         </header>
         {error ? <p role="alert">{error}</p> : null}
-        {items.length === 0 ? <p>队列为空。</p> : (
+        {loading && items.length === 0 ? <p role="status">加载合并队列…</p> : null}
+        {!loading && items.length === 0 && !error ? <p>队列为空。</p> : null}
+        {items.length > 0 ? (
           <ol className="git-queue-list">
             {items.map((item) => (
               <li key={item.id} aria-current={activeMerge === item.id ? "true" : undefined}>
@@ -206,10 +221,15 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
                 >
                   豁免 checks
                 </button>
+                {item.state === "ready" && (item.provider === "local" || item.provider === "manual") ? (
+                  <p className="muted tiny" role="status">
+                    本地/手动合并：请合并后由后续 P1 验证入口确认集成；当前版本不提供按钮。
+                  </p>
+                ) : null}
               </li>
             ))}
           </ol>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -238,7 +258,11 @@ export function GitSettingsPanel({ workspaceId }: GitSettingsPanelProps) {
   }, [load]);
 
   if (!settings) {
-    return <section aria-label="Git 设置">{error ? <p role="alert">{error}</p> : <p>加载中…</p>}</section>;
+    return (
+      <section aria-label="Git 设置" aria-busy="true">
+        {error ? <p role="alert">{error}</p> : <p role="status">加载中…</p>}
+      </section>
+    );
   }
 
   const patch = (next: Partial<GitSettings>) => setSettings({ ...settings, ...next });
