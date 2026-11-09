@@ -113,3 +113,66 @@ Git 专项覆盖：GitExec 白名单/脱敏/真实命令；迁移 6 列/旧库�
 - 功能开关：`git_repo_config.mode=off`（不建 worktree/task_vcs/PR；degraded 并发 1）。
 - 代码回滚：删除 `src/git/`、还原 `src/kernel/service.ts` 与 kernel environment hook、还原 IPC/UI 文件；Git DB 为独立 `git.db`，不迁移 kernel 库。
 - 已产生的 runtime worktree 可用 `git worktree remove --force` + `git worktree prune` 清理；branch 保留，不自动删远端。
+
+## 7. t103 UI 挂载（PR #4 内）
+
+> 依赖 t102 的 Git 后端/IPC 与 t96 的 `src/git/ui/GitPanels.tsx`。t103 只做挂载、路由/命令与样式，不改 `src/git/`、`src/SettingsView.tsx`、`electron/`、`src/kernel/`。
+
+### 7.1 入口映射
+
+| 入口 | 位置 | 行为 |
+|---|---|---|
+| 任务 VCS | 任务页详情 `#task-git-section` | 内联 `TaskVcsPanel`（按 taskId 重挂载，避免切换任务时显示旧数据）；分支/基线/Head/PR/Checks/合并/降级原因；创建 PR、加入合并队列、清理 worktree |
+| 设置 Git 区 | App 设置 Modal 内 `#settings-git`（`SettingsView` 之后） | `GitSettingsPanel`：模式/Provider/基线/容量/checks/审批/自动合并/mergeMethod；不展示 token 输入；`git=1` 深链滚动并聚焦该区 |
+| 合并队列 | App 级 `MergeQueueModal`；团队进度头「合并队列」；命令面板 | 串行队列、批准/合并/豁免 checks（原因 ≥8 字）；Esc/Tab trap 由组件提供 |
+| 命令面板 | `CommandPalette` 新增「Git」组 | 打开合并队列 / 打开 Git 设置 / 打开当前任务 Git 状态（无任务时回退首个任务并提示） |
+| 团队页 | 进度头「合并队列」+ 选中任务「Git 状态」 | 前者打开队列；后者跳到任务页并聚焦 VCS 区 |
+
+### 7.2 深链（C12 扩展）
+
+`src/shared/deeplink.ts` 新增（保持既有 `t/task/m/b` 兼容）：
+
+- `#/tasks?t=<taskId>&vcs=1`：任务页 + 聚焦 Git 区；
+- `#/tasks?t=<taskId>&merge=1` / `#/team?t=<taskId>&merge=1`：打开合并队列，保留任务/团队上下文；
+- `#/settings?git=1`：打开设置 Modal 并聚焦 Git 区。
+
+`buildHash` 仅在对应 tab 写入：`vcs` 仅 tasks、`merge` tasks/team、`git` settings；关闭 Modal/离开页面时自动移除。`parseHash` 的 `merge/git/vcs` 布尔值默认为 false，旧深链不受影响。`deeplink.test.ts` 增加解析/生成/往返/非 1 值不误开用例。
+
+### 7.3 IPC / 安全复核
+
+- 复用 t96 已接线的 13 个 `git:*` 通道（`src/shared/ipc.ts` / `electron/preload.ts` / `electron/main.ts`）；本任务未改 electron 文件。
+- `getTaskVcs/getGitSettings/mergeQueue` 返回类型不含 token；`GitSettings` 无 token 字段；`GitSettingsPanel` 无 token 输入框；`git:open-pr` 仅接受 `https:` 并走 `shell.openExternal`，非法 URL 返回 null。
+- `TaskVcsPanel` 请求失败以 `role=alert` 展示主进程错误（mock 验证 `permission denied`）；空 VCS 显示「尚未产生 Git 提交」，队列为空显示「队列为空」，设置加载显示「加载中…」。
+
+### 7.4 无障碍/窄屏/回归
+
+- `MergeQueueModal` 自带 `role=dialog`、`aria-modal`、Esc、Tab 焦点环；Task VCS/设置区为具名 section；设置 Modal 复用 C25 `Modal` 焦点陷阱。
+- 深链焦点使用 `scrollWithin` 只滚动最近面板（避免 `scrollIntoView` 把整个窗口带偏），目标 `tabIndex=-1` 接收焦点。
+- 窄 Dock：任务 Git 区 `dl` auto-fit、按钮换行；队列 Modal `min(720px,96vw)` + 720px 以下全宽；设置 Git 区 auto-fit；未新增 Dock 面板。
+- 与 t69 冲突策略：t69 仍 OPEN；本次在 t96 现有 App 上做加法式挂载，待 t69 合入 main 后 `branch:sync` 解冲突，不提前合并 t69。
+- 非本任务范围：`SettingsView` 不改，因此设置内 Git 区位于设置主体下方而非新增左侧导航项；如需独立「Git」设置 tab，需另开任务改 SettingsView。
+
+### 7.5 验证（t96 worktree，PR #4）
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm typecheck` | ✅ 0 |
+| `pnpm build` | ✅ 0（393 modules；css 202.22 kB / gzip 22.60；js 1,084.68 kB / gzip 297.95；electron main 1.1mb、preload 4.9kb） |
+| `pnpm test` | ✅ 0（22 文件 / 316 用例；新增 deeplink Git 路由用例，Git 专项 25 项与内核基线全绿） |
+
+Mock fixture Electron 构建产物冒烟（`window.deer` mock，不连接真实仓库）：
+
+- `#/tasks?t=t1&vcs=1`：任务详情 Git 状态、PR/Checks/合并、动作按钮渲染；`VCS_ERROR` 实测 `permission denied` 以 alert 展示；`VCS_EMPTY` 实测空 VCS 文案；
+- `#/settings?git=1`：设置 Modal 打开并滚动/聚焦 `#settings-git`，Git 表单可编辑；
+- `#/tasks?merge=1`：合并队列 Modal 打开；Esc 关闭验证 `QUEUE_OPEN=true` → `QUEUE_CLOSED=true`；
+- Ctrl/⌘+K：命令面板「Git」组存在三项命令；窄窗 980×735 任务 Git 区可用。
+
+截图：`docs/team/t103-task-vcs.png`、`t103-git-settings.png`、`t103-merge-queue.png`。
+
+### 7.6 遗留
+
+1. **t69 合并后 sync**（流程）：本次基于 t96 当前 App 挂载，t69 合入后需解 App/TeamDashboard/CommandPalette/deeplink/styles 冲突并复跑三命令。
+2. **组件内部 loading**：`TaskVcsPanel`/`MergeQueueModal` 首次加载期间先显示空态（组件在 `src/git/`，t103 out of scope 未改）；`GitSettingsPanel` 有「加载中…」。如需 skeleton，另开组件修复任务。
+3. **无真实仓库/gh 端到端**：本次 mock fixture 验证 UI/IPC 形状；真实 Git 仓库、GitHub checks/PR、权限拒绝的端到端需 t104/集成环境验证。
+4. **合并队列 local/manual verifyIntegrated**：沿用 t96 遗留，UI 未提供该按钮。
+

@@ -20,11 +20,14 @@ export type PanelAction =
   | "move-left"
   | "move-right"
   | "move-up"
-  | "move-down";
+  | "move-down"
+  | "open-merge-queue"
+  | "open-git-settings"
+  | "open-task-vcs";
 
 type PaletteAction = {
   id: string;
-  group: "导航" | "新建" | "面板" | "任务" | "成员" | "邮件" | "黑板";
+  group: "导航" | "新建" | "面板" | "任务" | "成员" | "邮件" | "黑板" | "Git";
   label: string;
   hint?: string;
   run: () => void;
@@ -126,6 +129,20 @@ export default function CommandPalette({
           run: () => onPanelAction(command.id),
         });
       }
+      const gitCommands: Array<{ id: PanelAction; label: string; hint: string }> = [
+        { id: "open-merge-queue", label: "打开 合并队列", hint: "#/tasks?merge=1 · 串行合并与检查" },
+        { id: "open-git-settings", label: "打开 Git 设置", hint: "#/settings?git=1 · 仓库/分支/PR 配置" },
+        { id: "open-task-vcs", label: "打开 当前任务 Git 状态", hint: "#/tasks?t=&vcs=1 · 分支/PR/检查/合并" },
+      ];
+      for (const command of gitCommands) {
+        list.push({
+          id: `git-${command.id}`,
+          group: "Git",
+          label: command.label,
+          hint: command.hint,
+          run: () => onPanelAction(command.id),
+        });
+      }
     }
     for (const task of snapshot.tasks) {
       list.push({
@@ -173,7 +190,10 @@ export default function CommandPalette({
     if (!keyword) {
       return actions.filter(
         (action) =>
-          action.group === "导航" || action.group === "新建" || action.group === "面板",
+          action.group === "导航" ||
+          action.group === "新建" ||
+          action.group === "面板" ||
+          action.group === "Git",
       );
     }
     return actions.filter((action) =>

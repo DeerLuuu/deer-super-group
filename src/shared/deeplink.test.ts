@@ -9,6 +9,9 @@ describe("parseHash（C12 深链解析）", () => {
       chatTask: null,
       message: null,
       board: null,
+      mergeQueue: false,
+      gitSettings: false,
+      taskVcs: false,
       redirected: false,
     });
   });
@@ -34,6 +37,30 @@ describe("parseHash（C12 深链解析）", () => {
   it("解析邮箱与黑板深链", () => {
     expect(parseHash("#/mailbox?m=m1").message).toBe("m1");
     expect(parseHash("#/board?b=general").board).toBe("general");
+  });
+
+  it("解析 Git 入口深链：合并队列 / 设置 Git 区 / 任务 VCS", () => {
+    expect(parseHash("#/tasks?t=t3&merge=1")).toMatchObject({
+      tab: "tasks",
+      task: "t3",
+      mergeQueue: true,
+      gitSettings: false,
+      taskVcs: false,
+    });
+    expect(parseHash("#/settings?git=1")).toMatchObject({
+      tab: "settings",
+      gitSettings: true,
+      mergeQueue: false,
+      taskVcs: false,
+    });
+    expect(parseHash("#/tasks?t=t3&vcs=1")).toMatchObject({
+      tab: "tasks",
+      task: "t3",
+      taskVcs: true,
+      mergeQueue: false,
+    });
+    // 非 1 值不误开
+    expect(parseHash("#/tasks?t=t3&vcs=0").taskVcs).toBe(false);
   });
 
   it("旧 #/router 深链重定向到任务页（C10 合并 7→6）", () => {
@@ -71,6 +98,28 @@ describe("buildHash（C12 深链生成）", () => {
   it("永不生成旧 #/router 深链", () => {
     // router 不是 ROUTE_TABS 成员，类型层面即禁止；运行时防御检查：
     expect(buildHash("tasks")).not.toContain("router");
+  });
+
+  it("生成 Git 入口深链并往返一致", () => {
+    const merge = buildHash("tasks", { task: "t3", mergeQueue: true });
+    expect(merge).toBe("#/tasks?t=t3&merge=1");
+    expect(parseHash(merge)).toMatchObject({ mergeQueue: true, task: "t3" });
+
+    const git = buildHash("settings", { gitSettings: true });
+    expect(git).toBe("#/settings?git=1");
+    expect(parseHash(git).gitSettings).toBe(true);
+
+    const vcs = buildHash("tasks", { task: "t3", taskVcs: true });
+    expect(vcs).toBe("#/tasks?t=t3&vcs=1");
+    expect(parseHash(vcs).taskVcs).toBe(true);
+
+    // team 只写 merge，不写 vcs；settings 不写任务参数
+    expect(buildHash("team", { task: "t3", mergeQueue: true, taskVcs: true })).toBe(
+      "#/team?t=t3&merge=1",
+    );
+    expect(buildHash("settings", { task: "t3", taskVcs: true, gitSettings: true })).toBe(
+      "#/settings?git=1",
+    );
   });
 
   it("parse(build(route)) 往返一致", () => {

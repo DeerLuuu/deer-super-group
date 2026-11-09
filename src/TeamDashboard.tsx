@@ -35,6 +35,8 @@ export default function TeamDashboard({
   onUpdate,
   onOpenTask,
   onOpenTaskPage,
+  onOpenMergeQueue,
+  onOpenTaskGit,
 }: {
   snapshot: Snapshot;
   busy: boolean;
@@ -51,6 +53,9 @@ export default function TeamDashboard({
   onOpenTask: (taskId: string) => void;
   /** S04：星图浮窗「在任务页打开」。 */
   onOpenTaskPage: (taskId: string) => void;
+  /** t103：团队页 Git 入口。 */
+  onOpenMergeQueue: () => void;
+  onOpenTaskGit: (taskId: string) => void;
 }) {
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ agent: Agent | null } | null>(null);
@@ -130,7 +135,7 @@ export default function TeamDashboard({
 
   return (
     <div className="team-layout">
-      <ProgressHeader stats={stats} />
+      <ProgressHeader stats={stats} onOpenMergeQueue={onOpenMergeQueue} />
 
       <div className="team-middle">
         <aside className="panel team-members">
@@ -247,13 +252,23 @@ export default function TeamDashboard({
                 <strong>{selectedTask.title}</strong>
                 <span className="muted tiny mono">{selectedTask.id}</span>
               </div>
-              <button
-                type="button"
-                className="primary small"
-                onClick={() => onOpenTask(selectedTask.id)}
-              >
-                打开任务会话
-              </button>
+              <div className="team-detail-head-actions">
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => onOpenTaskGit(selectedTask.id)}
+                  title="在任务页查看该任务的分支、PR、检查与合并状态"
+                >
+                  Git 状态
+                </button>
+                <button
+                  type="button"
+                  className="primary small"
+                  onClick={() => onOpenTask(selectedTask.id)}
+                >
+                  打开任务会话
+                </button>
+              </div>
             </div>
             <div className="team-detail-body">
               <div className="team-detail-description">
@@ -316,6 +331,7 @@ export default function TeamDashboard({
 
 function ProgressHeader({
   stats,
+  onOpenMergeQueue,
 }: {
   stats: {
     total: number;
@@ -326,6 +342,7 @@ function ProgressHeader({
     other: number;
     deliveryPct: number;
   };
+  onOpenMergeQueue: () => void;
 }) {
   function percent(value: number): string {
     return stats.total === 0 ? "0%" : `${(value / stats.total) * 100}%`;
@@ -343,7 +360,17 @@ function ProgressHeader({
                 : `${stats.delivered} / ${stats.total} 个任务已交付`}
             </div>
           </div>
-          <span className="muted tiny">实时</span>
+          <div className="team-progress-actions">
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={onOpenMergeQueue}
+              title="打开合并队列（串行合并、检查与冲突处理）"
+            >
+              合并队列
+            </button>
+            <span className="muted tiny">实时</span>
+          </div>
         </div>
         <div className="team-progress-bar">
           {stats.running > 0 && (

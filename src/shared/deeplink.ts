@@ -1,6 +1,8 @@
 // C12：hash 路由与深链。
 // 格式：#/tasks?t=<taskId> · #/team?t=<taskId> · #/chat?task=<taskId> ·
 //       #/mailbox?m=<messageId> · #/board?b=<boardName> · #/settings
+// t103：Git 入口深链 #/tasks?t=<taskId>&merge=1（合并队列）/
+//       &vcs=1（任务 VCS）· #/settings?git=1（设置 Git 区）。
 // C10 已把 Router 页合并进任务/对话页，旧 #/router 深链重定向到 #/tasks。
 
 export const ROUTE_TABS = ["tasks", "team", "chat", "mailbox", "board", "settings"] as const;
@@ -22,6 +24,12 @@ export type Route = {
   message: string | null;
   /** 黑板选中的板块名（`b` 参数）。 */
   board: string | null;
+  /** t103：打开合并队列 Modal（`merge=1`）。 */
+  mergeQueue: boolean;
+  /** t103：设置页聚焦 Git 区（`git=1`）。 */
+  gitSettings: boolean;
+  /** t103：任务页聚焦 VCS 区（`vcs=1`）。 */
+  taskVcs: boolean;
   /** 是否由旧深链（如 #/router）重定向而来。 */
   redirected: boolean;
 };
@@ -32,6 +40,9 @@ export const DEFAULT_ROUTE: Route = {
   chatTask: null,
   message: null,
   board: null,
+  mergeQueue: false,
+  gitSettings: false,
+  taskVcs: false,
   redirected: false,
 };
 
@@ -52,6 +63,9 @@ export function parseHash(hash: string): Route {
     chatTask: params.get("task"),
     message: params.get("m"),
     board: params.get("b"),
+    mergeQueue: params.get("merge") === "1",
+    gitSettings: params.get("git") === "1",
+    taskVcs: params.get("vcs") === "1",
     redirected,
   };
 }
@@ -61,18 +75,25 @@ export type RouteSelection = {
   chatTask?: string | null;
   message?: string | null;
   board?: string | null;
+  mergeQueue?: boolean;
+  gitSettings?: boolean;
+  taskVcs?: boolean;
 };
 
 export function buildHash(tab: RouteTab, selection: RouteSelection = {}): string {
   const params = new URLSearchParams();
   if (tab === "tasks" || tab === "team") {
     if (selection.task) params.set("t", selection.task);
+    if (selection.mergeQueue) params.set("merge", "1");
+    if (tab === "tasks" && selection.taskVcs) params.set("vcs", "1");
   } else if (tab === "chat") {
     if (selection.chatTask) params.set("task", selection.chatTask);
   } else if (tab === "mailbox") {
     if (selection.message) params.set("m", selection.message);
   } else if (tab === "board") {
     if (selection.board) params.set("b", selection.board);
+  } else if (tab === "settings") {
+    if (selection.gitSettings) params.set("git", "1");
   }
   const query = params.toString();
   return `#/${tab}${query ? `?${query}` : ""}`;
