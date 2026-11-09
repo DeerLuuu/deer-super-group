@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { Store } from "../kernel/store.js";
-import { detectRepo, ensureHooksDir, runtimeHooksPath } from "./repo.js";
-import { GitExec } from "./gitExec.js";
+import { detectRepo, detectRepoSync, ensureHooksDir, runtimeHooksPath } from "./repo.js";
+import { GitExec, validateGitArgs } from "./gitExec.js";
 import { GitStore } from "./gitStore.js";
 import type { GitSettings, PrepareRunInput, PrepareRunResult, WorktreeRecord } from "./types.js";
 
@@ -22,6 +23,32 @@ export function branchName(taskId: string, title: string): string {
 
 function newWorktreeId(): string {
   return `wt_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+}
+
+function runGitSync(
+  cwd: string,
+  args: string[],
+  hooksPath: string,
+): { code: number; stdout: string; stderr: string } {
+  const validated = validateGitArgs(args, hooksPath);
+  if (!validated.ok) return { code: 1, stdout: "", stderr: validated.reason };
+  try {
+    const stdout = execFileSync("git", ["-c", `core.hooksPath=${hooksPath}`, ...validated.args], {
+      cwd,
+      timeout: 120_000,
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    return { code: 0, stdout: String(stdout).trim(), stderr: "" };
+  } catch (error) {
+    const err = error as { status?: number; stdout?: string; stderr?: string; message?: string };
+    return {
+      code: typeof err.status === "number" ? err.status : 1,
+      stdout: String(err.stdout ?? ""),
+      stderr: String(err.stderr ?? err.message ?? "git failed"),
+    };
+  }
 }
 
 export interface PreparedRepo {
@@ -47,6 +74,136 @@ export class WorktreeManager {
     const hooks = runtimeHooksPath(repo);
     if (!hooks) return null;
     return { repo, git: new GitExec(hooks), settings };
+  }
+
+  /**
+   * Synchronous preparation for the kernel's beforeStart hook. This keeps the
+   * prepared cwd/sandboxId available for the run.started event, so no manual
+   * run-row UPDATE is needed. The async prepare remains the §16 provider API.
+   */
+  prepareSync(input: PrepareRunInput): PrepareRunResult {
+    const workspace = this.store.getWorkspace(input.workspaceId);
+    if (!workspace) {
+      return { ok: false, defer: false, errorCode: "GIT_REPO_NOT_FOUND", message: "workspace not found" };
+    }
+    const settings = this.gitStore.getConfig(input.workspaceId);
+    if (settings.mode === "off") {
+      return { ok: true, cwd: workspace.path, branch: null, sandboxId: `workspace:${workspace.id}`, mode: "degraded" };
+    }
+    const repo = detectRepoSync(workspace.path, settings.baseBranch);
+    if (!repo.ok) {
+      return { ok: true, cwd: workspace.path, branch: null, sandboxId: `workspace:${workspace.id}`, mode: "degraded" };
+    }
+    ensureHooksDir(repo);
+    const hooks = runtimeHooksPath(repo);
+    if (!hooks) {
+      return { ok: false, defer: false, errorCode: "GIT_REPO_NOT_FOUND", message: "runtime root unavailable" };
+    }
+    const task = this.store.getTask(input.taskId);
+    if (!task) return { ok: false, defer: false, errorCode: "GIT_WORKTREE_FAILED", message: "task not found" };
+    const maxWorktrees = Math.min(MAX_WORKTREES_HARD_LIMIT, Math.max(1, Number(settings.maxWorktrees) || 3));
+    const activeForTask = this.gitStore.getActiveWorktreeForTask(task.id);
+    if (this.gitStore.countActiveWorktrees(workspace.id) >= maxWorktrees && !activeForTask) {
+      return { ok: false, defer: true, retryAfterMs: 15_000, reason: "GIT_CAPACITY" };
+    }
+    const branch = task.branch && task.branch.startsWith("deer/") ? task.branch : branchName(task.id, task.title);
+    const branchCheck = runGitSync(repo.root ?? workspace.path, ["check-ref-format", "--branch", branch], hooks);
+    if (branchCheck.code !== 0) {
+      return { ok: false, defer: false, errorCode: "GIT_BRANCH_INVALID", message: "invalid branch name" };
+    }
+    if (activeForTask) {
+      const existingRun = activeForTask.runId ? this.store.getRun(activeForTask.runId) : null;
+      if (
+        activeForTask.runId !== input.runId &&
+        existingRun &&
+        ["running", "waiting_human", "queued"].includes(existingRun.status) &&
+        existingRun.leaseExpiresAt &&
+        Date.parse(existingRun.leaseExpiresAt) > Date.now()
+      ) {
+        return { ok: false, defer: true, retryAfterMs: 15_000, reason: "GIT_WORKTREE_BUSY" };
+      }
+      runGitSync(repo.root ?? workspace.path, ["worktree", "remove", "--force", activeForTask.path], hooks);
+      runGitSync(repo.root ?? workspace.path, ["worktree", "prune"], hooks);
+      try {
+        rmSync(activeForTask.path, { recursive: true, force: true });
+      } catch {
+        // best effort
+      }
+      this.gitStore.updateWorktree(activeForTask.id, { state: "removed" });
+    }
+    const attempt = Math.max(1, Math.floor(input.attempt));
+    const runtimeRoot = repo.runtimeRoot ?? path.join(workspace.path, ".deer");
+    const worktreePath = path.join(runtimeRoot, "worktrees", task.id, String(attempt));
+    if (!path.resolve(worktreePath).startsWith(`${path.resolve(runtimeRoot)}${path.sep}`)) {
+      return { ok: false, defer: false, errorCode: "GIT_PATH_ESCAPE", message: "worktree path escapes runtime root" };
+    }
+    try {
+      mkdirSync(path.dirname(worktreePath), { recursive: true });
+    } catch (error) {
+      return { ok: false, defer: false, errorCode: "GIT_WORKTREE_FAILED", message: error instanceof Error ? error.message : String(error) };
+    }
+    const branchExists = runGitSync(repo.root ?? workspace.path, ["rev-parse", "--verify", branch], hooks);
+    const add =
+      branchExists.code === 0
+        ? runGitSync(repo.root ?? workspace.path, ["worktree", "add", worktreePath, branch], hooks)
+        : runGitSync(repo.root ?? workspace.path, ["worktree", "add", "-b", branch, worktreePath, settings.baseBranch], hooks);
+    if (add.code !== 0) {
+      return { ok: false, defer: false, errorCode: "GIT_WORKTREE_FAILED", message: add.stderr || "worktree add failed" };
+    }
+    const record: WorktreeRecord = {
+      id: newWorktreeId(),
+      workspaceId: workspace.id,
+      taskId: task.id,
+      branchTaskId: task.id,
+      runId: input.runId,
+      path: worktreePath,
+      branch,
+      state: "active",
+      leaseOwner: "git-service",
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      createdAt: this.now(),
+      updatedAt: this.now(),
+    };
+    this.gitStore.insertWorktree(record);
+    this.store.updateTask(task.id, { branch, worktree: worktreePath });
+    this.gitStore.upsertRunVcs({
+      runId: input.runId,
+      taskId: task.id,
+      worktreePath,
+      branch,
+      baseSha: null,
+      commitSha: null,
+      prNumber: null,
+      mode: "git",
+    });
+    this.gitStore.upsertTaskVcs({
+      taskId: task.id,
+      workspaceId: workspace.id,
+      mode: "git",
+      branch,
+      baseBranch: settings.baseBranch,
+      headSha: null,
+      pr: null,
+      merge: { state: "none", commitSha: null },
+      checksState: "none",
+      conflictTaskId: null,
+      errorCode: null,
+      updatedAt: this.now(),
+    });
+    this.event(workspace.id, "task", task.id, "git.worktree_created", {
+      taskId: task.id,
+      runId: input.runId,
+      path: worktreePath,
+      branch,
+    });
+    return {
+      ok: true,
+      cwd: worktreePath,
+      branch,
+      sandboxId: `git:${worktreePath}`,
+      mode: "git",
+      runtimeRoot: repo.runtimeRoot ?? undefined,
+    };
   }
 
   async prepare(input: PrepareRunInput): Promise<PrepareRunResult> {
@@ -127,6 +284,16 @@ export class WorktreeManager {
 
     const existing = this.gitStore.getActiveWorktreeForTask(task.id);
     if (existing) {
+      if (existing.runId === input.runId && existing.state === "active") {
+        return {
+          ok: true,
+          cwd: existing.path,
+          branch: existing.branch,
+          sandboxId: `git:${existing.path}`,
+          mode: "git",
+          runtimeRoot: repo.runtimeRoot ?? undefined,
+        };
+      }
       const existingRun = existing.runId ? this.store.getRun(existing.runId) : null;
       const active =
         existingRun &&

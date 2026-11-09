@@ -59,7 +59,7 @@ import {
   type RunExecutionResult,
 } from "./execution/kernel.js";
 import { GitService } from "../git/gitService.js";
-import type { FinalizeRunInput, GitSettings, PrepareRunResult } from "../git/types.js";
+import type { FinalizeRunInput } from "../git/types.js";
 
 const PERMISSION_MODES: PermissionMode[] = [
   "read_only",
@@ -214,7 +214,7 @@ export class AppService {
         // Git admission runs before the kernel creates a Run. A capacity
         // miss returns false; the task stays queued with nextRunAt and its
         // attempt is not consumed (kernel G3 defer semantics, wrapper form).
-        beforeStart: (info) => this.git.admit(info),
+        beforeStart: (info) => this.git.beforeStart(info),
       },
     });
   }
@@ -1188,34 +1188,9 @@ export class AppService {
   /** 内核执行器：一次 Run 的 LLM/工具执行（不含生命周期/状态写入，由 kernel 负责）。 */
   private async executeRun(ctx: RunExecutionContext): Promise<RunExecutionResult> {
     const { run, task, agent } = ctx;
-    let prepared: PrepareRunResult | null = null;
-    try {
-      prepared = await this.git.prepareRun({
-        workspaceId: task.workspaceId,
-        taskId: task.id,
-        runId: run.id,
-        attempt: run.attempt ?? 1,
-        agentId: agent.id,
-      });
-    } catch {
-      prepared = null;
-    }
-    const worktreePath = prepared?.ok && prepared.mode === "git" ? prepared.cwd : null;
-    if (prepared?.ok && prepared.mode === "git") {
-      ctx.run.sandboxId = prepared.sandboxId;
-      try {
-        this.store.db.prepare("UPDATE runs SET sandbox_id = ? WHERE id = ?").run(prepared.sandboxId, run.id);
-      } catch {
-        // projection remains authoritative for rebuilds; this is a display cache
-      }
-      this.store.appendEvent({
-        aggregateType: "task",
-        aggregateId: task.id,
-        type: "git.sandbox_bound",
-        actor: "git-service",
-        payload: { runId: run.id, cwd: prepared.cwd, sandboxId: prepared.sandboxId },
-      });
-    }
+    // The beforeStart hook prepared the runtime worktree synchronously and the
+    // kernel wrote it into run.started/run projection; consume it here.
+    const worktreePath = run.sandboxId?.startsWith("git:") ? run.sandboxId.slice(4) : null;
     const finalize = (status: FinalizeRunInput["status"]) => {
       void this.git.finalizeRun({ runId: run.id, taskId: task.id, status }).catch(() => {
         // Git finalization must never change kernel terminal state

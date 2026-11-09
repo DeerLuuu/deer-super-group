@@ -3,8 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Store } from "../kernel/store.js";
+import { ExecutionKernel } from "../kernel/execution/kernel.js";
 import { GitStore } from "./gitStore.js";
 import { GitExec, redactSecrets, validateGitArgs } from "./gitExec.js";
 import { CommitGuard } from "./commitGuard.js";
@@ -12,8 +13,10 @@ import { ChecksRunner } from "./checksRunner.js";
 import { MergeQueue } from "./mergeQueue.js";
 import { WorktreeManager } from "./worktreeManager.js";
 import { GitService } from "./gitService.js";
-import { verifyIntegratedContent } from "./branchOps.js";
-import { LocalProvider, ManualProvider } from "./providers.js";
+import { verifyIntegratedContent, commitAll, pushBranch } from "./branchOps.js";
+import { LocalProvider, ManualProvider, GitHubProvider } from "./providers.js";
+import { GitRunEnvironmentProvider } from "./g3.js";
+import { GIT_EVENT_TYPES, gitEventTypeSchema, validateGitEvent } from "./events.js";
 import type { GitSettings, PrInfo, PrProvider, RepoInfo, TaskVcs } from "./types.js";
 
 const dirs: string[] = [];
@@ -344,6 +347,48 @@ describe("MergeQueue", () => {
     gitStore.close();
   });
 
+  it("is idempotent for duplicate enqueue and supports all merge methods", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const repo: RepoInfo = {
+      ok: true,
+      workspacePath: dir,
+      root: dir,
+      runtimeRoot: path.join(dir, ".deer"),
+      baseBranch: "main",
+      remote: null,
+      remoteKind: "none",
+      gitVersion: "2.40.0",
+    };
+    const provider = new MockProvider();
+    gitStore.upsertTaskVcs(vcsFor(taskId, workspaceId, "deer/t1-test", "head-sha"));
+    for (const mergeMethod of ["squash", "merge", "rebase"] as const) {
+      const settings: GitSettings = {
+        ...gitStore.getConfig(workspaceId),
+        requireApproval: false,
+        autoMerge: true,
+        mergeMethod,
+      };
+      const queue = new MergeQueue({
+        store,
+        gitStore,
+        checks: new ChecksRunner(),
+        contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider, settings }),
+        createConflictTask: async () => ({ taskId: "conflict", created: true }),
+      });
+      const first = await queue.enqueue(taskId);
+      const second = await queue.enqueue(taskId);
+      expect(second.id).toBe(first.id);
+      if (first.state !== "merged") {
+        const result = await queue.process(workspaceId, first.id);
+        expect(result.state).toBe("merged");
+      }
+    }
+    expect(provider.merged).toBe(true);
+    store.close();
+    gitStore.close();
+  });
+
   it("blocks on conflict and reuses an existing conflict task", async () => {    const dir = initRepo();
     const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
     const repo: RepoInfo = {
@@ -381,7 +426,259 @@ describe("MergeQueue", () => {
   });
 });
 
+describe("Git event schemas", () => {
+  it("rejects slash/composite types and validates checks payloads", () => {
+    for (const type of GIT_EVENT_TYPES) {
+      expect(gitEventTypeSchema.safeParse(type).success).toBe(true);
+      expect(type).not.toMatch(/[/。; ]/);
+    }
+    expect(gitEventTypeSchema.safeParse("merge.checks_pending/failed").success).toBe(false);
+    expect(validateGitEvent("merge.checks_pending", { queueId: "q", headSha: "h", checks: [] }).ok).toBe(true);
+    expect(validateGitEvent("merge.checks_failed", { queueId: "q", headSha: "h", checks: [], detail: "x" }).ok).toBe(true);
+    expect(validateGitEvent("merge.checks_waived", { queueId: "q", actor: "u", headSha: "h", reason: "short" }).ok).toBe(false);
+    expect(validateGitEvent("merge.unknown", {}).ok).toBe(false);
+  });
+});
+
+describe("bare remote, REST, waive and crash recovery", () => {
+  it("pushes a deer branch to a local bare remote", async () => {
+    const dir = initRepo();
+    const bare = path.join(tempDir(), "remote.git");
+    execFileSync("git", ["init", "--bare", bare], { windowsHide: true });
+    git(dir, ["remote", "add", "origin", bare]);
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const manager = new WorktreeManager(store, gitStore);
+    const prepared = await manager.prepare({ workspaceId, taskId, runId: "run-push", attempt: 1, agentId: "a1" });
+    if (!prepared.ok || prepared.mode !== "git") throw new Error("prepare failed");
+    writeFileSync(path.join(prepared.cwd, "pushed.txt"), "x\n");
+    const gitExec = new GitExec(hooksFor(dir));
+    const committed = await commitAll({
+      git: gitExec,
+      worktree: prepared.cwd,
+      message: "feat(t): push",
+      scan: () => new CommitGuard(gitExec).scan(prepared.cwd),
+    });
+    expect(committed.ok).toBe(true);
+    const pushed = await pushBranch({
+      git: gitExec,
+      cwd: prepared.cwd,
+      remote: "origin",
+      branch: prepared.branch ?? "",
+    });
+    expect(pushed.ok).toBe(true);
+    const refs = execFileSync("git", ["--git-dir", bare, "show-ref"], { encoding: "utf8" });
+    expect(refs).toContain(prepared.branch ?? "");
+    store.close();
+    gitStore.close();
+  });
+
+  it("uses enterprise REST host with a mocked fetch", async () => {
+    const dir = initRepo();
+    const repo: RepoInfo = {
+      ok: true,
+      workspacePath: dir,
+      root: dir,
+      runtimeRoot: null,
+      baseBranch: "main",
+      remote: "https://ghe.example/acme/repo.git",
+      remoteKind: "remote",
+      gitVersion: "2.40.0",
+    };
+    const oldToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = "test-token";
+    const calls: string[] = [];
+    const mocked = vi.fn(async (url: string) => {
+      calls.push(url);
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            number: 7,
+            html_url: "https://ghe.example/acme/repo/pull/7",
+            state: "open",
+            head: { sha: "abc" },
+            base: { ref: "main" },
+            mergeable: true,
+            merge_commit_sha: null,
+          }),
+      };
+    });
+    vi.stubGlobal("fetch", mocked);
+    try {
+      const provider = new GitHubProvider("ghe.example");
+      const info = await provider.restRefresh(repo, 7);
+      expect(info.state).toBe("open");
+      expect(calls[0]).toContain("https://ghe.example/api/v3/repos/acme/repo/pulls/7");
+    } finally {
+      vi.unstubAllGlobals();
+      if (oldToken === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = oldToken;
+    }
+  });
+
+  it("waives checks only when no checks_command is configured", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const repo: RepoInfo = {
+      ok: true,
+      workspacePath: dir,
+      root: dir,
+      runtimeRoot: path.join(dir, ".deer"),
+      baseBranch: "main",
+      remote: null,
+      remoteKind: "none",
+      gitVersion: "2.40.0",
+    };
+    const settings: GitSettings = { ...gitStore.getConfig(workspaceId), checksCommand: null };
+    gitStore.upsertTaskVcs(vcsFor(taskId, workspaceId, "deer/t1", "head-sha"));
+    const makeQueue = (nextSettings: GitSettings) =>
+      new MergeQueue({
+        store,
+        gitStore,
+        checks: new ChecksRunner(),
+        contextFor: async () => ({ repo, git: new GitExec(hooksFor(dir)), provider: new LocalProvider(), settings: nextSettings }),
+        createConflictTask: async () => ({ taskId: "conflict", created: true }),
+      });
+    const queue = makeQueue(settings);
+    const item = await queue.enqueue(taskId);
+    const waived = await queue.waiveChecks(taskId, "manual waiver reason");
+    expect(waived.checksWaived).toBe(true);
+    await expect(makeQueue({ ...settings, checksCommand: "node -e 0" }).waiveChecks(taskId, "manual waiver reason")).rejects.toThrow(
+      /checks_command/,
+    );
+    expect(item.state).toBe("waiting_checks");
+    store.close();
+    gitStore.close();
+  });
+
+  it("reconciles an orphaned runtime worktree after a crash", async () => {
+    const dir = initRepo();
+    const { store, workspaceId, taskId, gitStore } = seedRepoTask(dir);
+    const manager = new WorktreeManager(store, gitStore);
+    const prepared = await manager.prepare({ workspaceId, taskId, runId: "run-crash", attempt: 1, agentId: "a1" });
+    if (!prepared.ok || prepared.mode !== "git") throw new Error("prepare failed");
+    // A crash leaves no Run row; reconcile must reclaim the worktree.
+    const result = await manager.reconcile(workspaceId);
+    expect(result.removed).toBe(1);
+    expect(existsSync(prepared.cwd)).toBe(false);
+    store.close();
+    gitStore.close();
+  });
+  it("aborts a running kernel run and finalizes its runtime worktree", async () => {
+    const dir = initRepo();
+    const store = new Store(path.join(dir, "deer.db"));
+    const git = new GitService({ dataDir: path.join(dir, "data"), store });
+    const workspace = store.createWorkspace("repo", dir);
+    store.createAgent(
+      { workspaceId: workspace.id, name: "worker", role: "engineer", systemPrompt: "", persona: "", agentsMd: "", model: null },
+      false,
+    );
+    git.gitStore.saveConfig({ ...git.gitStore.getConfig(workspace.id), maxWorktrees: 1 });
+    const task = store.createTask({ workspaceId: workspace.id, title: "Abort", description: "d", acceptance: [] });
+    let activeRunId = "";
+    const kernel = new ExecutionKernel({
+      store,
+      executor: async (ctx) =>
+        new Promise(() => {
+          activeRunId = ctx.run.id;
+        }),
+      hooks: { beforeStart: (info) => git.beforeStart(info) },
+    });
+    const pending = kernel.runTask(task.id);
+    for (let i = 0; i < 200 && !activeRunId; i += 1) await new Promise((r) => setTimeout(r, 10));
+    expect(activeRunId).toMatch(/^run_/);
+    kernel.cancelRun(activeRunId);
+    await expect(pending).rejects.toThrow(/cancelled|abort/i);
+    await git.finalizeRun({ runId: activeRunId, taskId: task.id, status: "cancelled" });
+    expect(store.getTask(task.id)?.status).toBe("failed");
+    expect(store.getTask(task.id)?.failureKind).toBe("RUN_CANCELLED");
+    expect(git.gitStore.listWorktrees(workspace.id).filter((item) => item.state !== "removed")).toHaveLength(0);
+    kernel.dispose();
+    git.close();
+    store.close();
+  });
+});
+
+describe("kernel G3 integration", () => {
+  it("puts git:<worktree> into run.started and keeps a capacity-deferred task queued", async () => {    const dir = initRepo();
+    const store = new Store(path.join(dir, "deer.db"));
+    const git = new GitService({ dataDir: path.join(dir, "data"), store });
+    const workspace = store.createWorkspace("repo", dir);
+    store.createAgent(
+      {
+        workspaceId: workspace.id,
+        name: "worker",
+        role: "engineer",
+        systemPrompt: "",
+        persona: "",
+        agentsMd: "",
+        model: null,
+      },
+      false,
+    );
+    git.gitStore.saveConfig({ ...git.gitStore.getConfig(workspace.id), maxWorktrees: 1 });
+    const first = store.createTask({ workspaceId: workspace.id, title: "First", description: "d", acceptance: [] });
+    const second = store.createTask({ workspaceId: workspace.id, title: "Second", description: "d", acceptance: [] });
+    let observedSandbox: string | null = null;
+    const kernel = new ExecutionKernel({
+      store,
+      executor: async (ctx) => {
+        observedSandbox = ctx.run.sandboxId ?? null;
+        return { summary: "ok" };
+      },
+      hooks: { beforeStart: (info) => git.beforeStart(info) },
+    });
+    await kernel.runTask(first.id);
+    const firstRun = store.listRunsForTask(first.id)[0];
+    expect(observedSandbox).toMatch(/^git:/);
+    expect(firstRun.sandboxId).toBe(observedSandbox);
+    const started = store
+      .listEventsForTask(first.id, 100)
+      .find((event) => event.type === "run.started");
+    expect((started?.payload as { run?: { sandboxId?: string } }).run?.sandboxId).toBe(observedSandbox);
+
+    kernel.startTask(second.id);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(store.getTask(second.id)?.status).toBe("queued");
+    expect(store.getTask(second.id)?.attemptCount ?? 0).toBe(0);
+    expect(store.listRunsForTask(second.id)).toHaveLength(0);
+
+    await git.finalizeRun({ runId: firstRun.id, taskId: first.id, status: "completed" });
+    store.db.prepare("UPDATE tasks SET next_run_at = NULL WHERE id = ?").run(second.id);
+    kernel.startTask(second.id);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(store.getTask(second.id)?.status).toBe("done");
+    kernel.dispose();
+    git.close();
+    store.close();
+  });
+});
+
 describe("admission and manual providers", () => {
+  it("exposes async RunEnvironmentProvider prepare/release", async () => {
+    const dir = initRepo();
+    const store = new Store(path.join(dir, "deer.db"));
+    const git = new GitService({ dataDir: path.join(dir, "data"), store });
+    const workspace = store.createWorkspace("repo", dir);
+    const task = store.createTask({ workspaceId: workspace.id, title: "Provider", description: "d", acceptance: [] });
+    const provider = new GitRunEnvironmentProvider(git);
+    const prepared = await provider.prepare({
+      workspaceId: workspace.id,
+      taskId: task.id,
+      runId: "run-provider",
+      attempt: 1,
+      agentId: "a1",
+    });
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error("prepare failed");
+    expect(prepared.sandboxId).toMatch(/^git:/);
+    await provider.release({ runId: "run-provider", taskId: task.id, status: "completed" });
+    expect(git.gitStore.listWorktrees(workspace.id).filter((item) => item.state !== "removed")).toHaveLength(0);
+    git.close();
+    store.close();
+  });
+
   it("defers a second workspace run without consuming a queue item", async () => {
     const dir = initRepo();
     const store = new Store(path.join(dir, "deer.db"));

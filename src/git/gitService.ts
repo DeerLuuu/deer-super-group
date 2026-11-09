@@ -99,6 +99,51 @@ export class GitService {
     return { repo, git, provider, settings };
   }
 
+  /**
+   * Kernel beforeStart hook: prepare synchronously so the kernel can put
+   * `git:<cwd>` directly into the run.started payload/projection.
+   */
+  beforeStart(input: {
+    workspaceId: string;
+    taskId: string;
+    runId: string;
+    attempt: number;
+    agentId: string;
+  }):
+    | boolean
+    | {
+        allow: boolean;
+        reason?: string;
+        environment?: { cwd: string; branch: string | null; sandboxId: string; mode: "git" | "degraded" };
+      } {
+    const admitted = this.admit(input);
+    if (typeof admitted === "object" && !admitted.allow) {
+      return { allow: false, reason: admitted.reason ?? "GIT_CAPACITY" };
+    }
+    const prepared = this.worktrees.prepareSync(input);
+    if (!prepared.ok) {
+      if (prepared.defer) return { allow: false, reason: prepared.reason };
+      return {
+        allow: true,
+        environment: {
+          cwd: this.options.store.getWorkspace(input.workspaceId)?.path ?? process.cwd(),
+          branch: null,
+          sandboxId: `workspace:${input.workspaceId}`,
+          mode: "degraded",
+        },
+      };
+    }
+    return {
+      allow: true,
+      environment: {
+        cwd: prepared.cwd,
+        branch: prepared.branch,
+        sandboxId: prepared.sandboxId,
+        mode: prepared.mode,
+      },
+    };
+  }
+
   async prepareRun(input: PrepareRunInput): Promise<PrepareRunResult> {
     return this.worktrees.prepare(input);
   }

@@ -67,6 +67,14 @@ export interface RunExecutionContext {
 
 export type RunExecutor = (ctx: RunExecutionContext) => Promise<RunExecutionResult | void>;
 
+/** Git G3 runtime environment selected before the Run row exists. */
+export interface RunEnvironment {
+  cwd: string;
+  branch: string | null;
+  sandboxId: string;
+  mode: "git" | "degraded";
+}
+
 export interface KernelHooks {
   /** 启动前门禁（预算/看门狗/评测）；同步、快速；默认放行。 */
   beforeStart?: (info: {
@@ -76,7 +84,7 @@ export interface KernelHooks {
     agentId: string;
     attempt: number;
     priority: number;
-  }) => boolean | { allow: boolean; reason?: string };
+  }) => boolean | { allow: boolean; reason?: string; environment?: RunEnvironment };
   onRunFinished?: (info: {
     runId: string;
     taskId: string;
@@ -548,7 +556,11 @@ export class ExecutionKernel {
           continue;
         }
 
-        const started = this.startRun(task, agent, attempt, runId);
+        const environment =
+          hookResult && typeof hookResult === "object" && "environment" in hookResult
+            ? hookResult.environment
+            : undefined;
+        const started = this.startRun(task, agent, attempt, runId, environment);
         if (!started) continue;
         globalCount += 1;
         workspaceCounts.set(task.workspaceId, workspaceActive + 1);
@@ -563,7 +575,13 @@ export class ExecutionKernel {
     }
   }
 
-  private startRun(task: Task, agent: Agent, attempt: number, runId: string): boolean {
+  private startRun(
+    task: Task,
+    agent: Agent,
+    attempt: number,
+    runId: string,
+    environment?: RunEnvironment,
+  ): boolean {
     const now = this.clock.now();
     const nowIso = iso(now);
     const run: Run = {
@@ -580,7 +598,7 @@ export class ExecutionKernel {
       modelProfileId: null,
       modelId: null,
       permissionSnapshot: agent.permission,
-      sandboxId: `workspace:${task.workspaceId}`,
+      sandboxId: environment?.sandboxId ?? `workspace:${task.workspaceId}`,
       retryOfRunId: attempt > 1 ? this.store.listRunsForTask(task.id).slice(-1)[0]?.id ?? null : null,
       heartbeatAt: nowIso,
       leaseOwner: this.owner,
@@ -609,8 +627,8 @@ export class ExecutionKernel {
         attemptCount: attempt,
         nextRunAt: null,
         failureKind: null,
-        worktree: workspace?.path ?? task.worktree,
-        branch: task.branch ?? `deer/${task.id}`,
+        worktree: environment?.cwd ?? workspace?.path ?? task.worktree,
+        branch: environment?.branch ?? task.branch ?? `deer/${task.id}`,
       };
       patchTaskProjection(this.store, task.id, executionFields);
       upsertRunProjection(this.store, run);
