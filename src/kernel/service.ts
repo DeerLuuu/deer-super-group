@@ -62,6 +62,14 @@ import { GitService } from "../git/gitService.js";
 import type { FinalizeRunInput } from "../git/types.js";
 import { MemoryRuntime } from "../shared/memoryRuntime.js";
 import { createMemoryTools } from "../shared/memoryTools.js";
+import type {
+  CastPollRequest,
+  ClosePollRequest,
+  CreatePollRequest,
+  Poll,
+  PollStatus,
+} from "../shared/poll.js";
+import { PollError } from "../shared/poll.js";
 
 const PERMISSION_MODES: PermissionMode[] = [
   "read_only",
@@ -1407,6 +1415,79 @@ export class AppService {
 
   postBoard(input: PostBoardInput): BoardEntry {
     return this.store.postBoard(input);
+  }
+
+  listPolls(workspaceId: string, status?: PollStatus): Poll[] {
+    if (!this.store.getWorkspace(workspaceId)) throw new Error(`workspace not found: ${workspaceId}`);
+    return this.store.listPolls(workspaceId, status).map((poll) => this.sanitizePoll(poll));
+  }
+
+  getPoll(workspaceId: string, pollId: string): Poll {
+    this.requirePollWorkspace(workspaceId, pollId);
+    return this.sanitizePoll(this.store.getPoll(pollId) as Poll);
+  }
+
+  createPoll(input: CreatePollRequest): Poll {
+    // 主进程可信身份：渲染层不能指定 createdBy。
+    const poll = this.store.createPoll({ ...input, createdBy: "user" });
+    return this.getPoll(poll.workspaceId, poll.id);
+  }
+
+  castPoll(workspaceId: string, input: CastPollRequest): Poll {
+    const poll = this.getPoll(workspaceId, input.pollId);
+    const voterId = input.voterType === "human" ? "user" : input.voterId?.trim();
+    if (!voterId) throw new PollError("POLL_INVALID_INPUT", "agent voterId required");
+    const updated = this.store.castPoll({
+      pollId: poll.id,
+      voterId,
+      voterType: input.voterType,
+      selections: input.selections,
+    });
+    return this.sanitizePoll(updated);
+  }
+
+  closePoll(workspaceId: string, input: ClosePollRequest): Poll {
+    const poll = this.getPoll(workspaceId, input.pollId);
+    if (poll.createdBy !== "user") {
+      throw new PollError("POLL_FORBIDDEN", "only local creator can close poll");
+    }
+    // 主进程可信身份：渲染层不能指定 actor；decision 走 MemoryStore 写完整列/domain/FTS。
+    const closed = this.store.closePoll(
+      { pollId: poll.id, actor: "user", reason: input.reason },
+      {
+        boardWriter: (entry) => {
+          const result = this.memory.postBoard({
+            workspaceId: entry.workspaceId,
+            board: entry.board,
+            kind: entry.kind,
+            content: entry.content,
+            refs: entry.refs,
+            confidence: entry.confidence,
+          });
+          if (!result.ok) {
+            throw new Error(`${result.error.code}: ${result.error.message}`);
+          }
+          return result.value;
+        },
+      },
+    );
+    return this.sanitizePoll(closed);
+  }
+
+  private requirePollWorkspace(workspaceId: string, pollId: string): Poll {
+    const poll = this.store.getPoll(pollId);
+    if (!poll || poll.workspaceId !== workspaceId) {
+      throw new PollError("POLL_NOT_FOUND", "poll not found in workspace");
+    }
+    return poll;
+  }
+
+  private sanitizePoll(poll: Poll, viewerId = "user"): Poll {
+    if (!poll.anonymous) return poll;
+    return {
+      ...poll,
+      ballots: poll.ballots.filter((ballot) => ballot.voterId === viewerId),
+    };
   }
 
   getSettings(): LlmSettingsInfo {

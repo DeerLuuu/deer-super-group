@@ -50,6 +50,13 @@ import type {
   Memo,
   MemoKind,
 } from "../memory/types.js";
+import type {
+  CastPollRequest,
+  ClosePollRequest,
+  CreatePollRequest,
+  Poll,
+  PollStatus,
+} from "./poll.js";
 
 export interface DeerApi {
   listWorkspaces(): Promise<Workspace[]>;
@@ -171,6 +178,12 @@ export interface DeerApi {
     runId?: string | null;
     maxTokens?: number;
   }): Promise<MemoryContext>;
+  // t136：团队 Poll（正式投票 + decision）
+  listPolls(workspaceId: string, status?: PollStatus): Promise<Poll[]>;
+  getPoll(workspaceId: string, pollId: string): Promise<Poll>;
+  createPoll(input: CreatePollRequest): Promise<Poll>;
+  castPoll(workspaceId: string, input: CastPollRequest): Promise<Poll>;
+  closePoll(workspaceId: string, input: ClosePollRequest): Promise<Poll>;
   onChatEvent(listener: (event: ChatEvent) => void): () => void;
   onEvent(listener: (event: EventRecord) => void): () => void;
 }

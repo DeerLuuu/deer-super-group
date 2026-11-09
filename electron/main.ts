@@ -19,6 +19,7 @@ import type {
   CreateMemoryMemoInput,
 } from "../src/shared/memoryRuntime.js";
 import type { MemorySearchInput, MemorySnapshotOptions } from "../src/memory/types.js";
+import type { CastPollRequest, ClosePollRequest, CreatePollRequest, PollStatus } from "../src/shared/poll.js";
 
 let win: BrowserWindow | null = null;
 let service: AppService | null = null;
@@ -281,6 +282,19 @@ app.whenReady().then(() => {
   );
   handle("memo:promote", (input: { workspaceId: string; agentId: string; memoId: string; board: string }) =>
     getService().memory.promoteMemo(input.workspaceId, input.agentId, input.memoId, input.board),
+  );
+  handle("poll:list", (workspaceId: string, status?: PollStatus) =>
+    getService().listPolls(workspaceId, status),
+  );
+  handle("poll:get", (workspaceId: string, pollId: string) =>
+    getService().getPoll(workspaceId, pollId),
+  );
+  handle("poll:create", (input: CreatePollRequest) => getService().createPoll(input));
+  handle("poll:cast", (workspaceId: string, input: CastPollRequest) =>
+    getService().castPoll(workspaceId, input),
+  );
+  handle("poll:close", (workspaceId: string, input: ClosePollRequest) =>
+    getService().closePoll(workspaceId, input),
   );
   // t58 IF-05：auto_risk 高风险 → 人类审批弹窗（主进程推送 + 人工回执，单次 requestId）。
   service?.onRiskApproval((request) => {
