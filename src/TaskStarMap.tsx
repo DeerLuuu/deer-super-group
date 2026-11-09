@@ -359,7 +359,7 @@ export default function TaskStarMap({
 
   // S10：引导 / 图例 / 帮助。
   const [guideOpen, setGuideOpen] = useState(false);
-  const [legendOpen, setLegendOpen] = useState(true);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
   // S11：aria-live 播报。
@@ -738,6 +738,7 @@ export default function TaskStarMap({
     if ((event.target as HTMLElement).closest("[data-star-node], .star-popover")) return;
     // 集成修复 IF-01（t48）：S04 与 bb-47 要求「点击空白关闭浮窗」，原实现只有 Esc/动作会关闭。
     // 空白按下（即将开始平移）时关闭浮窗，不抢焦点；选中态保留。
+    if (legendOpen) setLegendOpen(false);
     if (popoverTaskId) closePopover(false);
     dragRef.current = {
       startX: event.clientX,
@@ -852,7 +853,10 @@ export default function TaskStarMap({
         fitView();
         break;
       case "Escape":
-        if (popoverTaskId) {
+        if (legendOpen) {
+          event.preventDefault();
+          setLegendOpen(false);
+        } else if (popoverTaskId) {
           event.preventDefault();
           closePopover();
         } else if (focusMode) {
@@ -1437,17 +1441,27 @@ export default function TaskStarMap({
       )}
 
       {/* S10/S08：常驻图例（可折叠） */}
-      <div className="star-legend">
+      <div
+        className="star-legend"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
         <button
           type="button"
           className="ghost tiny star-legend-toggle"
           onClick={() => setLegendOpen((open) => !open)}
           aria-expanded={legendOpen}
+          aria-controls="star-legend-panel"
+          aria-haspopup="dialog"
         >
-          图例 {legendOpen ? "▾" : "▸"}
+          图例
         </button>
         {legendOpen && (
-          <div className="star-legend-body">
+          <div
+            id="star-legend-panel"
+            className="star-legend-body"
+            role="dialog"
+            aria-label="星图图例"
+          >
             <div className="muted tiny">
               <span className="legend-line legend-dep">——</span> 依赖（箭头=方向） ·{" "}
               <span className="legend-line legend-own">- - -</span> 归属（二级）

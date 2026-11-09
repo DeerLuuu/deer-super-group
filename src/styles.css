@@ -2534,9 +2534,10 @@ label.check input {
   position: absolute;
   left: 10px;
   bottom: 38px;
-  z-index: 11;
-  display: grid;
-  gap: 4px;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .star-legend-toggle {
@@ -2544,13 +2545,19 @@ label.check input {
 }
 
 .star-legend-body {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 1;
   display: grid;
   gap: 4px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(21, 27, 36, 0.92);
-  max-width: 300px;
+  background: rgba(21, 27, 36, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  max-width: min(300px, calc(100vw - 80px));
+  width: max-content;
 }
 
 .star-legend-status {
