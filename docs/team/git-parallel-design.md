@@ -8,6 +8,7 @@
   - r1（t73）：初版设计。
   - r2（t79/t85 后）：新增 Kernel delta（G3）、hook 安全、ChecksRunner、approved_head_sha、树/补丁级合并校验、隔离-并发门禁、取消 WIP、事件/数据模型/幂等/UI AC 等 20 项修订；§14 改为决策记录并写入 bb-89；同步 AGENTS §8（branch:sync/最小 PR）。
   - r3（t87 round-4）：按 t79 F1–F20 与 t85 blocker 全面补齐并自检（Kernel delta §7A、prepare 接管、F16 waive、F14 手动脚本/RTL、F19 `.deer-git` 等），进入 round-4 复审。
+  - r4（t92 round-2）：按 t88 G1–G10 修复——事件 pending/failed 拆分、`-z` 白名单与命令清单、config 6 列增量迁移、runtimeRoot 路径校验、错误码统一、merge_queue.branch、内核 §16 类型别名+契约测试、4/1/1 与 120s 常量、env/类型字段、updating 恢复；见 §14.2。
 - **依据**：
   - `DESIGN.md` §7.1（并发写同一仓库）、§9 P0 第 4–9 条（DAG、Worker、worktree/分支/PR、行级评审、摘要、事件日志）
   - `AGENTS.md` §4（质量门禁）、§8（worktree/PR 并发开发，最多 3 个 active worktree，`branches/` 为本地目录，branch:sync/最小 PR）
@@ -107,7 +108,7 @@
 | `task.branch/worktree` 是假值 | UI/审计误导；重试无恢复点 | §4.3、§7.1 |
 | 无 commit/push/PR | 交付物停留在本地工作区，无评审/合并 | §5 |
 | 无合并队列/冲突任务 | 多 PR 无法安全落 main；冲突靠人工发现 | §6 |
-| 无 Git 资源准入 | 内核并发（4/2/1）与 3 worktree 上限可能冲突 | §4.4、§7.3 |
+| 无 Git 资源准入 | 内核并发（4/1/1；G3 前 workspace=1）与 3 worktree 上限可能冲突 | §4.4、§7.3 |
 | 无安全边界（token/路径/命令） | 凭据泄露、注入、误提交 | §8 |
 | 无 Git 事件/审计 | 无法回放/排障/验收 | §7.2 |
 | 无 UI 状态 | 用户不知道分支/PR/合并/冲突 | §9 |
@@ -191,7 +192,7 @@ export interface GitService {
   enqueue(taskId: string, opts?: { commandId?: string }): Promise<MergeQueueItem>;
   retryQueueItem(itemId: string, opts?: { commandId?: string }): Promise<MergeQueueItem>;
   cancelQueueItem(itemId: string, opts?: { commandId?: string }): Promise<MergeQueueItem>;
-  prepare(input: { workspaceId: string; taskId: string; runId: string; attempt: number }): Promise<
+  prepare(input: { workspaceId: string; taskId: string; runId: string; attempt: number; agentId: string }): Promise<
     | { ok: true; cwd: string; branch: string | null; sandboxId: string; mode: "git"|"degraded" }
     | { ok: false; defer: true; retryAfterMs: number; reason: string }
     | { ok: false; defer: false; errorCode: string; message: string }
@@ -225,13 +226,14 @@ export interface GitService {
 | 对象 | 规则 | 示例 |
 |------|------|------|
 | task branch | `deer/<taskId>-<slug>`；taskId 保留原样（`t73`/`task_xxx`），slug 由标题小写化、仅 `[a-z0-9-]`、≤40 字符、去首尾 `-`；重复追加 `-2` | `deer/t68-event-kernel` |
-| runtime worktree | `<workspace>/.deer/worktrees/<taskId>/<attempt>`（attempt 从 1 开始） | `.../.deer/worktrees/t68/2` |
-| conflict worktree | `<workspace>/.deer/worktrees/<taskId>/conflict-<conflictTaskId>` | `.../t68/conflict-t99` |
-| checks worktree | `<workspace>/.deer/worktrees/_checks/<prNumber>-<headSHA7>`（只读校验，完成后删除） | `.../_checks/12-a1b2c3d` |
+| runtime worktree | `<runtimeRoot>/worktrees/<taskId>/<attempt>`（`runtimeRoot` = `<workspace>/.deer` 或回退 `<workspace>/.deer-git`，见下） | `.../.deer/worktrees/t68/2` |
+| conflict worktree | `<runtimeRoot>/worktrees/<taskId>/conflict-<conflictTaskId>` | `.../.deer/worktrees/t68/conflict-t99` |
+| checks worktree | `<runtimeRoot>/worktrees/_checks/<prNumber>-<headSHA7>`（只读校验，完成后删除） | `.../_checks/12-a1b2c3d` |
 | 本地 exclude | 向 `<gitDir>/info/exclude` 幂等追加实际使用的根目录：`.deer/`（默认）或 `.deer-git/`（回退，§4.6）；**不修改 .gitignore、不提交** | — |
 
 校验（写入前）：
-- `path.resolve(worktreePath)` 必须在 `path.resolve(workspacePath, ".deer")` 下（含 `realpath`，禁止 symlink 逃逸）。
+- 先选 runtime 根：`chooseRuntimeRoot(workspacePath)` = `.deer`（默认；若已存在且带 `.deer-git.json` 标记则继续用）或 `.deer-git`（`.deer` 已存在但无本系统标记时回退）；根目录必须 realpath 在 workspace 内。
+- `path.resolve(worktreePath)` 必须在 **所选 runtime 根**（`path.resolve(runtimeRoot)`）下（含 `realpath`，禁止 symlink 逃逸）；`.deer` 与 `.deer-git` 两分支均复用同一校验函数，只传不同 root。
 - branch 名匹配 `^deer/[A-Za-z0-9][A-Za-z0-9._-]{0,80}$`，且不包含 `..`、`~`、`^`、`:`、`?`、`*`、`[`、`\`、空格、以 `-`/`.` 开头。
 - Windows：路径长度 <240，避开保留名（CON/PRN/AUX…），使用 `\\?\` 长路径前缀仅在必要时。
 
@@ -292,14 +294,14 @@ none → reserving → creating → ready → active → finalizing → removed
 
 ### 4.5 清理与恢复
 
-- **启动 reconcile**（`GitService.reconcile()`，应用启动 + 每 120s）：
+- **启动 reconcile**（`GitService.reconcile()`，应用启动 + `RECONCILE_INTERVAL_MS = 120_000` 定时；全文件只此一处定义）：
   1. `git worktree list --porcelain` 与 `git_worktrees` 对账；
   2. 记录有目录无记录 → `git.worktree_orphaned`，尝试 finalize（见下）后移除；
   3. 记录有 reservation 无目录 → 释放；
   4. 目录存在但对应 Task/Run 已终态且超过 TTL（默认 24h，可配置）→ 强制 finalize/移除；
   5. 清理 `_checks` 中超过 1h 的目录。
 - **崩溃 salvage**：Run 非终态但进程重启 → 内核 recovery 标 `LEASE_EXPIRED`；Git reconcile 对该 worktree 执行：
-  1. `git status` 有改动 → `CommitGuard` 扫描后 `git add -A` + commit（message 标注 `wip(recovery)`）；
+  1. `git status --porcelain` 有改动 → `CommitGuard` 扫描后 `git add -A` + commit（message 标注 `wip(recovery)`）；
   2. push branch（若 autoPush 且 remote 可用），不创建 PR；
   3. 写 `git.worktree_recovered`；移除 worktree。
   4. Git 操作失败 → 保留目录 + `git.worktree_orphaned`，UI 可手动清理。
@@ -340,7 +342,7 @@ export interface GitExec {
 规则：
 - `execFile("git", args, {cwd, env, timeout, maxBuffer, windowsHide:true})`；**从不** `shell:true`，不把用户输入拼进字符串。
 - 默认 `timeoutMs=30_000`（网络 push/fetch 120_000；merge 60_000）；`maxBuffer=4MB`；超时 kill 并返回 `GIT_TIMEOUT`（retryable）。
-- env 白名单：`PATH/PATH/HOME/USERPROFILE/SystemRoot/ComSpec/TEMP/TMP/LANG/LC_ALL` + `GIT_TERMINAL_PROMPT=0`、`GIT_OPTIONAL_LOCKS=0`（读操作）、`GIT_SSH_COMMAND` 不覆盖；**不注入 token**（auth 由 gh/ssh/credential helper 处理）。
+- env 白名单：`PATH/HOME/USERPROFILE/SystemRoot/ComSpec/TEMP/TMP/LANG/LC_ALL` + `GIT_TERMINAL_PROMPT=0`、`GIT_OPTIONAL_LOCKS=0`（读操作）、`GIT_SSH_COMMAND` 不覆盖；**不注入 token**（auth 由 gh/ssh/credential helper 处理）；**`core.hooksPath` 不通过 env 注入**，由 §5.2/§8.3 在 argv 前置固定 `-c`（G9）。
 - 输出脱敏：`redactSecrets()` 作用于 stdout/stderr/错误消息（§8.1），再入事件/日志/UI。
 - 每仓库 `RepoLock`：写操作串行；读操作可并行（但同一 worktree 的 add/remove 与 commit 也串行）。
 - 所有命令先过 `validateGitArgs(args)` 白名单（§5.2），拒绝未知子命令/危险参数。
@@ -350,7 +352,7 @@ export interface GitExec {
 | 用途 | 允许的 argv 形状 | 备注 |
 |------|------------------|------|
 | 探测 | `rev-parse --show-toplevel|--verify|--abbrev-ref|--git-dir|--git-common-dir|--git-path|--is-inside-work-tree|<ref>[:path]`、`remote -v|get-url`、`--version` | 只读；`rev-parse <ref>:<path>` 用于内容校验（F3/F13） |
-| 状态 | `status --porcelain[=v1|v2]`、`diff [--cached|--name-only|--name-status|--numstat|--stat|--unified=N|--quiet|--diff-filter=U]`、`log -n 1 --format=...`、`show`、`cat-file -p <ref>`、`merge-base [--is-ancestor] <a> <b>`、`patch-id --stable` | 只读；`log` 统一 `-n 1`（F13） |
+| 状态 | `status --porcelain[=v1|v2] [-z]`、`diff [--cached|--name-only|--name-status|--numstat|--stat|--unified=N|--quiet|--diff-filter=U] [-z]`、`log -n 1 --format=...`、`show`、`cat-file -p <ref>`、`merge-base [--is-ancestor] <a> <b>`、`patch-id --stable` | 只读；`log` 统一 `-n 1`；`-z` 供 CommitGuard 解析（F13/G2） |
 | worktree | `worktree add [--detach] [-b <branch>] <path> <ref>`、`worktree list --porcelain`、`worktree remove [--force] <path>`、`worktree prune` | 路径/ref 校验；必须带隔离 hooksPath（见下） |
 | branch | `branch --list <pattern>`、`branch -D <branch>`（仅 deer/*）、`check-ref-format --branch <branch>`、`checkout -b`（在 worktree add 内） | 禁止 `branch -f` 改 main；branch 名必须过 `check-ref-format`（F13） |
 | 提交 | `add -A`（受 CommitGuard）、`commit --no-verify -m <msg>`、`rev-parse HEAD`、`format-patch -1 <sha> --stdout`（取消 patch 导出，可选） | 不执行用户 commit hooks（F5） |
@@ -358,9 +360,48 @@ export interface GitExec {
 | 合并 | `merge --ff-only <ref>`（仅本地/集成 worktree 校验）、`merge-tree --write-tree <base> <branch>`（冲突探测） | 不直接在用户主 checkout 执行 merge；带隔离 hooksPath |
 | 配置 | `config --get <key>`（读） | 不写 config；不 `config --global` |
 
-**`-c core.hooksPath` 例外（F5）**：允许且**仅允许**在所有命令前加固定参数 `-c core.hooksPath=<workspace>/.deer/hooks-empty`（目录预先创建为空）；该 `-c` 只允许此 key/value、位于 argv 最前、值必须解析到 `.deer` 内，用于**隔离/不执行用户仓库 hooks**。其余任何 `-c`/`--exec`/`!` 参数一律禁止。
+**`-c core.hooksPath` 例外（F5/G4）**：允许且**仅允许**在所有命令前加固定参数 `-c core.hooksPath=<runtimeRoot>/hooks-empty`（目录预先创建为空；`runtimeRoot` 为 §4.2 所选 `.deer` 或 `.deer-git`）；该 `-c` 只允许此 key/value、位于 argv 最前、值必须解析到所选 runtimeRoot 内，用于**隔离/不执行用户仓库 hooks**。其余任何 `-c`/`--exec`/`!` 参数一律禁止。
 
 **禁止**：`push origin main`/`push --force`/`push --force-with-lease`/`push --all`/`push --mirror`、`reset --hard`、`clean -fdx`、`tag`、`submodule`、`filter-branch`、`rebase -i`、`cherry-pick`（P0）、任何 `--no-verify` 之外的 hook 绕过、任意 `-c`（hooksPath 例外）`--exec`/`!` 参数。
+
+### 5.2.1 Git argv 清单（§4/§5/§8 汇总，G2 表驱动验收）
+
+> 下表是设计中出现的全部 git argv 形状；`AC-GIT-01` 必须按表逐行跑「合法通过 / 危险变体拒绝」，任何新增命令必须先登记。
+
+| # | argv 形状（示意，实际用 execFile 数组） | 出现章节 | 白名单行 |
+|---|------------------------------------------|----------|----------|
+| 1 | `rev-parse --show-toplevel` | §4.1/§4.2 | 探测 |
+| 2 | `rev-parse --verify <ref>` | §4.1/§5.4.2 | 探测 |
+| 3 | `rev-parse --git-path info/exclude` | §8.2 | 探测 |
+| 4 | `rev-parse --git-common-dir` | §8.2 | 探测 |
+| 5 | `rev-parse <ref>:<path>` | §5.4.2/§5.4.3 | 探测 |
+| 6 | `rev-parse HEAD` | §5.3 | 提交 |
+| 7 | `remote -v` / `remote get-url <name>` | §4.1/§8.3 | 探测 |
+| 8 | `--version` | §4.1 | 探测 |
+| 9 | `config --get <key>` | §4.1 | 配置 |
+| 10 | `status --porcelain[=v1|v2] [-z]` | §4.5/§5.3/§8.4 | 状态 |
+| 11 | `diff [--cached|--name-only|--name-status|--numstat|--stat|--quiet|--diff-filter=U] [-z]` | §5.4.2/§6.5/§8.4 | 状态 |
+| 12 | `log -n 1 --format=%H` | §5.3 | 状态 |
+| 13 | `show` | §5.2 | 状态 |
+| 14 | `cat-file -p <ref>` | §5.4.2 | 状态 |
+| 15 | `merge-base [--is-ancestor] <a> <b>` | §5.4.2/§5.4.3/§6.7 | 状态 |
+| 16 | `patch-id --stable` | §5.4.2 | 状态 |
+| 17 | `worktree add [--detach] [-b <branch>] <path> <ref>` | §4.3/§6.6.1 | worktree |
+| 18 | `worktree list --porcelain` | §4.5/§4.6 | worktree |
+| 19 | `worktree remove [--force] <path>` | §4.3/§4.5 | worktree |
+| 20 | `worktree prune` | §4.3 | worktree |
+| 21 | `branch --list <pattern>` / `branch -D <deer-branch>` | §4.3/§8.4 | branch |
+| 22 | `check-ref-format --branch <branch>` | §4.2/§5.3 | branch |
+| 23 | `add -A` | §5.3/§4.5/§8.4 | 提交 |
+| 24 | `commit --no-verify -m <msg>` | §5.3/§4.5 | 提交 |
+| 25 | `format-patch -1 <sha> --stdout` | §7.5 | 提交 |
+| 26 | `fetch [origin <branch>]` | §4.1/§5.4.2 | 同步 |
+| 27 | `push --no-verify [-u] <remote> <deer-branch>:<deer-branch>` | §5.3/§4.5 | 同步 |
+| 28 | `merge --ff-only <ref>` | §5.4.3/§6.7 | 合并 |
+| 29 | `merge-tree --write-tree <base> <branch>` | §6.5 | 合并 |
+
+- 所有行均可选前置 `-c core.hooksPath=<runtimeRoot>/hooks-empty`（`.deer` 或 `.deer-git`，见 §4.2）；除此之外的 `-c` 一律拒绝。
+- AC-GIT-01 的表驱动用例引用本表编号（§5.2.1 #1–#29）；新增命令（如未来 `git.commit` 工具）必须先加行 + AC。
 
 ### 5.3 分支与提交
 
@@ -372,7 +413,7 @@ export interface GitExec {
   3. 记录 `commit_sha` 到 `run_vcs`/`task_vcs`，事件 `git.commit`。
   4. `git log -n 1 --format=%H` 作为 PR head（F13，与白名单一致）。
 - 提交身份：优先 repo 现有 `user.name/email`；缺失时设置 **仅本次命令** 的 `GIT_AUTHOR_NAME/EMAIL`/`GIT_COMMITTER_NAME/EMAIL`（`DeerSuperGroup Agent` / `agent@deer.local`），不写全局 config。
-- 推送：`git push --no-verify -u <remote> <branch>:<branch>`（不执行用户 pre-push hook）；目标必须是 `deer/*`；remote 名称从 repo 配置（默认 origin）；失败分类：网络（retryable）、认证（`GIT_PUSH_AUTH`，不重试）、非快进（`GIT_PUSH_REJECTED`，提示先同步 base 或冲突任务）。
+- 推送：`git push --no-verify -u <remote> <branch>:<branch>`（不执行用户 pre-push hook）；目标必须是 `deer/*`；remote 名称从 repo 配置（默认 origin）；失败分类：网络（retryable）、认证（`AUTH_PUSH`，不重试）、非快进（`GIT_PUSH_REJECTED`，提示先同步 base 或冲突任务）。
 
 ### 5.4 PR Provider 抽象
 
@@ -407,7 +448,7 @@ export interface PrProvider {
 
 #### 5.4.1 GitHub Provider（首选）
 
-- **认证**：优先 `gh auth status` + `gh auth token`（keyring，不落盘）；其次 `GITHUB_TOKEN`/`GH_TOKEN` 环境变量。两者都无 → `GITHUB_AUTH_MISSING`，降级 Manual。
+- **认证**：优先 `gh auth status` + `gh auth token`（keyring，不落盘）；其次 `GITHUB_TOKEN`/`GH_TOKEN` 环境变量。两者都无 → `AUTH_MISSING`，降级 Manual。
 - **gh 执行规范（F20）**：`execFile("gh", argv, {timeoutMs:30_000, maxBuffer:4MB, env: allowlist, windowsHide:true})`；**无 shell**；输出/错误 `redactSecrets()`；失败按 stderr/exit code 映射 `PR_*` 错误；禁止拼接用户输入到参数（body 用临时文件）；token 由 gh keyring 管理，应用不传给 gh 参数。
 - **读**：`gh pr view <n> --json number,url,state,isDraft,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,headRefOid,baseRefName,mergedAt,mergeCommit`（JSON 稳定）；分支保护读 `gh api repos/{owner}/{repo}/branches/{base}/protection`。
 - **写**：`gh pr create --base <base> --head <branch> --title <t> --body-file <临时文件>`（body 写入 `.deer/tmp/*.md` 后删除，避免 stdin/参数注入）；合并用法见方法映射表；合并后用 `gh pr view --json mergedAt,mergeCommit` 验证。
@@ -474,7 +515,7 @@ remote 存在?
 
 - Headers：`Authorization: Bearer <token>`（token 仅在内存，绝不进 URL/日志）、`Accept: application/vnd.github+json`、`X-GitHub-Api-Version: 2022-11-28`、`User-Agent: DeerSuperGroup/<version>`。
 - 限流：403/429 且 `x-ratelimit-remaining: 0` / `retry-after` → 退避 1m/5m/15m（≤3 次），队列 `waiting_checks`/`blocked(PR_RATE_LIMITED)` 可见；不失败任务。
-- 错误映射：401/403 → `PR_AUTH_MISSING`/`PR_FORBIDDEN`；404 → `PR_NOT_FOUND`；409/422（merge）→ `MERGE_CONFLICT`/`MERGE_METHOD_UNSUPPORTED`；5xx/网络 → retryable。
+- 错误映射：401/403 → `AUTH_MISSING`/`AUTH_FORBIDDEN`；404 → `PR_NOT_FOUND`；409/422（merge）→ `MERGE_CONFLICT`/`MERGE_METHOD_UNSUPPORTED`；5xx/网络 → retryable。
 - 企业 host：`api_host` 仅允许 https + 配置白名单；API base 与 PR URL host 必须一致；禁止 http。
 
 #### 5.4.6 gh 执行规范（F20）
@@ -544,11 +585,17 @@ CREATE TABLE IF NOT EXISTS git_repo_config (
   api_host TEXT NOT NULL DEFAULT 'github.com',
   auto_create_pr INTEGER NOT NULL DEFAULT 1,
   auto_push_wip INTEGER NOT NULL DEFAULT 1,
+  push_on_cancel INTEGER NOT NULL DEFAULT 0,
+  preserve_worktree_on_cancel INTEGER NOT NULL DEFAULT 0,
+  export_cancel_patch INTEGER NOT NULL DEFAULT 0,
   require_approval INTEGER NOT NULL DEFAULT 1,
+  checks_mode TEXT NOT NULL DEFAULT 'shell',
   checks_command TEXT,
+  checks_timeout_ms INTEGER NOT NULL DEFAULT 1800000,
   required_checks TEXT NOT NULL DEFAULT '[]',
   merge_method TEXT NOT NULL DEFAULT 'squash',
   auto_merge INTEGER NOT NULL DEFAULT 1,
+  allow_skip_blocked INTEGER NOT NULL DEFAULT 0,
   max_worktrees INTEGER NOT NULL DEFAULT 3,
   merge_captain TEXT NOT NULL DEFAULT 'human',
   updated_at TEXT NOT NULL
@@ -638,6 +685,7 @@ CREATE TABLE IF NOT EXISTS merge_queue (
   workspace_id TEXT NOT NULL,
   pr_provider TEXT NOT NULL DEFAULT 'local',
   pr_number INTEGER,
+  branch TEXT,                    -- G6：local/manual 无 PR 号时的身份键
   task_id TEXT NOT NULL,
   head_sha TEXT NOT NULL,
   base_sha TEXT,
@@ -661,7 +709,9 @@ CREATE TABLE IF NOT EXISTS merge_queue (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_merge_active ON merge_queue(workspace_id, pr_provider, pr_number)
   WHERE state IN ('queued','waiting_checks','waiting_review','ready','updating','merging');
--- local/manual 的 pr_number 可能为 NULL（SQLite 唯一索引不约束 NULL），用 task_id 兜底去重
+-- local/manual 的 pr_number 可能为 NULL（SQLite 唯一索引不约束 NULL），用 branch/task 兜底去重
+CREATE UNIQUE INDEX IF NOT EXISTS ux_merge_active_branch ON merge_queue(workspace_id, pr_provider, branch)
+  WHERE branch IS NOT NULL AND state IN ('queued','waiting_checks','waiting_review','ready','updating','merging');
 CREATE UNIQUE INDEX IF NOT EXISTS ux_merge_active_task ON merge_queue(workspace_id, task_id)
   WHERE state IN ('queued','waiting_checks','waiting_review','ready','updating','merging');
 
@@ -719,6 +769,8 @@ CREATE TABLE IF NOT EXISTS git_schema (
 ```
 
 > 说明：Git 表全部 `CREATE TABLE IF NOT EXISTS` + `git_schema` 独立版本，不触碰 `PRAGMA user_version`（kernel v2 使用），避免迁移冲突。`mode=off` 时**不建 task_vcs 行**（TaskVcs 返回 null）；degraded 建行并写 `degraded_reason`；local 建行 `mode=local`。
+>
+> **增量迁移（G3）**：`git_schema` 从 v1 → v2 时，对已存在的 `git_repo_config` 逐列执行 `ALTER TABLE ... ADD COLUMN`（上表 6 个新增列：`push_on_cancel`/`preserve_worktree_on_cancel`/`export_cancel_patch`/`checks_mode`/`checks_timeout_ms`/`allow_skip_blocked`，带默认值），完成后校验 `PRAGMA table_info(git_repo_config)` 含全部列；旧库升级用例见 AC-MIG-06。
 
 ### 6.2 队列 FSM
 
@@ -790,7 +842,8 @@ CREATE TABLE IF NOT EXISTS git_schema (
   - `update-branch` 失败且 reason=conflict；
   - local/manual：`git merge-tree --write-tree <base> <head>` 返回非零/冲突标记。
 - **创建（幂等）**：
-  - 去重键 `(workspaceId, pr_provider, pr_number, base_sha)`；若已有未完成冲突任务 → 复用，不新建。
+  - 去重键 `(workspaceId, pr_provider, coalesce(pr_number, branch, task_id), base_sha)`：GitHub 用 PR 号；local/manual（PR 号 NULL）用 branch，再退 task_id；若已有未完成冲突任务 → 复用，不新建。
+  - 冲突任务**复用源队列项**（`merge_queue.conflict_task_id` 回填、`task_vcs.target_*` 指向源任务/分支），不新建队列项；解决后对同一 queue item 重新 `retry`。
   - 任务字段：`title="解决合并冲突：<源任务标题>"`，`description` 含 PR 链接、branch、base、冲突文件列表（`git diff --name-only --diff-filter=U` 或 provider 返回）、解决命令提示；`acceptance=["冲突标记已清除","checks 通过","分支已推送"]`；`owner = merge_captain`（human → ownerId=null + UI 提示人工；agent → ownerId）；状态 `ready`；**不依赖源任务**（源任务已 done）。
   - 在 `task_vcs`（冲突任务）记录 `target_task_id=源任务`、`target_branch=源任务 branch`；`merge_queue.conflict_task_id` 回填。**冲突任务不新建 `pr_records`**（避免与源任务 branch 的唯一键冲突），复用源任务 PR 记录。
   - 事件 `merge.conflict_task_created`；toast + 任务列表徽标「冲突」。
@@ -812,7 +865,7 @@ CREATE TABLE IF NOT EXISTS git_schema (
   - `shell`：`spawn(shell, shellArgs, {cwd:_checks, timeout, env: allowlist, windowsHide:true})`；Windows `cmd.exe /d /s /c <command>`，POSIX `/bin/sh -lc <command>`；**不使用 git 的 execFile 白名单**，因为它是用户配置的可信命令（等同终端执行）。
   - `argv`：`execFile(argv[0], argv.slice(1), {...})`；不支持 `&&`，配置 UI 给出提示。
 - **约束**：cwd 必须是通过 `git worktree add --detach <headSha>` 创建的 `_checks` 目录；30min 超时（kill 进程树）；stdout/stderr 各 64KB 上限并 `redactSecrets()`；env 白名单（§5.1）+ `CI=1`，**不含 token**；不接受 Agent/任务输入拼接的命令。
-- **结果映射**：exit 0 → `passed`；非 0 → `failed`；超时 → `failed(CHECK_TIMEOUT)`；spawn 失败 → `failed(CHECK_SPAWN)`；取消（head 变化）→ `skipped`。
+- **结果映射**：exit 0 → `passed`；非 0 → `failed`；超时 → `failed(CHECKS_TIMEOUT)`；spawn 失败 → `failed(CHECKS_SPAWN)`；取消（head 变化）→ `skipped`。
 - **落库链路**：开始写 `check_runs(state=running)` → 结束更新 `passed/failed` + `detail`（尾部脱敏输出 ≤4KB）→ 事件 `merge.checks_passed` / `merge.checks_failed{queueId,name,state,headSha,detail}` → 队列：失败 → `failed`（等待新 push/人工 retry，不无限自动重跑）；通过 → `waiting_review`/`ready`。
 - **并发**：同一队列项同时只跑一个 ChecksRunner；head 变化取消旧 run（abort + 清理 `_checks`）。
 - **安全**：`checks_command` 只来自设置（人工），长度 ≤500；禁止从任务标题/描述/Agent 输出读取；执行前记录 `check_runs` 审计；不做沙箱（文档明示等同用户终端）。
@@ -830,12 +883,14 @@ CREATE TABLE IF NOT EXISTS git_schema (
 - **finalize job 幂等（F15）**：`git_jobs` 唯一索引 `(kind, run_id)` + `command_id`；worker 执行前检查 `state=done`，重复 enqueue 返回既有 job；`createPr` 先按 `(workspace, provider, task/branch)` 查已有 PR → 有则 refresh 复用，不重复创建；同一 run 重复 finalize 只产生一次 push/PR。
 - merge 尝试键：`(queue_id, head_sha, base_sha)`；同一组合只发一次 merge API（进程内 + 持久化 attempt）。
 - 重试：网络/限流/未知 → 指数退避（30s/2m/10m，≤3 次）；checks 失败 → 等用户修复/重新 push（不自动重跑无限次）。
-- 重启恢复：启动时扫描 `state='merging'` 且 lease 过期 → `refreshPr`：
-  - merged → 收敛为 merged；
-  - open + mergeable → 回 `ready`（重新校验 head；`approved_head_sha` 不匹配则回 `waiting_review`）；
-  - open + conflicting → blocked + 冲突任务；
-  - closed → cancelled；
+- 重启恢复：启动时扫描 `state IN ('merging','updating')` 且 lease 过期 → `refreshPr`：
+  - merged → 收敛为 merged（写 merge_commit_sha）；
+  - open + mergeable → `ready`（重新校验 head；`approved_head_sha` 不匹配则回 `waiting_review`）；
+  - open + conflicting → `blocked` + 冲突任务（去重）；
+  - closed → `cancelled`；
+  - updating 且 head 未变/base 已同步 → 回 `ready` 重跑 checks；更新结果未知 → `blocked`；
   - 未知/网络失败 → `blocked`（`MERGE_UNKNOWN_STATE`），UI 人工核对，**不自动重试 merge**。
+- **认证错误（G10）**：GitHub 认证失败统一 `AUTH_MISSING`/`AUTH_FORBIDDEN`（§5.4.1/§5.4.5），不再出现 `GITHUB_AUTH_MISSING`/`PR_AUTH_MISSING`/`PR_FORBIDDEN`；push 认证失败 `AUTH_PUSH`。
 - 不重复合并：provider 已 merged 即收敛；local/manual 用 §5.4.2 的**树/补丁内容校验**（squash/rebase 不依赖 ancestor）。
 - 队列 worker 单飞（`mergeTickRunning` 标志），tick 不重入；事件唤醒合并到下一 tick。
 
@@ -896,7 +951,8 @@ export interface TaskVcs {
 | `merge.enqueued` | task | `{queueId, position, taskId, pr}` | `merge:enqueue:{queueId}` |
 | `merge.approved` | task | `{queueId, actor, note, headSha}` | `merge:approve:{queueId}:{headSha}` |
 | `merge.approval_reset` | task | `{queueId, oldHeadSha, newHeadSha, reason}` | `merge:approval-reset:{queueId}:{newHeadSha}` |
-| `merge.checks_pending/failed` | task | `{queueId, checks}` | `merge:checks:{queueId}:{headSha}:{state}` |
+| `merge.checks_pending` | task | `{queueId, headSha, checks}` | `merge:checks-pending:{queueId}:{headSha}` |
+| `merge.checks_failed` | task | `{queueId, headSha, checks, detail?}` | `merge:checks-failed:{queueId}:{headSha}` |
 | `merge.checks_passed` | task | `{queueId, checks}` | `merge:checks-passed:{queueId}:{headSha}` |
 | `merge.checks_waived` | task | `{queueId, actor, headSha, reason}` | `merge:waive:{queueId}:{headSha}` |
 | `merge.started` | task | `{queueId, attempt, headSha, baseSha}` | `merge:start:{queueId}:{attempt}` |
@@ -909,26 +965,16 @@ export interface TaskVcs {
 
 - **事件写入**：t68 合并前用 `store.appendEvent`（幂等键存 Git 表，重复 job 先查）；t68 后走 `eventStore.append({type, payload, idempotencyKey, correlationId})`，Git 注册 schema 到 eventRegistry（§12 文件）。
 - **schema 与幂等（F8）**：每个事件必须有 zod schema（type + payload 必填字段）；未知/不合法事件在测试/开发模式直接失败；同一幂等键重复写入只保留一条（或显式忽略）；AC-EVT-01/02 以本表为唯一清单，新增事件必须先入表并补 schema 测试。
+- **type 命名约束（F8）**：事件 type 只允许 `^[a-z0-9_.]+$`（小写、点分隔），**禁止 `/`、`。`、`;`、空格、大写**；AC-EVT-05 将全表 type 正则校验 + zod schema 表驱动测试；禁止再把 pending/failed 合并为一个 type。
 - **禁止**：token、完整 remote URL（含凭据）、文件内容、diff 全文入事件；只存计数/路径（workspace 相对）/SHA。
 
 ### 7.3 运行集成（与 t68/t69 的契约）
 
+> **类型来源（G7）**：直接引用内核 `execution-kernel-design.md §16.2` 的 `BeforeStartResult` 与 `RunEnvironmentProvider`，本文不再重复定义；Git 侧仅做别名，`prepare` 输入必须含 `agentId`。
+
 ```ts
-// 内核侧新增/确认的接口（G3 验收，写进 t68 实施）
-export interface RunEnvironmentProvider {
-  prepare(input: {
-    workspaceId: string;
-    taskId: string;
-    /** 内核生成的临时 runId（UUID）：prepare 时尚未创建 runs 行 */
-    runId: string;
-    attempt: number;
-  }): Promise<
-    | { ok: true; cwd: string; branch: string | null; sandboxId: string; mode: "git"|"degraded" }
-    | { ok: false; defer: true; retryAfterMs: number; reason: string }
-    | { ok: false; defer: false; errorCode: string; message: string }
-  >;
-  release(input: { runId: string; status: "completed"|"failed"|"cancelled" }): Promise<void>;
-}
+// 类型别名统一在 §7A.1 定义（GitRunEnvironmentProvider = 内核 RunEnvironmentProvider）
+// 本节只说明调用顺序；prepare 输入含 agentId（内核 §16.2）
 ```
 
 - **调用顺序（内核 §16.2）**：准入 `beforeStart` → 生成临时 runId → `prepare`（**50ms hook 之外、Run 行创建之前**）→ 成功才创建 Run；`toolContext.worktreePath=cwd`；`release` 只入队 finalize（不阻塞）。
@@ -973,7 +1019,7 @@ function resolveRunWorkspace(input: {
 
 ### 7.6 启动恢复与一致性
 
-- `GitService.reconcile()`（启动 + 60s 定时）：
+- `GitService.reconcile()`（启动 + `RECONCILE_INTERVAL_MS`（120s，定义见 §4.5））：
   1. worktree 对账（§4.5）；
   2. `git_jobs` 恢复 pending/leased 过期 → 重新入队；
   3. `merge_queue` 修复（§6.7）；
@@ -1005,33 +1051,31 @@ function resolveRunWorkspace(input: {
 
 ### 7A.1 内核需要新增/确认的接口
 
+> **G7：不重复定义内核类型**。`BeforeStartResult` 与 `RunEnvironmentProvider` 以 `execution-kernel-design.md §16.2` 为唯一来源；本节只保留 Git 侧别名与 `GitAdmission`（Git 内部接口，不属于内核契约）。
+
 ```ts
+// 伪导入：实现时从内核契约模块导入（t68 提供）
+import type { BeforeStartResult, RunEnvironmentProvider } from "../kernel/contracts";
+
+export type GitAdmissionResult = BeforeStartResult; // 与内核 §16.2 同一判别式 union
+
+/** Git 侧内部接口（不属于内核 §16）；返回类型必须等于内核 BeforeStartResult */
 export interface GitAdmission {
-  /** 准入：有槽则预留；无槽返回 defer（不是失败） */
-  tryAcquire(input: {
-    workspaceId: string; taskId: string; runId: string; attempt: number;
-  }): Promise<
-    | { allow: true; reservationId: string }
-    | { allow: false; defer: true; retryAfterMs: number; reason: "GIT_CAPACITY" | "GIT_WORKTREE_BUSY" }
-    | { allow: false; defer: false; errorCode: string; message: string }
-  >;
+  tryAcquire(input: { workspaceId: string; taskId: string; runId: string; attempt: number }): Promise<GitAdmissionResult>;
 }
 
-export interface RunEnvironmentProvider {
-  prepare(input: { workspaceId: string; taskId: string; runId: string; attempt: number }): Promise<
-    | { ok: true; cwd: string; branch: string | null; sandboxId: string; mode: "git"|"degraded" }
-    | { ok: false; defer: true; retryAfterMs: number; reason: string }
-    | { ok: false; defer: false; errorCode: string; message: string }
-  >;
-  release(input: { runId: string; status: "completed"|"failed"|"cancelled" }): Promise<void>;
-}
+/** 别名；字段与 agentId 以内核 §16.2 为准 */
+export type GitRunEnvironmentProvider = RunEnvironmentProvider;
+export type GitPrepareInput = Parameters<RunEnvironmentProvider["prepare"]>[0]; // 含 agentId
 
 export interface KernelHooks {
   beforeStart?(ctx: { workspaceId: string; taskId: string; runId: string; agentId: string; attempt: number; priority: number }):
-    Promise<{ allow: boolean; defer?: boolean; retryAfterMs?: number; reason?: string }>;
+    Promise<BeforeStartResult>;
   onRunFinished?(info: { runId: string; taskId: string; status: "completed"|"failed"|"cancelled"; errorCode: string | null }): void;
 }
 ```
+
+- **契约快照测试（G7/AC-KRN-08）**：`src/kernel/git/contract.ts` 只做类型别名；`contract.test-d.ts` 断言 Git 侧 `GitPrepareInput` 与内核 `RunEnvironmentProvider["prepare"]` 参数完全兼容（含 `agentId`），`GitAdmissionResult` 与 `BeforeStartResult` 可互相赋值；两侧 CI 同时编译，防止漂移。
 
 ### 7A.2 语义（必须逐条实现）
 
@@ -1067,14 +1111,14 @@ export interface KernelHooks {
 ### 8.2 仓库与路径
 
 - `realpath` 后必须等于 `workspace.path`（仓库根）；禁止软链逃逸。
-- worktree/checkout 路径必须在 `<workspace>/.deer/worktrees` 内（realpath 校验）；拒绝 `..`、绝对路径、Windows 设备名、超过 240 字符。
+- worktree/checkout 路径必须在**所选 runtime 根**（`.deer/worktrees` 或 `.deer-git/worktrees`）内（realpath 校验）；拒绝 `..`、绝对路径、Windows 设备名、超过 240 字符；两个根使用同一校验函数。
 - `.git/info/exclude` 追加前校验 `git rev-parse --git-path info/exclude` 路径在仓库内；按实际选定的 runtime 根目录幂等追加 `.deer/` **或** `.deer-git/`（F19：回退目录同样排除），不改用户 `.gitignore`。
 - 不跟随 `.git` 文件指向的恶意 worktree（`git worktree` 自己校验；额外 `git rev-parse --git-common-dir` 校验）。
 
 ### 8.3 命令与注入
 
 - `execFile` + argv 数组；**无 shell**；禁止 `shell:true`。
-- **Hook 隔离（F5）**：所有 git 调用前统一加 `-c core.hooksPath=<workspace>/.deer/hooks-empty`（启动时创建空目录；白名单只允许这个 key/value），commit/push 再加 `--no-verify`；**不执行用户仓库的 pre-commit/pre-push/post-checkout 等 hook**；可选 pre-push guard 只对用户手动 git 生效，应用内永不执行用户 hook。
+- **Hook 隔离（F5/G4）**：所有 git 调用前统一加 `-c core.hooksPath=<runtimeRoot>/hooks-empty`（`.deer` 或 `.deer-git`；启动时创建空目录；白名单只允许这个 key/value），commit/push 再加 `--no-verify`；**不执行用户仓库的 pre-commit/pre-push/post-checkout 等 hook**；可选 pre-push guard 只对用户手动 git 生效，应用内永不执行用户 hook。
 - 白名单校验（§5.2）：子命令 + 参数位置；ref/branch/path 必须匹配正则；PR 号整数；SHA `^[0-9a-f]{7,40}$`；branch 另用 `git check-ref-format --branch`（F13）。
 - 用户输入（任务标题/PR body/commit message）只作为**参数/ stdin**，不拼命令；控制字符/换行清理；commit message 截断 2000 字符。
 - 超时 + 输出上限 + kill 子进程；禁止长驻交互（`GIT_TERMINAL_PROMPT=0`）。
@@ -1186,7 +1230,7 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 
 ### 9.5 设置（Git 区）
 
-- 每工作区（打开工作区后）显示：仓库路径（只读）、remote（host/repo，不显示凭据）、base branch、provider（auto/github/manual/local，含实际使用原因）、gh 认证状态（已登录/未登录）、分支保护状态（已保护/未保护警告）、auto PR / auto push WIP / **push on cancel / preserve worktree on cancel** / require approval / auto merge / merge method / max worktrees（1–3）/ **checks mode（shell/argv）/ checks command / checks timeout** / merge captain。
+- 每工作区（打开工作区后）显示：仓库路径（只读）、runtimeRoot（.deer/.deer-git）、remote（host/repo，不显示凭据）、base branch、provider（auto/github/manual/local，含实际使用原因）、gh/REST 认证状态、分支保护状态（已保护/未保护警告）、auto PR / auto push WIP / **push on cancel / preserve worktree on cancel / export cancel patch** / require approval / auto merge / merge method / max worktrees（1–3）/ **checks mode（shell/argv）/ checks command / checks timeout** / **allow skip blocked** / merge captain。
 - 「诊断」按钮 → 显示 `RepoDiagnostics`（git 版本、root、worktrees、队列、最近错误、实际 provider 与 auth 来源、打开日志目录）；可复制。
 - 不提供 token 输入；提供「如何登录 gh」帮助链接。
 - 保存：校验 base 存在、maxWorktrees 1–3、checks command 长度 ≤500、timeout 60s–30min；失败 inline 错误 + 保留原值；head 变化后队列需重新批准（UI 提示）。
@@ -1229,6 +1273,7 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 | AC-WT-10 | 冲突任务检查出源任务 branch（`deer/<source>`），不创建新分支；解决后 push 到源 branch | integration |
 | AC-WT-11 | pre-existing `.deer` 且无本系统标记 → 改用 `.deer-git/worktrees` 并提示，不覆盖用户数据；`.deer-git/` 同样被 local exclude（F19） | unit/integration |
 | AC-WT-12 | **P1** 软所有权：临时 git 仓库 fixture 写入越界文件，只写 `git.scope_mismatch`（含文件列表）+ 详情提示，commit 成功、不阻止合并；API `scopePaths` 透传 | integration（P1） |
+| AC-WT-16 | **runtime 根切换（G4）**：`.deer` 被占用 → 自动用 `.deer-git`；创建/清理 worktree、local exclude 均针对该根；路径校验只接受所选根内路径，跨根/逃逸拒绝 | integration |
 | AC-WT-13 | 取消：未提交改动生成**本地 WIP commit**（不 push）；`push_on_cancel=true` 才 push；`preserveWorktreeOnCancel=true` 保留目录+patch 至显式清理，否则移除；branch 保留；UI 提示（F7） | integration |
 | AC-WT-14 | prepare 接管 stale：同 task/branch 旧 worktree 关联 Run 已终态/lease 过期 → 先 finalize/移除（`git.worktree_reclaimed`）再创建；不因唯一索引报错 | integration |
 | AC-WT-15 | prepare 接管 busy：旧 Run 仍活跃且租约有效 → defer（`GIT_WORKTREE_BUSY`，retryAfterMs），任务 queued，不失败 | integration |
@@ -1237,7 +1282,7 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 
 | ID | 验收 | 方式 |
 |----|------|------|
-| AC-GIT-01 | 命令全部走 argv 白名单；`push origin main` / `--force` / `push --all` / 任意 `-c`（除 hooksPath）被拒绝（`GIT_FORBIDDEN`），不执行；设计中所有命令（含 `log -n 1`、`cat-file`、`diff --quiet`、`check-ref-format`）均在白名单形状内（F13） | unit |
+| AC-GIT-01 | **表驱动（G2）**：按 §5.2.1 #1–#29 逐行验证「合法形状通过 / 危险变体被拒」；含 `status --porcelain -z`、`diff ... -z`、`push --no-verify`、`-c core.hooksPath`；`push origin main`/`--force`/`push --all`/任意其他 `-c` 被拒绝（`GIT_FORBIDDEN`），不执行 | unit |
 | AC-GIT-02 | 分支名注入（`a;rm -rf`、`../`、`-x`）被拒绝；合法 slug 通过；额外用 `git check-ref-format --branch` 校验（F13） | unit |
 | AC-GIT-03 | 提交前扫描：`.env`/`id_rsa`/`*.pem`/node_modules/>5MB 阻止 commit，写 `git.commit_blocked`，不含文件内容 | unit |
 | AC-GIT-04 | commit 身份：repo 有 user.name/email 时使用；缺失时用临时 env，不写全局 config | integration |
@@ -1249,6 +1294,8 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 | AC-GIT-10 | 仓库不是根（子目录）→ `GIT_NOT_ROOT` degraded + 提示，不创建 worktree | integration |
 | AC-GIT-11 | **Hook 安全（F5）**：恶意 pre-commit/pre-push/post-checkout 脚本放入 `.git/hooks`；应用 commit/push/worktree add 不执行它们（隔离 `core.hooksPath` + `--no-verify`），命令成功且无副作用文件 | integration |
 | AC-GIT-12 | **finalize 幂等（F15）**：同一 run 重复 enqueue 只产生一个 job；worker 重复执行只产生一次 push/PR（`ux_git_jobs_kind_run` + command key） | integration |
+| AC-GIT-13 | **错误码快照（G5）**：`GitErrorCode` 枚举快照（含 `GIT_CAPACITY`；无 `GIT_WORKTREE_LIMIT`；auth 统一 `AUTH_*`；checks 统一 `CHECKS_*`）；新增/删除码必须更新快照测试 | unit |
+| AC-TYPE-01 | **类型级快照（G9/G7）**：`GitErrorCode`/`TaskVcs`/`MergeQueueItem`/`RepoDiagnostics` 字段快照 + `contract.test-d.ts` 编译断言（Git prepare 输入含 agentId、与内核 §16 类型互相赋值）；任何字段漂移使 `pnpm typecheck` 失败 | unit（type-level） |
 
 #### PR Provider（AC-PR）
 
@@ -1271,7 +1318,7 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 | ID | 验收 | 方式 |
 |----|------|------|
 | AC-CHK-01 | `checks_mode=shell`：复合命令 `pnpm typecheck && pnpm test` 在 `_checks` worktree 正确执行；exit 0 → passed | integration |
-| AC-CHK-02 | 超时 30min（测试注入 100ms）→ failed(CHECK_TIMEOUT)，kill 进程树，不挂死队列 | unit |
+| AC-CHK-02 | 超时 30min（测试注入 100ms）→ failed(CHECKS_TIMEOUT)，kill 进程树，不挂死队列 | unit |
 | AC-CHK-03 | 失败/超时写 `check_runs(state=failed)` + 事件 `merge.checks_failed`（含 head/queue），队列 failed 可重试；输出脱敏/截断 | integration |
 
 #### 合并队列（AC-MQ）
@@ -1283,14 +1330,14 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 | AC-MQ-02b | `auto_merge=false`：批准后状态 ready（不自动 merge），必须显式 `mergeStart` 才 merging；状态只能是 waiting_review/ready，无额外中间态 | integration |
 | AC-MQ-03 | checks failed → failed（不合并），修复后重试；checks passed 才 waiting_review/ready | integration |
 | AC-MQ-04 | headSHA 变化 → 清空 `approved_head_sha`/`checks_waived*` → 回 `waiting_review`；旧批准不得合并新 head；**新 head 必须重新批准**（F2） | unit |
-| AC-MQ-05 | 冲突 → blocked + 冲突任务只创建一次（同 PR+baseSha 去重）；解决/更新后重新入队 | integration |
-| AC-MQ-06 | merge API 超时后重启 → refresh 发现 merged 收敛；未知 → blocked，不二次 merge | integration |
+| AC-MQ-05 | 冲突 → blocked + 冲突任务只创建一次（去重键含 `pr_number` 或 `branch/task` + baseSha，G6）；解决/更新后复用同一队列项重新入队 | integration |
+| AC-MQ-06 | **重启恢复（G10）**：`merging`/`updating` 中重启 → merged 收敛、conflict→blocked+冲突任务、未知→blocked；updating 后 head 未变 → ready；不二次 merge | integration |
 | AC-MQ-07 | 重复 enqueue/approve/retry 幂等；唯一活跃索引拒绝重复项 | unit |
 | AC-MQ-08 | 取消队列项 → 后续项继续；不删除已合并记录 | unit |
 | AC-MQ-09 | 队首阻塞（等人工）→ 后续不跳过（默认）；配置允许时按序跳过（P1） | unit |
 | AC-MQ-10 | 合并成功写 merge_merged + task_vcs.merged + merge_attempt；清理 branch/worktree | integration |
 | AC-MQ-11 | 本地/manual：内容校验覆盖 **merge/squash/rebase** 三种合入方式（squash/rebase 不依赖 ancestor）；错误内容拒绝 | integration |
-| AC-MQ-12 | 冲突任务上限 2，超过 → 队列 blocked，不刷任务 | unit |
+| AC-MQ-12 | 冲突任务上限 2，超过 → 队列 blocked，不刷任务；NULL PR 场景按 branch/task 去重（G6） | unit |
 | AC-MQ-13 | **mergeWaiveChecks（F16）**：无 checks 来源时显式原因（≥8 字符）→ 写 `checks_waived*` + 事件（actor/queueId/headSha/reason）；head 变化清 waive；有 checks 时不允许 waive | unit |
 | AC-MQ-14 | **head 变化清批准/waive**：update-branch/push 后 approved_head_sha 与 waive 都失效，需重新批准；合并 API 携带旧 sha 被拒绝 | unit |
 | AC-MQ-15 | **checks 失败路径**：failed 后新 head push → 回 waiting_checks 重跑；不无限自动重试同 head | integration |
@@ -1299,10 +1346,11 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 
 | ID | 验收 | 方式 |
 |----|------|------|
-| AC-EVT-01 | 事件目录（§7.2 最终表，含 worktree_recovered/commit_blocked/legacy_cleared/checks_waived/checks_passed/approval_reset/local_finalized）全量注册；payload schema 校验；无 token/内容泄露 | unit |
+| AC-EVT-01 | 事件目录（§7.2 最终表，含 worktree_recovered/commit_blocked/legacy_cleared/**checks_pending/checks_failed**/checks_waived/checks_passed/approval_reset/local_finalized）全量注册；payload schema 校验；无 token/内容泄露 | unit |
 | AC-EVT-02 | 重复 job/命令不重复写事件（幂等键唯一）；同一幂等键两次 append 只保留一条 | unit |
 | AC-EVT-03 | 事件可按 task/workspace 回放，UI trace 可见（Git 事件进入 `getTaskTrace`） | integration |
 | AC-EVT-04 | **finalize 幂等（F15）**：同一 run 重复 enqueue/worker 重复执行，`git.pushed`/`pr.created` 各只一条；createPr 先查已有 PR 再 refresh | integration |
+| AC-EVT-05 | **type 命名（F8）**：§7.2 全表 type 匹配 `^[a-z0-9_.]+$`（无 `/`、`。`、`;`、空格、大写）；zod schema 表驱动校验，复合类型（如 pending/failed）必须拆成两个 type | unit |
 | AC-KRN-01 | 内核在 **50ms hook 之外、Run 行创建前** 用临时 runId 调 `prepare` 返回 worktree cwd；`toolContext.worktreePath` 指向它；成功后 RunV2.sandboxId=`git:<cwd>`（mock loop 断言 fs 写入位置） | integration（依赖 t68） |
 | AC-KRN-02 | 容量不足 → `beforeStart` 返回 defer：任务保持 `queued`、`nextRunAt`、`scheduler.deferred`；**不创建 Run、attempt 不增、不 failed**；槽释放后自动继续 | integration（依赖 t68） |
 | AC-KRN-03 | `onRunFinished` 入队 <10ms，不被 Git 网络阻塞；Git 失败不影响 Run 终态 | integration |
@@ -1310,6 +1358,7 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 | AC-KRN-05 | 任务 cancelled/failed 时 worktree 回收；cancel 生成 WIP commit（不 push），run_vcs 记录 mode/branch/commit | integration |
 | AC-KRN-06 | **隔离-并发门禁（F6）**：degraded/off 的 Run 活跃时，第二个 Run 准入 defer；两个 degraded 任务串行、无交叉写；全部 `git:` 后才允许评估 workspace 2 | integration（依赖 t68） |
 | AC-KRN-07 | **兼容期（F1）**：t68 无 hooks 时 `service.runTask` 无槽返回 queued/非终态错误，不创建 Run、不 failed、attempt 不增；t68 合入后切正式 hooks | unit/integration |
+| AC-KRN-08 | **契约快照（G7）**：Git 侧 `GitPrepareInput` 与内核 `RunEnvironmentProvider["prepare"]` 参数完全兼容（含 agentId）；`GitAdmissionResult` 与 `BeforeStartResult` 可互相赋值；类型测试在 CI 编译失败即阻断 | unit（type-level） |
 
 #### UI / 可达性（AC-UI）
 
@@ -1333,7 +1382,8 @@ PR：   #12 open · checks 2/3 · review pending   [打开 PR] [刷新]
 | AC-MIG-02 | 与 kernel v2 迁移共存：user_version 不被 Git 改动；两套迁移顺序任意 | integration |
 | AC-MIG-03 | `git.mode=off` 时不创建 worktree/PR/**task_vcs 行**；`task.branch/worktree=NULL`（不写假值）；行为等同 degraded（并发 1） | integration |
 | AC-MIG-04 | 回滚：关闭开关后不崩溃；Git 表保留；worktree 清理命令可用 | integration |
-| AC-MIG-05 | **数据模型（F12）**：`pr_records.number` 可空 + `(workspace,provider,task)`/`(workspace,provider,branch)` 唯一；`task_vcs.degraded_reason` 存在；local/manual 无 PR 号也能落库；冲突任务 `target_task_id/target_branch` 可查 | unit/integration |
+| AC-MIG-05 | **数据模型（F12/G6）**：`pr_records.number` 可空 + task/branch 唯一；`task_vcs.degraded_reason`；**`merge_queue.branch` + branch 唯一索引**；local/manual 无 PR 号也能落库/去重；冲突任务 `target_task_id/target_branch` 可查 | unit/integration |
+| AC-MIG-06 | **增量迁移（G3）**：用旧版 `git_schema=1` 的临时库（缺少 6 个 config 列）启动 → 迁移到 v2 后 `PRAGMA table_info(git_repo_config)` 包含 `push_on_cancel/preserve_worktree_on_cancel/export_cancel_patch/checks_mode/checks_timeout_ms/allow_skip_blocked` 且默认值正确；重复启动幂等 | integration |
 
 #### 端到端（AC-E2E，临时仓库 + 裸 remote + mock provider）
 
@@ -1396,7 +1446,10 @@ DEER_GIT_E2E_GITHUB=1 pnpm test -- git-github
 | `src/kernel/git/worktreeManager.ts` | 新增 | reservation、创建/复用/移除、容量、reconcile | G1 |
 | `src/kernel/git/branchService.ts` | 新增 | 命名/校验/commit/push | G1 |
 | `src/kernel/git/commitGuard.ts` | 新增 | 敏感文件/大小/secret 扫描 | G1 |
-| `src/kernel/git/gitStore.ts` | 新增 | Git 表迁移与 DAO（`git_schema`） | G1 |
+| `src/kernel/git/gitStore.ts` | 新增 | Git 表迁移与 DAO（`git_schema` v1→v2 增量迁移、config 6 列 ALTER） | G1 |
+| `src/kernel/git/migrations.test.ts` | 新增 | AC-MIG-06 旧库升级/重复启动/默认值断言 | G1 |
+| `src/kernel/git/contract.ts` | 新增 | 仅类型别名（引用内核 §16 `BeforeStartResult`/`RunEnvironmentProvider`，含 agentId） | G3 |
+| `src/kernel/git/contract.test-d.ts` / `types.test-d.ts` | 新增 | AC-KRN-08/AC-TYPE-01 类型级契约与字段快照 | G1/G3 |
 | `src/kernel/git/gitEvents.ts` | 新增 | 事件注册/幂等/脱敏包装 | G1 |
 | `src/kernel/git/gitService.ts` | 新增 | 门面：prepare/finalize/cleanup/diagnose | G1/G3 |
 | `src/kernel/git/providers/{types,github,manual,local,index}.ts` | 新增 | Provider 抽象与实现 | G2 |
@@ -1423,7 +1476,8 @@ DEER_GIT_E2E_GITHUB=1 pnpm test -- git-github
 
 ### 11.2 迁移策略（与 t68 解耦）
 
-- **Git 表独立**：全部 `CREATE TABLE IF NOT EXISTS`；`git_schema(version)` 记录 1；**不使用** `PRAGMA user_version`（kernel v2 使用）。
+- **Git 表独立**：全部 `CREATE TABLE IF NOT EXISTS`；`git_schema(version)` 记录版本（当前 v2）；**不使用** `PRAGMA user_version`（kernel v2 使用）。
+- **增量迁移 v1→v2（G3）**：若 `git_schema` 已有 v1，执行 `ALTER TABLE git_repo_config ADD COLUMN ...` 补齐 6 列（默认值见 DDL），校验 `PRAGMA table_info` 后写 v2；迁移事务化、幂等，旧库不丢数据；对应 AC-MIG-06。
 - **不改 kernel 表**：`tasks`/`runs` 仅使用现有 `branch`/`worktree` 列作为缓存；VCS 详情在 `task_vcs`/`run_vcs`。若未来 kernel 增加字段，Git 可再迁移。
 - **启动顺序**：store 构造时先跑 kernel v1/v2 schema，再跑 Git schema（幂等）；两者互不依赖。
 - **功能开关**：`git_repo_config.mode` 默认 `auto`，但 G1 合并时默认 `off`（存量行为不变）；G2 完成后按工作区首次打开探测自动开启（`auto`），用户可关。`off` 时不建 worktree/PR/task_vcs 行，任务状态与当前一致，工作区并发 1。
@@ -1508,7 +1562,7 @@ DEER_GIT_E2E_GITHUB=1 pnpm test -- git-github
 | F5 | §5.2 `-c core.hooksPath` 白名单例外 + §5.3/§8.3 `--no-verify`/隔离 + AC-GIT-11 | 恶意 hook 不执行 |
 | F6 | §4.4/§7.4/§7A.3 隔离-并发门禁 + AC-KRN-06/AC-E2E-06 | degraded 强制并发 1，第二个 defer |
 | F7 | §4.3/§7.5 WIP commit、`push_on_cancel`、`preserveWorktreeOnCancel` + §9.2 + AC-WT-13/UI-09/KRN-05 | 取消可恢复且默认不 push |
-| F8 | §7.2 补齐 worktree_recovered/commit_blocked/legacy_cleared/checks_waived/checks_passed/approval_reset/local_finalized + AC-EVT-01/02/04 | 事件 schema/幂等测试 |
+| F8 | §7.2 补齐 worktree_recovered/commit_blocked/legacy_cleared/**checks_pending/checks_failed（拆两个 type）**/checks_waived/checks_passed/approval_reset/local_finalized + type 正则约束 + AC-EVT-01/02/04/05 | 事件 schema/幂等/命名测试 |
 | F9 | §6.2/§6.3 统一 waiting_review/ready；`auto_merge=false` 显式 `mergeStart`；AC-MQ-02a/02b | 状态只有 waiting_review/ready |
 | F10 | §4.3 prepare 接管 stale/busy + §7.2 `git.worktree_reclaimed` + AC-WT-14/15 | 接管或 defer，不因索引报错 |
 | F11 | §7.7 + §9.1 `CreateTaskInput/UpdateTaskInput.scopePaths?`（API G1、UI P1）+ AC-WT-12（P1 fixture） | 越界只提示 |
@@ -1519,8 +1573,23 @@ DEER_GIT_E2E_GITHUB=1 pnpm test -- git-github
 | F16 | §6.6.2 `mergeWaiveChecks` API/IPC/UI/确认/事件（actor/queueId/headSha/reason）+ AC-MQ-13/UI-08 | 无 checks 必须显式豁免 |
 | F17 | §5.4.1 merge 方法映射表 + §5.4.5 限流 + AC-PR-04/10 | squash/merge/rebase 与等待可见 |
 | F18 | §14 决策记录 + bb-89（Q1/Q2/Q3/Q4/Q5/Q6/Q9 accepted；Q7/Q8/Q10 默认） | 裁决正确写入 |
-| F19 | §4.2/§8.2 按实际目录追加 `.deer/` 或 `.deer-git/` + AC-WT-09/11 | 两种目录 `git status` 干净 |
+| F19 | §4.2/§8.2 按实际目录追加 `.deer/` 或 `.deer-git/` + AC-WT-09/11/16 | 两种目录 `git status` 干净 |
 | F20 | §5.4.5 REST 兜底（endpoints/header/limit/企业 host）+ §5.4.6 gh 执行规范 + AC-PR-09 | 无 gh 也能工作且脱敏 |
+
+### 14.2 t88 G1–G10 修订对照
+
+| # | 修订落点 | 验收 |
+|---|----------|------|
+| G1 | §7.2 拆 `merge.checks_pending` / `merge.checks_failed`（独立 payload/幂等键）；type 正则约束；AC-EVT-01/04/05；§14.1 F8 | 事件名合法、schema/命名测试 |
+| G2 | §5.2 `status --porcelain[-z]`/`diff ... [-z]`；§4.5 `status --porcelain`；新增 §5.2.1 argv 清单（29 行）；AC-GIT-01 表驱动 | CommitGuard 不被白名单拒绝 |
+| G3 | `git_repo_config` 6 列 + 默认值；§6.1 增量迁移说明；§9.5 设置字段；§11.1/11.2 迁移与 `migrations.test.ts`；AC-MIG-06 | 旧库升级字段存在 |
+| G4 | §4.2/§8.2/§15.2 改为所选 `runtimeRoot`（`.deer`/`.deer-git`）；AC-WT-16 + AC-WT-09/11 | 回退根创建/清理/exclude |
+| G5 | §15.1 错误码：`GIT_CAPACITY`、删除 `GIT_WORKTREE_LIMIT`、`AUTH_*`/`CHECKS_*`；§5.3/§5.4.1/§5.4.5/§6.6.1/§6.7/AC 同步；AC-GIT-13 | 枚举快照 |
+| G6 | `merge_queue.branch` + branch 唯一索引；§6.5 去重键 `coalesce(pr_number,branch,task_id)`；AC-MQ-05/12、AC-MIG-05；冲突复用源队列项 | NULL PR 去重 |
+| G7 | §7.3/§7A.1 仅保留内核 §16 类型别名（`BeforeStartResult`/`RunEnvironmentProvider`，含 agentId）；GitService.prepare 增 agentId；AC-KRN-08 | 类型契约快照 |
+| G8 | §2.2 改 4/1/1（G3 前 workspace=1）；`RECONCILE_INTERVAL_MS=120_000` 单点定义，§4.5/§7.6 引用 | 数字一致 |
+| G9 | §5.1 env 去重 + `core.hooksPath` 由 argv 注入；§15.1 MergeQueueItem 补 branch/checksWaived/retryAt、RepoDiagnostics 补 runtimeRoot/auth.rest/rateLimit；AC-TYPE-01 | 类型字段/编译断言 |
+| G10 | §6.7 重启恢复覆盖 `merging`/`updating`（merged/conflict/blocked 分支）；认证错误码统一；AC-MQ-06 | updating 崩溃可恢复 |
 
 ---
 
@@ -1531,26 +1600,27 @@ DEER_GIT_E2E_GITHUB=1 pnpm test -- git-github
 ```ts
 export type GitErrorCode =
   | "GIT_NOT_FOUND" | "GIT_REPO_NOT_FOUND" | "GIT_NOT_ROOT" | "GIT_VERSION_LOW"
-  | "GIT_WORKTREE_LIMIT" | "GIT_WORKTREE_FAILED" | "GIT_WORKTREE_NOT_CLEAN"
+  | "GIT_CAPACITY" | "GIT_WORKTREE_FAILED" | "GIT_WORKTREE_NOT_CLEAN" | "GIT_WORKTREE_BUSY"
   | "GIT_BRANCH_INVALID" | "GIT_BRANCH_EXISTS" | "GIT_COMMIT_BLOCKED"
-  | "GIT_PUSH_REJECTED" | "GIT_PUSH_AUTH" | "GIT_PUSH_NETWORK" | "GIT_TIMEOUT"
-  | "GIT_FORBIDDEN" | "GIT_PATH_ESCAPE" | "SECRET_BLOCKED" | "GIT_WORKTREE_BUSY"
-  | "PR_AUTH_MISSING" | "PR_FORBIDDEN" | "PR_NOT_FOUND" | "PR_CREATE_FAILED"
-  | "PR_RATE_LIMITED" | "PR_UNKNOWN_STATE" | "PR_METHOD_UNSUPPORTED"
-  | "MERGE_CONFLICT" | "MERGE_CHECKS_FAILED" | "MERGE_CHECKS_TIMEOUT" | "MERGE_CHECKS_SPAWN"
-  | "MERGE_REVIEW_REQUIRED" | "MERGE_APPROVAL_STALE" | "MERGE_UNKNOWN_STATE"
-  | "MERGE_LOCKED" | "MERGE_CANCELLED" | "MERGE_LIMIT";
+  | "GIT_PUSH_REJECTED" | "GIT_PUSH_NETWORK" | "GIT_TIMEOUT"
+  | "GIT_FORBIDDEN" | "GIT_PATH_ESCAPE" | "SECRET_BLOCKED"
+  | "AUTH_MISSING" | "AUTH_FORBIDDEN" | "AUTH_PUSH"
+  | "PR_NOT_FOUND" | "PR_CREATE_FAILED" | "PR_RATE_LIMITED" | "PR_UNKNOWN_STATE" | "PR_METHOD_UNSUPPORTED"
+  | "CHECKS_FAILED" | "CHECKS_TIMEOUT" | "CHECKS_SPAWN"
+  | "MERGE_CONFLICT" | "MERGE_REVIEW_REQUIRED" | "MERGE_APPROVAL_STALE"
+  | "MERGE_UNKNOWN_STATE" | "MERGE_LOCKED" | "MERGE_CANCELLED" | "MERGE_LIMIT";
 
 export interface RepoDiagnostics {
   workspaceId: string;
   workspacePath: string;
   mode: "git"|"degraded"|"off";
   root: string | null;
+  runtimeRoot: string | null;          // 所选 .deer 或 .deer-git
   gitVersion: string | null;
   remote: { name: string; host: string; repo: string } | null;
   baseBranch: string | null;
   provider: "github"|"manual"|"local"|"none";
-  auth: { gh: boolean; env: boolean; user: string | null };
+  auth: { gh: boolean; env: boolean; rest: boolean; user: string | null; rateLimit: { remaining: number | null; resetAt: string | null } };
   protection: "protected"|"unprotected"|"unknown";
   worktrees: Array<{ path: string; branch: string; taskId: string; state: string }>;
   queue: { active: number; blocked: number; state: string };
@@ -1570,11 +1640,14 @@ export interface MergeQueueItem {
   provider: string;
   prNumber: number | null;
   prUrl: string | null;
+  branch: string | null;            // G9：local/manual 身份键
   state: string;
   position: number;
   headSha: string;
   approvedHeadSha: string | null;   // F2
   checks: { state: string; summary: string; waived?: boolean };
+  checksWaived: boolean;            // G9
+  retryAt: string | null;           // G9：next retry/backoff 展示
   review: string;
   conflictTaskId: string | null;
   lastError: string | null;
@@ -1591,6 +1664,8 @@ export interface MergeQueueItem {
 | 冲突解决 | `deer/<sourceTaskId>-<slug>`（源 branch） | `<ws>/.deer/worktrees/<sourceTaskId>/conflict-<taskId>` |
 | checks | 只读 checkout headSha（detached） | `<ws>/.deer/worktrees/_checks/<pr>-<sha7>` |
 | dev worktree（AGENTS） | `feature/<taskId>-<slug>` | `branches/<taskId>-<slug>` |
+
+> **runtimeRoot（G4）**：上表所有 runtime 路径基于所选根（默认 `.deer`；`.deer` 被占用时 `.deer-git`）；路径校验、exclude、清理均使用同一 `runtimeRoot`，不跨根写入。§4.2/§8.2/§14.1-F19 同步。
 
 ### 15.3 当前代码锚点（设计对照，非改动）
 
