@@ -1,6 +1,7 @@
 // C12：hash 路由与深链。
 // 格式：#/tasks?t=<taskId> · #/team?t=<taskId> · #/chat?task=<taskId> ·
 //       #/mailbox?m=<messageId> · #/board?b=<boardName> · #/settings
+// t69：任务页/Run 面板共享 `r=<runId>`（仅在 Run 面板激活时写入，见 App）。
 // C10 已把 Router 页合并进任务/对话页，旧 #/router 深链重定向到 #/tasks。
 
 export const ROUTE_TABS = ["tasks", "team", "chat", "mailbox", "board", "settings"] as const;
@@ -22,6 +23,8 @@ export type Route = {
   message: string | null;
   /** 黑板选中的板块名（`b` 参数）。 */
   board: string | null;
+  /** t69：Run 面板选中的 Run id（`r` 参数；tasks tab 可选）。 */
+  run: string | null;
   /** 是否由旧深链（如 #/router）重定向而来。 */
   redirected: boolean;
 };
@@ -32,6 +35,7 @@ export const DEFAULT_ROUTE: Route = {
   chatTask: null,
   message: null,
   board: null,
+  run: null,
   redirected: false,
 };
 
@@ -52,6 +56,7 @@ export function parseHash(hash: string): Route {
     chatTask: params.get("task"),
     message: params.get("m"),
     board: params.get("b"),
+    run: params.get("r"),
     redirected,
   };
 }
@@ -61,11 +66,16 @@ export type RouteSelection = {
   chatTask?: string | null;
   message?: string | null;
   board?: string | null;
+  /** t69：Run 面板选中的 Run id（仅 tasks tab 写入）。 */
+  run?: string | null;
 };
 
 export function buildHash(tab: RouteTab, selection: RouteSelection = {}): string {
   const params = new URLSearchParams();
-  if (tab === "tasks" || tab === "team") {
+  if (tab === "tasks") {
+    if (selection.task) params.set("t", selection.task);
+    if (selection.run) params.set("r", selection.run);
+  } else if (tab === "team") {
     if (selection.task) params.set("t", selection.task);
   } else if (tab === "chat") {
     if (selection.chatTask) params.set("task", selection.chatTask);

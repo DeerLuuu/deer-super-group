@@ -161,6 +161,11 @@ export default forwardRef<DockHandle, {
         | undefined;
       groupApi?.setSize?.({ width: Math.max(360, Math.round((width * weight) / 100)) });
     }
+    // t69：默认布局不含 runs（defaultClosed）；深链 #/tasks?...&r= 指向 Runs 时补开，
+    // 与 saved layout 分支的 IF-03 行为保持一致。
+    if (activateKey && !api.getPanel(activateKey)) {
+      ensurePanel(api, activateKey);
+    }
     const target =
       activateKey && api.getPanel(activateKey)
         ? activateKey

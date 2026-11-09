@@ -16,6 +16,7 @@ export type PanelKey =
   | "team"
   | "context"
   | "tasks"
+  | "runs"
   | "mailbox"
   | "board"
   | "settings";
@@ -80,6 +81,20 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     minHeight: 360,
     closable: true,
     defaultGroup: "main",
+  },
+  runs: {
+    key: "runs",
+    title: "运行",
+    component: "runs",
+    // t69：运行面板是任务域的子视图；打开时路由仍为 tasks，hash 用 r=<runId> 深链。
+    routeTab: "tasks",
+    renderer: "always",
+    minWidth: 380,
+    minHeight: 320,
+    closable: true,
+    defaultGroup: "main",
+    // 默认布局不新增面板（设计 §9.5「Dock 布局不变」）；需要时从面板启动器/任务页打开。
+    defaultClosed: true,
   },
   mailbox: {
     key: "mailbox",
