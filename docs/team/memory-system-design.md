@@ -78,8 +78,8 @@
 | DESIGN 条款 | 本文实现位置 | 验收 |
 |-------------|--------------|------|
 | §5.5 `TaskSummary` 字段（changes/files/tests/decisions/risks/openQuestions/nextSteps/embedding） | §5.2 类型、§6.2 写入、§7 检索 | AC-MEM-DATA-08、AC-MEM-CTX-01 |
-| §5.5 `BlackboardEntry`（boardId/author/kind/content/refs/confidence/pinned/ttlAt/status/createdAt） | §5.2 扩展类型、§6.1 生命周期、§10 黑板 UI | AC-MEM-DATA-01..06 |
-| §5.5 `Memo`（agentId/kind/content/tags/sourceTaskId/lastVerifiedAt/createdAt） | §5.2、§6.3、§10 备忘录 UI | AC-MEM-DATA-07、AC-MEM-LIFE-04 |
+| §5.5 `BlackboardEntry`（boardId/author/kind/content/refs/confidence/pinned/ttlAt/status/createdAt） | §5.2 扩展类型、§6.1 生命周期、§10 黑板 UI | AC-MEM-DATA-01..05、AC-MEM-LIFE-01..07 |
+| §5.5 `Memo`（agentId/kind/content/tags/sourceTaskId/lastVerifiedAt/createdAt） | §5.2、§6.3、§10 备忘录 UI | AC-MEM-DATA-06、AC-MEM-LIFE-08..10 |
 | §7.3 三层记忆 + source/confidence/ttl/lastVerifiedAt + 相关度×置信度×新鲜度 | §3、§5、§7 | AC-MEM-RET-* |
 | §7.3 黑板清理提议归档、人确认、pinned 保留、归档不删除 | §9 | AC-MEM-MNT-*、AC-MEM-LIFE-* |
 | §7.3 备忘录 30 天未复核 stale；任务开始只注入高置信度 | §6.3、§7.3、§9 | AC-MEM-LIFE-03/04、AC-MEM-RET-04 |
