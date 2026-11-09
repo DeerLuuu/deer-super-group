@@ -703,9 +703,10 @@ label.check input {
 .tasks-layout {
   height: 100%;
   display: grid;
-  /* C06：任务列表宽度由 --task-list-w 驱动（280–520px 可拖） */
-  grid-template-columns: var(--task-list-w, 380px) 1fr;
-  gap: 16px;
+  /* C06：列表 + 6px resizer + 详情；resizer 必须占独立列，否则详情会被挤到下一行。
+     窄 Dock 分栏下把列表压到 52%，给详情留出可读宽度。 */
+  grid-template-columns: min(var(--task-list-w, 380px), max(280px, 52%)) 6px minmax(0, 1fr);
+  gap: 0;
   min-height: 0;
 }
 
@@ -2980,7 +2981,7 @@ label.check input {
 
 @media (max-width: 1100px) {
   .tasks-layout {
-    grid-template-columns: minmax(280px, var(--task-list-w, 320px)) 1fr;
+    grid-template-columns: min(var(--task-list-w, 320px), max(280px, 52%)) 6px minmax(0, 1fr);
   }
   .two-col {
     grid-template-columns: 1fr;
