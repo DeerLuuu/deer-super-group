@@ -122,7 +122,6 @@ export const MAIN_GROUP_ORDER: PanelKey[] = [
   "tasks",
   "mailbox",
   "board",
-  "settings",
 ];
 
 export type DockVariant = "wide" | "medium" | "narrow" | "single";

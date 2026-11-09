@@ -182,6 +182,12 @@ export default forwardRef<DockHandle, {
         api.fromJSON(saved.layout as Parameters<DockviewApi["fromJSON"]>[0], {
           reuseExistingPanels: true,
         });
+        // 设置已迁移为独立弹窗；旧布局里的 settings dock 面板在恢复时关闭。
+        try {
+          api.getPanel("settings")?.api.close();
+        } catch {
+          /* 旧布局可能没有 settings 或已随分组关闭 */
+        }
         // reconcile：必保 chat/team；未知面板由 fromJSON 丢弃（组件缺失会抛错走 catch）
         ensurePanel(api, "chat");
         ensurePanel(api, "team");

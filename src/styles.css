@@ -286,6 +286,20 @@ button:disabled {
   width: 100%;
   text-align: left;
   justify-content: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-action-icon {
+  display: none;
+}
+
+.sidebar-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-actions .create-menu-wrap {
@@ -384,6 +398,45 @@ button:disabled {
 .sidebar.collapsed {
   width: 56px;
   min-width: 56px;
+  overflow: visible;
+}
+
+.sidebar.collapsed .brand {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 8px;
+}
+
+.sidebar.collapsed .sidebar-actions {
+  padding: 8px 6px;
+  justify-items: center;
+  gap: 4px;
+}
+
+.sidebar.collapsed .sidebar-action {
+  width: 40px;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar.collapsed .sidebar-action-label {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-action-icon {
+  display: inline;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sidebar.collapsed .sidebar-actions .create-menu-wrap {
+  width: 40px;
+}
+
+.sidebar.collapsed .sidebar-actions .create-menu {
+  left: 52px;
+  top: 0;
 }
 
 .sidebar.collapsed .brand {
@@ -2870,6 +2923,15 @@ label.check input {
   border-radius: 12px;
   background: var(--panel);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
+.settings-modal {
+  width: min(1180px, 96vw);
+  max-height: 88vh;
+}
+
+.settings-modal .settings-shell {
+  padding: 16px;
 }
 
 .modal-head {

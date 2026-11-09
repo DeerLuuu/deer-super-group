@@ -15,10 +15,10 @@ import type {
   Workspace,
 } from "./shared/types";
 import SettingsView from "./SettingsView";
+import Modal from "./Modal";
 import Markdown from "./Markdown";
 import TeamDashboard from "./TeamDashboard";
 import StatusBadge from "./StatusBadge";
-import Modal from "./Modal";
 import EmptyState from "./EmptyState";
 import CommandPalette, {
   CREATE_LABELS,
@@ -91,9 +91,19 @@ export default function App() {
   // 「对话与团队默认同时可见」与设计 §4 activePanel=chat；显式深链（#/tasks 等）
   // 仍优先。deeplink 模块与其默认路由契约不变（tests 不受影响）。
   const [bootPanel] = useState<Tab | null>(() =>
-    window.location.hash.startsWith("#/") ? initialRoute.tab : null,
+    window.location.hash.startsWith("#/") && initialRoute.tab !== "settings"
+      ? initialRoute.tab
+      : null,
   );
-  const [tab, setTab] = useState<Tab>(() => bootPanel ?? "chat");
+  const [tab, setTab] = useState<Tab>(() =>
+    initialRoute.tab === "settings" ? "settings" : bootPanel ?? "chat",
+  );
+  const [settingsOpen, setSettingsOpen] = useState(
+    () => initialRoute.tab === "settings",
+  );
+  const [settingsReturnTab, setSettingsReturnTab] = useState<Tab>(() =>
+    initialRoute.tab === "settings" ? "chat" : initialRoute.tab,
+  );
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -143,17 +153,37 @@ export default function App() {
   const refreshTimer = useRef<number | null>(null);
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizingRef = useRef(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("deer.sidebarCollapsed") === "1",
+  );
 
   useEffect(() => {
     snapshotRef.current = snapshot;
   }, [snapshot]);
 
   // t50：openPanel 是所有导航的唯一入口（侧栏/Alt+N/命令面板/hash/C14 都走这里）。
-  const openPanel = useCallback((key: PanelKey) => {
-    const route = routeTabFromPanel(key);
-    if (route) setTab(route);
-    dockRef.current?.openPanel(key);
-  }, []);
+  const openPanel = useCallback(
+    (key: PanelKey) => {
+      if (key === "settings") {
+        if (tab !== "settings") setSettingsReturnTab(tab);
+        setSettingsOpen(true);
+        setTab("settings");
+        return;
+      }
+      setSettingsOpen(false);
+      const route = routeTabFromPanel(key);
+      if (route) setTab(route);
+      dockRef.current?.openPanel(key);
+    },
+    [tab],
+  );
+
+  function closeSettings() {
+    setSettingsOpen(false);
+    const back = settingsReturnTab === "settings" ? "chat" : settingsReturnTab;
+    setTab(back);
+    dockRef.current?.openPanel(back);
+  }
 
   // t50：dock 激活面板 → 派生路由 tab（context 面板不改变 hash）。
   const handleDockActivePanel = useCallback((key: PanelKey) => {
@@ -202,9 +232,38 @@ export default function App() {
     }
   }, [tab, selectedTaskId, contextTaskId, selectedMessageId, selectedBoard]);
 
-  // C11：全局快捷键——Ctrl/⌘+K 命令面板、Alt+1–6 切换页面。
+  // C09：窄窗自动折叠侧栏；Ctrl/⌘+B 手动切换。
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1100px)");
+    let wasNarrow = query.matches;
+    if (query.matches) {
+      setSidebarCollapsed(true);
+      localStorage.setItem("deer.sidebarCollapsed", "1");
+    }
+    function onChange(event: MediaQueryListEvent) {
+      const enteringNarrow = event.matches && !wasNarrow;
+      wasNarrow = event.matches;
+      if (enteringNarrow) {
+        setSidebarCollapsed(true);
+        localStorage.setItem("deer.sidebarCollapsed", "1");
+      }
+    }
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  // C09/C11：全局快捷键——Ctrl/⌘+B 折叠侧栏、Ctrl/⌘+K 命令面板、Alt+1–6 切换页面。
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        setSidebarCollapsed((collapsed) => {
+          const next = !collapsed;
+          localStorage.setItem("deer.sidebarCollapsed", next ? "1" : "0");
+          return next;
+        });
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
@@ -219,6 +278,14 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  function toggleSidebarCollapsed() {
+    setSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      localStorage.setItem("deer.sidebarCollapsed", next ? "1" : "0");
+      return next;
+    });
+  }
 
   useEffect(() => {
     function onMove(event: MouseEvent) {
@@ -314,8 +381,15 @@ export default function App() {
       lastWrittenHashRef.current = window.location.hash;
       const route = parseHash(window.location.hash);
       lastTabRef.current = route.tab;
-      setTab(route.tab);
-      dockRef.current?.openPanel(route.tab);
+      if (route.tab === "settings") {
+        setSettingsOpen(true);
+        setTab("settings");
+      } else {
+        setSettingsOpen(false);
+        setSettingsReturnTab(route.tab);
+        setTab(route.tab);
+        dockRef.current?.openPanel(route.tab);
+      }
       if (route.task) {
         setSelectedTaskId(route.task);
         void loadTrace(route.task);
@@ -943,26 +1017,43 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar" style={{ width: `${sidebarWidth}px` }}>
+      <aside
+        className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
+        style={sidebarCollapsed ? undefined : { width: `${sidebarWidth}px` }}
+      >
         <div className="brand">
           <div className="brand-mark small">DG</div>
-          <div className="brand-text">
-            <div className="brand-name">DeerSuperGroup</div>
-            <div className="muted tiny">AI team workspace</div>
-          </div>
-        </div>
-
-        <div className="workspace-box">
-          <div className="section-label">工作区</div>
-          <div className="workspace-name">{snapshot.workspace.name}</div>
-          <div className="muted mono tiny ellipsis">{snapshot.workspace.path}</div>
-          <button className="ghost small" onClick={handleOpenWorkspace} disabled={busy}>
-            切换工作区
+          {!sidebarCollapsed && (
+            <div className="brand-text">
+              <div className="brand-name">DeerSuperGroup</div>
+              <div className="muted tiny">AI team workspace</div>
+            </div>
+          )}
+          <button
+            type="button"
+            className="ghost tiny sidebar-toggle"
+            onClick={toggleSidebarCollapsed}
+            title={sidebarCollapsed ? "展开侧栏（Ctrl/⌘+B）" : "折叠侧栏（Ctrl/⌘+B）"}
+            aria-label={sidebarCollapsed ? "展开侧栏" : "折叠侧栏"}
+            aria-expanded={!sidebarCollapsed}
+          >
+            {sidebarCollapsed ? "»" : "«"}
           </button>
         </div>
 
+        {!sidebarCollapsed && (
+          <div className="workspace-box">
+            <div className="section-label">工作区</div>
+            <div className="workspace-name">{snapshot.workspace.name}</div>
+            <div className="muted mono tiny ellipsis">{snapshot.workspace.path}</div>
+            <button className="ghost small" onClick={handleOpenWorkspace} disabled={busy}>
+              切换工作区
+            </button>
+          </div>
+        )}
+
         <div className="sidebar-actions">
-          <div className="section-label">操作</div>
+          {!sidebarCollapsed && <div className="section-label">操作</div>}
           {createMenuOpen && (
             <div className="menu-backdrop" onClick={() => setCreateMenuOpen(false)} />
           )}
@@ -972,7 +1063,8 @@ export default function App() {
             onClick={() => setPaletteOpen(true)}
             title="全局搜索与命令面板（Ctrl/⌘+K）"
           >
-            ⌘K 搜索
+            <span className="sidebar-action-icon">⌘</span>
+            <span className="sidebar-action-label">⌘K 搜索</span>
           </button>
           <div className="create-menu-wrap">
             <button
@@ -981,8 +1073,10 @@ export default function App() {
               onClick={() => setCreateMenuOpen((open) => !open)}
               aria-expanded={createMenuOpen}
               aria-haspopup="menu"
+              title="新建"
             >
-              ＋ 新建 ▾
+              <span className="sidebar-action-icon">＋</span>
+              <span className="sidebar-action-label">＋ 新建 ▾</span>
             </button>
             {createMenuOpen && (
               <div className="create-menu" role="menu" aria-label="新建">
@@ -1000,18 +1094,32 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="sidebar-actions-row">
-            <button
-              className="ghost small sidebar-action"
-              onClick={() => void refresh(snapshot.workspace.id)}
-            >
-              刷新
-            </button>
-            <span className="topbar-live" aria-live="polite">
-              {busy && <span className="pill busy">运行中…</span>}
-            </span>
-          </div>
-          {failedCount > 0 && (
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={() => void refresh(snapshot.workspace.id)}
+            title="刷新"
+          >
+            <span className="sidebar-action-icon">↻</span>
+            <span className="sidebar-action-label">刷新</span>
+          </button>
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={() => openPanel("settings")}
+            title="设置"
+          >
+            <span className="sidebar-action-icon">⚙</span>
+            <span className="sidebar-action-label">设置</span>
+          </button>
+          {!sidebarCollapsed && (
+            <div className="sidebar-actions-row">
+              <span className="topbar-live" aria-live="polite">
+                {busy && <span className="pill busy">运行中…</span>}
+              </span>
+            </div>
+          )}
+          {!sidebarCollapsed && failedCount > 0 && (
             <button
               type="button"
               className="pill pill-failed sidebar-failed"
@@ -1023,25 +1131,29 @@ export default function App() {
           )}
         </div>
 
-        <div className="sidebar-panel-hint">
-          <div className="section-label">面板</div>
-          <p className="muted tiny">
-            使用上方 Dock 标签或 <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 切换面板。
-          </p>
-        </div>
-
-        <div className="sidebar-footer">
-          <div className="muted tiny">
-            {snapshot.settings.mock
-              ? "Mock 模式"
-              : snapshot.settings.providers[0]?.apiKeySource === "env"
-                ? `Key: ${snapshot.settings.providers[0]?.apiKeyEnvActive ?? ""}`
-                : snapshot.settings.providers[0]?.apiKeySource === "local"
-                  ? "Key: 本地保存"
-                  : "未配置 Key"}
+        {!sidebarCollapsed && (
+          <div className="sidebar-panel-hint">
+            <div className="section-label">面板</div>
+            <p className="muted tiny">
+              使用上方 Dock 标签或 <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 切换面板。
+            </p>
           </div>
-          <div className="muted tiny">{workers.length} 位成员</div>
-        </div>
+        )}
+
+        {!sidebarCollapsed && (
+          <div className="sidebar-footer">
+            <div className="muted tiny">
+              {snapshot.settings.mock
+                ? "Mock 模式"
+                : snapshot.settings.providers[0]?.apiKeySource === "env"
+                  ? `Key: ${snapshot.settings.providers[0]?.apiKeyEnvActive ?? ""}`
+                  : snapshot.settings.providers[0]?.apiKeySource === "local"
+                    ? "Key: 本地保存"
+                    : "未配置 Key"}
+            </div>
+            <div className="muted tiny">{workers.length} 位成员</div>
+          </div>
+        )}
       </aside>
 
       <div
@@ -1223,15 +1335,6 @@ export default function App() {
                       onPost={handlePostBoard}
                     />
                   );
-                case "settings":
-                  return (
-                    <SettingsView
-                      snapshot={snapshot}
-                      busy={busy}
-                      onSave={handleSaveSettings}
-                      onReload={() => void refresh(snapshot.workspace.id)}
-                    />
-                  );
                 default:
                   return null;
               }
@@ -1252,6 +1355,22 @@ export default function App() {
           onCreate={startCreate}
           onPanelAction={handlePanelAction}
         />
+      )}
+
+      {settingsOpen && snapshot && (
+        <Modal
+          title="设置"
+          description="模型、插件、MCP、Skills 与团队"
+          onClose={closeSettings}
+          className="settings-modal"
+        >
+          <SettingsView
+            snapshot={snapshot}
+            busy={busy}
+            onSave={handleSaveSettings}
+            onReload={() => void refresh(snapshot.workspace.id)}
+          />
+        </Modal>
       )}
 
       {/* t58 IF-05：auto_risk 高风险人类审批弹窗（Esc/关闭 = 拒绝，安全默认） */}
