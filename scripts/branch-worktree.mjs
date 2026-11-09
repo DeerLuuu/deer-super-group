@@ -4,9 +4,37 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 const MAX_WORKTREES = 3;
-const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-  encoding: "utf8",
-}).trim();
+
+function trimOutput(value) {
+  // execFileSync(..., { stdio: "inherit" }) 返回 null，不能直接 .trim()
+  return value == null ? "" : String(value).trim();
+}
+
+function firstWorktreeRoot() {
+  try {
+    const list = trimOutput(
+      execFileSync("git", ["worktree", "list", "--porcelain"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      }),
+    );
+    const line = list.split("\n").find((item) => item.startsWith("worktree "));
+    if (line) return path.resolve(line.slice("worktree ".length));
+  } catch {
+    /* fall through */
+  }
+  return path.resolve(
+    trimOutput(
+      execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      }),
+    ),
+  );
+}
+
+// 始终以主工作树为根；从 branches/ 内的 worktree 调用也能找到其他 worktree。
+const root = firstWorktreeRoot();
 const branchesDir = path.join(root, "branches");
 
 function fail(message) {
@@ -15,19 +43,23 @@ function fail(message) {
 }
 
 function run(args, options = {}) {
-  return execFileSync("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    ...options,
-  }).trim();
+  return trimOutput(
+    execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      ...options,
+    }),
+  );
 }
 
 function runIn(cwd, args, options = {}) {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    ...options,
-  }).trim();
+  return trimOutput(
+    execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      ...options,
+    }),
+  );
 }
 
 function assertRepo() {
