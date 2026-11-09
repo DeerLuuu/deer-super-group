@@ -4,7 +4,7 @@
 - **实现依据**：`docs/team/interactive-canvas-design.md`（t63，3049 行）
 - **执行者**：ray（Frontend Engineer: layout，DeepSeek 顶替 mika 席位）
 - **模型路由**：`deepseek-official/deepseek-flash`（GLM 席位暂用 DeepSeek，AGENTS §1）
-- **分支 / worktree**：`feature/t64-interactive-canvas` @ `branches/t64-interactive-canvas/`（AGENTS §8）
+- **分支 / worktree**：`feature/t64-interactive-canvas` @ `branches/t64-interactive-canvas/`（AGENTS §8）；已合并 `main`（`494faef`，含 t63 设计文档与 Windows worktree 路径修复）后复跑三命令。
 - **验证命令**：`pnpm typecheck` / `pnpm build` / `pnpm test`
 - **下游**：t65 评审（ivy）→ t66 集成验收（kai）
 
@@ -219,7 +219,7 @@ pending ──submit(校验通过)──▶ answered（终态）
 | 命令 | 退出码 | 结果 |
 |------|--------|------|
 | `pnpm typecheck` | 0 | `tsc --noEmit` 无错误 |
-| `pnpm build` | 0 | `dist/assets/index-*.css` 197.76 kB（gzip 21.94 kB）；`dist/assets/index-*.js` 1,068.98 kB（gzip 293.75 kB）；`dist-electron/main.cjs` 924.4 kB；`preload.cjs` 3.5 kB |
+| `pnpm build` | 0 | `dist/assets/index-*.css` 197.76 kB（gzip 21.94 kB）；`dist/assets/index-*.js` 1,069.05 kB（gzip 293.76 kB）；`dist-electron/main.cjs` 924.4 kB；`preload.cjs` 3.5 kB |
 | `pnpm test` | 0 | **19 个测试文件 / 206 条用例全部通过** |
 
 > 测试基线：t64 开始前为 10 文件 / 101 条（t60 基线）。本任务新增 9 个测试文件 / 105 条用例。
