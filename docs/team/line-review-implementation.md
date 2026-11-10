@@ -1,6 +1,6 @@
-# 行级评审与合并门禁实现（t154）
+# 行级评审与合并门禁实现（t154 / t159）
 
-- **任务**：t154 — 实现：行级评审与合并门禁
+- **任务**：t154 实现；**t159 repair-round-2** 修复门禁/GitExec/partials/deeplink
 - **设计依据**：`docs/team/line-review-design.md`（t151 通过，1305 行；AC-RV-01..33）
 - **分支/PR**：`feature/t154-line-review`；PR 见 `pnpm branch:finish t154-line-review` 输出（不自动合并）
 - **范围**：新增 `src/review/`、IPC/preload/main、任务详情 UI、样式、测试、本文；**未修改** `src/git/`、`src/kernel/`、`src/memory/`、`dist*`
@@ -120,5 +120,12 @@ Review 专项 24：diff 4（含真实 GitExec）、anchor 3、service 14、Revie
 6. `review=1` 深链/命令面板已接入；无真实 Electron 截图（无头环境），证据为 SSR/交互/ARIA。
 7. 构建 >500kB 警告为既有；无新增依赖。
 8. reanchor rename detection 依赖 Git diff 默认配置；full rename/blob fixture 仍建议在真实 Android/Windows 仓库补测。
+
+## 8. t159 repair-round-2 记录
+
+- **processQueue gate**：`git:merge-process` 前置 `assertQueueAllowed(workspaceId)`，对 `ready/merging/updating` 队列项逐项校验 target/head/blocker/approval；approve/start 仍 `assertMergeAllowed`。service test `blocks processQueue for a ready item until required review passes`。
+- **GitExec**：`ReviewDiffProvider` 改走 `src/git/gitExec.ts` 的 `GitExec`（hooksPath、workspace realpath、只读 allowlist、统一 `redactSecrets`）；生产代码无第二个裸 `execFile` git 入口。`diff.git.test.ts` 真实 repo 断言 secret 被 redacted。
+- **partial 闭合**：workspace 晚于 `review_schema` 创建默认 required；ReviewSection roving tabIndex + ArrowUp/Down/Enter + 200 行窗口；`#/tasks?t=&review=1` 解析/生成/聚焦 + CommandPalette「打开当前任务行级评审」；rename/base fixture；recipient 去重/失败不阻断；config rollback；PR created/updated best-effort `ensureTarget`。
+- **仍未做/边界**：`src/git` 未改，gate 在 electron IPC；AC-RV-15 checks 仍由 Git 侧负责；AC-RV-18 无全局 review-unavailable 降级标志；AC-RV-27 无 drop 回滚 API；真实 Electron 人工冒烟未执行；上述在 §6 标 partial，未冒充 passed。
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
