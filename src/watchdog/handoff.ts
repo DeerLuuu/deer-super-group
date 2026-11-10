@@ -28,7 +28,7 @@ function redactSensitiveText(text: string): string {
   return text
     .split("\n")
     .map((line) =>
-      /(^|[\\/])\.env(rc)?(\b|\.|$)|(^|[\\/])\.ssh([\\/]|$)|id_(rsa|dsa|ed25519|ecdsa)|\.pem\b|\.key\b|credentials\.json|\.npmrc\b|\.netrc\b|\.git-credentials\b/i.test(
+      /(^|[\\/\s])\.env(rc)?(\b|\.|$)|(^|[\\/\s])\.ssh([\\/]|$)|id_(rsa|dsa|ed25519|ecdsa)|\.pem\b|\.key\b|credentials\.json|\.npmrc\b|\.netrc\b|\.git-credentials\b|(secret|password|api[_-]?key|token)\s*=/i.test(
         line,
       )
         ? "[REDACTED]"
@@ -105,22 +105,30 @@ export class HandoffBuilder {
       .filter((file) => !isSensitivePath(file))
       .slice(0, 50);
 
+    const redactedChanges = (summary?.changes ?? []).map(redactSensitiveText);
+    const redactedQuestions = (summary?.openQuestions ?? []).map(redactSensitiveText);
     const summaryLines = [
       `task: ${task.title}`,
       `status: ${task.status}; run attempt ${run.attempt ?? 1}`,
       `acceptance: ${task.acceptance.length ? task.acceptance.join("; ") : "(none)"}`,
-      summary ? `completed: ${summary.changes.join("; ") || summary.goal}` : "completed: (no structured summary)",
-      summary?.openQuestions.length ? `open questions: ${summary.openQuestions.join("; ")}` : "",
+      summary
+        ? `completed: ${redactedChanges.join("; ") || redactSensitiveText(summary.goal)}`
+        : "completed: (no structured summary)",
+      redactedQuestions.length ? `open questions: ${redactedQuestions.join("; ")}` : "",
       lastAssistant?.payload?.text
         ? `last assistant: ${redactSensitiveText(String(lastAssistant.payload.text)).slice(0, 1_200)}`
         : "",
       redactedDiffStat ? `diff stat:\n${redactedDiffStat}` : "diff stat: (no repository diff)",
     ].filter(Boolean);
-    const nextStep =
+    const nextStepRaw =
       summary?.openQuestions[0] ??
       (task.acceptance.length
         ? `继续完成未通过的验收项：${task.acceptance[0]}`
         : "先核验当前改动，再完成剩余最小步骤");
+    const nextStep = redactSensitiveText(nextStepRaw);
+    // t161 F4：summary/nextStep 统一走 redactSensitiveText，避免 changes/openQuestions
+    // 把 `.env`/私钥路径或内容带进 handoff。
+    const redactedSummary = redactSensitiveText(summaryLines.join("\n"));
 
     const id = `hof_${run.id}`;
     const handoff: RunHandoff = {
@@ -130,7 +138,7 @@ export class HandoffBuilder {
       runId: run.id,
       attempt: run.attempt ?? 1,
       reason: input.reason,
-      summary: summaryLines.join("\n").slice(0, 2_000),
+      summary: redactedSummary.slice(0, 2_000),
       nextStep: nextStep.slice(0, 500),
       files,
       diffStat: redactedDiffStat,

@@ -21,14 +21,14 @@
 | 预算/降级 | task/agent/workspace 预算、soft/hard、pause/stop、启动前拦截、运行中 hard 暂停；fallback 链/provider-model 两级冷却 |
 | API/IPC | Watchdog snapshot/costs/handoff/ack/resolve/releaseHold/setBudget/setFallback/health；main/preload/DeerApi |
 | UI | 独立 `WatchdogPanel`/`BudgetBar`/`WatchdogAlertBanner`/`RunHandoffCard`（ARIA progressbar/alert/live、窄窗 class）；组件测试 |
-| 测试 | watchdog 16 例 + 既有 463，共 **479**；fake clock/重建/预算/暂时租约/切换成员/UI |
+| 测试 | watchdog 20 例 + 既有 463，共 **483**；fake clock/重建/预算/暂时租约/切换成员/UI/429 计数/冷却拦截/链空 |
 
 **验证数字（本地 HEAD）**：
 
 ```
 pnpm typecheck  # exit 0
 pnpm build      # exit 0
-pnpm test       # 37 files / 479 tests passed
+pnpm test       # 37 files / 483 tests passed
 ```
 
 构建（t157）：`dist/assets/index-BaHOCsV6.js 1,183.45 kB (gzip 324.87)`，CSS 225.28 kB；`dist-electron/main.cjs 1.4 MB`。
@@ -149,6 +149,14 @@ pnpm test       # 37 files / 479 tests passed
 - **F4 release**：必须 `reason` 或 `all=true`；默认只释放当前 reason，最后一个 hold 才清 `nextRunAt`；双 hold 测试。
 - **F5 rebuild**：表降级 durable cache，INV-9/MG-05/§9.3/AC 同步；`rebuild` 做 schema 修复（删除/损坏表重建空 schema 并记录 missing），不伪造数据。
 
+### 7.4 t161 round-3 修复（对应 t158 findings）
+
+- **F1 provider 级冷却**：`recordProviderFailureWindow` 持久化 provider/5min 计数；第 2 次写 `model='*'`；beforeStart 用 pending/agent profile 检查两级冷却，命中则 hold+critical 并拒绝启动；真实 429 两次→`*` + beforeStart 拦截测试。
+- **F2 链空 human**：target=null → `escalate` + escalation hold + critical alert + scheduler pause + holdTask；链空/all cooling 测试断言不自动重跑。
+- **F3 UI**：新增 BudgetBar/AlertBanner 交互（ack/release）、RunHistory handoff 组件测试、panel registry/900/760 断言；完整 App DOM e2e 标 P1 manual。
+- **F4 summary 脱敏**：summaryLines/changes/openQuestions/nextStep 统一 `redactSensitiveText`；summary 含 `.env`/secret 测试。
+- **F5 测试**：watchdog 20 例，新增真实 429 两次、同 model 拦截、链空/all cooling、summary 脱敏、UI 交互。
+
 ---
 
 ## 8. 文件
@@ -198,7 +206,7 @@ docs/team/watchdog-cost-implementation.md
 | 降级 | 429→provider_quota→fallback 新 Run model override+handoff+冷却 |
 | 重建 | kernel.rebuildProjections 后 hold/autoInterventions/handoff 保留；删除 watchdog 表后 rebuild 修复 schema |
 | UI | 预算 progressbar/aria-valuenow、critical role=alert、确认/恢复按钮；panelRegistry 默认关闭 + 900/760 断点 |
-| 既有回归 | 463 tests（Git/记忆/权限/审批/画布/调度/Poll 等）全绿；合计 479 |
+| 既有回归 | 463 tests（Git/记忆/权限/审批/画布/调度/Poll 等）全绿；合计 483 |
 
 ---
 
@@ -213,7 +221,7 @@ docs/team/watchdog-cost-implementation.md
 7. **watchdog 自身 deadman** 为本地 last_tick 检测（单进程限制）；外置 supervisor 属后续。
 8. **预算 soft 仅 warning 事件/UI**，不自动暂停（hard 才暂停）。
 9. **历史 Run 成本不回填**，UI 标 legacy unknown；ledger 仅新 Run。
-10. **测试基线** 479（watchdog 16）；release 默认必须指定 reason，全部释放需 `all=true` 二次确认。
+10. **测试基线** 483（watchdog 20）；release 默认必须指定 reason，全部释放需 `all=true` 二次确认。
 
 ---
 
@@ -222,7 +230,7 @@ docs/team/watchdog-cost-implementation.md
 ```
 pnpm typecheck   # exit 0
 pnpm build       # exit 0（js 1,183.45 kB gzip 324.87；css 225.28 kB；electron main 1.4 MB）
-pnpm test        # exit 0（37 files / 479 tests）
+pnpm test        # exit 0（37 files / 483 tests）
 ```
 
 （HEAD 以 PR 提交为准；同步 main 后若 CI 环境变化，以 PR 检查为准。）

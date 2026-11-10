@@ -959,7 +959,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 - **UI**：RTL/现有测试；告警条/预算条 ARIA/键盘/窄窗；面板空态。
 - **E2E**：mock provider + fake clock：卡死→nudge→pause+handoff→fallback→done；预算超限→hold→人工提高→resume；429→fallback；人工升级。
 
-### 12.2 AC（编号；共 89 条 = 原 86 + t157 新增 3）
+### 12.2 AC（编号；共 93 条 = 原 86 + t157 新增 3 + t161 新增 4）
 
 #### 信号/巡检（WD）
 
@@ -1008,6 +1008,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | HO-06 | handoff 事件不含密钥/完整 prompt；UI 只显示摘要 |
 | HO-07 | handoff 过期清理（7 天）不影响审计事件 |
 | HO-08 | 换成员/fallback 均生成 handoff；可查询 `getRunHandoff` |
+| HO-10 | summaryLines/changes/openQuestions/nextStep 统一 redactSensitiveText；摘要含 `.env`/secret 测试 |
 
 #### 成本（CO）
 
@@ -1042,6 +1043,8 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | BU-11 | `spentForBudget = final + active provisional + reservation` 在 beforeStart/activity 使用；active Run 超支被拦截；final 后去重 |
 | BU-12 | provider 级 429 写 `model='*'` 后所有 model 跳过；到期/清理恢复；同时检查 provider/model 两级 |
 | BU-13 | provider 失败事件生成 `provider_quota` 信号并自动走既有 fallback：新 Run model override + handoff + 原 provider/model 冷却；429→fallback→新模型→冷却测试 |
+| BU-14 | provider 5min 内 2 次失败写 `model='*'`；beforeStart 对冷却 model/provider 拒绝并 hold/alert，禁止内核 auto-retry 同 model；真实 429 两次→`*`、同 model 拦截测试 |
+| BU-15 | fallback 链空/全部 cooling → escalate + escalation hold + critical alert，任务不自动重跑；链空/all cooling 测试 |
 
 #### API/UI（UI/API）
 
@@ -1062,6 +1065,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | UI-08 | 960/760 窄窗不溢出；reduced-motion 无动画 |
 | UI-09 | 人工升级 alertdialog/确认，Esc 取消不误恢复 |
 | UI-10 | Watchdog 挂载 App/Dock 默认关闭；顶部预算条、任务详情告警条、RunHistory handoff 卡；按钮键盘可达；900/760 窄窗不溢出 |
+| UI-11 | App/Dock 组件级渲染/交互（预算条、ack/release、RunHistory handoff）覆盖；完整 App DOM e2e 标 **P1 manual**，不冒充 UI 全通过 |
 
 #### 内核契约/迁移/E2E（KRN/MG/E2E）
 
@@ -1105,7 +1109,10 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | 多 hold 释放/nextRunAt 边界 | §5.2、IN-11 |
 | 敏感 diff（.env/.ssh tracked） | §6、HO-02 |
 | deadman fake clock | §4.6、WD-10/WD-13 |
-| UI 挂载/键盘/900/760 窄窗 | §10、UI-01..10 |
+| provider 计数窗口/*/beforeStart 拦截 | §4.5、§5.1、BU-14 |
+| fallback 空/全冷却 human hold | §4.5、BU-15 |
+| summary/nextStep 脱敏 | §6、HO-10 |
+| UI 挂载/键盘/900/760 窄窗 | §10、UI-01..11 |
 | API workspace 隔离（handoff/alert/hold） | §10.1/10.2、API-05 |
 
 ---
@@ -1301,6 +1308,20 @@ fallback.maxSwitches=2
 | F4 medium release 释放全部 | release API 必须 `reason` 或 `all=true`；默认只释放当前 reason，最后一个 hold 才清 nextRunAt；补 budget+watchdog 双 hold 测试 |
 | F5 medium rebuild 只计数 | 明确把 watchdog 表降级为 durable cache，修改 INV-9/MG-05/§9.3/AC；`WatchdogService.rebuild()` 做 schema 修复（删除表可重建空 schema）并记录 missing；补删除表测试 |
 | F6 测试/AC | 增加 429/fallback、多 hold、敏感 diff、deadman、UI 挂载/窄窗测试；AC 增加 BU-13/WD-13/UI-10 |
+
+---
+
+## 17. t161 修复记录（round 3）
+
+> t158 复审 needs_revision（2 high + 1 medium + low）后修复；AC 增为 93（BU-14/BU-15/HO-10/UI-11）。
+
+| Finding | 修复 |
+|---|---|
+| F1 high provider 级冷却不存在 | `recordProviderFailureWindow` 按 provider/5min 计数，第 2 次写 `model='*'`；`beforeStart` 用 pending model/agent profile 检查 `(provider,model)` 与 `(provider,'*')`，冷却则 hold+critical 并拒绝启动；真实 429 两次→`*`、beforeStart 拦截测试 |
+| F2 high 链空不 human | target=null → `escalate` + escalation hold + critical alert + pauseScheduler + holdTask；链空/all cooling 测试断言任务不自动重跑 |
+| F3 medium UI 证据不足 | 新增 BudgetBar/AlertBanner 交互（ack/release）、RunHistory handoff、panelRegistry/900/760 组件测试；完整 App DOM e2e 明确标 P1 manual |
+| F4 low summary 未全量脱敏 | summaryLines/changes/openQuestions/nextStep 统一 redactSensitiveText；summary 含 `.env`/secret 测试 |
+| F5 测试缺口 | 补真实 429 两次、同 model 拦截、链空/all cooling、summary 脱敏、UI 交互测试 |
 
 ---
 

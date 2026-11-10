@@ -5,10 +5,12 @@ import path from "node:path";
 import { Store } from "../kernel/store.js";
 import { FakeClock } from "../kernel/execution/clock.js";
 import { ExecutionKernel, type RunExecutor } from "../kernel/execution/kernel.js";
-import type { Agent, Task } from "../shared/types.js";
+import type { Agent, Run, Task } from "../shared/types.js";
+import type { RunHandoff } from "../shared/watchdog.js";
+import RunHistory from "../RunHistory.js";
 import { WatchdogService } from "./service.js";
 import { DEFAULT_WATCHDOG_THRESHOLDS, createTaskSignalState, detectSignals, recordActivity } from "./signals.js";
-import { WatchdogPanel } from "./WatchdogPanel.js";
+import { BudgetBar, WatchdogPanel } from "./WatchdogPanel.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { defaultModelProfile, defaultProviderProfile } from "../shared/models.js";
 import { PANEL_DEFS, selectVariant } from "../shell/dock/panelRegistry.js";
@@ -323,6 +325,17 @@ describe("t144 watchdog service", () => {
       idempotencyKey: null,
     });
     const run = kernel.listRuns(task.id)[0];
+    store.saveSummary({
+      taskId: task.id,
+      runId: run.id,
+      goal: "finish handoff",
+      changes: ["read .env and SECRET=TOP_SECRET"],
+      files: [".env", ".ssh/id_rsa", "src-app.ts"],
+      tests: [],
+      decisions: [],
+      risks: [],
+      openQuestions: ["rotate .ssh/id_rsa before merge"],
+    });
     const handoff = watchdog.handoff.build({ run, task, reason: "pause" });
     expect(handoff.files).not.toContain(".env");
     expect(handoff.files.some((file) => file.includes(".ssh"))).toBe(false);
@@ -330,6 +343,9 @@ describe("t144 watchdog service", () => {
     expect(handoff.diffStat).not.toContain(".ssh");
     expect(handoff.summary).not.toContain("TOP_SECRET");
     expect(handoff.summary).not.toContain(".env");
+    expect(handoff.summary).not.toContain(".ssh");
+    expect(handoff.nextStep).not.toContain(".ssh");
+    expect(handoff.nextStep).toContain("[REDACTED]");
     expect(handoff.diffRef).toBeTruthy();
     const patch = readFileSync(path.join(dataDir, handoff.diffRef!), "utf8");
     expect(patch).not.toContain("TOP_SECRET");
@@ -463,6 +479,178 @@ describe("t144 watchdog service", () => {
     expect(watchdog.watchdog.listInterventions(workspace.id).some((item) => item.level === "fallback")).toBe(true);
   });
 
+  it("escalates after two real 429s and writes provider-wide '*' cooldown", async () => {
+    let calls = 0;
+    const executor: RunExecutor = async () => {
+      calls += 1;
+      const error = new Error("rate limited") as Error & { code?: string; retryable?: boolean };
+      error.code = "PROVIDER_RATE_LIMIT";
+      error.retryable = true;
+      throw error;
+    };
+    const { store, workspace, agent, clock, kernel, watchdog } = setup(executor);
+    const provider = defaultProviderProfile(
+      { baseUrl: "https://example.test/v1", baseUrlEnv: "", apiKey: "test", apiKeyEnv: "" },
+      "p1",
+      "Provider 1",
+    );
+    const m1 = defaultModelProfile("m1", "p1");
+    const m2 = defaultModelProfile("m2", "p1");
+    store.saveLlmSettings({
+      ...store.getLlmSettings(),
+      providers: [provider],
+      models: [m1, m2],
+      model: m1.id,
+      mock: true,
+    });
+    expect(
+      watchdog.setFallbackChain({ workspaceId: workspace.id, agentId: agent.id, models: [m2.id] }).ok,
+    ).toBe(true);
+    const task = createTask(store, workspace.id, "two-provider-failures");
+    kernel.startTask(task.id);
+    await waitFor(() => calls >= 2, 5_000);
+    await waitFor(
+      () => watchdog.watchdog.isCooling("p1", "*", new Date(clock.now()).toISOString()),
+      3_000,
+    );
+    await waitFor(
+      () =>
+        watchdog.watchdog
+          .listInterventions(workspace.id)
+          .some((item) => item.level === "human"),
+      3_000,
+    );
+    expect(calls).toBe(2);
+    expect(store.getTask(task.id)?.status).not.toBe("done");
+    expect(kernel.getScheduler(workspace.id).paused).toBe(true);
+    expect(
+      watchdog.watchdog
+        .listHolds(workspace.id, task.id)
+        .some((hold) => hold.reason === "escalation"),
+    ).toBe(true);
+    const snapshot = watchdog.getSnapshot(workspace.id);
+    expect(snapshot.ok).toBe(true);
+    if (snapshot.ok) {
+      expect(
+        snapshot.value.alerts.some(
+          (alert) => alert.kind === "provider_quota" && alert.severity === "critical",
+        ),
+      ).toBe(true);
+    }
+    // 暂停后不得再自动启动第三次同 provider Run。
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(calls).toBe(2);
+    const blockedTask = createTask(store, workspace.id, "after-provider-cooling");
+    const allowed = watchdog.beforeStart({
+      workspaceId: workspace.id,
+      taskId: blockedTask.id,
+      runId: "no-run",
+      agentId: agent.id,
+      attempt: 1,
+    });
+    expect(allowed).toBe(false);
+    expect(
+      watchdog.watchdog
+        .listHolds(workspace.id, blockedTask.id)
+        .some((hold) => hold.reason === "watchdog"),
+    ).toBe(true);
+  });
+
+  it("blocks beforeStart for a cooling model/provider", async () => {
+    const { store, workspace, clock, kernel, watchdog } = setup(async () => ({ summary: "ok" }));
+    const provider = defaultProviderProfile(
+      { baseUrl: "https://example.test/v1", baseUrlEnv: "", apiKey: "test", apiKeyEnv: "" },
+      "p1",
+      "Provider 1",
+    );
+    const m1 = defaultModelProfile("m1", "p1");
+    store.saveLlmSettings({
+      ...store.getLlmSettings(),
+      providers: [provider],
+      models: [m1],
+      model: m1.id,
+      mock: true,
+    });
+    watchdog.recordProviderQuota({ providerId: "p1", modelId: "m1" });
+    watchdog.recordProviderQuota({ providerId: "p1", modelId: "m1" });
+    expect(
+      watchdog.watchdog.isCooling("p1", "*", new Date(clock.now()).toISOString()),
+    ).toBe(true);
+    const task = createTask(store, workspace.id, "cooling-blocked");
+    kernel.startTask(task.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(kernel.listRuns(task.id)).toHaveLength(0);
+    expect(store.getTask(task.id)?.status).toBe("queued");
+    expect(
+      watchdog.watchdog
+        .listHolds(workspace.id, task.id)
+        .some((hold) => hold.reason === "watchdog"),
+    ).toBe(true);
+  });
+
+  it("escalates when the fallback chain is empty or all targets are cooling", async () => {
+    const runCase = async (chainModels: string[] | null) => {
+      let calls = 0;
+      const executor: RunExecutor = async () => {
+        calls += 1;
+        const error = new Error("rate limited") as Error & { code?: string; retryable?: boolean };
+        error.code = "PROVIDER_RATE_LIMIT";
+        error.retryable = true;
+        throw error;
+      };
+      const { store, workspace, agent, clock, kernel, watchdog } = setup(executor);
+      const provider = defaultProviderProfile(
+        { baseUrl: "https://example.test/v1", baseUrlEnv: "", apiKey: "test", apiKeyEnv: "" },
+        "p1",
+        "Provider 1",
+      );
+      const m1 = defaultModelProfile("m1", "p1");
+      const m2 = defaultModelProfile("m2", "p1");
+      store.saveLlmSettings({
+        ...store.getLlmSettings(),
+        providers: [provider],
+        models: [m1, m2],
+        model: m1.id,
+        mock: true,
+      });
+      if (chainModels) {
+        watchdog.setFallbackChain({
+          workspaceId: workspace.id,
+          agentId: agent.id,
+          models: chainModels,
+        });
+        watchdog.watchdog.setCooldown({
+          providerId: "p1",
+          modelId: m2.modelId,
+          until: new Date(clock.now() + 60_000).toISOString(),
+          reason: "test-all-cooling",
+        });
+      }
+      const task = createTask(store, workspace.id, "no-target-escalation");
+      kernel.startTask(task.id);
+      await waitFor(() => calls === 1, 3_000);
+      await waitFor(
+        () =>
+          watchdog.watchdog
+            .listInterventions(workspace.id)
+            .some((item) => item.level === "human"),
+        3_000,
+      );
+      expect(calls).toBe(1);
+      expect(store.getTask(task.id)?.status).not.toBe("done");
+      expect(kernel.getScheduler(workspace.id).paused).toBe(true);
+      expect(
+        watchdog.watchdog
+          .listHolds(workspace.id, task.id)
+          .some((hold) => hold.reason === "escalation"),
+      ).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(calls).toBe(1);
+    };
+    await runCase(null);
+    await runCase(["m2"]);
+  });
+
   it("isolates watchdog API by workspace", async () => {
     const executor: RunExecutor = () => new Promise(() => {});
     const { store, workspace, clock, kernel, watchdog } = setup(executor);
@@ -490,6 +678,182 @@ describe("t144 watchdog UI", () => {
     expect(selectVariant(900)).toBe("medium");
     expect(selectVariant(760)).toBe("narrow");
     expect(selectVariant(759)).toBe("single");
+  });
+
+  it("wires budget and ack/release callbacks and renders RunHistory handoff", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    // @ts-expect-error react-test-renderer 19.x 不带类型声明（仅测试依赖）
+    const TestRenderer = (await import("react-test-renderer")) as unknown as {
+      act: (callback: () => Promise<void>) => Promise<void>;
+      create: (element: unknown) => { root: { findAllByType: (type: string) => Array<{ props: Record<string, any> }> } };
+    };
+    let renderer: { root: { findAllByType: (type: string) => Array<{ props: Record<string, any> }> } } | null = null;
+    let opened = 0;
+    let acked = 0;
+    let released = 0;
+    const alert = {
+      id: "a1",
+      workspaceId: "ws",
+      taskId: "t1",
+      runId: "r1",
+      kind: "heartbeat_stale" as const,
+      severity: "critical" as const,
+      status: "open" as const,
+      title: "任务无活动",
+      detail: {},
+      dedupeKey: "k",
+      createdAt: new Date().toISOString(),
+      ackedAt: null,
+      resolvedAt: null,
+      actor: null,
+    };
+    const snapshot = {
+      workspaceId: "ws",
+      enabled: true,
+      deadman: false,
+      pausedBy: null,
+      health: { lastTickAt: null, lastPatrolAt: null, stale: false, enabled: true, deadman: false },
+      alerts: [alert],
+      interventions: [],
+      holds: [],
+      budgets: {
+        task: { taskId: null, spentUsd: 2, limitUsd: 10, ratio: 0.2 },
+        agentDay: { agentId: null, spentUsd: 2, limitUsd: 10, ratio: 0.2 },
+        workspaceDay: { spentUsd: 2, limitUsd: 10, ratio: 0.2 },
+        softRatio: 0.8,
+        hardAction: "pause" as const,
+        pricingKnown: true,
+      },
+      fallback: {
+        workspaceId: "ws",
+        agentId: null,
+        models: [],
+        maxSwitches: 2,
+        onQuota: true,
+        onErrors: true,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(
+        <WatchdogPanel
+          snapshot={snapshot}
+          costs={null}
+          onAck={() => {
+            acked += 1;
+          }}
+          onResolve={() => undefined}
+          onRelease={() => {
+            released += 1;
+          }}
+        />,
+      );
+    });
+    let budgetRenderer: {
+      root: { findAllByType: (type: string) => Array<{ props: Record<string, any> }> };
+    } | null = null;
+    await TestRenderer.act(async () => {
+      budgetRenderer = TestRenderer.create(
+        <BudgetBar
+          spentUsd={2}
+          limitUsd={10}
+          ratio={0.2}
+          softRatio={0.8}
+          label="今日预算"
+          onOpen={() => {
+            opened += 1;
+          }}
+        />,
+      );
+    });
+    const budgetButton = budgetRenderer!.root.findAllByType("button")[0];
+    await TestRenderer.act(async () => budgetButton.props.onClick());
+    expect(opened).toBe(1);
+    const buttons = renderer!.root.findAllByType("button");
+    for (const button of buttons) expect(button.props.type).toBe("button");
+    const ack = buttons.find((node) => node.props.children === "确认告警");
+    expect(ack).toBeTruthy();
+    await TestRenderer.act(async () => ack!.props.onClick());
+    expect(acked).toBe(1);
+    const release = buttons.find((node) => node.props.children === "恢复任务");
+    expect(release).toBeTruthy();
+    await TestRenderer.act(async () => release!.props.onClick());
+    expect(released).toBe(1);
+
+    const task = {
+      id: "t1",
+      workspaceId: "ws",
+      title: "handoff-task",
+      description: "",
+      acceptance: [],
+      status: "failed",
+      ownerId: null,
+      dependsOn: [],
+      branch: null,
+      worktree: null,
+      summary: null,
+      createdAt: new Date().toISOString(),
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      attemptCount: 1,
+      nextRunAt: null,
+    } as Task;
+    const run = {
+      id: "r1",
+      taskId: "t1",
+      agentId: "a1",
+      status: "failed",
+      error: "failed",
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      tokenIn: 10,
+      tokenOut: 20,
+      attempt: 1,
+      errorCode: "RUN_FAILED",
+      heartbeatAt: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    } as Run;
+    const handoff = {
+      id: "h1",
+      workspaceId: "ws",
+      taskId: "t1",
+      runId: "r1",
+      attempt: 1,
+      reason: "pause",
+      summary: "handoff summary",
+      nextStep: "next",
+      files: [],
+      diffStat: "",
+      diffRef: null,
+      lastEventSeq: 0,
+      fromModelProfileId: null,
+      toModelProfileId: null,
+      fromAgentId: "a1",
+      toAgentId: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: null,
+    } as RunHandoff;
+    const html = renderToStaticMarkup(
+      <RunHistory
+        task={task}
+        runs={[run]}
+        agents={[]}
+        events={[]}
+        loading={false}
+        error={null}
+        selectedRunId="r1"
+        busy={null}
+        onRetryLoad={() => undefined}
+        onSelectRun={() => undefined}
+        onCancelRun={() => undefined}
+        onOpenRunPanel={() => undefined}
+        onRetryTask={() => undefined}
+        handoffs={{ r1: handoff }}
+      />,
+    );
+    expect(html).toContain("交接摘要");
+    expect(html).toContain("handoff summary");
   });
 
   it("renders budget progressbar, alerts and aria-live semantics", () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Agent, Run, Task } from "../shared/types.js";
+import type { Agent, ModelProfile, Run, Task } from "../shared/types.js";
 import type {
   BudgetScope,
   BudgetSnapshot,
@@ -72,6 +72,10 @@ export class WatchdogService {
   private readonly states = new Map<string, TaskSignalState>();
   private readonly handled = new Set<string>();
   private readonly providerFailureHandled = new Set<string>();
+  /** t161：provider 级失败窗口（持久化到 settings；5min 内 2 次写 model='*'）。 */
+  private readonly providerFailureWindows = new Map<string, { count: number; firstAt: number; lastAt: number }>();
+  /** t161：fallback 指定的下一 Run 模型，beforeStart 用它判断冷却而不是旧 agent model。 */
+  private readonly pendingModelByTask = new Map<string, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
   private lastTickMs = 0;
@@ -119,18 +123,108 @@ export class WatchdogService {
   private finalizeRunEvent(runId: string, handleProviderFailure = false): void {
     try {
       const run = this.store.getRun(runId);
+      // 先清理旧告警，再处理 provider 失败；否则刚创建的 critical alert 会被立刻 resolve。
+      if (run) this.watchdog.resolveAlertsForTask(run.taskId);
       if (run && handleProviderFailure) {
         const task = this.store.getTask(run.taskId);
         if (task) this.recordProviderFailure(run, task);
       }
       this.cost.recordFinal(runId);
-      if (run) {
-        this.watchdog.resolveAlertsForTask(run.taskId);
-        this.states.delete(run.taskId);
-      }
+      if (run) this.states.delete(run.taskId);
     } catch {
       // 成本入账失败不能阻断内核事件消费；启动对账会补
     }
+  }
+
+  private resolveAgentProfile(agent: Agent | null, modelId?: string | null): ModelProfile | null {
+    const settings = this.store.getLlmSettings();
+    return (
+      settings.models.find((model) => model.id === modelId) ??
+      settings.models.find((model) => model.modelId === modelId) ??
+      settings.models.find((model) => model.id === agent?.model) ??
+      settings.models.find((model) => model.modelId === agent?.model) ??
+      settings.models.find((model) => model.id === settings.model) ??
+      settings.models[0] ??
+      null
+    );
+  }
+
+  private loadProviderFailureWindows(): void {
+    if (this.providerFailureWindows.size > 0) return;
+    const raw = this.store.getSetting("watchdog.providerFailures");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, { count?: number; firstAt?: number; lastAt?: number }>;
+      for (const [providerId, value] of Object.entries(parsed)) {
+        if (!value || typeof value !== "object") continue;
+        const count = Number(value.count ?? 0);
+        const firstAt = Number(value.firstAt ?? 0);
+        const lastAt = Number(value.lastAt ?? 0);
+        if (count > 0 && Number.isFinite(firstAt) && Number.isFinite(lastAt)) {
+          this.providerFailureWindows.set(providerId, { count, firstAt, lastAt });
+        }
+      }
+    } catch {
+      // 损坏设置按空窗口处理
+    }
+  }
+
+  private recordProviderFailureWindow(providerId: string, now: number): number {
+    this.loadProviderFailureWindows();
+    const windowMs = 5 * 60_000;
+    let entry = this.providerFailureWindows.get(providerId);
+    if (!entry || now - entry.firstAt > windowMs) {
+      entry = { count: 0, firstAt: now, lastAt: now };
+    }
+    entry.count += 1;
+    entry.lastAt = now;
+    this.providerFailureWindows.set(providerId, entry);
+    try {
+      this.store.setSetting(
+        "watchdog.providerFailures",
+        JSON.stringify(Object.fromEntries(this.providerFailureWindows)),
+      );
+    } catch {
+      // 内存计数仍可用
+    }
+    return entry.count;
+  }
+
+  private holdForCooldown(task: Task, profile: ModelProfile, reason: string): void {
+    const now = this.clock.now();
+    const until = new Date(now + 5 * 60_000).toISOString();
+    this.watchdog.addHold({
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      reason: "watchdog",
+      scope: "task",
+    });
+    try {
+      this.kernel.holdTask(task.id, until);
+    } catch {
+      // task 状态已变化；仍保留 hold 供人工处理
+    }
+    this.watchdog.appendEvent("watchdog.signal", "task", task.id, {
+      kind: "provider_quota",
+      severity: "critical",
+      taskId: task.id,
+      evidence: {
+        providerId: profile.providerId,
+        modelId: profile.modelId,
+        reason,
+        until,
+      },
+      windowMs: 300_000,
+    });
+    this.createAlert({
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      kind: "provider_quota",
+      severity: "critical",
+      title: "模型冷却中，启动被拒绝",
+      detail: { providerId: profile.providerId, modelId: profile.modelId, until, reason },
+      dedupeKey: `${task.id}:cooling:${profile.providerId}:${profile.modelId}:${Math.floor(now / 300_000)}`,
+    });
   }
 
   private recordProviderFailure(run: Run, task: Task): void {
@@ -143,19 +237,32 @@ export class WatchdogService {
     const profile =
       settings.models.find((model) => model.id === run.modelProfileId) ??
       settings.models.find((model) => model.modelId === run.modelId) ??
-      settings.models.find((model) => model.id === agent?.model) ??
-      settings.models.find((model) => model.modelId === agent?.model) ??
-      settings.models.find((model) => model.id === settings.model) ??
-      settings.models[0] ??
-      null;
+      this.resolveAgentProfile(agent);
     if (!profile) return;
-    const until = new Date(this.clock.now() + 5 * 60_000).toISOString();
+    const now = this.clock.now();
+    const failureCount = this.recordProviderFailureWindow(profile.providerId, now);
+    const until = new Date(now + 5 * 60_000).toISOString();
     this.watchdog.setCooldown({
       providerId: profile.providerId,
       modelId: profile.modelId,
       until,
       reason: run.errorCode ?? "provider_quota",
     });
+    // t161 F1：同 provider 5min 内第 2 次失败 → provider 级 `*` 冷却。
+    if (failureCount >= 2) {
+      this.watchdog.setCooldown({
+        providerId: profile.providerId,
+        modelId: "*",
+        until,
+        reason: `${run.errorCode ?? "provider_quota"} (provider threshold)`,
+      });
+      this.watchdog.appendEvent("provider.cooldown_started", "workspace", task.workspaceId, {
+        providerId: profile.providerId,
+        modelId: "*",
+        until,
+        reason: `${run.errorCode ?? "provider_quota"} (2 failures in 5min)`,
+      });
+    }
     this.watchdog.appendEvent("provider.quota_error", "run", run.id, {
       providerId: profile.providerId,
       modelId: profile.modelId,
@@ -173,7 +280,7 @@ export class WatchdogService {
       severity: "warning",
       taskId: task.id,
       runId: run.id,
-      evidence: { providerId: profile.providerId, modelId: profile.modelId, until },
+      evidence: { providerId: profile.providerId, modelId: profile.modelId, until, failureCount },
       windowMs: 300_000,
     });
     this.createAlert({
@@ -182,9 +289,12 @@ export class WatchdogService {
       runId: run.id,
       kind: "provider_quota",
       severity: "warning",
-      title: "供应商配额错误，已冷却当前模型",
-      detail: { providerId: profile.providerId, modelId: profile.modelId, until },
-      dedupeKey: `${task.id}:quota:${Math.floor(this.clock.now() / 300_000)}`,
+      title:
+        failureCount >= 2
+          ? "供应商连续配额错误，已启用 provider 级冷却"
+          : "供应商配额错误，已冷却当前模型",
+      detail: { providerId: profile.providerId, modelId: profile.modelId, until, failureCount },
+      dedupeKey: `${task.id}:quota:${Math.floor(now / 300_000)}`,
     });
 
     // t157 F2：429/quota 必须走既有 fallback（新 Run 模型 override + handoff + 冷却）。
@@ -218,7 +328,26 @@ export class WatchdogService {
       target = candidate;
       break;
     }
-    if (!target) return;
+    if (!target) {
+      this.escalate(
+        task,
+        run,
+        {
+          kind: "provider_quota",
+          severity: "critical",
+          evidence: {
+            providerId: profile.providerId,
+            modelId: profile.modelId,
+            failureCount,
+            reason: "no fallback target",
+          },
+          windowMs: 300_000,
+        },
+        "no fallback target after provider quota",
+      );
+      return;
+    }
+    this.pendingModelByTask.set(task.id, target.id);
     const handoff = this.handoff.build({
       run,
       task,
@@ -273,13 +402,23 @@ export class WatchdogService {
     taskId?: string | null;
     resetAt?: string;
   }): void {
-    const until = input.resetAt ?? new Date(this.clock.now() + 5 * 60_000).toISOString();
+    const now = this.clock.now();
+    const count = this.recordProviderFailureWindow(input.providerId, now);
+    const until = input.resetAt ?? new Date(now + 5 * 60_000).toISOString();
     this.watchdog.setCooldown({
       providerId: input.providerId,
       modelId: input.modelId,
       until,
       reason: "provider_quota",
     });
+    if (count >= 2) {
+      this.watchdog.setCooldown({
+        providerId: input.providerId,
+        modelId: "*",
+        until,
+        reason: "provider_quota (provider threshold)",
+      });
+    }
     this.watchdog.appendEvent("provider.quota_error", "provider", input.providerId, {
       providerId: input.providerId,
       modelId: input.modelId,
@@ -315,6 +454,20 @@ export class WatchdogService {
     if (budget?.soft) {
       this.emitBudget("warning", budget.scope, budget.scopeId, budget.spentUsd, budget.limitUsd);
     }
+    // t161 F1：冷却中的 model/provider 不应被内核 auto-retry 再次启动。
+    const pendingModel = this.pendingModelByTask.get(task.id);
+    const profile = this.resolveAgentProfile(agent, pendingModel);
+    if (
+      profile &&
+      this.watchdog.isCooling(
+        profile.providerId,
+        profile.modelId,
+        new Date(this.clock.now()).toISOString(),
+      )
+    ) {
+      this.holdForCooldown(task, profile, "beforeStart");
+      return false;
+    }
     return true;
   }
 
@@ -324,6 +477,7 @@ export class WatchdogService {
     const state = createTaskSignalState({ taskId: info.taskId, runId: info.runId, at: now });
     if (run) state.lastActivityAt = Date.parse(run.startedAt);
     this.states.set(info.taskId, state);
+    this.pendingModelByTask.delete(info.taskId);
   }
 
   onRunActivity(info: KernelRunActivity): void {
@@ -650,6 +804,7 @@ export class WatchdogService {
       break;
     }
     if (!target) return false;
+    this.pendingModelByTask.set(task.id, target.id);
     const handoff = this.handoff.build({
       run,
       task,
@@ -787,6 +942,11 @@ export class WatchdogService {
       reason: "escalation",
       scope: "workspace",
     });
+    try {
+      this.kernel.holdTask(task.id, new Date(this.clock.now() + HOLD_MS).toISOString());
+    } catch {
+      // task 已终态；pause scheduler + hold 仍阻止自动重跑
+    }
     this.kernel.pauseScheduler(task.workspaceId, "watchdog_escalation");
     this.watchdog.setPausedBy(task.workspaceId, "watchdog");
     this.watchdog.updateIntervention(intervention.id, "applied");
