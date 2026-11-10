@@ -19,6 +19,7 @@ import {
 import TaskStarMap from "./TaskStarMap";
 import Modal from "./Modal";
 import EmptyState from "./EmptyState";
+import DangerConfirmModal from "./DangerConfirmModal";
 
 type AgentDraft = {
   name: string;
@@ -43,6 +44,7 @@ export default function TeamDashboard({
   onAutoOpenHandled,
   onCreate,
   onUpdate,
+  onDelete,
   onOpenTask,
   onOpenTaskPage,
   onOpenMergeQueue,
@@ -63,6 +65,8 @@ export default function TeamDashboard({
   onAutoOpenHandled: () => void;
   onCreate: (input: AgentDraft) => void;
   onUpdate: (input: UpdateAgentInput) => void;
+  /** t167：删除成员；调用方负责二次确认后的 API。 */
+  onDelete: (agent: Agent) => Promise<boolean>;
   onOpenTask: (taskId: string) => void;
   /** S04：星图浮窗「在任务页打开」。 */
   onOpenTaskPage: (taskId: string) => void;
@@ -78,6 +82,10 @@ export default function TeamDashboard({
 }) {
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ agent: Agent | null } | null>(null);
+  const [deleteMember, setDeleteMember] = useState<{
+    agent: Agent;
+    owned: number;
+  } | null>(null);
 
   // C11：从顶栏/命令面板进入时自动打开「新建成员」弹窗（一次性）。
   useEffect(() => {
@@ -235,6 +243,15 @@ export default function TeamDashboard({
                   >
                     编辑
                   </button>
+                  <button
+                    type="button"
+                    className="team-member-delete run-danger"
+                    title={member.isRouter ? "Router 不能删除" : "删除成员"}
+                    disabled={member.isRouter || busy}
+                    onClick={() => setDeleteMember({ agent: member, owned })}
+                  >
+                    删除
+                  </button>
                 </div>
               );
             })}
@@ -357,6 +374,26 @@ export default function TeamDashboard({
           busy={busy}
           onClose={() => setDialog(null)}
           onSubmit={submitAgent}
+        />
+      )}
+
+      {deleteMember && (
+        <DangerConfirmModal
+          title="删除成员？"
+          description="成员会从团队中移除；历史聊天、邮件与事件保留。"
+          subject={deleteMember.agent.name}
+          subjectLabel="成员名称"
+          impact={[
+            deleteMember.owned > 0
+              ? `${deleteMember.owned} 个归属任务会变为未分配，需要重新指派。`
+              : "当前没有归属任务。",
+            "该成员的历史聊天、邮件和事件记录会保留。",
+            "有排队/运行中的 Run 时，删除会被拒绝。",
+            "Router 不能删除。",
+          ]}
+          confirmLabel="永久删除成员"
+          onClose={() => setDeleteMember(null)}
+          onConfirm={() => onDelete(deleteMember.agent)}
         />
       )}
     </div>

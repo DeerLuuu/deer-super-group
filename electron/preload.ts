@@ -40,7 +40,9 @@ const api: DeerApi = {
   getSnapshot: (workspaceId: string) => ipcRenderer.invoke("workspace:snapshot", workspaceId),
   createAgent: (input: CreateAgentInput) => ipcRenderer.invoke("agent:create", input),
   updateAgent: (input: UpdateAgentInput) => ipcRenderer.invoke("agent:update", input),
+  deleteAgent: (agentId: string) => ipcRenderer.invoke("agent:delete", agentId),
   createTask: (input: CreateTaskInput) => ipcRenderer.invoke("task:create", input),
+  deleteTask: (taskId: string) => ipcRenderer.invoke("task:delete", taskId),
   runTask: (taskId: string) => ipcRenderer.invoke("task:run", taskId),
   // t69：内核调度命令（返回 KernelResult，业务失败不 reject）。
   startTask: (taskId: string) => ipcRenderer.invoke("kernel:startTask", taskId),

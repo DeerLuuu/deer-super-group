@@ -12,6 +12,8 @@ import type {
   ContextSnapshot,
   CreateAgentInput,
   CreateTaskInput,
+  DeleteAgentResult,
+  DeleteTaskResult,
   BoardKind,
   UpdateAgentInput,
   EventRecord,
@@ -87,7 +89,11 @@ export interface DeerApi {
   getSnapshot(workspaceId: string): Promise<Snapshot>;
   createAgent(input: CreateAgentInput): Promise<Agent>;
   updateAgent(input: UpdateAgentInput): Promise<Agent>;
+  /** t167：删除成员；需要二级确认。Router/活跃 Run 会被拒绝。 */
+  deleteAgent(agentId: string): Promise<DeleteAgentResult>;
   createTask(input: CreateTaskInput): Promise<Task>;
+  /** t167：删除任务；需要二级确认。活跃 Run/被依赖会被拒绝。 */
+  deleteTask(taskId: string): Promise<DeleteTaskResult>;
   runTask(taskId: string): Promise<void>;
   /** t69：内核调度命令（KernelResult 携带稳定错误码，UI 不解析 message）。 */
   startTask(taskId: string): Promise<KernelResult<Task>>;

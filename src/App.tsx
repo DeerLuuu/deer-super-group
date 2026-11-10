@@ -23,6 +23,7 @@ import Modal from "./Modal";
 import TeamDashboard from "./TeamDashboard";
 import StatusBadge from "./StatusBadge";
 import EmptyState from "./EmptyState";
+import DangerConfirmModal from "./DangerConfirmModal";
 import SchedulerBar from "./SchedulerBar";
 import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
@@ -1338,6 +1339,53 @@ export default function App() {
     }
   }
 
+  async function handleDeleteAgent(agent: Agent): Promise<boolean> {
+    const current = snapshotRef.current;
+    if (!current) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.deer.deleteAgent(agent.id);
+      await refresh(current.workspace.id);
+      pushToast({
+        kind: "success",
+        message: `已删除成员 ${agent.name}${
+          result.reassignedTasks > 0 ? `，${result.reassignedTasks} 个任务转为未分配` : ""
+        }`,
+      });
+      return true;
+    } catch (cause) {
+      setError(errorText(cause));
+      throw cause;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteTask(task: Task): Promise<boolean> {
+    const current = snapshotRef.current;
+    if (!current) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.deer.deleteTask(task.id);
+      await refresh(current.workspace.id);
+      if (selectedTaskId === task.id) setSelectedTaskId(null);
+      pushToast({
+        kind: "success",
+        message: `已删除任务「${task.title}」${
+          result.removedRuns > 0 ? `，清理 ${result.removedRuns} 条 Run` : ""
+        }`,
+      });
+      return true;
+    } catch (cause) {
+      setError(errorText(cause));
+      throw cause;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // DESIGN §15.5：对话控制条——模型/权限切换（写入当前 Agent，失败保留原值）。
   async function handleChatControlUpdate(patch: {
     model?: string | null;
@@ -2245,6 +2293,7 @@ export default function App() {
                       onRetryTask={handleRequestRetry}
                       onCancelTask={handleRequestCancelTask}
                       onCancelRun={handleRequestCancelRun}
+                      onDeleteTask={handleDeleteTask}
                       onReviewTask={handleRequestReview}
                       onPause={handleRequestPauseScheduler}
                       onResume={handleRequestResumeScheduler}
@@ -2278,6 +2327,7 @@ export default function App() {
                       onAutoOpenHandled={() => setCreateIntent(null)}
                       onCreate={handleCreateAgent}
                       onUpdate={handleUpdateAgent}
+                      onDelete={handleDeleteAgent}
                       onOpenTask={(taskId) => handleShowTaskContext(taskId, "team")}
                       onOpenTaskPage={handleOpenTaskPage}
                       scheduler={scheduler}
@@ -2783,6 +2833,7 @@ function TasksView({
   onRetryTask,
   onCancelTask,
   onCancelRun,
+  onDeleteTask,
   onReviewTask,
   onPause,
   onResume,
@@ -2824,6 +2875,8 @@ function TasksView({
   onRetryTask: (task: Task) => void;
   onCancelTask: (task: Task) => void;
   onCancelRun: (run: Run) => void;
+  /** t167：删除任务；二级确认后由 App 调 API。 */
+  onDeleteTask: (task: Task) => Promise<boolean>;
   onReviewTask: (task: Task, decision: "approve" | "reject") => void;
   onPause: () => void;
   onResume: () => void;
@@ -2835,6 +2888,7 @@ function TasksView({
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // C11：从顶栏/命令面板进入时自动打开对应弹窗（一次性）。
   useEffect(() => {
@@ -3266,6 +3320,15 @@ function TasksView({
                 >
                   {actionBusy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
                 </button>
+                <button
+                  type="button"
+                  className="ghost small run-danger"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={busy}
+                  title="删除任务：需二次确认；不会直接 push main"
+                >
+                  删除任务
+                </button>
               </div>
             </div>
 
@@ -3439,6 +3502,24 @@ function TasksView({
           busy={busy}
           onClose={() => setPlanOpen(false)}
           onPlan={onPlan}
+        />
+      )}
+
+      {deleteOpen && selectedTask && (
+        <DangerConfirmModal
+          title="删除任务？"
+          description="任务、Run 历史与摘要会被永久删除；事件日志保留。"
+          subject={selectedTask.title}
+          subjectLabel="任务标题"
+          impact={[
+            "任务及其 Run 历史、摘要、行级评审数据会被清理。",
+            "事件日志保留，但任务不再出现在任务列表/星图。",
+            "仍有其他任务依赖它时，删除会被拒绝。",
+            "运行中/排队中的任务需先取消。",
+          ]}
+          confirmLabel="永久删除任务"
+          onClose={() => setDeleteOpen(false)}
+          onConfirm={() => onDeleteTask(selectedTask)}
         />
       )}
     </div>

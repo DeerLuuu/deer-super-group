@@ -15,6 +15,8 @@ import type {
   ContextSnapshot,
   CreateAgentInput,
   CreateTaskInput,
+  DeleteAgentResult,
+  DeleteTaskResult,
   EventRecord,
   LlmSettings,
   LlmSettingsInfo,
@@ -425,6 +427,21 @@ export class AppService {
     }
 
     return updated;
+  }
+
+  /** t167：删除成员；Router/活跃 Run 由 store 拒绝，归属任务改为未分配。 */
+  deleteAgent(id: string): DeleteAgentResult {
+    const agent = this.store.getAgent(id);
+    if (!agent) throw new Error(`member not found: ${id}`);
+    if (agent.isRouter) throw new Error("Router 不能删除");
+    return this.store.deleteAgent(id);
+  }
+
+  /** t167：删除任务；活跃 Run/被依赖由 store 拒绝，事件保留。 */
+  deleteTask(id: string): DeleteTaskResult {
+    const task = this.store.getTask(id);
+    if (!task) throw new Error(`task not found: ${id}`);
+    return this.store.deleteTask(id);
   }
 
   createTask(input: CreateTaskInput): Task {

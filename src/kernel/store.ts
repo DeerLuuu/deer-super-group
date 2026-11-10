@@ -39,6 +39,8 @@ import type {
   ChatRole,
   CreateAgentInput,
   CreateTaskInput,
+  DeleteAgentResult,
+  DeleteTaskResult,
   EventRecord,
   LlmSettings,
   LlmSettingsInfo,
@@ -1199,6 +1201,151 @@ export class Store {
       payload: patch,
     });
     return agent;
+  }
+
+  /**
+   * t167：删除成员。Router 由 service 拒绝；有活跃 Run 时拒绝；
+   * 历史消息/聊天保留，归属任务改为未分配（不静默改所有者）。
+   */
+  deleteAgent(id: string): DeleteAgentResult {
+    return this.withTransaction(() => {
+      const agent = this.getAgent(id);
+      if (!agent) throw new Error(`agent not found: ${id}`);
+      if (agent.isRouter) throw new Error("Router 不能删除");
+      const active = this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM runs WHERE agent_id = ? AND status IN ('queued','running','waiting_human')",
+        )
+        .get(id) as { n: number };
+      if (Number(active.n) > 0) {
+        throw new Error("成员还有排队/运行中的 Run，请先取消或等待其结束");
+      }
+      const reassigned = this.db
+        .prepare("UPDATE tasks SET owner_id = NULL WHERE owner_id = ?")
+        .run(id);
+      this.db.prepare("DELETE FROM agents WHERE id = ?").run(id);
+      this.appendEvent({
+        aggregateType: "workspace",
+        aggregateId: agent.workspaceId,
+        type: "agent.deleted",
+        actor: "user",
+        payload: {
+          agentId: id,
+          name: agent.name,
+          role: agent.role,
+          reassignedTasks: Number(reassigned.changes ?? 0),
+        },
+      });
+      return { agentId: id, reassignedTasks: Number(reassigned.changes ?? 0) };
+    });
+  }
+
+  /**
+   * t167：删除任务。保留事件日志，清理 Run、TaskSummary 与评审投影；
+   * 有活跃 Run 或被其他任务依赖时拒绝，避免破坏 DAG。
+   */
+  deleteTask(id: string): DeleteTaskResult {
+    return this.withTransaction(() => {
+      const task = this.getTask(id);
+      if (!task) throw new Error(`task not found: ${id}`);
+      if (["queued", "running", "waiting_human"].includes(task.status)) {
+        throw new Error("任务正在排队/运行中，请先取消任务");
+      }
+      const activeRuns = this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM runs WHERE task_id = ? AND status IN ('queued','running','waiting_human')",
+        )
+        .get(id) as { n: number };
+      if (Number(activeRuns.n) > 0) {
+        throw new Error("任务还有排队/运行中的 Run，请先取消或等待其结束");
+      }
+      const dependents = this.listTasks(task.workspaceId).filter((row) =>
+        row.dependsOn.includes(id),
+      );
+      if (dependents.length > 0) {
+        throw new Error(
+          `还有 ${dependents.length} 个任务依赖它（${dependents
+            .slice(0, 3)
+            .map((row) => row.title)
+            .join("、")}），请先解除依赖`,
+        );
+      }
+
+      const runs = this.db
+        .prepare("SELECT COUNT(*) AS n FROM runs WHERE task_id = ?")
+        .get(id) as { n: number };
+      const summaries = this.db
+        .prepare("SELECT COUNT(*) AS n FROM summaries WHERE task_id = ?")
+        .get(id) as { n: number };
+
+      this.deleteReviewProjectionForTask(id);
+      this.db.prepare("DELETE FROM summaries WHERE task_id = ?").run(id);
+      this.db.prepare("DELETE FROM runs WHERE task_id = ?").run(id);
+      this.db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+      this.appendEvent({
+        aggregateType: "task",
+        aggregateId: id,
+        type: "task.deleted",
+        actor: "user",
+        payload: {
+          taskId: id,
+          title: task.title,
+          status: task.status,
+          removedRuns: Number(runs.n ?? 0),
+          removedSummaries: Number(summaries.n ?? 0),
+        },
+      });
+      return {
+        taskId: id,
+        removedRuns: Number(runs.n ?? 0),
+        removedSummaries: Number(summaries.n ?? 0),
+      };
+    });
+  }
+
+  /** t167：评审表可能由 ReviewStore 延迟创建；存在才清理，避免旧库报错。 */
+  private deleteReviewProjectionForTask(taskId: string): void {
+    const tables = new Set(
+      (
+        this.db
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+          .all() as Array<{ name?: string }>
+      ).map((row) => String(row.name ?? "")),
+    );
+    const has = (name: string) => tables.has(name);
+    if (has("review_reanchor_log") && has("review_threads")) {
+      this.db
+        .prepare(
+          "DELETE FROM review_reanchor_log WHERE thread_id IN (SELECT id FROM review_threads WHERE task_id = ?)",
+        )
+        .run(taskId);
+    }
+    if (has("review_comments") && has("review_threads")) {
+      this.db
+        .prepare(
+          "DELETE FROM review_comments WHERE thread_id IN (SELECT id FROM review_threads WHERE task_id = ?)",
+        )
+        .run(taskId);
+    }
+    if (has("review_threads")) {
+      this.db.prepare("DELETE FROM review_threads WHERE task_id = ?").run(taskId);
+    }
+    for (const table of [
+      "review_diff_files",
+      "review_decisions",
+      "review_reviewers",
+    ]) {
+      if (has(table) && has("review_targets")) {
+        this.db
+          .prepare(
+            `DELETE FROM ${table} WHERE target_id IN (SELECT id FROM review_targets WHERE task_id = ?)`,
+          )
+          .run(taskId);
+      }
+    }
+    if (has("review_targets")) {
+      this.db.prepare("DELETE FROM review_targets WHERE task_id = ?").run(taskId);
+    }
   }
 
   // tasks ----------------------------------------------------------------

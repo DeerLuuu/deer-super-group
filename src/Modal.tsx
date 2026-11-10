@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * C25 模态框可用性基线：全部弹窗共用的 Modal 原语。
@@ -35,6 +36,7 @@ export default function Modal({
   className = "",
   /** t64：可选初始焦点（提问弹窗聚焦首个字段）；不传时沿用「首个可聚焦元素」。 */
   initialFocusRef,
+  portal = false,
   children,
 }: {
   title: string;
@@ -43,6 +45,8 @@ export default function Modal({
   confirmClose?: boolean;
   className?: string;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /** t167：Dock 面板内可能有 transform，portal 到 body 才能全屏居中。 */
+  portal?: boolean;
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -118,7 +122,7 @@ export default function Modal({
     onClose();
   }
 
-  return (
+  const content = (
     <div className="modal-backdrop" onMouseDown={requestClose}>
       <div
         className={`modal ${className}`}
@@ -142,4 +146,7 @@ export default function Modal({
       </div>
     </div>
   );
+  return portal && typeof document !== "undefined"
+    ? createPortal(content, document.body)
+    : content;
 }
