@@ -3175,6 +3175,15 @@ function TasksView({
               >
                 {listCollapsed ? "展开列表" : "收起列表"}
               </button>
+              <button
+                type="button"
+                className="ghost tiny run-danger"
+                onClick={() => setDeleteOpen(true)}
+                disabled={busy}
+                title="删除任务：需要二级确认；运行中任务需先取消"
+              >
+                删除任务
+              </button>
             </div>
           )}
         </div>
@@ -3319,15 +3328,6 @@ function TasksView({
                   }
                 >
                   {actionBusy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
-                </button>
-                <button
-                  type="button"
-                  className="ghost small run-danger"
-                  onClick={() => setDeleteOpen(true)}
-                  disabled={busy}
-                  title="删除任务：需二次确认；不会直接 push main"
-                >
-                  删除任务
                 </button>
               </div>
             </div>

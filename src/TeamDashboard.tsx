@@ -374,6 +374,10 @@ export default function TeamDashboard({
           busy={busy}
           onClose={() => setDialog(null)}
           onSubmit={submitAgent}
+          onDeleteRequest={(target, owned) => {
+            setDialog(null);
+            setDeleteMember({ agent: target, owned });
+          }}
         />
       )}
 
@@ -576,12 +580,14 @@ function AgentDialog({
   busy,
   onClose,
   onSubmit,
+  onDeleteRequest,
 }: {
   agent: Agent | null;
   snapshot: Snapshot;
   busy: boolean;
   onClose: () => void;
   onSubmit: (draft: AgentDraft) => void;
+  onDeleteRequest: (agent: Agent, owned: number) => void;
 }) {
   const [name, setName] = useState(agent?.name ?? "");
   const [role, setRole] = useState(agent?.role ?? "engineer");
@@ -721,6 +727,29 @@ function AgentDialog({
               rows={2}
             />
           </label>
+          {agent && !agent.isRouter && (
+            <div className="agent-danger-zone">
+              <div>
+                <strong>危险操作</strong>
+                <span className="muted tiny">
+                  删除成员后，其 {snapshot.tasks.filter((task) => task.ownerId === agent.id).length} 个归属任务会转为未分配。
+                </span>
+              </div>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={busy}
+                onClick={() =>
+                  onDeleteRequest(
+                    agent,
+                    snapshot.tasks.filter((task) => task.ownerId === agent.id).length,
+                  )
+                }
+              >
+                删除成员
+              </button>
+            </div>
+          )}
           <div className="modal-foot">
             <button type="button" className="ghost" onClick={onClose}>
               取消
