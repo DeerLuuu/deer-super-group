@@ -62,6 +62,19 @@ export interface LlmClient {
   complete(request: LlmRequest): Promise<LlmCompletion>;
 }
 
+/**
+ * t172：OpenAI-compatible providers only accept `^[a-zA-Z0-9_-]+$` for
+ * function names, while internal tools use dots (`fs.read`). Encode dots as
+ * `__` on the wire; decode tool-call names before execution.
+ */
+export function encodeToolName(name: string): string {
+  return name.replaceAll(".", "__").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+export function decodeToolName(name: string): string {
+  return name.replaceAll("__", ".");
+}
+
 export async function collectStream(
   stream: AsyncIterable<LlmStreamEvent>,
   handlers: { onText?: (text: string) => void; onReasoning?: (text: string) => void } = {},
@@ -94,7 +107,9 @@ export async function collectStream(
   return {
     text,
     reasoning,
-    toolCalls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
+    toolCalls: [...calls.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, call]) => ({ ...call, name: decodeToolName(call.name) })),
     usage,
   };
 }
@@ -112,7 +127,7 @@ function toWireMessage(message: LlmMessage): Record<string, unknown> {
             tool_calls: message.toolCalls.map((call) => ({
               id: call.id,
               type: "function",
-              function: { name: call.name, arguments: call.arguments },
+              function: { name: encodeToolName(call.name), arguments: call.arguments },
             })),
           }
         : {}),
@@ -144,7 +159,7 @@ export class OpenAiClient implements LlmClient {
         tools: request.tools?.map((tool) => ({
           type: "function",
           function: {
-            name: tool.name,
+            name: encodeToolName(tool.name),
             description: tool.description,
             parameters: tool.parameters,
           },

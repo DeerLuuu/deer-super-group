@@ -16,6 +16,8 @@ function sse(response: ServerResponse, payload: unknown): void {
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+let lastToolNames: string[] = [];
+
 function handle(request: IncomingMessage, response: ServerResponse): void {
   if (request.url === "/v1/models") {
     response.writeHead(200, { "Content-Type": "application/json" });
@@ -23,7 +25,21 @@ function handle(request: IncomingMessage, response: ServerResponse): void {
     return;
   }
   if (request.url === "/v1/chat/completions") {
-    request.resume();
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += String(chunk);
+    });
+    request.on("end", () => {
+      try {
+        const parsed = JSON.parse(body) as { tools?: Array<{ function?: { name?: string } }> };
+        lastToolNames = (parsed.tools ?? [])
+          .map((tool) => tool.function?.name ?? "")
+          .filter(Boolean);
+      } catch {
+        lastToolNames = [];
+      }
+    });
     response.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -112,5 +128,14 @@ describe("OpenAI-compatible integration", () => {
     expect(updated?.summary).toContain("Hello from fake model");
     const trace = service.getTaskTrace(task.id);
     expect(trace.some((event) => event.type === "assistant.message")).toBe(true);
+
+    // t172：provider 只接受 [a-zA-Z0-9_-]；内部点号工具名必须在 wire 上编码。
+    lastToolNames = [];
+    await service.sendChat(workspace.id, "用一句话打个招呼");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(lastToolNames.length).toBeGreaterThan(0);
+    for (const name of lastToolNames) {
+      expect(name).toMatch(/^[a-zA-Z0-9_-]+$/);
+    }
   });
 });

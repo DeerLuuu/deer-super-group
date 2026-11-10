@@ -43,6 +43,16 @@ type ToolPolicy = { mode: "chat" | "task"; taskId?: string | null }
   - schema 过滤 + 不可用工具执行拒绝。
 - 全量 typecheck/build/test。
 
+## Provider wire names（t172）
+
+OpenAI-compatible provider 只接受 `^[a-zA-Z0-9_-]+$` 的 function name。
+内部工具名保留点号（如 `fs.read`），发送前编码为 `fs__read`；模型返回的
+tool call 名称在 `collectStream` 中解码回内部名再执行。
+
+- `toWireMessage` 与 tools schema 使用 `encodeToolName`；
+- tool call 解析后使用 `decodeToolName`；
+- 覆盖测试断言所有内置工具编码后符合 provider pattern。
+
 ## 边界
 
 - `task.complete` 仍只适用于任务上下文，这是上下文约束，不是角色约束。
