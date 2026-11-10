@@ -9,6 +9,8 @@ import type {
   ChatEvent,
   ChatMessage,
   ChatQuestionRecord,
+  ClearChatContextResult,
+  CompactChatContextResult,
   ContextSnapshot,
   CreateAgentInput,
   CreateTaskInput,
@@ -122,6 +124,10 @@ export interface DeerApi {
   listChat(workspaceId: string, agentId?: string): Promise<ChatMessage[]>;
   sendChat(workspaceId: string, message: string): Promise<ChatMessage | null>;
   cancelChat(workspaceId: string): Promise<void>;
+  /** t170：/clear 命令——清空当前 Router 对话、画布索引与提问。 */
+  clearChatContext(workspaceId: string): Promise<ClearChatContextResult>;
+  /** t170：/compact 命令——保留最近 8 条，其余压缩为 system 摘要。 */
+  compactChatContext(workspaceId: string): Promise<CompactChatContextResult>;
   getContext(workspaceId: string, agentId?: string, taskId?: string): Promise<ContextSnapshot>;
   /** DESIGN §15.4：满血模式开关（会话级提示/预算覆盖，不碰权限）。 */
   setFullThrottle(workspaceId: string, agentId: string, enabled: boolean): Promise<void>;
