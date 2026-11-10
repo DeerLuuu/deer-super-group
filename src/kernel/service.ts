@@ -52,7 +52,13 @@ import {
   type LlmMessage,
 } from "./model.js";
 import { resolveModelProfile, resolveProvider } from "../shared/models.js";
-import { createBuiltinTools, ToolRegistry, type RiskApprovalOutcome, type ToolContext } from "./tools.js";
+import {
+  createBuiltinTools,
+  ToolRegistry,
+  type RiskApprovalOutcome,
+  type ToolContext,
+  type ToolPolicy,
+} from "./tools.js";
 import { runAgentLoop } from "./loop.js";
 import { Store } from "./store.js";
 import { fullThrottleBudget, withFullThrottle } from "./permission.js";
@@ -124,6 +130,7 @@ function buildRouterSystemPrompt(workspace: Workspace, agents: Agent[], tasks: T
       .join("\n")}`,
     `Tasks:\n${tasks.map((task) => `- ${task.title} [${task.status}]`).join("\n") || "(none)"}`,
     "You are chatting with the user. Be concise, ask for missing information, and suggest next steps.",
+    "Tool access is governed by your permission mode and workspace policy, not by role. Read/inspect before editing; request approval when policy requires it; never claim a tool is unavailable without trying it.",
     "If the user wants a task plan, tell them to use the Plan button or describe the goal in detail.",
     // t64：交互协议 v1 只注入 Router 对话（worker 循环不注入，见设计 §5.8）。
     INTERACTIVE_PROMPT_V1,
@@ -542,7 +549,7 @@ export class AppService {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const messages: LlmMessage[] = [
+    const initialMessages: LlmMessage[] = [
       {
         role: "system",
         content: systemContent,
@@ -558,15 +565,47 @@ export class AppService {
       ),
     ];
 
+    // t171：Router 与 worker 使用同一工具 registry/policy；是否可用由 permission/审批与上下文决定。
+    const chatTools = new ToolRegistry()
+      .registerAll(createBuiltinTools())
+      .registerAll(createMemoryTools(this.memory));
+    const toolPolicy: ToolPolicy = { mode: "chat", taskId: null };
+    const toolContext: ToolContext = {
+      workspaceId,
+      workspacePath: workspace.path,
+      worktreePath: workspace.path,
+      taskId: "",
+      runId: `chat:${router.id}`,
+      agentId: router.id,
+      agentName: router.name,
+      store: this.store,
+      permission: router.permission,
+      requestApproval:
+        router.permission === "auto_risk"
+          ? async (input) =>
+              this.requestRiskApproval({
+                workspaceId,
+                taskId: "",
+                agentName: router.name,
+                ...input,
+              })
+          : undefined,
+    };
+
     const controller = new AbortController();
     this.chatAborts.set(workspaceId, controller);
-    let text = "";
-    let reasoning = "";
 
     try {
-      for await (const event of client.stream({
+      const result = await runAgentLoop({
+        client,
         model: profile.modelId,
-        messages,
+        systemPrompt: systemContent,
+        userMessage: "",
+        initialMessages,
+        tools: chatTools,
+        toolContext,
+        toolPolicy,
+        maxSteps: budget ? 30 * budget.maxStepsFactor : 12,
         maxOutputTokens: budget?.maxOutputTokens ?? profile.maxOutputTokens,
         reasoningEffort:
           budget?.reasoningEffort ??
@@ -574,26 +613,17 @@ export class AppService {
         thinkingEnabled: profile.thinkingEnabled,
         thinkingStyle: thinkingStyleFor(provider, profile.modelId),
         signal: controller.signal,
-      })) {
-        if (event.type === "text") {
-          text += event.text;
-          this.emitChat({ type: "delta", workspaceId, agentId: router.id, text: event.text });
-        } else if (event.type === "reasoning") {
-          reasoning += event.text;
-          this.emitChat({
-            type: "reasoning",
-            workspaceId,
-            agentId: router.id,
-            text: event.text,
-          });
-        }
-      }
+        onTextDelta: (text) =>
+          this.emitChat({ type: "delta", workspaceId, agentId: router.id, text }),
+        onReasoningDelta: (text) =>
+          this.emitChat({ type: "reasoning", workspaceId, agentId: router.id, text }),
+      });
       const assistant = this.store.addChatMessage({
         workspaceId,
         agentId: router.id,
         role: "assistant",
-        content: text.trim() || "（无回复）",
-        reasoning: reasoning.trim(),
+        content: result.text.trim() || "（无回复）",
+        reasoning: result.reasoning.trim(),
       });
       // t64 §9.4：落库后 ingest 画布/提问（幂等）；任何异常只写审计事件，不阻断 done。
       try {
@@ -1143,10 +1173,10 @@ export class AppService {
       `${memos.length} 条`,
     );
 
-    const tools = createBuiltinTools().map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-    }));
+    const tools = new ToolRegistry()
+      .registerAll(createBuiltinTools())
+      .registerAll(createMemoryTools(this.memory))
+      .list({ mode: "chat", taskId: null });
 
     return {
       agent,

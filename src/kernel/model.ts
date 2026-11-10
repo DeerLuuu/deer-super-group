@@ -62,7 +62,10 @@ export interface LlmClient {
   complete(request: LlmRequest): Promise<LlmCompletion>;
 }
 
-export async function collectStream(stream: AsyncIterable<LlmStreamEvent>): Promise<LlmCompletion> {
+export async function collectStream(
+  stream: AsyncIterable<LlmStreamEvent>,
+  handlers: { onText?: (text: string) => void; onReasoning?: (text: string) => void } = {},
+): Promise<LlmCompletion> {
   let text = "";
   let reasoning = "";
   const calls = new Map<number, LlmToolCall>();
@@ -71,8 +74,10 @@ export async function collectStream(stream: AsyncIterable<LlmStreamEvent>): Prom
   for await (const event of stream) {
     if (event.type === "text") {
       text += event.text;
+      handlers.onText?.(event.text);
     } else if (event.type === "reasoning") {
       reasoning += event.text;
+      handlers.onReasoning?.(event.text);
     } else if (event.type === "tool_call") {
       const current =
         calls.get(event.index) ??
