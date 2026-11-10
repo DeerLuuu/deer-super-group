@@ -36,7 +36,7 @@ export default function Modal({
   className = "",
   /** t64：可选初始焦点（提问弹窗聚焦首个字段）；不传时沿用「首个可聚焦元素」。 */
   initialFocusRef,
-  portal = false,
+  portal = true,
   children,
 }: {
   title: string;
@@ -45,7 +45,7 @@ export default function Modal({
   confirmClose?: boolean;
   className?: string;
   initialFocusRef?: RefObject<HTMLElement | null>;
-  /** t167：Dock 面板内可能有 transform，portal 到 body 才能全屏居中。 */
+  /** t168：Dock 面板可能有 transform/overflow；默认 portal 到 body，覆盖全屏层级。 */
   portal?: boolean;
   children: ReactNode;
 }) {

@@ -2989,7 +2989,8 @@ label.check input {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  /* t168：所有二级弹窗必须盖住 Dock 面板、命令面板（150）与合并队列层（210）。 */
+  z-index: 1000;
   background: rgba(1, 4, 9, 0.7);
   display: grid;
   place-items: center;
