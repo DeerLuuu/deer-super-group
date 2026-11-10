@@ -179,6 +179,11 @@ export class WatchdogService {
     entry.count += 1;
     entry.lastAt = now;
     this.providerFailureWindows.set(providerId, entry);
+    this.persistProviderFailureWindows();
+    return entry.count;
+  }
+
+  private persistProviderFailureWindows(): void {
     try {
       this.store.setSetting(
         "watchdog.providerFailures",
@@ -187,7 +192,21 @@ export class WatchdogService {
     } catch {
       // 内存计数仍可用
     }
-    return entry.count;
+  }
+
+  private resetProviderFailureWindow(providerId: string): void {
+    this.loadProviderFailureWindows();
+    if (!this.providerFailureWindows.delete(providerId)) return;
+    this.persistProviderFailureWindows();
+  }
+
+  /** t165 F1：成功 Run 清除该 provider 的连续失败窗口（不是 model 冷却 TTL）。 */
+  private resetProviderFailureWindowForRun(runId: string): void {
+    const run = this.store.getRun(runId);
+    if (!run) return;
+    const agent = this.store.getAgent(run.agentId);
+    const profile = this.resolveAgentProfile(agent, run.modelProfileId);
+    if (profile) this.resetProviderFailureWindow(profile.providerId);
   }
 
   private holdForCooldown(task: Task, profile: ModelProfile, reason: string): void {
@@ -370,8 +389,27 @@ export class WatchdogService {
         modelProfileId: target.id,
         handoffId: handoff.id,
       });
-    } catch {
+    } catch (error) {
       this.watchdog.updateIntervention(intervention.id, "skipped", { handoffId: handoff.id });
+      this.pendingModelByTask.delete(task.id);
+      this.escalate(
+        task,
+        run,
+        {
+          kind: "provider_quota",
+          severity: "critical",
+          evidence: {
+            providerId: profile.providerId,
+            modelId: profile.modelId,
+            failureCount,
+            handoffId: handoff.id,
+            retryError: error instanceof Error ? error.message : String(error),
+            reason: "retryTaskWithModel failed",
+          },
+          windowMs: 300_000,
+        },
+        "retryTaskWithModel failed after provider quota",
+      );
       return;
     }
     this.watchdog.updateIntervention(intervention.id, "applied", { handoffId: handoff.id });
@@ -538,6 +576,7 @@ export class WatchdogService {
   }
 
   onRunFinished(info: { runId: string; taskId: string; status: string }): void {
+    if (info.status === "completed") this.resetProviderFailureWindowForRun(info.runId);
     this.finalizeRunEvent(info.runId, false);
   }
 

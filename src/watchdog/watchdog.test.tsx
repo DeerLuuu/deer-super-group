@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -649,6 +649,126 @@ describe("t144 watchdog service", () => {
     };
     await runCase(null);
     await runCase(["m2"]);
+  });
+
+  it("resets provider failure window on a successful Run (429→success→429 no '*')", async () => {
+    let calls = 0;
+    const executor: RunExecutor = async () => {
+      calls += 1;
+      if (calls === 1 || calls === 3) {
+        const error = new Error("rate limited") as Error & { code?: string; retryable?: boolean };
+        error.code = "PROVIDER_RATE_LIMIT";
+        error.retryable = true;
+        throw error;
+      }
+      return { summary: "success" };
+    };
+    const { store, workspace, agent, clock, kernel, watchdog } = setup(executor);
+    const provider = defaultProviderProfile(
+      { baseUrl: "https://example.test/v1", baseUrlEnv: "", apiKey: "test", apiKeyEnv: "" },
+      "p1",
+      "Provider 1",
+    );
+    const m1 = defaultModelProfile("m1", "p1");
+    const m2 = defaultModelProfile("m2", "p1");
+    store.saveLlmSettings({
+      ...store.getLlmSettings(),
+      providers: [provider],
+      models: [m1, m2],
+      model: m1.id,
+      mock: true,
+    });
+    expect(
+      watchdog.setFallbackChain({ workspaceId: workspace.id, agentId: agent.id, models: [m2.id] }).ok,
+    ).toBe(true);
+
+    const first = createTask(store, workspace.id, "success-reset-1");
+    kernel.startTask(first.id);
+    await waitFor(() => store.getTask(first.id)?.status === "done");
+    expect(watchdog.watchdog.isCooling("p1", m1.modelId, new Date(clock.now()).toISOString())).toBe(true);
+    // 成功 Run 已清 provider window；手动让 model TTL 过期以验证下一次失败重新从 1 计数。
+    watchdog.watchdog.setCooldown({
+      providerId: "p1",
+      modelId: m1.modelId,
+      until: new Date(clock.now() - 1_000).toISOString(),
+      reason: "expired",
+    });
+    expect(watchdog.watchdog.isCooling("p1", "*", new Date(clock.now()).toISOString())).toBe(false);
+
+    const second = createTask(store, workspace.id, "success-reset-2");
+    kernel.startTask(second.id);
+    await waitFor(() => store.getTask(second.id)?.status === "done");
+    expect(calls).toBe(4);
+    expect(watchdog.watchdog.isCooling("p1", "*", new Date(clock.now()).toISOString())).toBe(false);
+    expect(watchdog.watchdog.isCooling("p1", m1.modelId, new Date(clock.now()).toISOString())).toBe(true);
+  });
+
+  it("recordProviderQuota external path uses the same provider window", () => {
+    const { clock, watchdog } = setup(async () => ({ summary: "ok" }));
+    watchdog.recordProviderQuota({ providerId: "p1", modelId: "m1" });
+    expect(watchdog.watchdog.isCooling("p1", "*", new Date(clock.now()).toISOString())).toBe(false);
+    watchdog.recordProviderQuota({ providerId: "p1", modelId: "m1" });
+    expect(watchdog.watchdog.isCooling("p1", "*", new Date(clock.now()).toISOString())).toBe(true);
+  });
+
+  it("escalates with handoff/hold when retryTaskWithModel throws", async () => {
+    let calls = 0;
+    const executor: RunExecutor = async () => {
+      calls += 1;
+      const error = new Error("rate limited") as Error & { code?: string; retryable?: boolean };
+      error.code = "PROVIDER_RATE_LIMIT";
+      error.retryable = true;
+      throw error;
+    };
+    const { store, workspace, agent, kernel, watchdog } = setup(executor);
+    const provider = defaultProviderProfile(
+      { baseUrl: "https://example.test/v1", baseUrlEnv: "", apiKey: "test", apiKeyEnv: "" },
+      "p1",
+      "Provider 1",
+    );
+    const m1 = defaultModelProfile("m1", "p1");
+    const m2 = defaultModelProfile("m2", "p1");
+    store.saveLlmSettings({
+      ...store.getLlmSettings(),
+      providers: [provider],
+      models: [m1, m2],
+      model: m1.id,
+      mock: true,
+    });
+    expect(
+      watchdog.setFallbackChain({ workspaceId: workspace.id, agentId: agent.id, models: [m2.id] }).ok,
+    ).toBe(true);
+    const spy = vi.spyOn(kernel, "retryTaskWithModel").mockImplementation(() => {
+      throw new Error("injected retry failure");
+    });
+    const task = createTask(store, workspace.id, "retry-throws");
+    kernel.startTask(task.id);
+    await waitFor(
+      () =>
+        watchdog.watchdog
+          .listInterventions(workspace.id)
+          .some((item) => item.level === "human"),
+      3_000,
+    );
+    expect(calls).toBe(1);
+    expect(store.getTask(task.id)?.status).not.toBe("done");
+    expect(kernel.getScheduler(workspace.id).paused).toBe(true);
+    expect(
+      watchdog.watchdog
+        .listHolds(workspace.id, task.id)
+        .some((hold) => hold.reason === "escalation"),
+    ).toBe(true);
+    expect(watchdog.watchdog.listHandoffs(workspace.id).length).toBeGreaterThanOrEqual(1);
+    const snapshot = watchdog.getSnapshot(workspace.id);
+    expect(snapshot.ok).toBe(true);
+    if (snapshot.ok) {
+      expect(
+        snapshot.value.alerts.some(
+          (alert) => alert.kind === "provider_quota" && alert.severity === "critical",
+        ),
+      ).toBe(true);
+    }
+    spy.mockRestore();
   });
 
   it("isolates watchdog API by workspace", async () => {
