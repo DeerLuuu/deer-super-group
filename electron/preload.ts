@@ -74,6 +74,10 @@ const api: DeerApi = {
   sendChat: (workspaceId: string, message: string) =>
     ipcRenderer.invoke("chat:send", workspaceId, message),
   cancelChat: (workspaceId: string) => ipcRenderer.invoke("chat:cancel", workspaceId),
+  clearChatContext: (workspaceId: string) =>
+    ipcRenderer.invoke("chat:clear-context", workspaceId),
+  compactChatContext: (workspaceId: string) =>
+    ipcRenderer.invoke("chat:compact-context", workspaceId),
   getContext: (workspaceId: string, agentId?: string, taskId?: string) =>
     ipcRenderer.invoke("context:get", workspaceId, agentId, taskId),
   setFullThrottle: (workspaceId: string, agentId: string, enabled: boolean) =>

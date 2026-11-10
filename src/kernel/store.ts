@@ -1648,6 +1648,8 @@ export class Store {
     role: ChatRole;
     content: string;
     reasoning?: string;
+    /** t170：压缩摘要需要排在最近消息之前。 */
+    createdAt?: string;
   }): ChatMessage {
     const message: ChatMessage = {
       id: newId("chat"),
@@ -1656,7 +1658,7 @@ export class Store {
       role: input.role,
       content: input.content,
       reasoning: input.reasoning ?? "",
-      createdAt: now(),
+      createdAt: input.createdAt ?? now(),
     };
     this.db
       .prepare(
@@ -1692,6 +1694,121 @@ export class Store {
           )
           .all(workspaceId, limit) as Row[]);
     return rows.map(toChatMessage).reverse();
+  }
+
+  /** t170：清空当前对话、画布索引与提问；事件日志保留。 */
+  clearChatContext(
+    workspaceId: string,
+    agentId: string,
+  ): { removedMessages: number; removedArtifacts: number; removedQuestions: number } {
+    return this.withTransaction(() => {
+      const messages = this.db
+        .prepare("SELECT COUNT(*) AS n FROM chat_messages WHERE workspace_id = ? AND agent_id = ?")
+        .get(workspaceId, agentId) as { n: number };
+      const artifacts = this.db
+        .prepare("SELECT COUNT(*) AS n FROM chat_artifacts WHERE workspace_id = ? AND agent_id = ?")
+        .get(workspaceId, agentId) as { n: number };
+      const questions = this.db
+        .prepare("SELECT COUNT(*) AS n FROM chat_questions WHERE workspace_id = ? AND agent_id = ?")
+        .get(workspaceId, agentId) as { n: number };
+      this.db
+        .prepare("DELETE FROM chat_questions WHERE workspace_id = ? AND agent_id = ?")
+        .run(workspaceId, agentId);
+      this.db
+        .prepare("DELETE FROM chat_artifacts WHERE workspace_id = ? AND agent_id = ?")
+        .run(workspaceId, agentId);
+      this.db
+        .prepare("DELETE FROM chat_messages WHERE workspace_id = ? AND agent_id = ?")
+        .run(workspaceId, agentId);
+      this.appendEvent({
+        aggregateType: "chat",
+        aggregateId: workspaceId,
+        type: "chat.context_cleared",
+        actor: "user",
+        payload: {
+          agentId,
+          removedMessages: Number(messages.n ?? 0),
+          removedArtifacts: Number(artifacts.n ?? 0),
+          removedQuestions: Number(questions.n ?? 0),
+        },
+      });
+      return {
+        removedMessages: Number(messages.n ?? 0),
+        removedArtifacts: Number(artifacts.n ?? 0),
+        removedQuestions: Number(questions.n ?? 0),
+      };
+    });
+  }
+
+  /**
+   * t170：保留最近 keep 条，旧消息替换为一条 system 摘要。
+   * 摘要 createdAt 放在最近消息之前，保证 prompt/UI 顺序稳定。
+   */
+  compactChatContext(
+    workspaceId: string,
+    agentId: string,
+    keep = 8,
+  ): { summarizedMessages: number; keptMessages: number; summary: string } {
+    return this.withTransaction(() => {
+      const messages = this.listChatMessages(workspaceId, agentId, 200);
+      if (messages.length <= keep) {
+        return { summarizedMessages: 0, keptMessages: messages.length, summary: "" };
+      }
+      const older = messages.slice(0, messages.length - keep);
+      const recent = messages.slice(messages.length - keep);
+      const trim = (value: string, max = 180) => {
+        const normalized = value.replace(/\s+/g, " ").trim();
+        return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
+      };
+      const userGoals = older
+        .filter((message) => message.role === "user")
+        .slice(-4)
+        .map((message) => `- ${trim(message.content)}`);
+      const assistantNotes = older
+        .filter((message) => message.role === "assistant")
+        .slice(-4)
+        .map((message) => `- ${trim(message.content)}`);
+      const summary = [
+        `[上下文压缩] 已将 ${older.length} 条较早消息压缩为摘要，保留最近 ${recent.length} 条。`,
+        userGoals.length ? "近期用户目标：" : "",
+        ...userGoals,
+        assistantNotes.length ? "近期助手结论：" : "",
+        ...assistantNotes,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const placeholders = older.map(() => "?").join(",");
+      this.db
+        .prepare(`DELETE FROM chat_messages WHERE id IN (${placeholders})`)
+        .run(...older.map((message) => message.id));
+      const recentStartedAt = Date.parse(recent[0]?.createdAt ?? "");
+      const summaryCreatedAt = Number.isFinite(recentStartedAt)
+        ? new Date(recentStartedAt - 1).toISOString()
+        : now();
+      this.addChatMessage({
+        workspaceId,
+        agentId,
+        role: "system",
+        content: summary,
+        createdAt: summaryCreatedAt,
+      });
+      this.appendEvent({
+        aggregateType: "chat",
+        aggregateId: workspaceId,
+        type: "chat.context_compacted",
+        actor: "user",
+        payload: {
+          agentId,
+          summarizedMessages: older.length,
+          keptMessages: recent.length,
+        },
+      });
+      return {
+        summarizedMessages: older.length,
+        keptMessages: recent.length,
+        summary,
+      };
+    });
   }
 
   // chat interactive（t64：画布索引 + 提问状态机）-------------------------

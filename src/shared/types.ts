@@ -225,6 +225,20 @@ export interface ChatMessage {
   createdAt: IsoDate;
 }
 
+/** t170：清空对话上下文的结果。 */
+export interface ClearChatContextResult {
+  removedMessages: number;
+  removedArtifacts: number;
+  removedQuestions: number;
+}
+
+/** t170：压缩对话上下文的结果。 */
+export interface CompactChatContextResult {
+  summarizedMessages: number;
+  keptMessages: number;
+  summary: string;
+}
+
 export type ChatEvent =
   | { type: "delta"; workspaceId: Id; agentId: Id; text: string }
   | { type: "reasoning"; workspaceId: Id; agentId: Id; text: string }

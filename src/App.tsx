@@ -205,6 +205,7 @@ export default function App() {
   const [chatStream, setChatStream] = useState("");
   const [chatReasoning, setChatReasoning] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatContextBusy, setChatContextBusy] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [context, setContext] = useState<ContextSnapshot | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
@@ -1529,9 +1530,69 @@ export default function App() {
     void sendChatText(answerText, { failureToast: "重新发送回答失败，请稍后重试" });
   }
 
+  async function handleClearContext(): Promise<void> {
+    const current = snapshotRef.current;
+    if (!current || chatBusy || chatContextBusy) return;
+    if (
+      chatMessages.length > 0 &&
+      !window.confirm("清空当前对话上下文？消息、画布索引与提问会被删除，此操作不可撤销。")
+    ) {
+      return;
+    }
+    setChatContextBusy(true);
+    setError(null);
+    try {
+      const result = await window.deer.clearChatContext(current.workspace.id);
+      await loadChat();
+      pushToast({
+        kind: "success",
+        message: `已清空上下文：${result.removedMessages} 条消息、${result.removedArtifacts} 个画布、${result.removedQuestions} 个提问`,
+      });
+    } catch (error) {
+      setError(errorText(error));
+      pushToast({ kind: "error", message: `清空上下文失败：${errorText(error)}` });
+    } finally {
+      setChatContextBusy(false);
+    }
+  }
+
+  async function handleCompactContext(): Promise<void> {
+    const current = snapshotRef.current;
+    if (!current || chatBusy || chatContextBusy) return;
+    setChatContextBusy(true);
+    setError(null);
+    try {
+      const result = await window.deer.compactChatContext(current.workspace.id);
+      await loadChat();
+      pushToast({
+        kind: result.summarizedMessages > 0 ? "success" : "info",
+        message:
+          result.summarizedMessages > 0
+            ? `已压缩 ${result.summarizedMessages} 条消息，保留最近 ${result.keptMessages} 条`
+            : "消息不足 9 条，无需压缩",
+      });
+    } catch (error) {
+      setError(errorText(error));
+      pushToast({ kind: "error", message: `压缩上下文失败：${errorText(error)}` });
+    } finally {
+      setChatContextBusy(false);
+    }
+  }
+
   async function handleSendChat() {
     const text = chatInput.trim();
-    if (!text || chatBusy) return;
+    if (!text || chatBusy || chatContextBusy) return;
+    const command = text.toLowerCase();
+    if (command === "/clear" || command === "/清空") {
+      setChatInput("");
+      await handleClearContext();
+      return;
+    }
+    if (command === "/compact" || command === "/压缩") {
+      setChatInput("");
+      await handleCompactContext();
+      return;
+    }
     setChatInput("");
     await sendChatText(text);
   }
@@ -2424,6 +2485,9 @@ export default function App() {
                         setContextSource(null);
                       }}
                       onOpenContextPanel={() => openPanel("context")}
+                      contextBusy={chatContextBusy}
+                      onClearContext={() => void handleClearContext()}
+                      onCompactContext={() => void handleCompactContext()}
                       overview={snapshot.workspace.overview}
                       routerAgent={chatRouter}
                       modelOptions={chatModelOptions}
@@ -4194,6 +4258,9 @@ function ChatView({
   onReturnToSource,
   onClearTaskContext,
   onOpenContextPanel,
+  contextBusy,
+  onClearContext,
+  onCompactContext,
   overview,
   routerAgent,
   modelOptions,
@@ -4229,6 +4296,10 @@ function ChatView({
   onClearTaskContext: () => void;
   /** t50：上下文已抽为独立 dock 面板，此按钮打开「上下文」面板。 */
   onOpenContextPanel: () => void;
+  /** t170：/clear 与 /compact 命令（也支持输入框斜杠命令）。 */
+  contextBusy: boolean;
+  onClearContext: () => void;
+  onCompactContext: () => void;
   overview: string | null;
   /** DESIGN §15.5：对话控制条——当前成员（Router）与模型选项。 */
   routerAgent: Agent;
@@ -4291,6 +4362,24 @@ function ChatView({
                 返回{taskContextSource === "team" ? "团队" : "任务"}
               </button>
             )}
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={onCompactContext}
+              disabled={busy || contextBusy}
+              title="压缩上下文：保留最近 8 条，较早消息合并为摘要（/compact）"
+            >
+              {contextBusy ? "处理中…" : "压缩"}
+            </button>
+            <button
+              type="button"
+              className="ghost tiny run-danger"
+              onClick={onClearContext}
+              disabled={busy || contextBusy}
+              title="清空上下文：删除当前对话消息、画布索引与提问（/clear）"
+            >
+              清空
+            </button>
             <button type="button" className="ghost tiny" onClick={onOpenContextPanel}>
               上下文
             </button>
@@ -4372,11 +4461,13 @@ function ChatView({
               }
             }}
             rows={3}
-            placeholder="给 Router 发消息… Ctrl+Enter 发送"
+            placeholder="给 Router 发消息… Ctrl+Enter 发送 · /clear 清空 · /compact 压缩"
           />
           <div className="row between">
             <span className="muted tiny">
-              {busy ? "Router 正在回复…" : "上下文与工具会随任务变化"}
+              {busy
+                ? "Router 正在回复…"
+                : "上下文与工具会随任务变化 · /clear 清空 · /compact 压缩"}
             </span>
             <div className="row gap">
               {busy && (

@@ -11,6 +11,8 @@ import type {
   ChatEvent,
   ChatMessage,
   ChatQuestionRecord,
+  ClearChatContextResult,
+  CompactChatContextResult,
   ContextSection,
   ContextSnapshot,
   CreateAgentInput,
@@ -478,6 +480,24 @@ export class AppService {
     return this.store.listChatMessages(workspaceId, agentId ?? router.id, 100);
   }
 
+  /** t170：清空当前 Router 对话上下文；运行中先停止。 */
+  clearChatContext(workspaceId: string): ClearChatContextResult {
+    if (this.chatAborts.has(workspaceId)) throw new Error("chat is already running");
+    const workspace = this.store.getWorkspace(workspaceId);
+    if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
+    const router = this.ensureRouter(workspaceId);
+    return this.store.clearChatContext(workspaceId, router.id);
+  }
+
+  /** t170：保留最近 8 条，把更早上下文压缩为 system 摘要。 */
+  compactChatContext(workspaceId: string): CompactChatContextResult {
+    if (this.chatAborts.has(workspaceId)) throw new Error("chat is already running");
+    const workspace = this.store.getWorkspace(workspaceId);
+    if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
+    const router = this.ensureRouter(workspaceId);
+    return this.store.compactChatContext(workspaceId, router.id, 8);
+  }
+
   async sendChat(workspaceId: string, content: string): Promise<ChatMessage | null> {
     const message = content.trim();
     if (!message) throw new Error("message is required");
@@ -510,8 +530,14 @@ export class AppService {
     // t64 §5.9：画布/问题块进入模型上下文前压缩为摘要，避免 JSON 挤爆上下文；
     // 同时把最近 5 张画布摘要附加到单条 system 消息末尾（不同 provider 对多 system 处理不一致）。
     const recentCanvases = this.recentCanvasSummary(workspaceId, router.id);
+    // t170：压缩后的 system 摘要并入顶部 system，不能作为普通 user turn。
+    const compactedSummaries = history
+      .filter((item) => item.role === "system")
+      .map((item) => item.content);
+    const conversation = history.filter((item) => item.role !== "system");
     const systemContent = [
       fullThrottle ? withFullThrottle(routerPrompt) : routerPrompt,
+      ...compactedSummaries,
       recentCanvases,
     ]
       .filter(Boolean)
@@ -521,7 +547,7 @@ export class AppService {
         role: "system",
         content: systemContent,
       },
-      ...history.map(
+      ...conversation.map(
         (item): LlmMessage => ({
           role: item.role === "assistant" ? "assistant" : "user",
           content:

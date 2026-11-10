@@ -224,6 +224,12 @@ app.whenReady().then(() => {
     getService().sendChat(workspaceId, message),
   );
   handle("chat:cancel", (workspaceId: string) => getService().cancelChat(workspaceId));
+  handle("chat:clear-context", (workspaceId: string) =>
+    getService().clearChatContext(workspaceId),
+  );
+  handle("chat:compact-context", (workspaceId: string) =>
+    getService().compactChatContext(workspaceId),
+  );
   handle(
     "context:get",
     (workspaceId: string, agentId?: string, taskId?: string) =>
