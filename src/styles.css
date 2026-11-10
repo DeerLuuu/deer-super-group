@@ -1959,6 +1959,130 @@ label.check input {
   max-height: 180px;
 }
 
+/* ---------- t173 chat tool trace ---------- */
+
+.chat-tool-trace {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-2) 72%, transparent);
+}
+
+.chat-tool-trace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-tool-item {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.chat-tool-item.is-error {
+  border-color: color-mix(in srgb, var(--status-failed) 42%, var(--border));
+}
+
+.chat-tool-item > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+
+.chat-tool-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-tool-item > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chat-tool-item[open] > summary::before {
+  content: "▾";
+}
+
+.chat-tool-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.chat-tool-item.is-running .chat-tool-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.chat-tool-item.is-ok .chat-tool-dot {
+  background: var(--green);
+}
+
+.chat-tool-item.is-error .chat-tool-dot {
+  background: var(--status-failed);
+}
+
+.chat-tool-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.chat-tool-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.chat-tool-status.is-running {
+  color: var(--accent-2);
+}
+
+.chat-tool-status.is-ok {
+  color: var(--green);
+}
+
+.chat-tool-status.is-error {
+  color: color-mix(in srgb, var(--status-failed) 78%, white);
+}
+
+.chat-tool-detail {
+  display: grid;
+  gap: 8px;
+  padding: 0 9px 9px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-tool-detail pre {
+  margin: 4px 0 0;
+  padding: 8px 9px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .context-body {
   flex: 1;
   min-height: 0;

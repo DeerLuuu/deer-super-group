@@ -242,6 +242,24 @@ export interface CompactChatContextResult {
 export type ChatEvent =
   | { type: "delta"; workspaceId: Id; agentId: Id; text: string }
   | { type: "reasoning"; workspaceId: Id; agentId: Id; text: string }
+  | {
+      type: "tool_call";
+      workspaceId: Id;
+      agentId: Id;
+      callId: string;
+      name: string;
+      arguments: string;
+    }
+  | {
+      type: "tool_result";
+      workspaceId: Id;
+      agentId: Id;
+      callId: string;
+      name: string;
+      ok: boolean;
+      value?: unknown;
+      error?: string;
+    }
   | { type: "done"; workspaceId: Id; agentId: Id; message: ChatMessage }
   | { type: "cancelled"; workspaceId: Id; agentId: Id }
   | { type: "error"; workspaceId: Id; agentId: Id; error: string };
