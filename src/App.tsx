@@ -46,6 +46,7 @@ import {
   TaskVcsPanel,
 } from "./git/ui/GitPanels";
 import MemoryWorkbench from "./shell/MemoryWorkbench";
+import ReviewSection from "./review/ui/ReviewSection";
 import PollPanel from "./shell/PollPanel";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
 import {
@@ -195,6 +196,7 @@ export default function App() {
   const [mergeQueueOpen, setMergeQueueOpen] = useState(false);
   const [gitSettingsFocus, setGitSettingsFocus] = useState(false);
   const [taskVcsFocus, setTaskVcsFocus] = useState(false);
+  const [taskReviewFocus, setTaskReviewFocus] = useState(false);
   const settingsGitRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [trace, setTrace] = useState<EventRecord[]>([]);
@@ -323,6 +325,7 @@ export default function App() {
       setSettingsOpen(false);
       setGitSettingsFocus(false);
       if (key !== "tasks") setTaskVcsFocus(false);
+      if (key !== "tasks") setTaskReviewFocus(false);
       setPanelMenuOpen(false);
       const route = routeTabFromPanel(key);
       if (route) setTab(route);
@@ -390,6 +393,7 @@ export default function App() {
       mergeQueue: mergeQueueOpen,
       gitSettings: gitSettingsFocus,
       taskVcs: taskVcsFocus && Boolean(selectedTaskId),
+      taskReview: taskReviewFocus && Boolean(selectedTaskId),
     });
     if (window.location.hash === hash) return;
     lastWrittenHashRef.current = hash;
@@ -410,6 +414,7 @@ export default function App() {
     mergeQueueOpen,
     gitSettingsFocus,
     taskVcsFocus,
+    taskReviewFocus,
   ]);
 
   // t103：深链/命令 → 滚动并聚焦设置 Git 区或任务 VCS 区。
@@ -438,6 +443,20 @@ export default function App() {
     }, 80);
     return () => window.clearTimeout(timer);
   }, [taskVcsFocus, selectedTaskId]);
+
+  useEffect(() => {
+    if (!taskReviewFocus || !selectedTaskId) return;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById("task-review-section");
+      if (!target) return;
+      const panel = target.closest<HTMLElement>(".task-detail-panel");
+      if (panel) scrollWithin(panel, target);
+      else target.scrollIntoView({ block: "start" });
+      const focusTarget = target.querySelector<HTMLElement>("button, textarea, select");
+      focusTarget?.focus({ preventScroll: true });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [taskReviewFocus, selectedTaskId]);
 
   // C09：窄窗自动折叠侧栏；Ctrl/⌘+B 手动切换。
   useEffect(() => {
@@ -765,6 +784,7 @@ export default function App() {
       setGitSettingsFocus(true);
     }
     setTaskVcsFocus(initialRoute.taskVcs);
+    setTaskReviewFocus(initialRoute.taskReview);
   }, [snapshot, initialRoute, loadTrace, loadRuns]);
 
   // C12：浏览器前进/后退或外部 hash 变更 → 恢复视图（自己写入的 hash 跳过）。
@@ -811,6 +831,7 @@ export default function App() {
         setGitSettingsFocus(false);
       }
       setTaskVcsFocus(route.taskVcs);
+      setTaskReviewFocus(route.taskReview);
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -1674,6 +1695,18 @@ export default function App() {
     setTaskVcsFocus(true);
   }
 
+  function handleOpenTaskReview(taskId?: string | null) {
+    const targetId = taskId ?? selectedTaskId ?? snapshotRef.current?.tasks[0]?.id ?? null;
+    if (!targetId) {
+      pushToast({ kind: "error", message: "先在任务页选择一个任务，再打开评审。" });
+      return;
+    }
+    setSelectedTaskId(targetId);
+    void loadTrace(targetId);
+    openPanel("tasks");
+    setTaskReviewFocus(true);
+  }
+
   // t50：命令面板「面板」组动作 → DockHandle。
   function handlePanelAction(action: PanelAction) {
     if (action === "open-merge-queue") {
@@ -1686,6 +1719,10 @@ export default function App() {
     }
     if (action === "open-task-vcs") {
       handleOpenTaskVcs();
+      return;
+    }
+    if (action === "open-task-review") {
+      handleOpenTaskReview();
       return;
     }
     const dock = dockRef.current;
@@ -3350,6 +3387,10 @@ function TasksView({
               tabIndex={-1}
             >
               <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} />
+            </div>
+
+            <div id="task-review-section" className="task-review-section" tabIndex={-1}>
+              <ReviewSection key={`review-${selectedTask.id}`} taskId={selectedTask.id} />
             </div>
 
             <RunHistory

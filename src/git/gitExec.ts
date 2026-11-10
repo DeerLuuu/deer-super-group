@@ -133,6 +133,13 @@ export function validateGitArgs(
       "--stat",
       "--quiet",
       "--diff-filter=U",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-color",
+      "--find-renames",
+      "--find-copies",
+      "-M",
+      "-C",
       "-z",
     ]);
     let unified = false;
@@ -154,8 +161,7 @@ export function validateGitArgs(
     void unified;
     return { ok: true, args: argv };
   }
-  if (command === "log") {
-    if (rest[0] === "-n" && rest[1] === "1" && rest[2]?.startsWith("--format=")) {
+  if (command === "log") {    if (rest[0] === "-n" && rest[1] === "1" && rest[2]?.startsWith("--format=")) {
       return { ok: true, args: argv };
     }
     return { ok: false, reason: "log shape" };
@@ -165,7 +171,10 @@ export function validateGitArgs(
     return { ok: false, reason: "show shape" };
   }
   if (command === "cat-file") {
-    if (rest[0] === "-p" && rest[1] && isSafeRef(rest[1])) return { ok: true, args: argv };
+    if (rest[0] !== "-p" || !rest[1]) return { ok: false, reason: "cat-file shape" };
+    if (isSafeRef(rest[1])) return { ok: true, args: argv };
+    const refPath = /^([^:]+):(.+)$/.exec(rest[1]);
+    if (refPath && isSafeRef(refPath[1]) && isSafePath(refPath[2])) return { ok: true, args: argv };
     return { ok: false, reason: "cat-file shape" };
   }
   if (command === "merge-base") {
