@@ -2234,6 +2234,7 @@ label.check input {
 
 .team-member {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
   border: 1px solid transparent;
@@ -2264,6 +2265,11 @@ label.check input {
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+
+/* t169：成员行宽度不足时动作换到第二行，避免删除/编辑被横向滚动裁掉。 */
+.team-member-main {
+  flex: 1 1 100%;
 }
 
 .team-member-all {
@@ -2328,6 +2334,7 @@ label.check input {
   cursor: pointer;
   opacity: 0.55;
   padding: 4px 6px;
+  margin-left: auto;
 }
 
 .team-member:hover .team-member-edit,
@@ -6495,4 +6502,48 @@ label.check input {
 }
 @media (prefers-reduced-motion: reduce) {
   .review-section * { transition: none !important; animation: none !important; }
+}
+
+/* ---------- t169 member delete danger zone ---------- */
+
+.agent-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--status-failed) 28%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--status-failed) 6%, var(--bg-2));
+}
+
+.agent-danger-zone strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.agent-danger-zone .muted {
+  display: block;
+  margin-top: 2px;
+  line-height: 1.45;
+}
+/* t169: in the narrow team container, stack actions below instead of clipping a fixed-width card. */
+@container team (max-width: 700px) {
+  .team-member {
+    flex: 0 0 100%;
+  }
+}
+/* t169: narrow team container stacks member rows; actions remain visible. */
+@container team (max-width: 700px) {
+  .team-member-list {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .team-member {
+    width: 100%;
+    flex: 0 0 auto;
+  }
 }
