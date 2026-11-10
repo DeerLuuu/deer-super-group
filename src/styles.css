@@ -4731,17 +4731,19 @@ label.check input {
 /* ---------- 提问弹窗 ---------- */
 
 .modal.question-modal {
-  width: min(560px, calc(100vw - 32px));
-  max-height: min(760px, 85vh);
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(800px, 88vh);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .question-modal .question-form {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   overflow: auto;
   min-height: 0;
+  padding: 14px 16px 0;
 }
 
 .question-description {
@@ -4752,16 +4754,17 @@ label.check input {
 
 .question-fields {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .question-field {
   margin: 0;
-  padding: 8px 10px 10px;
+  padding: 12px 14px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-2) 62%, transparent);
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -4770,13 +4773,14 @@ label.check input {
 }
 
 .question-field legend {
-  padding: 0 4px;
+  padding: 0 5px;
   font-size: 12px;
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .question-required {
@@ -4784,10 +4788,12 @@ label.check input {
 }
 
 .question-kind {
+  margin-left: auto;
   font-weight: 400;
   border: 1px solid var(--border-2);
   border-radius: 4px;
-  padding: 0 4px;
+  padding: 0 5px;
+  line-height: 1.7;
 }
 
 .question-field-desc {
@@ -4795,33 +4801,59 @@ label.check input {
 }
 
 .question-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
 }
 
 .question-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
   font-size: 12px;
   cursor: pointer;
   max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.question-option:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.question-option:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.question-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .question-option input {
-  margin-top: 2px;
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
   accent-color: var(--accent);
 }
 
 .question-option > span {
+  min-width: 0;
   overflow-wrap: anywhere;
+  line-height: 1.55;
 }
 
 .question-option-desc {
   display: block;
+  margin-top: 2px;
   color: var(--muted);
   font-size: 10px;
+  line-height: 1.45;
 }
 
 .question-text textarea,
@@ -4871,7 +4903,11 @@ label.check input {
 .question-foot {
   position: sticky;
   bottom: 0;
+  margin: 0 -16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
   background: var(--panel);
+  box-shadow: 0 -8px 18px color-mix(in srgb, var(--bg) 55%, transparent);
   display: flex;
   align-items: center;
   gap: 8px;
