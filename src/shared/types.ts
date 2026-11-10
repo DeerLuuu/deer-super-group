@@ -501,6 +501,19 @@ export interface CreateTaskInput {
   scopePaths?: string[];
 }
 
+/** t167：删除任务的结果；任务事件保留，投影/Run/摘要/评审数据被清理。 */
+export interface DeleteTaskResult {
+  taskId: Id;
+  removedRuns: number;
+  removedSummaries: number;
+}
+
+/** t167：删除成员的结果；已归属任务变为未分配，历史消息保留。 */
+export interface DeleteAgentResult {
+  agentId: Id;
+  reassignedTasks: number;
+}
+
 export interface PlanTask {
   title: string;
   description: string;

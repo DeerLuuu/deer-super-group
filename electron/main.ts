@@ -160,7 +160,9 @@ app.whenReady().then(() => {
   handle("workspace:snapshot", (workspaceId: string) => getService().getSnapshot(workspaceId));
   handle("agent:create", (input: CreateAgentInput) => getService().createAgent(input));
   handle("agent:update", (input: UpdateAgentInput) => getService().updateAgent(input));
+  handle("agent:delete", (agentId: string) => getService().deleteAgent(agentId));
   handle("task:create", (input: CreateTaskInput) => getService().createTask(input));
+  handle("task:delete", (taskId: string) => getService().deleteTask(taskId));
   handle("task:run", (taskId: string) => getService().runTask(taskId));
   // t69：调度/运行可观测 UI 的内核命令（KernelResult，不抛裸错误）。
   handleKernel("kernel:startTask", (taskId: string) => getService().startTask(taskId));
