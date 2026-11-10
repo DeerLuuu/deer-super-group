@@ -209,7 +209,12 @@ export interface WatchdogApi {
   getRunHandoff(workspaceId: Id, runId: Id): Promise<WatchdogResult<RunHandoff | null>>;
   ackWatchdogAlert(workspaceId: Id, alertId: Id): Promise<WatchdogResult<WatchdogAlert>>;
   resolveWatchdogAlert(workspaceId: Id, alertId: Id): Promise<WatchdogResult<WatchdogAlert>>;
-  releaseWatchdogTaskHold(workspaceId: Id, taskId: Id): Promise<WatchdogResult<void>>;
+  releaseWatchdogTaskHold(
+    workspaceId: Id,
+    taskId: Id,
+    reason?: WatchdogHoldReason,
+    all?: boolean,
+  ): Promise<WatchdogResult<void>>;
   setWatchdogBudget(input: SetBudgetInput): Promise<WatchdogResult<BudgetSnapshot>>;
   setWatchdogFallback(input: SetFallbackChainInput): Promise<WatchdogResult<FallbackChain>>;
   getWatchdogHealth(): Promise<WatchdogHealth>;

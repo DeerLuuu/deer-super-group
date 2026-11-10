@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Store } from "../kernel/store.js";
@@ -10,6 +10,9 @@ import { WatchdogService } from "./service.js";
 import { DEFAULT_WATCHDOG_THRESHOLDS, createTaskSignalState, detectSignals, recordActivity } from "./signals.js";
 import { WatchdogPanel } from "./WatchdogPanel.js";
 import { renderToStaticMarkup } from "react-dom/server";
+import { defaultModelProfile, defaultProviderProfile } from "../shared/models.js";
+import { PANEL_DEFS, selectVariant } from "../shell/dock/panelRegistry.js";
+import { execFileSync } from "node:child_process";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -28,10 +31,13 @@ async function waitFor(predicate: () => boolean, timeout = 2_000): Promise<void>
   }
 }
 
-function setup(executor: RunExecutor, options: { dataDir?: string } = {}) {
+function setup(
+  executor: RunExecutor,
+  options: { dataDir?: string; workspacePath?: string } = {},
+) {
   const store = new Store(":memory:");
   cleanups.push(() => store.close());
-  const workspace = store.createWorkspace("watchdog-test", ".");
+  const workspace = store.createWorkspace("watchdog-test", options.workspacePath ?? ".");
   const agent = store.createAgent({
     workspaceId: workspace.id,
     name: "Builder",
@@ -280,6 +286,112 @@ describe("t144 watchdog service", () => {
     expect(watchdog.watchdog.isCooling("p1", "m2", new Date().toISOString())).toBe(true);
   });
 
+  it("redacts tracked .env/.ssh changes from handoff stat, patch and summary", async () => {
+    const repo = mkdtempSync(path.join(os.tmpdir(), "watchdog-sensitive-"));
+    const dataDir = mkdtempSync(path.join(os.tmpdir(), "watchdog-sensitive-data-"));
+    cleanups.push(() => rmSync(repo, { recursive: true, force: true }));
+    cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }));
+    execFileSync("git", ["init"], { cwd: repo, windowsHide: true });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, windowsHide: true });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: repo, windowsHide: true });
+    writeFileSync(path.join(repo, ".env"), "SECRET=old\n", "utf8");
+    writeFileSync(path.join(repo, "src-app.ts"), "export const x = 1;\n", "utf8");
+    mkdirSync(path.join(repo, ".ssh"), { recursive: true });
+    writeFileSync(path.join(repo, ".ssh", "id_rsa"), "OLD_PRIVATE_KEY\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: repo, windowsHide: true });
+    execFileSync("git", ["commit", "-m", "initial"], { cwd: repo, windowsHide: true });
+    writeFileSync(path.join(repo, ".env"), "SECRET=TOP_SECRET\n", "utf8");
+    writeFileSync(path.join(repo, ".ssh", "id_rsa"), "NEW_PRIVATE_KEY\n", "utf8");
+    writeFileSync(path.join(repo, "src-app.ts"), "export const x = 2;\n", "utf8");
+
+    let captured: Parameters<RunExecutor>[0] | null = null;
+    const executor: RunExecutor = (ctx) => {
+      captured = ctx;
+      return new Promise(() => {});
+    };
+    const { store, workspace, kernel, watchdog } = setup(executor, { workspacePath: repo, dataDir });
+    const task = createTask(store, workspace.id, "sensitive-handoff");
+    kernel.startTask(task.id);
+    await waitFor(() => kernel.listRuns(task.id)[0]?.status === "running");
+    store.appendEvent({
+      aggregateType: "task",
+      aggregateId: task.id,
+      type: "assistant.message",
+      actor: "agent",
+      payload: { text: "read .env and .ssh/id_rsa, secret TOP_SECRET" },
+      schemaVersion: 2,
+      idempotencyKey: null,
+    });
+    const run = kernel.listRuns(task.id)[0];
+    const handoff = watchdog.handoff.build({ run, task, reason: "pause" });
+    expect(handoff.files).not.toContain(".env");
+    expect(handoff.files.some((file) => file.includes(".ssh"))).toBe(false);
+    expect(handoff.diffStat).not.toContain(".env");
+    expect(handoff.diffStat).not.toContain(".ssh");
+    expect(handoff.summary).not.toContain("TOP_SECRET");
+    expect(handoff.summary).not.toContain(".env");
+    expect(handoff.diffRef).toBeTruthy();
+    const patch = readFileSync(path.join(dataDir, handoff.diffRef!), "utf8");
+    expect(patch).not.toContain("TOP_SECRET");
+    expect(patch).not.toContain("NEW_PRIVATE_KEY");
+    expect(patch).not.toContain(".env");
+    expect(patch).not.toContain(".ssh");
+    expect(patch).toContain("src-app.ts");
+    expect(captured).not.toBeNull();
+  });
+
+  it("releases only the requested hold and clears nextRunAt only after the last hold", async () => {
+    const { store, workspace, kernel, watchdog } = setup(async () => ({ summary: "ok" }));
+    const task = createTask(store, workspace.id, "double-hold");
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    kernel.holdTask(task.id, until);
+    watchdog.watchdog.addHold({ workspaceId: workspace.id, taskId: task.id, reason: "budget", scope: "task" });
+    watchdog.watchdog.addHold({ workspaceId: workspace.id, taskId: task.id, reason: "watchdog", scope: "task" });
+    expect(watchdog.releaseTaskHold(workspace.id, task.id).ok).toBe(false);
+    expect(store.getTask(task.id)?.nextRunAt).toBe(until);
+    expect(watchdog.releaseTaskHold(workspace.id, task.id, "budget").ok).toBe(true);
+    expect(watchdog.watchdog.listHolds(workspace.id, task.id).map((hold) => hold.reason)).toEqual(["watchdog"]);
+    expect(store.getTask(task.id)?.nextRunAt).toBe(until);
+    expect(watchdog.releaseTaskHold(workspace.id, task.id, "watchdog").ok).toBe(true);
+    expect(watchdog.watchdog.listHolds(workspace.id, task.id)).toHaveLength(0);
+    expect(store.getTask(task.id)?.nextRunAt).toBeNull();
+  });
+
+  it("detects a deadman gap with the fake clock", () => {
+    const { workspace, clock, watchdog } = setup(async () => ({ summary: "ok" }));
+    watchdog.tick(clock.now());
+    clock.advance(3 * 60_000);
+    watchdog.tick(clock.now());
+    const snapshot = watchdog.getSnapshot(workspace.id);
+    expect(snapshot.ok).toBe(true);
+    if (snapshot.ok) {
+      expect(snapshot.value.alerts.some((alert) => alert.kind === "deadman")).toBe(true);
+      expect(snapshot.value.health.deadman).toBe(true);
+    }
+  });
+
+  it("repairs a dropped watchdog table without touching kernel tables", async () => {
+    const { store, workspace, watchdog } = setup(async () => ({ summary: "ok" }));
+    const task = createTask(store, workspace.id, "schema-repair");
+    watchdog.watchdog.addHold({
+      workspaceId: workspace.id,
+      taskId: task.id,
+      reason: "watchdog",
+      scope: "task",
+    });
+    store.db.exec("DROP TABLE watchdog_holds");
+    const repaired = watchdog.rebuild();
+    expect(repaired.repaired).toBe(true);
+    expect(repaired.missing).toContain("watchdog_holds");
+    const table = store.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='watchdog_holds'")
+      .get();
+    expect(table).toBeTruthy();
+    expect(watchdog.rebuild().repaired).toBe(false);
+    const snapshot = watchdog.getSnapshot(workspace.id);
+    expect(snapshot.ok).toBe(true);
+  });
+
   it("switches member with handoff and starts a new Run", async () => {
     let calls = 0;
     const executor: RunExecutor = () => {
@@ -305,6 +417,52 @@ describe("t144 watchdog service", () => {
     expect(watchdog.watchdog.getTaskState(workspace.id, task.id).autoInterventions).toBe(1);
   });
 
+  it("falls back to the next model on provider 429 and cools the original provider", async () => {
+    let calls = 0;
+    const seenModels: Array<string | null> = [];
+    const executor: RunExecutor = async (ctx) => {
+      calls += 1;
+      seenModels.push(ctx.run.modelProfileId ?? null);
+      if (calls === 1) {
+        const error = new Error("rate limited") as Error & { code?: string; retryable?: boolean };
+        error.code = "PROVIDER_RATE_LIMIT";
+        error.retryable = true;
+        throw error;
+      }
+      return { summary: "fallback-done" };
+    };
+    const { store, workspace, agent, clock, kernel, watchdog } = setup(executor);
+    const provider = defaultProviderProfile(
+      { baseUrl: "https://example.test/v1", baseUrlEnv: "", apiKey: "test", apiKeyEnv: "" },
+      "p1",
+      "Provider 1",
+    );
+    const m1 = defaultModelProfile("m1", "p1");
+    const m2 = defaultModelProfile("m2", "p1");
+    store.saveLlmSettings({
+      ...store.getLlmSettings(),
+      providers: [provider],
+      models: [m1, m2],
+      model: m1.id,
+      mock: true,
+    });
+    const chain = watchdog.setFallbackChain({
+      workspaceId: workspace.id,
+      agentId: agent.id,
+      models: [m2.id],
+    });
+    expect(chain.ok).toBe(true);
+
+    const task = createTask(store, workspace.id, "quota-fallback");
+    kernel.startTask(task.id);
+    await waitFor(() => store.getTask(task.id)?.status === "done");
+    expect(calls).toBe(2);
+    expect(seenModels[1]).toBe(m2.id);
+    expect(watchdog.watchdog.isCooling("p1", "m1", new Date(clock.now()).toISOString())).toBe(true);
+    expect(watchdog.watchdog.listHandoffs(workspace.id).length).toBeGreaterThanOrEqual(1);
+    expect(watchdog.watchdog.listInterventions(workspace.id).some((item) => item.level === "fallback")).toBe(true);
+  });
+
   it("isolates watchdog API by workspace", async () => {
     const executor: RunExecutor = () => new Promise(() => {});
     const { store, workspace, clock, kernel, watchdog } = setup(executor);
@@ -324,6 +482,16 @@ describe("t144 watchdog service", () => {
 });
 
 describe("t144 watchdog UI", () => {
+  it("registers the watchdog dock panel closed by default with 900/760 narrow breakpoints", () => {
+    expect(PANEL_DEFS.watchdog.key).toBe("watchdog");
+    expect(PANEL_DEFS.watchdog.defaultClosed).toBe(true);
+    expect(PANEL_DEFS.watchdog.title).toContain("看门狗");
+    expect(selectVariant(1100)).toBe("wide");
+    expect(selectVariant(900)).toBe("medium");
+    expect(selectVariant(760)).toBe("narrow");
+    expect(selectVariant(759)).toBe("single");
+  });
+
   it("renders budget progressbar, alerts and aria-live semantics", () => {
     const snapshot = {
       workspaceId: "ws",

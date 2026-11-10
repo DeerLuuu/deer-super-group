@@ -85,7 +85,11 @@ export const WATCHDOG_EVENT_REGISTRY: Record<WatchdogEventType, ReturnType<typeo
     }),
   ),
   "watchdog.resumed": def(
-    z.strictObject({ taskId: z.string().max(200), actor: z.string().max(200).optional() }),
+    z.strictObject({
+      taskId: z.string().max(200),
+      actor: z.string().max(200).optional(),
+      reason: z.enum(["watchdog", "budget", "escalation"]).optional(),
+    }),
   ),
   "watchdog.escalated": def(
     z.strictObject({

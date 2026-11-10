@@ -15,7 +15,11 @@ import type {
   SendMessageInput,
 } from "../src/shared/types.js";
 import type { GitSettings } from "../src/git/types.js";
-import type { SetBudgetInput, SetFallbackChainInput } from "../src/shared/watchdog.js";
+import type {
+  SetBudgetInput,
+  SetFallbackChainInput,
+  WatchdogHoldReason,
+} from "../src/shared/watchdog.js";
 import type {
   Confidence,
   MemoryResult,
@@ -180,8 +184,12 @@ const api: DeerApi = {
     ipcRenderer.invoke("watchdog:ackAlert", workspaceId, alertId),
   resolveWatchdogAlert: (workspaceId: string, alertId: string) =>
     ipcRenderer.invoke("watchdog:resolveAlert", workspaceId, alertId),
-  releaseWatchdogTaskHold: (workspaceId: string, taskId: string) =>
-    ipcRenderer.invoke("watchdog:releaseHold", workspaceId, taskId),
+  releaseWatchdogTaskHold: (
+    workspaceId: string,
+    taskId: string,
+    reason: WatchdogHoldReason,
+    all?: boolean,
+  ) => ipcRenderer.invoke("watchdog:releaseHold", workspaceId, taskId, reason, all),
   setWatchdogBudget: (input: SetBudgetInput) =>
     ipcRenderer.invoke("watchdog:setBudget", input),
   setWatchdogFallback: (input: SetFallbackChainInput) =>

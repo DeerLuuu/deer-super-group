@@ -330,10 +330,9 @@ export class ExecutionKernel {
 
   releaseTaskHold(taskId: string): Task {
     const task = this.requireTask(taskId);
-    const now = iso(this.clock.now());
     this.store.withTransaction(() => {
-      patchTaskProjection(this.store, taskId, { nextRunAt: now });
-      this.appendEvent("task.updated", "task", taskId, { patch: { nextRunAt: now } });
+      patchTaskProjection(this.store, taskId, { nextRunAt: null });
+      this.appendEvent("task.updated", "task", taskId, { patch: { nextRunAt: null } });
     });
     return this.requireTask(taskId);
   }
@@ -350,6 +349,32 @@ export class ExecutionKernel {
     }
     const updated = this.store.updateTask(taskId, { ownerId: agentId });
     return updated;
+  }
+
+  /** t157：provider 429/quota 自动降级后，用指定模型/交接重试任务。 */
+  retryTaskWithModel(
+    taskId: string,
+    options: { modelProfileId: string; handoffId?: string },
+  ): Task {
+    const task = this.requireTask(taskId);
+    this.modelOverrides.set(taskId, options.modelProfileId);
+    if (options.handoffId) this.handoffOverrides.set(taskId, options.handoffId);
+    if (task.status === "failed") {
+      return this.retryTask(taskId);
+    }
+    if (task.status === "queued") {
+      const now = iso(this.clock.now());
+      this.store.withTransaction(() => {
+        patchTaskProjection(this.store, taskId, { nextRunAt: now, failureKind: null });
+        this.appendEvent("task.updated", "task", taskId, { patch: { nextRunAt: now } });
+      });
+      this.tick();
+      return this.requireTask(taskId);
+    }
+    throw new KernelError(
+      "INVALID_TRANSITION",
+      `cannot retry task from ${task.status} with model override`,
+    );
   }
 
   retryTask(taskId: string): Task {

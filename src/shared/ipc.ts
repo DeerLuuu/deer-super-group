@@ -189,7 +189,12 @@ export interface DeerApi {
   getRunHandoff(workspaceId: string, runId: string): Promise<WatchdogResult<RunHandoff | null>>;
   ackWatchdogAlert(workspaceId: string, alertId: string): Promise<WatchdogResult<WatchdogAlert>>;
   resolveWatchdogAlert(workspaceId: string, alertId: string): Promise<WatchdogResult<WatchdogAlert>>;
-  releaseWatchdogTaskHold(workspaceId: string, taskId: string): Promise<WatchdogResult<void>>;
+  releaseWatchdogTaskHold(
+    workspaceId: string,
+    taskId: string,
+    reason: import("./watchdog.js").WatchdogHoldReason,
+    all?: boolean,
+  ): Promise<WatchdogResult<void>>;
   setWatchdogBudget(input: SetBudgetInput): Promise<WatchdogResult<BudgetSnapshot>>;
   setWatchdogFallback(input: SetFallbackChainInput): Promise<WatchdogResult<FallbackChain>>;
   getWatchdogHealth(): Promise<WatchdogHealth>;

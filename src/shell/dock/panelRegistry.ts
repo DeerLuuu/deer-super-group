@@ -20,6 +20,7 @@ export type PanelKey =
   | "mailbox"
   | "board"
   | "polls"
+  | "watchdog"
   | "settings";
 
 export type PanelDef = {
@@ -126,6 +127,18 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     routeTab: null,
     renderer: "onlyWhenVisible",
     minWidth: 430,
+    minHeight: 320,
+    closable: true,
+    defaultGroup: "main",
+    defaultClosed: true,
+  },
+  watchdog: {
+    key: "watchdog",
+    title: "看门狗",
+    component: "watchdog",
+    routeTab: null,
+    renderer: "onlyWhenVisible",
+    minWidth: 420,
     minHeight: 320,
     closable: true,
     defaultGroup: "main",

@@ -205,6 +205,65 @@ export class WatchdogStore {
     }
   }
 
+  /**
+   * t157：watchdog 表采用 durable cache 语义，不做完整事件重放（设计 INV-9/
+   * MG-05 已同步降级）；但启动/巡检可修复被删除的 schema，避免一次误删导致
+   * 看门狗整体不可用。已有数据不清空或伪造。
+   */
+  repairSchema(): { repaired: boolean; missing: string[] } {
+    const tables = [
+      "watchdog_schema",
+      "watchdog_state",
+      "watchdog_alerts",
+      "watchdog_interventions",
+      "watchdog_task_state",
+      "watchdog_holds",
+      "run_handoffs",
+      "cost_ledger",
+      "budget_limits",
+      "provider_cooldowns",
+      "watchdog_fallbacks",
+    ];
+    const existing = new Set(
+      (
+        this.db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE 'watchdog%' OR name IN ('run_handoffs','cost_ledger','budget_limits','provider_cooldowns'))",
+          )
+          .all() as Row[]
+      ).map((row) => String(row.name)),
+    );
+    const missing = tables.filter((table) => !existing.has(table));
+    const expected: Record<string, string[]> = {
+      watchdog_schema: ["version"],
+      watchdog_state: ["workspace_id", "last_tick_at"],
+      watchdog_alerts: ["id", "dedupe_key"],
+      watchdog_interventions: ["id", "task_id"],
+      watchdog_task_state: ["task_id", "auto_interventions"],
+      watchdog_holds: ["task_id", "reason", "scope"],
+      run_handoffs: ["id", "summary", "next_step"],
+      cost_ledger: ["run_id", "cost_micro_usd", "kind"],
+      budget_limits: ["scope", "scope_id", "limit_micro_usd"],
+      provider_cooldowns: ["provider_id", "until"],
+      watchdog_fallbacks: ["workspace_id", "models"],
+    };
+    for (const table of tables) {
+      if (!existing.has(table)) continue;
+      const columns = new Set(
+        (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((row) =>
+          String(row.name),
+        ),
+      );
+      const damaged = expected[table]?.some((column) => !columns.has(column)) ?? false;
+      if (damaged) {
+        this.db.exec(`DROP TABLE IF EXISTS ${table}`);
+        missing.push(table);
+      }
+    }
+    this.migrate();
+    return { repaired: missing.length > 0, missing };
+  }
+
   nowIso(): string {
     return new Date(this.clock.now()).toISOString();
   }
@@ -1014,10 +1073,18 @@ export class WatchdogStore {
 
   // ------------------------------------------------------------- rebuild
 
-  rebuild(): { alerts: number; interventions: number; holds: number; handoffs: number; ledger: number } {
-    // watchdog tables are projections; kernel rebuild never touches them.
-    // This method intentionally does not wipe state: hold/counter/handoff must survive
-    // kernel projection rebuilds (F1/KRN-06). It only reports/validates counts.
+  rebuild(): {
+    alerts: number;
+    interventions: number;
+    holds: number;
+    handoffs: number;
+    ledger: number;
+    repaired: boolean;
+    missing: string[];
+  } {
+    // t157：明确降级为 durable cache：schema 可修复，但**不**从事件重放业务数据
+    // （INV-9/MG-05 已同步修改）。kernel rebuild 只重放 kernel 事件，不碰这些表。
+    const repair = this.repairSchema();
     const count = (table: string) =>
       Number((this.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as Row).n ?? 0);
     return {
@@ -1026,6 +1093,8 @@ export class WatchdogStore {
       holds: count("watchdog_holds"),
       handoffs: count("run_handoffs"),
       ledger: count("cost_ledger"),
+      repaired: repair.repaired,
+      missing: repair.missing,
     };
   }
 }

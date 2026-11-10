@@ -69,6 +69,7 @@ import type {
   SetFallbackChainInput,
   WatchdogAlert,
   WatchdogHealth,
+  WatchdogHoldReason,
   WatchdogResult,
   WatchdogSnapshot,
 } from "../shared/watchdog.js";
@@ -1273,8 +1274,13 @@ export class AppService {
     return this.watchdog.resolveAlert(workspaceId, alertId);
   }
 
-  releaseWatchdogTaskHold(workspaceId: string, taskId: string): WatchdogResult<void> {
-    return this.watchdog.releaseTaskHold(workspaceId, taskId);
+  releaseWatchdogTaskHold(
+    workspaceId: string,
+    taskId: string,
+    reason?: WatchdogHoldReason,
+    all = false,
+  ): WatchdogResult<void> {
+    return this.watchdog.releaseTaskHold(workspaceId, taskId, reason, all);
   }
 
   setWatchdogBudget(input: SetBudgetInput) {

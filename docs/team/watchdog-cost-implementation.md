@@ -21,17 +21,17 @@
 | 预算/降级 | task/agent/workspace 预算、soft/hard、pause/stop、启动前拦截、运行中 hard 暂停；fallback 链/provider-model 两级冷却 |
 | API/IPC | Watchdog snapshot/costs/handoff/ack/resolve/releaseHold/setBudget/setFallback/health；main/preload/DeerApi |
 | UI | 独立 `WatchdogPanel`/`BudgetBar`/`WatchdogAlertBanner`/`RunHandoffCard`（ARIA progressbar/alert/live、窄窗 class）；组件测试 |
-| 测试 | watchdog 10 例 + 既有 463，共 **473**；fake clock/重建/预算/暂时租约/切换成员/UI |
+| 测试 | watchdog 16 例 + 既有 463，共 **479**；fake clock/重建/预算/暂时租约/切换成员/UI |
 
 **验证数字（本地 HEAD）**：
 
 ```
 pnpm typecheck  # exit 0
 pnpm build      # exit 0
-pnpm test       # 37 files / 473 tests passed
+pnpm test       # 37 files / 479 tests passed
 ```
 
-构建（同步 main 后）：`dist/assets/index-P3Cg1UT5.js 1,174.82 kB (gzip 322.50)`，CSS 222.60 kB；`dist-electron/main.cjs 1.4 MB`。
+构建（t157）：`dist/assets/index-BaHOCsV6.js 1,183.45 kB (gzip 324.87)`，CSS 225.28 kB；`dist-electron/main.cjs 1.4 MB`。
 
 ---
 
@@ -50,7 +50,7 @@ pnpm test       # 37 files / 473 tests passed
 - `provider_cooldowns`（provider/model 两级，`*` 通配）
 - `watchdog_fallbacks`（workspace/agent 链）
 
-迁移：schema 幂等创建 + `watchdog_schema(1)`；不 ALTER kernel 表；不回填历史成本；失败不阻塞 App（可禁用 watchdog）。`WatchdogStore.rebuild()` 只做一致性计数，**不清空** hold/计数器/handoff，因此 kernel `rebuildProjections()` 不会 reset watchdog 状态（测试覆盖）。
+迁移：schema 幂等创建 + `watchdog_schema(1)`；不 ALTER kernel 表；不回填历史成本；失败不阻塞 App（可禁用 watchdog）。t157 起 watchdog 表明确为 **durable cache**（INV-9/MG-05 已修订）：`WatchdogStore.rebuild()` 做 schema 修复/计数校验，**不清空**已有 hold/计数器/handoff；删除表后可重建空 schema 并记录 missing，不伪造业务数据。kernel `rebuildProjections()` 不会 reset watchdog 状态（测试覆盖）。
 
 > 说明：设计 F1 要求不新增 kernel task/run 列，本实现遵守；hold 的调度效果由既有 `Task.nextRunAt` + kernel `holdTask/releaseTaskHold` 事件表达，原因在 `watchdog_holds`。
 
@@ -138,8 +138,16 @@ pnpm test       # 37 files / 473 tests passed
 - `WatchdogAlertBanner`：critical `role=alert`/assertive，warning `role=status`/polite；确认/解决/恢复按钮。
 - `WatchdogPanel`：Alerts / Interventions+Fallback / Costs 三段；空态、加载/错误由调用方；`aria-live`。
 - `RunHandoffCard`：summary/next step/files/diff stat details。
-- 窄窗：组件使用 `row gap wrap`/可折叠 details；实际 CSS 由 App/styles（t144 范围外）接入。
-- **集成范围说明**：t144 的 Out of scope 明确排除 `src/App.tsx`、`src/styles.css`、`src/shell/`、`src/TeamDashboard.tsx`，因此本 PR 提供可渲染组件 + 全部 IPC/backend，未把面板挂到 App/Dock。后续 UI 集成任务只需 `panelRegistry` 增 key + App 渲染 `<WatchdogPanel snapshot/costs on.../>`；组件测试已覆盖 ARIA/键盘语义。
+- 窄窗：`.watchdog-topbar`/`.watchdog-panel` 在 900/760 断点收窄/换行；`prefers-reduced-motion` 关闭动画；按钮 `focus-visible`。
+- **t157 UI 挂载**：`watchdog` 加入 Dock `panelRegistry`（默认关闭）；App 主区顶部预算条、任务详情告警条、RunHistory handoff 卡；修复了 t144 “只有组件无入口”的问题。
+
+### 7.3 t157 round-2 修复（对应 t145 findings）
+
+- **F1 敏感 diff**：handoff 按路径拆分；tracked `.env`/`.ssh` 只保留 `[REDACTED]`/safe stat，不落完整 patch；summary.files/assistant 文本过滤；测试覆盖。
+- **F2 429**：失败事件生成 `provider_quota` 信号 → 冷却原 provider/model → handoff → `retryTaskWithModel` 新 Run model override；测试 429→fallback→新模型→冷却。
+- **F3 UI**：Dock/顶部预算条/任务告警/RunHistory + styles 900/760/reduced-motion；补面板注册/ARIA/窄窗测试。
+- **F4 release**：必须 `reason` 或 `all=true`；默认只释放当前 reason，最后一个 hold 才清 `nextRunAt`；双 hold 测试。
+- **F5 rebuild**：表降级 durable cache，INV-9/MG-05/§9.3/AC 同步；`rebuild` 做 schema 修复（删除/损坏表重建空 schema 并记录 missing），不伪造数据。
 
 ---
 
@@ -174,7 +182,7 @@ electron/preload.ts           watchdog API
 docs/team/watchdog-cost-implementation.md
 ```
 
-未改：`src/App.tsx`、`src/styles.css`、`src/shell/`、`src/TeamDashboard.tsx`、`src/git/`、`src/memory/`、`dist/`、`dist-electron/`（构建产物未提交）。
+未改：`src/git/`、`src/memory/`、`src/TeamDashboard.tsx`、`dist/`、`dist-electron/`（构建产物未提交）。t157 新增改动：`src/App.tsx`、`src/RunHistory.tsx`、`src/shell/dock/panelRegistry.ts`、`src/styles.css`、`src/kernel/execution/kernel.ts`（retryTaskWithModel/release null）及 shared/service/handoff/store 修复。
 
 ---
 
@@ -182,30 +190,30 @@ docs/team/watchdog-cost-implementation.md
 
 | 区域 | 覆盖 |
 |---|---|
-| 信号 | stale/repeat/no-progress/error/token 组合；waiting_human grace 不误判 pause |
+| 信号 | stale/repeat/no-progress/error/token 组合；waiting_human grace 不误判 pause；deadman 2×tick |
 | 干预 | stale pause 生成 handoff 且 handoff seq < run.failed；auto=2 禁 nudge/自动动作→human；switch member 新 Run |
-| Handoff | 先持久化再 abort；handoff 查询/注入；workspace 隔离 |
+| Handoff | 先持久化再 abort；handoff 查询/注入；workspace 隔离；tracked `.env`/`.ssh` 仅 redacted stat，不落 patch/assistant 文本 |
 | 成本 | final ledger/Run.costUsd/$3 精确；provisional 单行→final 清理；reservation 参与 spent；价格未知 |
-| 预算 | workspace $1 hard 阻止新 Run + budget hold + 不消耗 attempt |
-| 冷却 | provider/model + `*` 两级；过期边界（set/isCooling） |
-| 重建 | kernel.rebuildProjections 后 hold/autoInterventions/handoff 保留 |
-| UI | 预算 progressbar/aria-valuenow、critical role=alert、确认/恢复按钮 |
-| 既有回归 | 463 tests（Git/记忆/权限/审批/画布/调度/Poll 等）全绿；合计 473 |
+| 预算 | workspace $1 hard 阻止新 Run + budget hold + 不消耗 attempt；多 hold 只释放当前 reason |
+| 降级 | 429→provider_quota→fallback 新 Run model override+handoff+冷却 |
+| 重建 | kernel.rebuildProjections 后 hold/autoInterventions/handoff 保留；删除 watchdog 表后 rebuild 修复 schema |
+| UI | 预算 progressbar/aria-valuenow、critical role=alert、确认/恢复按钮；panelRegistry 默认关闭 + 900/760 断点 |
+| 既有回归 | 463 tests（Git/记忆/权限/审批/画布/调度/Poll 等）全绿；合计 479 |
 
 ---
 
 ## 10. 已知边界/后续
 
-1. **App/Dock 未接线**（合同 out of scope）：组件 + IPC 已就绪，后续只加 `panelRegistry`/App 渲染与 styles；未修改 `src/shell`/`styles.css`。
+1. **UI 已接线**（t157）：Dock 面板默认关闭、顶部预算条、任务详情告警、RunHistory handoff；App 集成非 e2e 视觉回归，使用静态/组件断言。
 2. **价格设置 UI**未接入 SettingsView；当前通过 `ModelProfile.pricing` 或 `watchdog.modelPricing` 设置 map 配置。
 3. **fallback 实际模型切换**依赖 fallback 链已配置；默认空，不自动降级。
 4. **令牌缓存/推理 token**：当前计入 input/output；provider 未提供缓存明细时 cached 为 0。
-5. **provider 429 自动降级**：当前记录冷却 + 告警；若 Run 已失败由内核重试/人工，watchdog 不强行新建 Run（避免绕过内核策略）。
-6. **UI 窄窗/reduced-motion 的最终样式**在 App/styles（范围外）；组件使用语义/class 钩子。
+5. **provider 429 自动降级已实现**：生成 provider_quota 信号 + 冷却 + fallback 新 Run；链空/auto=2 时只冷却+human alert，不绕过内核策略。
+6. **UI 窄窗/reduced-motion**：900/760 断点与 reduced-motion 已加在 `styles.css`；无浏览器视觉回归（vitest 静态断言）。
 7. **watchdog 自身 deadman** 为本地 last_tick 检测（单进程限制）；外置 supervisor 属后续。
 8. **预算 soft 仅 warning 事件/UI**，不自动暂停（hard 才暂停）。
 9. **历史 Run 成本不回填**，UI 标 legacy unknown；ledger 仅新 Run。
-10. **测试基线** 473；若后续 App 集成新增 UI 测试，数字会变化。
+10. **测试基线** 479（watchdog 16）；release 默认必须指定 reason，全部释放需 `all=true` 二次确认。
 
 ---
 
@@ -213,8 +221,8 @@ docs/team/watchdog-cost-implementation.md
 
 ```
 pnpm typecheck   # exit 0
-pnpm build       # exit 0（vite 33? modules；js 1,157.56 kB gzip 318.11；electron main 1.3 MB）
-pnpm test        # exit 0（37 files / 473 tests）
+pnpm build       # exit 0（js 1,183.45 kB gzip 324.87；css 225.28 kB；electron main 1.4 MB）
+pnpm test        # exit 0（37 files / 479 tests）
 ```
 
 （HEAD 以 PR 提交为准；同步 main 后若 CI 环境变化，以 PR 检查为准。）

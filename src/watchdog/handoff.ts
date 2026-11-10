@@ -24,6 +24,19 @@ function safeDiff(command: string[], cwd: string): string {
   }
 }
 
+function redactSensitiveText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) =>
+      /(^|[\\/])\.env(rc)?(\b|\.|$)|(^|[\\/])\.ssh([\\/]|$)|id_(rsa|dsa|ed25519|ecdsa)|\.pem\b|\.key\b|credentials\.json|\.npmrc\b|\.netrc\b|\.git-credentials\b/i.test(
+        line,
+      )
+        ? "[REDACTED]"
+        : line,
+    )
+    .join("\n");
+}
+
 export class HandoffBuilder {
   private readonly store: Store;
   private readonly watchdog: WatchdogStore;
@@ -66,13 +79,31 @@ export class HandoffBuilder {
 
     const diffStat = safeDiff(["diff", "--stat", "--no-color"], cwd).slice(0, 8_000);
     const nameStatus = safeDiff(["diff", "--name-status", "--no-color"], cwd);
-    const patch = safeDiff(["diff", "--no-color", "--unified=3"], cwd).slice(0, MAX_PATCH_BYTES);
-    const gitFiles = nameStatus
+    const allGitFiles = nameStatus
       .split("\n")
       .map((line) => line.split("\t").slice(1).join("\t").trim())
-      .filter(Boolean)
-      .filter((file) => !isSensitivePath(file));
-    const files = [...new Set([...(summary?.files ?? []), ...gitFiles])].slice(0, 50);
+      .filter(Boolean);
+    const sensitiveFiles = allGitFiles.filter((file) => isSensitivePath(file));
+    const gitFiles = allGitFiles.filter((file) => !isSensitivePath(file));
+    // t157 F1：先按路径过滤敏感文件，再按安全路径分别取 diff；敏感路径只保留
+    // redacted 标记，stat/patch/assistant 文本都不含内容。
+    const safeStat = gitFiles.length
+      ? safeDiff(["diff", "--stat", "--no-color", "--", ...gitFiles.slice(0, 100)], cwd).slice(0, 8_000)
+      : "";
+    const redactedDiffStat = sensitiveFiles.length
+      ? `[REDACTED] ${sensitiveFiles.length} sensitive path(s) changed${safeStat ? `\nsafe stat:\n${safeStat}` : ""}`
+      : diffStat;
+    const patch = sensitiveFiles.length
+      ? gitFiles
+          .slice(0, 100)
+          .map((file) => safeDiff(["diff", "--no-color", "--unified=3", "--", file], cwd))
+          .filter(Boolean)
+          .join("\n")
+          .slice(0, MAX_PATCH_BYTES)
+      : safeDiff(["diff", "--no-color", "--unified=3"], cwd).slice(0, MAX_PATCH_BYTES);
+    const files = [...new Set([...(summary?.files ?? []), ...gitFiles])]
+      .filter((file) => !isSensitivePath(file))
+      .slice(0, 50);
 
     const summaryLines = [
       `task: ${task.title}`,
@@ -81,9 +112,9 @@ export class HandoffBuilder {
       summary ? `completed: ${summary.changes.join("; ") || summary.goal}` : "completed: (no structured summary)",
       summary?.openQuestions.length ? `open questions: ${summary.openQuestions.join("; ")}` : "",
       lastAssistant?.payload?.text
-        ? `last assistant: ${String(lastAssistant.payload.text).slice(0, 1_200)}`
+        ? `last assistant: ${redactSensitiveText(String(lastAssistant.payload.text)).slice(0, 1_200)}`
         : "",
-      diffStat ? `diff stat:\n${diffStat}` : "diff stat: (no repository diff)",
+      redactedDiffStat ? `diff stat:\n${redactedDiffStat}` : "diff stat: (no repository diff)",
     ].filter(Boolean);
     const nextStep =
       summary?.openQuestions[0] ??
@@ -102,7 +133,7 @@ export class HandoffBuilder {
       summary: summaryLines.join("\n").slice(0, 2_000),
       nextStep: nextStep.slice(0, 500),
       files,
-      diffStat,
+      diffStat: redactedDiffStat,
       diffRef: null,
       lastEventSeq: lastEvent?.seq ?? 0,
       fromModelProfileId: run.modelProfileId ?? null,

@@ -71,6 +71,7 @@ export class WatchdogService {
   private readonly tickIntervalMs: number;
   private readonly states = new Map<string, TaskSignalState>();
   private readonly handled = new Set<string>();
+  private readonly providerFailureHandled = new Set<string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
   private lastTickMs = 0;
@@ -99,7 +100,7 @@ export class WatchdogService {
         event.type === "run.failed" ||
         event.type === "run.cancelled"
       ) {
-        this.finalizeRunEvent(event.aggregateId);
+        this.finalizeRunEvent(event.aggregateId, true);
       }
     });
     if (options.autoTick !== false) {
@@ -115,10 +116,10 @@ export class WatchdogService {
     this.timer = null;
   }
 
-  private finalizeRunEvent(runId: string): void {
+  private finalizeRunEvent(runId: string, handleProviderFailure = false): void {
     try {
       const run = this.store.getRun(runId);
-      if (run) {
+      if (run && handleProviderFailure) {
         const task = this.store.getTask(run.taskId);
         if (task) this.recordProviderFailure(run, task);
       }
@@ -135,10 +136,17 @@ export class WatchdogService {
   private recordProviderFailure(run: Run, task: Task): void {
     const code = (run.errorCode ?? "").toLowerCase();
     if (!/(rate_limit|quota|quota_exceeded|429|1308)/.test(code)) return;
+    if (this.providerFailureHandled.has(run.id)) return;
+    this.providerFailureHandled.add(run.id);
     const settings = this.store.getLlmSettings();
+    const agent = this.store.getAgent(run.agentId);
     const profile =
       settings.models.find((model) => model.id === run.modelProfileId) ??
       settings.models.find((model) => model.modelId === run.modelId) ??
+      settings.models.find((model) => model.id === agent?.model) ??
+      settings.models.find((model) => model.modelId === agent?.model) ??
+      settings.models.find((model) => model.id === settings.model) ??
+      settings.models[0] ??
       null;
     if (!profile) return;
     const until = new Date(this.clock.now() + 5 * 60_000).toISOString();
@@ -160,6 +168,14 @@ export class WatchdogService {
       until,
       reason: run.errorCode ?? "provider_quota",
     });
+    this.watchdog.appendEvent("watchdog.signal", "task", task.id, {
+      kind: "provider_quota",
+      severity: "warning",
+      taskId: task.id,
+      runId: run.id,
+      evidence: { providerId: profile.providerId, modelId: profile.modelId, until },
+      windowMs: 300_000,
+    });
     this.createAlert({
       workspaceId: task.workspaceId,
       taskId: task.id,
@@ -169,6 +185,84 @@ export class WatchdogService {
       title: "供应商配额错误，已冷却当前模型",
       detail: { providerId: profile.providerId, modelId: profile.modelId, until },
       dedupeKey: `${task.id}:quota:${Math.floor(this.clock.now() / 300_000)}`,
+    });
+
+    // t157 F2：429/quota 必须走既有 fallback（新 Run 模型 override + handoff + 冷却）。
+    const state = this.watchdog.getTaskState(task.workspaceId, task.id);
+    if (state.autoInterventions >= 2) {
+      this.escalate(
+        task,
+        run,
+        {
+          kind: "provider_quota",
+          severity: "critical",
+          evidence: { providerId: profile.providerId, modelId: profile.modelId },
+          windowMs: 300_000,
+        },
+        "provider quota after auto intervention limit",
+      );
+      return;
+    }
+    const chain = this.watchdog.getFallback(task.workspaceId, run.agentId);
+    const current = run.modelProfileId;
+    let target: { id: string; providerId: string; modelId: string } | null = null;
+    for (const modelId of chain.models) {
+      if (modelId === current) continue;
+      const candidate =
+        settings.models.find((model) => model.id === modelId) ??
+        settings.models.find((model) => model.modelId === modelId);
+      if (!candidate) continue;
+      if (this.watchdog.isCooling(candidate.providerId, candidate.modelId, new Date(this.clock.now()).toISOString())) {
+        continue;
+      }
+      target = candidate;
+      break;
+    }
+    if (!target) return;
+    const handoff = this.handoff.build({
+      run,
+      task,
+      reason: "fallback",
+      toModelProfileId: target.id,
+    });
+    const intervention = this.watchdog.createIntervention({
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      runId: run.id,
+      level: "fallback",
+      action: "provider_quota_fallback",
+      reason: "provider_quota",
+      handoffId: handoff.id,
+      detail: { from: profile.id, to: target.id, until },
+    });
+    const autoIndex = this.watchdog.bumpAutoInterventions(task.workspaceId, task.id);
+    try {
+      this.kernel.retryTaskWithModel(task.id, {
+        modelProfileId: target.id,
+        handoffId: handoff.id,
+      });
+    } catch {
+      this.watchdog.updateIntervention(intervention.id, "skipped", { handoffId: handoff.id });
+      return;
+    }
+    this.watchdog.updateIntervention(intervention.id, "applied", { handoffId: handoff.id });
+    this.watchdog.appendEvent("run.model_fallback", "run", run.id, {
+      runId: run.id,
+      taskId: task.id,
+      fromModelProfileId: current ?? null,
+      toModelProfileId: target.id,
+      reason: "provider_quota",
+      handoffId: handoff.id,
+    });
+    this.createAlert({
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      runId: run.id,
+      kind: "provider_quota",
+      severity: "warning",
+      title: `配额错误，已切换模型：${current ?? "默认"} → ${target.id}`,
+      detail: { handoffId: handoff.id, autoInterventions: autoIndex, until },
+      dedupeKey: `${task.id}:quota-fallback:${Math.floor(this.clock.now() / 300_000)}`,
     });
   }
 
@@ -290,7 +384,7 @@ export class WatchdogService {
   }
 
   onRunFinished(info: { runId: string; taskId: string; status: string }): void {
-    this.finalizeRunEvent(info.runId);
+    this.finalizeRunEvent(info.runId, false);
   }
 
   // ---------------------------------------------------------------- signals
@@ -974,15 +1068,28 @@ export class WatchdogService {
     workspaceId: string,
     taskId: string,
     reason?: WatchdogHoldReason,
+    all = false,
   ): WatchdogResult<void> {
     const task = this.store.getTask(taskId);
     if (!task || task.workspaceId !== workspaceId) return this.fail("NOT_FOUND", "task not found");
-    const remaining = this.watchdog.releaseHolds(workspaceId, taskId, reason ?? null, "user");
+    if (!reason && !all) {
+      return this.fail("INVALID_INPUT", "releaseTaskHold requires reason or all=true");
+    }
+    const remaining = this.watchdog.releaseHolds(
+      workspaceId,
+      taskId,
+      all ? null : (reason ?? null),
+      "user",
+    );
     if (remaining.length === 0) {
       this.kernel.releaseTaskHold(taskId);
       this.watchdog.resetTaskState(workspaceId, taskId);
       this.watchdog.setPausedBy(workspaceId, null);
-      this.watchdog.appendEvent("watchdog.resumed", "task", taskId, { taskId, actor: "user" });
+      this.watchdog.appendEvent("watchdog.resumed", "task", taskId, {
+        taskId,
+        actor: "user",
+        ...(reason ? { reason } : {}),
+      });
     }
     return { ok: true, value: undefined };
   }

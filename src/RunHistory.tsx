@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import type { Agent, EventRecord, Run, Task } from "./shared/types";
 import { PERMISSION_LABELS } from "./shared/copy";
 import {
@@ -20,6 +20,8 @@ import {
   runTokenText,
 } from "./shared/kernelUi";
 import EmptyState from "./EmptyState";
+import { RunHandoffCard } from "./watchdog/WatchdogPanel";
+import type { RunHandoff } from "./shared/watchdog";
 
 export function RunStatusBadge({ status }: { status: Run["status"] }) {
   return <span className={`status run-status-${status}`}>{runStatusLabel(status)}</span>;
@@ -224,6 +226,7 @@ export default function RunHistory({
   onCancelRun,
   onOpenRunPanel,
   onRetryTask,
+  handoffs,
 }: {
   task: Task;
   runs: Run[];
@@ -238,6 +241,7 @@ export default function RunHistory({
   onCancelRun: (run: Run) => void;
   onOpenRunPanel: (runId?: string) => void;
   onRetryTask: () => void;
+  handoffs?: Record<string, RunHandoff>;
 }) {
   const agentById = new Map(agents.map((agent) => [agent.id, agent]));
   const sorted = [...runs].sort(
@@ -247,6 +251,24 @@ export default function RunHistory({
   );
   const selected =
     sorted.find((item) => item.id === selectedRunId) ?? sorted[0] ?? null;
+  const [loadedHandoff, setLoadedHandoff] = useState<RunHandoff | null>(null);
+  useEffect(() => {
+    if (!selected) {
+      setLoadedHandoff(null);
+      return;
+    }
+    let active = true;
+    void window.deer
+      .getRunHandoff(task.workspaceId, selected.id)
+      .then((result) => {
+        if (active && result.ok) setLoadedHandoff(result.value);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [selected?.id, task.workspaceId]);
+  const selectedHandoff = selected ? handoffs?.[selected.id] ?? loadedHandoff : null;
   const retryBusy = busy === "task:retry";
 
   return (
@@ -343,14 +365,17 @@ export default function RunHistory({
           </ul>
 
           {selected && (
-            <RunDetail
-              run={selected}
-              agent={agentById.get(selected.agentId) ?? null}
-              events={events}
-              busy={busy}
-              onCancelRun={onCancelRun}
-              onOpenRunPanel={onOpenRunPanel}
-            />
+            <>
+              <RunDetail
+                run={selected}
+                agent={agentById.get(selected.agentId) ?? null}
+                events={events}
+                busy={busy}
+                onCancelRun={onCancelRun}
+                onOpenRunPanel={onOpenRunPanel}
+              />
+              {selectedHandoff && <RunHandoffCard handoff={selectedHandoff} />}
+            </>
           )}
         </>
       )}

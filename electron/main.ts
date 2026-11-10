@@ -14,7 +14,7 @@ import type {
   SendMessageInput,
 } from "../src/shared/types.js";
 import type { GitSettings } from "../src/git/types.js";
-import type { SetBudgetInput, SetFallbackChainInput } from "../src/shared/watchdog.js";
+import type { SetBudgetInput, SetFallbackChainInput, WatchdogHoldReason } from "../src/shared/watchdog.js";
 import type {
   CreateMemoryBoardInput,
   CreateMemoryMemoInput,
@@ -172,8 +172,10 @@ app.whenReady().then(() => {
   handle("watchdog:resolveAlert", (workspaceId: string, alertId: string) =>
     getService().resolveWatchdogAlert(workspaceId, alertId),
   );
-  handle("watchdog:releaseHold", (workspaceId: string, taskId: string) =>
-    getService().releaseWatchdogTaskHold(workspaceId, taskId),
+  handle(
+    "watchdog:releaseHold",
+    (workspaceId: string, taskId: string, reason?: WatchdogHoldReason, all?: boolean) =>
+      getService().releaseWatchdogTaskHold(workspaceId, taskId, reason, all),
   );
   handle("watchdog:setBudget", (input: SetBudgetInput) => getService().setWatchdogBudget(input));
   handle("watchdog:setFallback", (input: SetFallbackChainInput) =>
