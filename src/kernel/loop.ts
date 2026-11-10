@@ -4,7 +4,7 @@ import {
   type LlmMessage,
   type LlmToolCall,
 } from "./model.js";
-import type { ToolContext, ToolRegistry } from "./tools.js";
+import type { ToolContext, ToolPolicy, ToolRegistry } from "./tools.js";
 
 export interface AgentLoopOptions {
   client: LlmClient;
@@ -13,6 +13,10 @@ export interface AgentLoopOptions {
   userMessage: string;
   tools: ToolRegistry;
   toolContext: ToolContext;
+  /** t171：按上下文策略过滤工具，而不是按角色。 */
+  toolPolicy?: ToolPolicy;
+  /** t171：chat 传入完整历史；不传时使用 systemPrompt + userMessage。 */
+  initialMessages?: LlmMessage[];
   maxSteps?: number;
   maxOutputTokens?: number;
   reasoningEffort?: string;
@@ -20,12 +24,16 @@ export interface AgentLoopOptions {
   thinkingStyle?: "deepseek" | "openai";
   signal?: AbortSignal;
   onEvent?: (type: string, payload: unknown) => void;
+  /** t171：chat 流式文本/推理增量。 */
+  onTextDelta?: (text: string) => void;
+  onReasoningDelta?: (text: string) => void;
   /** t144：看门狗/人工 nudge；每步开始时消费一次。 */
   consumeNudges?: () => string[];
 }
 
 export interface AgentLoopResult {
   text: string;
+  reasoning: string;
   completed: boolean;
   steps: number;
   usage: { inputTokens: number; outputTokens: number };
@@ -44,6 +52,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     userMessage,
     tools,
     toolContext,
+    toolPolicy,
+    initialMessages,
     maxSteps = 30,
     maxOutputTokens,
     reasoningEffort,
@@ -51,16 +61,21 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     thinkingStyle,
     signal,
     onEvent,
+    onTextDelta,
+    onReasoningDelta,
     consumeNudges,
   } = options;
 
-  const messages: LlmMessage[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: userMessage },
-  ];
+  const messages: LlmMessage[] = initialMessages
+    ? initialMessages.map((message) => ({ ...message }))
+    : [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ];
   const usage = { inputTokens: 0, outputTokens: 0 };
   let completed = false;
   let lastText = "";
+  let lastReasoning = "";
 
   for (let step = 1; step <= maxSteps; step += 1) {
     if (signal?.aborted) throw new Error("aborted");
@@ -77,13 +92,14 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       client.stream({
         model,
         messages,
-        tools: tools.list(),
+        tools: tools.list(toolPolicy),
         maxOutputTokens,
         reasoningEffort,
         thinkingEnabled,
         thinkingStyle,
         signal,
       }),
+      { onText: onTextDelta, onReasoning: onReasoningDelta },
     );
 
     usage.inputTokens += completion.usage.inputTokens;
@@ -95,6 +111,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       lastText = completion.text;
       onEvent?.("assistant.message", { text: completion.text, step });
     }
+    if (completion.reasoning.trim()) lastReasoning = completion.reasoning;
 
     if (completion.toolCalls.length === 0) {
       break;
@@ -131,7 +148,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         continue;
       }
 
-      const result = await tools.execute(call.name, args, toolContext);
+      const result = await tools.execute(call.name, args, toolContext, toolPolicy);
       onEvent?.("tool.result", {
         id: call.id,
         name: call.name,
@@ -155,5 +172,5 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   }
 
   onEvent?.("usage", usage);
-  return { text: lastText, completed, steps: messages.length, usage };
+  return { text: lastText, reasoning: lastReasoning, completed, steps: messages.length, usage };
 }

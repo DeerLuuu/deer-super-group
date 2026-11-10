@@ -78,6 +78,27 @@ export interface ToolDefinition {
   execute(args: unknown, ctx: ToolContext): Promise<unknown>;
 }
 
+/**
+ * t171：工具可用性由上下文策略决定，而不是由成员角色决定。
+ * - chat：没有任务投影，不能调用 task.complete；
+ * - task：完整工具集；
+ * - 所有成员（包括 Router）走同一 registry + permission/approval 门禁。
+ */
+export interface ToolPolicy {
+  mode: "chat" | "task";
+  taskId?: string | null;
+}
+
+export function toolAllowedByPolicy(
+  tool: Pick<ToolDefinition, "name">,
+  policy: ToolPolicy | undefined,
+): boolean {
+  if (!policy) return true;
+  if (policy.mode === "chat" && tool.name === "task.complete") return false;
+  if (tool.name === "task.complete" && !policy.taskId) return false;
+  return true;
+}
+
 export interface ToolResult {
   ok: boolean;
   value?: unknown;
@@ -97,17 +118,29 @@ export class ToolRegistry {
     return this;
   }
 
-  list(): Array<{ name: string; description: string; parameters: Record<string, unknown> }> {
-    return [...this.tools.values()].map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    }));
+  list(
+    policy?: ToolPolicy,
+  ): Array<{ name: string; description: string; parameters: Record<string, unknown> }> {
+    return [...this.tools.values()]
+      .filter((tool) => toolAllowedByPolicy(tool, policy))
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }));
   }
 
-  async execute(name: string, args: unknown, ctx: ToolContext): Promise<ToolResult> {
+  async execute(
+    name: string,
+    args: unknown,
+    ctx: ToolContext,
+    policy?: ToolPolicy,
+  ): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) return { ok: false, error: `unknown tool: ${name}` };
+    if (!toolAllowedByPolicy(tool, policy)) {
+      return { ok: false, error: `tool not available in ${policy?.mode ?? "current"} context: ${name}` };
+    }
     // DESIGN §15.2：权限是执行层硬门禁，每次工具调用前检查。
     if (ctx.permission) {
       const decision = policyCheck(ctx.permission, name, args);
