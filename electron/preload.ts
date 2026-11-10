@@ -108,6 +108,62 @@ const api: DeerApi = {
   mergeStart: (taskId: string) => ipcRenderer.invoke("git:merge-start", taskId),
   mergeProcess: (workspaceId: string) => ipcRenderer.invoke("git:merge-process", workspaceId),
   gitRecover: (workspaceId: string) => ipcRenderer.invoke("git:recover", workspaceId),
+  // t154：行级评审
+  getReviewSummary: (taskId: string) => ipcRenderer.invoke("review:summary", taskId),
+  getReviewDiff: (input: { taskId: string; file?: string; offset?: number; limit?: number }) =>
+    ipcRenderer.invoke("review:diff", input),
+  getReviewThreads: (input: { taskId: string; file?: string; status?: string }) =>
+    ipcRenderer.invoke("review:threads", input),
+  createReviewThread: (input: {
+    taskId: string;
+    filePath: string;
+    side: "new" | "old";
+    lineStart: number;
+    lineEnd?: number;
+    body: string;
+    severity: import("../src/review/types.js").ReviewSeverity;
+  }) => ipcRenderer.invoke("review:thread:create", input),
+  replyReviewThread: (input: { taskId: string; threadId: string; body: string }) =>
+    ipcRenderer.invoke("review:thread:reply", input),
+  editReviewComment: (input: { taskId: string; commentId: string; body: string }) =>
+    ipcRenderer.invoke("review:comment:edit", input),
+  deleteReviewComment: (input: { taskId: string; commentId: string }) =>
+    ipcRenderer.invoke("review:comment:delete", input),
+  resolveReviewThread: (input: { taskId: string; threadId: string; note?: string }) =>
+    ipcRenderer.invoke("review:thread:resolve", input),
+  reopenReviewThread: (input: { taskId: string; threadId: string; note?: string }) =>
+    ipcRenderer.invoke("review:thread:reopen", input),
+  setReviewSeverity: (input: {
+    taskId: string;
+    threadId: string;
+    severity: import("../src/review/types.js").ReviewSeverity;
+  }) => ipcRenderer.invoke("review:thread:severity", input),
+  getReviewDecisions: (taskId: string) => ipcRenderer.invoke("review:decisions", taskId),
+  submitReviewDecision: (input: {
+    taskId: string;
+    decision: import("../src/review/types.js").ReviewDecision;
+    headSha: string;
+    notes?: string;
+    clientRequestId?: string;
+  }) => ipcRenderer.invoke("review:decision", input),
+  assignReviewer: (input: { taskId: string; reviewerId: string; role?: "reviewer" | "advisory" }) =>
+    ipcRenderer.invoke("review:reviewer:assign", input),
+  removeReviewer: (input: { taskId: string; reviewerId: string; reason: string }) =>
+    ipcRenderer.invoke("review:reviewer:remove", input),
+  replaceReviewer: (input: {
+    taskId: string;
+    fromReviewerId: string;
+    toReviewerId: string;
+    role?: "reviewer" | "advisory";
+    reason: string;
+  }) => ipcRenderer.invoke("review:reviewer:replace", input),
+  ensureReviewTarget: (taskId: string) => ipcRenderer.invoke("review:ensure", taskId),
+  getReviewConfig: (workspaceId: string) => ipcRenderer.invoke("review:config:get", workspaceId),
+  saveReviewConfig: (
+    workspaceId: string,
+    patch: import("../src/review/types.js").ReviewConfigPatch,
+    options?: { confirmResets?: boolean },
+  ) => ipcRenderer.invoke("review:config:save", workspaceId, patch, options),
   // t123：记忆工作台
   getMemorySnapshot: (workspaceId: string, options?: MemorySnapshotOptions) =>
     ipcRenderer.invoke("memory:snapshot", workspaceId, options),

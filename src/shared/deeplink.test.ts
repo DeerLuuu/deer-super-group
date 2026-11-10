@@ -13,6 +13,7 @@ describe("parseHash（C12 深链解析）", () => {
       mergeQueue: false,
       gitSettings: false,
       taskVcs: false,
+      taskReview: false,
       redirected: false,
     });
   });
@@ -66,6 +67,11 @@ describe("parseHash（C12 深链解析）", () => {
       task: "t3",
       taskVcs: true,
       mergeQueue: false,
+    });
+    expect(parseHash("#/tasks?t=t3&review=1")).toMatchObject({
+      tab: "tasks",
+      task: "t3",
+      taskReview: true,
     });
     // 非 1 值不误开
     expect(parseHash("#/tasks?t=t3&vcs=0").taskVcs).toBe(false);
@@ -127,6 +133,9 @@ describe("buildHash（C12 深链生成）", () => {
     const vcs = buildHash("tasks", { task: "t3", taskVcs: true });
     expect(vcs).toBe("#/tasks?t=t3&vcs=1");
     expect(parseHash(vcs).taskVcs).toBe(true);
+    const review = buildHash("tasks", { task: "t3", taskReview: true });
+    expect(review).toBe("#/tasks?t=t3&review=1");
+    expect(parseHash(review).taskReview).toBe(true);
 
     // team 只写 merge，不写 vcs；settings 不写任务参数
     expect(buildHash("team", { task: "t3", mergeQueue: true, taskVcs: true })).toBe(
