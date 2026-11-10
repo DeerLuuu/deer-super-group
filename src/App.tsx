@@ -128,6 +128,16 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
 
 type TaskStatusFilter = "all" | TaskStatus;
 
+/** t173：chat 工具调用过程（实时，刷新后不保留）。 */
+type ChatToolTrace = {
+  callId: string;
+  name: string;
+  arguments: string;
+  status: "running" | "ok" | "error";
+  value?: unknown;
+  error?: string;
+};
+
 /** t69：需要二次确认的内核操作（重试/取消/暂停/评审拒绝等有副作用的动作）。 */
 type ConfirmIntent =
   | { kind: "retry"; task: Task }
@@ -206,6 +216,7 @@ export default function App() {
   const [chatReasoning, setChatReasoning] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [chatContextBusy, setChatContextBusy] = useState(false);
+  const [chatTools, setChatTools] = useState<ChatToolTrace[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [context, setContext] = useState<ContextSnapshot | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
@@ -1020,6 +1031,32 @@ export default function App() {
         setChatStream((prev) => prev + event.text);
       } else if (event.type === "reasoning") {
         setChatReasoning((prev) => prev + event.text);
+      } else if (event.type === "tool_call") {
+        setChatTools((prev) => {
+          const next: ChatToolTrace = {
+            callId: event.callId,
+            name: event.name,
+            arguments: event.arguments,
+            status: "running",
+          };
+          return prev.some((item) => item.callId === event.callId)
+            ? prev.map((item) => (item.callId === event.callId ? next : item))
+            : [...prev, next];
+        });
+      } else if (event.type === "tool_result") {
+        setChatTools((prev) => {
+          const next: ChatToolTrace = {
+            callId: event.callId,
+            name: event.name,
+            arguments: prev.find((item) => item.callId === event.callId)?.arguments ?? "",
+            status: event.ok ? "ok" : "error",
+            value: event.value,
+            error: event.error,
+          };
+          return prev.some((item) => item.callId === event.callId)
+            ? prev.map((item) => (item.callId === event.callId ? next : item))
+            : [...prev, next];
+        });
       } else if (event.type === "done") {
         setChatStream("");
         setChatReasoning("");
@@ -1058,6 +1095,7 @@ export default function App() {
     setChatMessages([]);
     setChatStream("");
     setChatReasoning("");
+    setChatTools([]);
     setChatBusy(false);
     setContext(null);
     setContextTaskId(null);
@@ -1478,6 +1516,7 @@ export default function App() {
     setChatBusy(true);
     setChatStream("");
     setChatReasoning("");
+    setChatTools([]);
     setError(null);
     setChatMessages((prev) => [
       ...prev,
@@ -1540,6 +1579,7 @@ export default function App() {
       return;
     }
     setChatContextBusy(true);
+    setChatTools([]);
     setError(null);
     try {
       const result = await window.deer.clearChatContext(current.workspace.id);
@@ -1560,6 +1600,7 @@ export default function App() {
     const current = snapshotRef.current;
     if (!current || chatBusy || chatContextBusy) return;
     setChatContextBusy(true);
+    setChatTools([]);
     setError(null);
     try {
       const result = await window.deer.compactChatContext(current.workspace.id);
@@ -2459,6 +2500,7 @@ export default function App() {
                   return (
                     <ChatView
                       messages={chatMessages}
+                      tools={chatTools}
                       stream={chatStream}
                       reasoning={chatReasoning}
                       busy={chatBusy}
@@ -4244,8 +4286,22 @@ function BoardComposeModal({
   );
 }
 
+function formatToolPayload(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") {
+    return value.length > 4_000 ? `${value.slice(0, 4_000)}…` : value;
+  }
+  try {
+    const text = JSON.stringify(value, null, 2);
+    return text.length > 4_000 ? `${text.slice(0, 4_000)}…` : text;
+  } catch {
+    return String(value);
+  }
+}
+
 function ChatView({
   messages,
+  tools,
   stream,
   reasoning,
   busy,
@@ -4276,6 +4332,7 @@ function ChatView({
   onToast,
 }: {
   messages: ChatMessage[];
+  tools: ChatToolTrace[];
   stream: string;
   reasoning: string;
   busy: boolean;
@@ -4314,7 +4371,7 @@ function ChatView({
   useEffect(() => {
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [messages, stream]);
+  }, [messages, stream, tools]);
 
   return (
     <div className="chat-layout">
@@ -4436,6 +4493,20 @@ function ChatView({
               onToast={onToast}
             />
           ))}
+          {tools.length > 0 && (
+            <div className="chat-tool-trace" role="region" aria-label="工具调用过程">
+              <div className="chat-tool-trace-head">
+                <span className="section-label">工具调用</span>
+                <span className="muted tiny">
+                  {tools.length} 次
+                  {tools.some((tool) => tool.status === "running") ? " · 运行中" : ""}
+                </span>
+              </div>
+              {tools.map((tool) => (
+                <ChatToolItem key={tool.callId} tool={tool} />
+              ))}
+            </div>
+          )}
           {(reasoning || stream) && (
             <ChatBubble
               role="assistant"
@@ -4533,6 +4604,41 @@ function ChatView({
         </div>
       </section>
     </div>
+  );
+}
+
+function ChatToolItem({ tool }: { tool: ChatToolTrace }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <details
+      className={`chat-tool-item is-${tool.status}`}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span className="chat-tool-dot" aria-hidden="true" />
+        <span className="mono chat-tool-name">{tool.name}</span>
+        <span className={`chat-tool-status is-${tool.status}`}>
+          {tool.status === "running" ? "运行中" : tool.status === "ok" ? "完成" : "失败"}
+        </span>
+      </summary>
+      <div className="chat-tool-detail">
+        <div>
+          <div className="section-label">参数</div>
+          <pre>{formatToolPayload(tool.arguments)}</pre>
+        </div>
+        {tool.status !== "running" && (
+          <div>
+            <div className="section-label">{tool.status === "ok" ? "结果" : "错误"}</div>
+            <pre>
+              {tool.status === "ok"
+                ? formatToolPayload(tool.value) || "（无返回值）"
+                : tool.error || "工具执行失败"}
+            </pre>
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 

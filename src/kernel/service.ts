@@ -617,6 +617,31 @@ export class AppService {
           this.emitChat({ type: "delta", workspaceId, agentId: router.id, text }),
         onReasoningDelta: (text) =>
           this.emitChat({ type: "reasoning", workspaceId, agentId: router.id, text }),
+        // t173：把工具调用/结果实时推给 chat UI。
+        onEvent: (type, payload) => {
+          const data = (payload ?? {}) as Record<string, unknown>;
+          if (type === "tool.call") {
+            this.emitChat({
+              type: "tool_call",
+              workspaceId,
+              agentId: router.id,
+              callId: String(data.id ?? ""),
+              name: String(data.name ?? ""),
+              arguments: String(data.arguments ?? ""),
+            });
+          } else if (type === "tool.result") {
+            this.emitChat({
+              type: "tool_result",
+              workspaceId,
+              agentId: router.id,
+              callId: String(data.id ?? ""),
+              name: String(data.name ?? ""),
+              ok: Boolean(data.ok),
+              value: data.value,
+              error: data.error == null ? undefined : String(data.error),
+            });
+          }
+        },
       });
       const assistant = this.store.addChatMessage({
         workspaceId,
