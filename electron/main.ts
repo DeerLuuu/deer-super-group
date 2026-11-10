@@ -20,15 +20,36 @@ import type {
 } from "../src/shared/memoryRuntime.js";
 import type { MemorySearchInput, MemorySnapshotOptions } from "../src/memory/types.js";
 import type { CastPollRequest, ClosePollRequest, CreatePollRequest, PollStatus } from "../src/shared/poll.js";
+import { ReviewService } from "../src/review/service.js";
+import type { ReviewConfigPatch, ReviewDecision, ReviewSeverity } from "../src/review/types.js";
 
 let win: BrowserWindow | null = null;
 let service: AppService | null = null;
+let reviewService: ReviewService | null = null;
 
 function getService(): AppService {
   if (!service) {
     throw new Error("service is not ready");
   }
   return service;
+}
+
+function getReview(): ReviewService {
+  if (!reviewService) {
+    const current = getService();
+    reviewService = new ReviewService({
+      store: current.store,
+      workspacePath: (workspaceId) => current.store.getWorkspace(workspaceId)?.path ?? process.cwd(),
+      getTaskVcs: async (taskId) => current.git.getTaskVcs(taskId),
+      sendMail: (mail) => {
+        current.sendMessage(mail);
+      },
+      postBoard: (post) => {
+        current.postBoard(post);
+      },
+    });
+  }
+  return reviewService;
 }
 
 function createWindow(): void {
@@ -221,13 +242,93 @@ app.whenReady().then(() => {
   );
   handle("git:merge-queue", (workspaceId: string) => getService().git.listQueue(workspaceId));
   handle("git:merge-enqueue", (taskId: string) => getService().git.enqueue(taskId));
-  handle("git:merge-approve", (taskId: string) => getService().git.approve(taskId));
+  handle("git:merge-approve", async (taskId: string) => {
+    await getReview().assertMergeAllowed(taskId);
+    return getService().git.approve(taskId);
+  });
   handle("git:merge-waive", (taskId: string, reason: string) =>
     getService().git.waiveChecks(taskId, reason),
   );
-  handle("git:merge-start", (taskId: string) => getService().git.mergeStart(taskId));
+  handle("git:merge-start", async (taskId: string) => {
+    await getReview().assertMergeAllowed(taskId);
+    return getService().git.mergeStart(taskId);
+  });
   handle("git:merge-process", (workspaceId: string) => getService().git.processQueue(workspaceId));
   handle("git:recover", (workspaceId: string) => getService().git.recover(workspaceId));
+  // t154：行级评审
+  handle("review:summary", (taskId: string) => getReview().getSummary(taskId));
+  handle("review:diff", (input: { taskId: string; file?: string; offset?: number; limit?: number }) =>
+    getReview().getDiff(input.taskId, input),
+  );
+  handle("review:threads", (input: { taskId: string; file?: string; status?: string }) =>
+    getReview().getThreads(input.taskId, input),
+  );
+  handle(
+    "review:thread:create",
+    (input: {
+      taskId: string;
+      filePath: string;
+      side: "new" | "old";
+      lineStart: number;
+      lineEnd?: number;
+      body: string;
+      severity: ReviewSeverity;
+    }) => getReview().createThread(input),
+  );
+  handle("review:thread:reply", (input: { taskId: string; threadId: string; body: string }) =>
+    getReview().reply(input.taskId, input.threadId, input.body),
+  );
+  handle("review:comment:edit", (input: { taskId: string; commentId: string; body: string }) =>
+    getReview().editComment(input.taskId, input.commentId, input.body),
+  );
+  handle("review:comment:delete", (input: { taskId: string; commentId: string }) =>
+    getReview().deleteComment(input.taskId, input.commentId),
+  );
+  handle("review:thread:resolve", (input: { taskId: string; threadId: string; note?: string }) =>
+    getReview().resolveThread(input.taskId, input.threadId, input.note),
+  );
+  handle("review:thread:reopen", (input: { taskId: string; threadId: string; note?: string }) =>
+    getReview().reopenThread(input.taskId, input.threadId, input.note),
+  );
+  handle("review:thread:severity", (input: { taskId: string; threadId: string; severity: ReviewSeverity }) =>
+    getReview().setSeverity(input.taskId, input.threadId, input.severity),
+  );
+  handle("review:decisions", (taskId: string) => getReview().getDecisions(taskId));
+  handle(
+    "review:decision",
+    (input: {
+      taskId: string;
+      decision: ReviewDecision;
+      headSha: string;
+      notes?: string;
+      clientRequestId?: string;
+    }) => getReview().submitDecision(input),
+  );
+  handle(
+    "review:reviewer:assign",
+    (input: { taskId: string; reviewerId: string; role?: "reviewer" | "advisory" }) =>
+      getReview().assignReviewer(input.taskId, input.reviewerId, input.role ?? "reviewer"),
+  );
+  handle("review:reviewer:remove", (input: { taskId: string; reviewerId: string; reason: string }) =>
+    getReview().removeReviewer(input.taskId, input.reviewerId, input.reason),
+  );
+  handle(
+    "review:reviewer:replace",
+    (input: {
+      taskId: string;
+      fromReviewerId: string;
+      toReviewerId: string;
+      role?: "reviewer" | "advisory";
+      reason: string;
+    }) => getReview().replaceReviewer(input.taskId, input.fromReviewerId, input.toReviewerId, input.reason),
+  );
+  handle("review:ensure", (taskId: string) => getReview().ensureTarget(taskId));
+  handle("review:config:get", (workspaceId: string) => getReview().getConfig(workspaceId));
+  handle(
+    "review:config:save",
+    (workspaceId: string, patch: ReviewConfigPatch, options?: { confirmResets?: boolean }) =>
+      getReview().saveConfig(workspaceId, patch, options),
+  );
   // t123：记忆工作台 / MemoryService
   handle("memory:snapshot", (workspaceId: string, options?: MemorySnapshotOptions) =>
     getService().memory.snapshot(workspaceId, options),

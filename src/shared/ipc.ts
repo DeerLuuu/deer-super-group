@@ -38,6 +38,17 @@ import type {
   TaskVcsSnapshot,
 } from "../git/types.js";
 import type {
+  ReviewConfig,
+  ReviewConfigPatch,
+  ReviewDecision,
+  ReviewDecisionRecord,
+  ReviewDiffPage,
+  ReviewSeverity,
+  ReviewSummary,
+  ReviewTarget,
+  ReviewThread,
+} from "../review/types.js";
+import type {
   BoardArchiveProposal,
   BoardEntry as MemoryBoardEntry,
   Confidence,
@@ -122,6 +133,49 @@ export interface DeerApi {
   mergeStart(taskId: string): Promise<MergeQueueItem>;
   mergeProcess(workspaceId: string): Promise<MergeQueueItem>;
   gitRecover(workspaceId: string): Promise<number>;
+  // t154：行级评审与合并门禁
+  getReviewSummary(taskId: string): Promise<ReviewSummary>;
+  getReviewDiff(input: { taskId: string; file?: string; offset?: number; limit?: number }): Promise<ReviewDiffPage>;
+  getReviewThreads(input: { taskId: string; file?: string; status?: string }): Promise<ReviewThread[]>;
+  createReviewThread(input: {
+    taskId: string;
+    filePath: string;
+    side: "new" | "old";
+    lineStart: number;
+    lineEnd?: number;
+    body: string;
+    severity: ReviewSeverity;
+  }): Promise<ReviewThread>;
+  replyReviewThread(input: { taskId: string; threadId: string; body: string }): Promise<import("../review/types.js").ReviewComment>;
+  editReviewComment(input: { taskId: string; commentId: string; body: string }): Promise<import("../review/types.js").ReviewComment>;
+  deleteReviewComment(input: { taskId: string; commentId: string }): Promise<import("../review/types.js").ReviewComment>;
+  resolveReviewThread(input: { taskId: string; threadId: string; note?: string }): Promise<ReviewThread>;
+  reopenReviewThread(input: { taskId: string; threadId: string; note?: string }): Promise<ReviewThread>;
+  setReviewSeverity(input: { taskId: string; threadId: string; severity: ReviewSeverity }): Promise<ReviewThread>;
+  getReviewDecisions(taskId: string): Promise<ReviewDecisionRecord[]>;
+  submitReviewDecision(input: {
+    taskId: string;
+    decision: ReviewDecision;
+    headSha: string;
+    notes?: string;
+    clientRequestId?: string;
+  }): Promise<ReviewTarget>;
+  assignReviewer(input: { taskId: string; reviewerId: string; role?: "reviewer" | "advisory" }): Promise<ReviewTarget>;
+  removeReviewer(input: { taskId: string; reviewerId: string; reason: string }): Promise<ReviewTarget>;
+  replaceReviewer(input: {
+    taskId: string;
+    fromReviewerId: string;
+    toReviewerId: string;
+    role?: "reviewer" | "advisory";
+    reason: string;
+  }): Promise<ReviewTarget>;
+  ensureReviewTarget(taskId: string): Promise<ReviewTarget>;
+  getReviewConfig(workspaceId: string): Promise<ReviewConfig>;
+  saveReviewConfig(
+    workspaceId: string,
+    patch: ReviewConfigPatch,
+    options?: { confirmResets?: boolean },
+  ): Promise<ReviewConfig>;
   // t123：记忆工作台（MemoryService 运行时；人类治理路径）
   getMemorySnapshot(workspaceId: string, options?: MemorySnapshotOptions): Promise<MemorySnapshot>;
   searchMemory(input: MemorySearchInput): Promise<MemorySearchResult>;

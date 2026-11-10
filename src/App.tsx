@@ -34,6 +34,7 @@ import {
   TaskVcsPanel,
 } from "./git/ui/GitPanels";
 import MemoryWorkbench from "./shell/MemoryWorkbench";
+import ReviewSection from "./review/ui/ReviewSection";
 import PollPanel from "./shell/PollPanel";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
 import {
@@ -3165,6 +3166,8 @@ function TasksView({
             >
               <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} />
             </div>
+
+            <ReviewSection key={`review-${selectedTask.id}`} taskId={selectedTask.id} />
 
             <RunHistory
               task={selectedTask}
