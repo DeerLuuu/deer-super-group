@@ -21,17 +21,17 @@
 | 预算/降级 | task/agent/workspace 预算、soft/hard、pause/stop、启动前拦截、运行中 hard 暂停；fallback 链/provider-model 两级冷却 |
 | API/IPC | Watchdog snapshot/costs/handoff/ack/resolve/releaseHold/setBudget/setFallback/health；main/preload/DeerApi |
 | UI | 独立 `WatchdogPanel`/`BudgetBar`/`WatchdogAlertBanner`/`RunHandoffCard`（ARIA progressbar/alert/live、窄窗 class）；组件测试 |
-| 测试 | watchdog 23 例 + 既有 463，共 **486**；fake clock/重建/预算/暂时租约/切换成员/UI/429 计数/冷却拦截/链空/成功重置/retry 抛错 |
+| 测试 | watchdog 23 例 + 既有 492，共 **515**；fake clock/重建/预算/暂时租约/切换成员/UI/429 计数/冷却拦截/链空/成功重置/retry 抛错 |
 
 **验证数字（本地 HEAD）**：
 
 ```
 pnpm typecheck  # exit 0
 pnpm build      # exit 0
-pnpm test       # 37 files / 486 tests passed
+pnpm test       # 42 files / 515 tests passed
 ```
 
-构建（t157）：`dist/assets/index-BaHOCsV6.js 1,183.45 kB (gzip 324.87)`，CSS 225.28 kB；`dist-electron/main.cjs 1.4 MB`。
+构建（同步 main 后）：`dist/assets/index-vZpP1BJB.js 1,195.89 kB (gzip 328.03)`，CSS 228.53 kB；`dist-electron/main.cjs 1.5 MB`。
 
 ---
 
@@ -212,7 +212,7 @@ docs/team/watchdog-cost-implementation.md
 | 降级 | 429→provider_quota→fallback 新 Run model override+handoff+冷却 |
 | 重建 | kernel.rebuildProjections 后 hold/autoInterventions/handoff 保留；删除 watchdog 表后 rebuild 修复 schema |
 | UI | 预算 progressbar/aria-valuenow、critical role=alert、确认/恢复按钮；panelRegistry 默认关闭 + 900/760 断点 |
-| 既有回归 | 463 tests（Git/记忆/权限/审批/画布/调度/Poll 等）全绿；合计 486 |
+| 既有回归 | 492 tests（Git/记忆/权限/审批/画布/调度/Poll/行级评审等）全绿；合计 515 |
 
 ---
 
@@ -227,7 +227,7 @@ docs/team/watchdog-cost-implementation.md
 7. **watchdog 自身 deadman** 为本地 last_tick 检测（单进程限制）；外置 supervisor 属后续。
 8. **预算 soft 仅 warning 事件/UI**，不自动暂停（hard 才暂停）。
 9. **历史 Run 成本不回填**，UI 标 legacy unknown；ledger 仅新 Run。
-10. **测试基线** 486（watchdog 23）；release 默认必须指定 reason，全部释放需 `all=true` 二次确认。
+10. **测试基线** 515（watchdog 23）；release 默认必须指定 reason，全部释放需 `all=true` 二次确认。
 
 ---
 
@@ -235,8 +235,8 @@ docs/team/watchdog-cost-implementation.md
 
 ```
 pnpm typecheck   # exit 0
-pnpm build       # exit 0（js 1,183.45 kB gzip 324.87；css 225.28 kB；electron main 1.4 MB）
-pnpm test        # exit 0（37 files / 486 tests）
+pnpm build       # exit 0（js 1,195.89 kB gzip 328.03；css 228.53 kB；electron main 1.5 MB）
+pnpm test        # exit 0（42 files / 515 tests）
 ```
 
 （HEAD 以 PR 提交为准；同步 main 后若 CI 环境变化，以 PR 检查为准。）
