@@ -62,6 +62,18 @@ import type {
   MemoKind,
 } from "../memory/types.js";
 import type {
+  BudgetSnapshot,
+  CostSnapshot,
+  FallbackChain,
+  RunHandoff,
+  SetBudgetInput,
+  SetFallbackChainInput,
+  WatchdogAlert,
+  WatchdogHealth,
+  WatchdogResult,
+  WatchdogSnapshot,
+} from "./watchdog.js";
+import type {
   CastPollRequest,
   ClosePollRequest,
   CreatePollRequest,
@@ -225,6 +237,21 @@ export interface DeerApi {
     board: string;
   }): Promise<MemoryResult<MemoryBoardEntry>>;
   runMemoryMaintenance(workspaceId?: string): Promise<MemoryResult<unknown>>;
+  // t144：看门狗与成本
+  getWatchdogSnapshot(workspaceId: string): Promise<WatchdogResult<WatchdogSnapshot>>;
+  getWatchdogCosts(workspaceId: string): Promise<WatchdogResult<CostSnapshot>>;
+  getRunHandoff(workspaceId: string, runId: string): Promise<WatchdogResult<RunHandoff | null>>;
+  ackWatchdogAlert(workspaceId: string, alertId: string): Promise<WatchdogResult<WatchdogAlert>>;
+  resolveWatchdogAlert(workspaceId: string, alertId: string): Promise<WatchdogResult<WatchdogAlert>>;
+  releaseWatchdogTaskHold(
+    workspaceId: string,
+    taskId: string,
+    reason: import("./watchdog.js").WatchdogHoldReason,
+    all?: boolean,
+  ): Promise<WatchdogResult<void>>;
+  setWatchdogBudget(input: SetBudgetInput): Promise<WatchdogResult<BudgetSnapshot>>;
+  setWatchdogFallback(input: SetFallbackChainInput): Promise<WatchdogResult<FallbackChain>>;
+  getWatchdogHealth(): Promise<WatchdogHealth>;
   getMemoryContext(input: {
     workspaceId: string;
     agentId?: string | null;

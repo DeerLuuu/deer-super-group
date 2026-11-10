@@ -20,6 +20,8 @@ export interface AgentLoopOptions {
   thinkingStyle?: "deepseek" | "openai";
   signal?: AbortSignal;
   onEvent?: (type: string, payload: unknown) => void;
+  /** t144：看门狗/人工 nudge；每步开始时消费一次。 */
+  consumeNudges?: () => string[];
 }
 
 export interface AgentLoopResult {
@@ -49,6 +51,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     thinkingStyle,
     signal,
     onEvent,
+    consumeNudges,
   } = options;
 
   const messages: LlmMessage[] = [
@@ -61,6 +64,13 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
   for (let step = 1; step <= maxSteps; step += 1) {
     if (signal?.aborted) throw new Error("aborted");
+    const nudges = consumeNudges?.() ?? [];
+    for (const text of nudges) {
+      messages.push({
+        role: "user",
+        content: `[watchdog] ${text}`,
+      });
+    }
     onEvent?.("run.step", { step });
 
     const completion = await collectStream(
@@ -78,6 +88,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
     usage.inputTokens += completion.usage.inputTokens;
     usage.outputTokens += completion.usage.outputTokens;
+    // t144：每步上报一次累计 usage，供看门狗/成本 provisional/预算采样。
+    onEvent?.("usage", { ...usage, step });
 
     if (completion.text.trim()) {
       lastText = completion.text;

@@ -26,6 +26,18 @@ import EmptyState from "./EmptyState";
 import SchedulerBar from "./SchedulerBar";
 import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
+import {
+  BudgetBar,
+  WatchdogAlertBanner,
+  WatchdogPanel,
+} from "./watchdog/WatchdogPanel";
+import type {
+  CostSnapshot,
+  RunHandoff,
+  WatchdogAlert,
+  WatchdogHoldReason,
+  WatchdogSnapshot,
+} from "./shared/watchdog";
 import KernelAnnouncer from "./KernelAnnouncer";
 import ChatContent from "./ChatContent";
 import {
@@ -99,6 +111,7 @@ const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "mailbox",
   "board",
   "polls",
+  "watchdog",
   "context",
 ];
 
@@ -230,6 +243,10 @@ export default function App() {
   const [schedulerLoading, setSchedulerLoading] = useState(true);
   const [schedulerError, setSchedulerError] = useState<string | null>(null);
   const [taskRuns, setTaskRuns] = useState<Run[]>([]);
+  // t157：watchdog/预算/交接 UI 数据（面板、顶部预算条、任务告警、RunHistory）。
+  const [watchdogSnapshot, setWatchdogSnapshot] = useState<WatchdogSnapshot | null>(null);
+  const [watchdogCosts, setWatchdogCosts] = useState<CostSnapshot | null>(null);
+  const [watchdogHandoffs, setWatchdogHandoffs] = useState<Record<string, RunHandoff>>({});
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -267,6 +284,7 @@ export default function App() {
   const snapshotRef = useRef<Snapshot | null>(null);
   const selectedTaskRef = useRef<string | null>(null);
   const refreshTimer = useRef<number | null>(null);
+  const handoffFetchedRef = useRef<Set<string>>(new Set());
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizingRef = useRef(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -618,25 +636,116 @@ export default function App() {
     }
   }, [contextTaskId, pushToast]);
 
+  const loadWatchdog = useCallback(async (workspaceId: string) => {
+    try {
+      const [snapshotResult, costsResult] = await Promise.all([
+        window.deer.getWatchdogSnapshot(workspaceId),
+        window.deer.getWatchdogCosts(workspaceId),
+      ]);
+      if (snapshotResult.ok) setWatchdogSnapshot(snapshotResult.value);
+      if (costsResult.ok) setWatchdogCosts(costsResult.value);
+    } catch {
+      // watchdog 不可用时不影响主界面
+    }
+  }, []);
+
   const refresh = useCallback(
     async (workspaceId: string) => {
       const next = await window.deer.getSnapshot(workspaceId);
       setSnapshot(next);
       // t69：事件刷新同时更新调度快照与当前任务 Run（静默，不闪骨架）。
       void loadScheduler(workspaceId, true);
+      void loadWatchdog(workspaceId);
       if (selectedTaskRef.current) {
         await loadTrace(selectedTaskRef.current);
         void loadRuns(selectedTaskRef.current, true);
       }
     },
-    [loadTrace, loadScheduler, loadRuns],
+    [loadTrace, loadScheduler, loadRuns, loadWatchdog],
+  );
+
+  const refreshWatchdog = useCallback(async () => {
+    const workspaceId = snapshotRef.current?.workspace.id;
+    if (workspaceId) await loadWatchdog(workspaceId);
+  }, [loadWatchdog]);
+
+  const holdReasonForAlert = useCallback(
+    (alert: WatchdogAlert): WatchdogHoldReason => {
+      const holds = watchdogSnapshot?.holds.filter((hold) => hold.taskId === alert.taskId) ?? [];
+      if (holds.some((hold) => hold.reason === "escalation")) return "escalation";
+      if (holds.some((hold) => hold.reason === "budget")) return "budget";
+      return "watchdog";
+    },
+    [watchdogSnapshot],
+  );
+
+  const handleAckWatchdogAlert = useCallback(
+    async (alert: WatchdogAlert) => {
+      const workspaceId = snapshotRef.current?.workspace.id;
+      if (!workspaceId) return;
+      const result = await window.deer.ackWatchdogAlert(workspaceId, alert.id);
+      if (!result.ok) pushToast({ kind: "error", message: result.error.message });
+      await refreshWatchdog();
+    },
+    [pushToast, refreshWatchdog],
+  );
+
+  const handleResolveWatchdogAlert = useCallback(
+    async (alert: WatchdogAlert) => {
+      const workspaceId = snapshotRef.current?.workspace.id;
+      if (!workspaceId) return;
+      const result = await window.deer.resolveWatchdogAlert(workspaceId, alert.id);
+      if (!result.ok) pushToast({ kind: "error", message: result.error.message });
+      await refreshWatchdog();
+    },
+    [pushToast, refreshWatchdog],
+  );
+
+  const handleReleaseWatchdogHold = useCallback(
+    async (alert: WatchdogAlert) => {
+      const workspaceId = snapshotRef.current?.workspace.id;
+      if (!workspaceId || !alert.taskId) return;
+      const result = await window.deer.releaseWatchdogTaskHold(
+        workspaceId,
+        alert.taskId,
+        holdReasonForAlert(alert),
+      );
+      if (!result.ok) {
+        pushToast({ kind: "error", message: result.error.message });
+        return;
+      }
+      pushToast({ kind: "success", message: "已释放当前暂停原因；其他 hold 仍保留。" });
+      await refreshWatchdog();
+      void loadRuns(alert.taskId);
+    },
+    [holdReasonForAlert, loadRuns, pushToast, refreshWatchdog],
   );
 
   // t69：工作区切换/首屏就绪后加载调度快照（与 snapshot 解耦，避免每次 refresh 重载）。
   useEffect(() => {
     if (!snapshot) return;
     void loadScheduler(snapshot.workspace.id);
-  }, [snapshot?.workspace.id, loadScheduler]);
+    void loadWatchdog(snapshot.workspace.id);
+    const timer = window.setInterval(() => {
+      if (snapshotRef.current) void loadWatchdog(snapshotRef.current.workspace.id);
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [snapshot?.workspace.id, loadScheduler, loadWatchdog]);
+
+  // t157：RunHistory 的交接卡按需加载，避免触碰 Run 事件契约。
+  useEffect(() => {
+    const workspaceId = snapshotRef.current?.workspace.id;
+    if (!workspaceId) return;
+    for (const run of taskRuns) {
+      if (handoffFetchedRef.current.has(run.id)) continue;
+      handoffFetchedRef.current.add(run.id);
+      void window.deer.getRunHandoff(workspaceId, run.id).then((result) => {
+        if (result.ok && result.value) {
+          setWatchdogHandoffs((previous) => ({ ...previous, [run.id]: result.value! }));
+        }
+      });
+    }
+  }, [taskRuns]);
 
   // t69：选中任务变化 → 拉取该任务的 Run 历史。
   useEffect(() => {
@@ -2044,6 +2153,31 @@ export default function App() {
           </div>
         )}
 
+        {watchdogSnapshot && (
+          <div className="watchdog-topbar" role="region" aria-label="看门狗与预算">
+            <button
+              type="button"
+              className="ghost tiny watchdog-topbar-open"
+              onClick={() => openPanel("watchdog")}
+            >
+              看门狗
+            </button>
+            <BudgetBar
+              spentUsd={watchdogSnapshot.budgets.workspaceDay.spentUsd}
+              limitUsd={watchdogSnapshot.budgets.workspaceDay.limitUsd}
+              ratio={watchdogSnapshot.budgets.workspaceDay.ratio}
+              softRatio={watchdogSnapshot.budgets.softRatio}
+              label="今日预算"
+              onOpen={() => openPanel("watchdog")}
+            />
+            {watchdogSnapshot.alerts.some((alert) => alert.status === "open") && (
+              <span className="pill pill-warning">
+                告警 {watchdogSnapshot.alerts.filter((alert) => alert.status === "open").length}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* t50：VSCode 风格 Dock 布局——对话/团队双主面板，其余视图为可拖动面板 */}
         <div className="dock-host" ref={dockHostRef}>
           <DockShell
@@ -2114,6 +2248,11 @@ export default function App() {
                       onReviewTask={handleRequestReview}
                       onPause={handleRequestPauseScheduler}
                       onResume={handleRequestResumeScheduler}
+                      watchdogAlerts={watchdogSnapshot?.alerts}
+                      onAckWatchdogAlert={handleAckWatchdogAlert}
+                      onResolveWatchdogAlert={handleResolveWatchdogAlert}
+                      onReleaseWatchdogHold={handleReleaseWatchdogHold}
+                      watchdogHandoffs={watchdogHandoffs}
                     />
                   );
                 case "team":
@@ -2302,6 +2441,28 @@ export default function App() {
                       initialSource={pollIntent}
                       onAutoOpenHandled={() => setPollIntent(null)}
                       onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
+                    />
+                  );
+                case "watchdog":
+                  if (!watchdogSnapshot) {
+                    return (
+                      <EmptyState
+                        icon="◈"
+                        title="看门狗尚未加载"
+                        description="正在读取 watchdog/cost 快照；若持续为空，请检查主进程日志。"
+                      />
+                    );
+                  }
+                  return (
+                    <WatchdogPanel
+                      snapshot={watchdogSnapshot}
+                      costs={watchdogCosts}
+                      onAck={handleAckWatchdogAlert}
+                      onResolve={handleResolveWatchdogAlert}
+                      onRelease={handleReleaseWatchdogHold}
+                      onOpenRun={(runId) => {
+                        if (runId) openRunsPanel(selectedTaskId, runId);
+                      }}
                     />
                   );
                 default:
@@ -2625,6 +2786,11 @@ function TasksView({
   onReviewTask,
   onPause,
   onResume,
+  watchdogAlerts,
+  onAckWatchdogAlert,
+  onResolveWatchdogAlert,
+  onReleaseWatchdogHold,
+  watchdogHandoffs,
 }: {
   snapshot: Snapshot;
   selectedTask: Task | null;
@@ -2661,6 +2827,11 @@ function TasksView({
   onReviewTask: (task: Task, decision: "approve" | "reject") => void;
   onPause: () => void;
   onResume: () => void;
+  watchdogAlerts?: WatchdogAlert[];
+  onAckWatchdogAlert?: (alert: WatchdogAlert) => void;
+  onResolveWatchdogAlert?: (alert: WatchdogAlert) => void;
+  onReleaseWatchdogHold?: (alert: WatchdogAlert) => void;
+  watchdogHandoffs?: Record<string, RunHandoff>;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
@@ -2975,6 +3146,21 @@ function TasksView({
         )}
         {selectedTask && (
           <>
+            {(watchdogAlerts ?? [])
+              .filter(
+                (alert) =>
+                  alert.taskId === selectedTask.id && alert.status !== "resolved",
+              )
+              .slice(0, 3)
+              .map((alert) => (
+                <WatchdogAlertBanner
+                  key={alert.id}
+                  alert={alert}
+                  onAck={onAckWatchdogAlert}
+                  onResolve={onResolveWatchdogAlert}
+                  onRelease={onReleaseWatchdogHold}
+                />
+              ))}
             <div className="task-detail-headrow">
               <div className="row gap wrap">
                 <StatusBadge status={selectedTask.status} />
@@ -3223,6 +3409,7 @@ function TasksView({
                 onOpenRuns(selectedTask.id, runId ?? selectedRunId)
               }
               onRetryTask={() => onRetryTask(selectedTask)}
+              handoffs={watchdogHandoffs}
             />
 
             <div className="trace-head">

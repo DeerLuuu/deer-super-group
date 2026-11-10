@@ -6187,6 +6187,182 @@ label.check input {
   }
 }
 
+/* ---------- t157：watchdog / 预算 / handoff ---------- */
+.watchdog-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.watchdog-topbar-open {
+  font-weight: 600;
+}
+.watchdog-budget {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.watchdog-budget-track {
+  position: relative;
+  display: inline-block;
+  width: 96px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+.watchdog-budget-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.watchdog-budget-soft .watchdog-budget-fill {
+  background: var(--warning);
+}
+.watchdog-budget-hard .watchdog-budget-fill {
+  background: var(--danger);
+}
+.watchdog-budget-text {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.watchdog-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  min-width: 0;
+}
+.watchdog-panel-head,
+.watchdog-alert-head,
+.watchdog-handoff header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.watchdog-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.watchdog-panel-section h3 {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.watchdog-alert-list,
+.watchdog-intervention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.watchdog-alert {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 6px;
+  padding: 8px;
+  background: transparent;
+}
+.watchdog-alert-critical {
+  border-left-color: var(--danger);
+  background: transparent;
+}
+.watchdog-alert-info {
+  border-left-color: var(--accent);
+  background: transparent;
+}
+.watchdog-alert p {
+  margin: 4px 0;
+}
+.watchdog-handoff {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 8px;
+}
+.watchdog-handoff-summary {
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 12px;
+}
+.watchdog-handoff-fields {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.watchdog-handoff-fields dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+.watchdog-handoff-fields dd {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+.task-watchdog-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+.watchdog-budget:focus-visible,
+.watchdog-topbar button:focus-visible,
+.watchdog-panel button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (max-width: 900px) {
+  .watchdog-topbar {
+    padding: 4px 8px;
+  }
+  .watchdog-budget-track {
+    width: 64px;
+  }
+  .watchdog-panel {
+    padding: 8px;
+  }
+}
+@media (max-width: 760px) {
+  .watchdog-topbar {
+    align-items: stretch;
+  }
+  .watchdog-budget {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .watchdog-budget-text {
+    white-space: normal;
+  }
+  .watchdog-panel-head {
+    align-items: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .watchdog-panel *,
+  .watchdog-topbar * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 /* t154 line review ------------------------------------------------------- */
 .review-section {
   margin-top: 14px;

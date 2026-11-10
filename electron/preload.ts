@@ -16,6 +16,11 @@ import type {
 } from "../src/shared/types.js";
 import type { GitSettings } from "../src/git/types.js";
 import type {
+  SetBudgetInput,
+  SetFallbackChainInput,
+  WatchdogHoldReason,
+} from "../src/shared/watchdog.js";
+import type {
   Confidence,
   MemoryResult,
   MemorySearchInput,
@@ -225,6 +230,27 @@ const api: DeerApi = {
     runId?: string | null;
     maxTokens?: number;
   }) => ipcRenderer.invoke("memory:context", input),
+  // t144：看门狗与成本
+  getWatchdogSnapshot: (workspaceId: string) =>
+    ipcRenderer.invoke("watchdog:getSnapshot", workspaceId),
+  getWatchdogCosts: (workspaceId: string) => ipcRenderer.invoke("watchdog:getCosts", workspaceId),
+  getRunHandoff: (workspaceId: string, runId: string) =>
+    ipcRenderer.invoke("watchdog:getHandoff", workspaceId, runId),
+  ackWatchdogAlert: (workspaceId: string, alertId: string) =>
+    ipcRenderer.invoke("watchdog:ackAlert", workspaceId, alertId),
+  resolveWatchdogAlert: (workspaceId: string, alertId: string) =>
+    ipcRenderer.invoke("watchdog:resolveAlert", workspaceId, alertId),
+  releaseWatchdogTaskHold: (
+    workspaceId: string,
+    taskId: string,
+    reason: WatchdogHoldReason,
+    all?: boolean,
+  ) => ipcRenderer.invoke("watchdog:releaseHold", workspaceId, taskId, reason, all),
+  setWatchdogBudget: (input: SetBudgetInput) =>
+    ipcRenderer.invoke("watchdog:setBudget", input),
+  setWatchdogFallback: (input: SetFallbackChainInput) =>
+    ipcRenderer.invoke("watchdog:setFallback", input),
+  getWatchdogHealth: () => ipcRenderer.invoke("watchdog:health"),
   listPolls: (workspaceId: string, status?: PollStatus) =>
     ipcRenderer.invoke("poll:list", workspaceId, status),
   getPoll: (workspaceId: string, pollId: string) => ipcRenderer.invoke("poll:get", workspaceId, pollId),

@@ -343,6 +343,16 @@ export interface ProviderInfo extends ProviderProfile {
   effectiveBaseUrl: string;
 }
 
+export interface ModelPricing {
+  currency: "USD";
+  inputPer1M: number;
+  outputPer1M: number;
+  cachedInputPer1M?: number;
+  reasoningPer1M?: number;
+  source?: "manual" | "catalog";
+  version?: string;
+}
+
 export interface ModelProfile {
   /** Unique profile id: `${providerId}:${modelId}`. */
   id: string;
@@ -356,6 +366,8 @@ export interface ModelProfile {
   maxOutputTokens: number;
   thinkingEnabled: boolean;
   thinkingEffort: ThinkingEffort;
+  /** t144：可选成本价格；未配置时成本 unknown，预算默认不阻塞。 */
+  pricing?: ModelPricing | null;
 }
 
 export interface LlmSettings {

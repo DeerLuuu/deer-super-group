@@ -38,7 +38,7 @@
 - **INV-6**：429/quota 不在同一 provider/model 原样重试；切换必须记录 from/to/冷却。
 - **INV-7**：所有阈值、预算、价格均来自持久设置或默认值；测试可用 fake clock 确定性复现。
 - **INV-8**：看门狗自身 tick 写入 `watchdog_state.last_tick_at`；超过 2×巡检间隔未更新 → deadman 告警（启动/下一次 tick 检测）。
-- **INV-9**：事件是审计事实源；watchdog/cost 查询表是可重建/可校验投影，不得出现“有事件无记录”的静默丢失。
+- **INV-9**：事件是审计事实源；watchdog/cost 查询表是 **durable cache**，不承诺完整事件重放（t157 降级）；表可做 schema 修复/校验，但不得出现“有事件无记录”的静默丢失而不告警。
 - **INV-10**：不读取/不记录敏感文件内容；handoff diff 走 Git 只读命令 + 敏感路径过滤，凭据永不入事件。
 
 ---
@@ -776,10 +776,9 @@ CREATE TABLE IF NOT EXISTS provider_cooldowns (
 
 ### 9.3 投影与重建
 
-- 事件为事实源：`watchdog.signal/nudged/paused/resumed/escalated/alert_acknowledged`、`run.handoff_created`、`run.model_fallback`、`run.member_switched`、`cost.recorded/budget_*`。
-- 表为投影/缓存；`WatchdogService.rebuild()` 从事件重建 alerts/interventions/holds/ledger/task_state（成本 final 可用 payload 重放，幂等键防重复）。
-- **kernel rebuild**：watchdog 不新增 kernel task/run 列；Task 的 hold 仅由既有 `nextRunAt`（kernel 事件）表达，`watchdog_holds` 为原因源；handoff/fallback 在 `run_handoffs` + `run.started` 事件。kernel rebuild 只能重放 kernel 事件，watchdog 重建不能 reset 计数或把 hold 当成无 hold；启动后需核对 active holds 与 nextRunAt。
-- 一致性校验：active interventions 数、open alerts、ledger final 数、hold 数、`watchdog_task_state` 与 events 计数；dev 启动抽样，异常写 `watchdog.rebuild_mismatch`。
+- 事件为审计事实源（`watchdog.signal/nudged/paused/resumed/escalated/alert_acknowledged`、`run.handoff_created`、`run.model_fallback`、`run.member_switched`、`cost.recorded/budget_*`），但 **t157 起 watchdog/cost 表降级为 durable cache**：`WatchdogStore.rebuild()` 只做 schema 修复/计数校验，不做完整事件重放；数据修复依赖备份/迁移，缺失时显式告警而不伪造。
+- **kernel rebuild**：watchdog 不新增 kernel task/run 列；Task 的 hold 仅由既有 `nextRunAt`（kernel 事件）表达，`watchdog_holds` 为原因源；handoff/fallback 在 `run_handoffs` + `run.started` 事件。kernel rebuild 只能重放 kernel 事件，不得 reset 计数或把 hold 当成无 hold；启动后需核对 active holds 与 nextRunAt。
+- 一致性校验：active interventions 数、open alerts、ledger final 数、hold 数、`watchdog_task_state` 与 events 计数；异常写 `watchdog.rebuild_mismatch`。schema 被删除/损坏时重建空表并记录 `repaired/missing`，业务数据不伪造。
 
 ---
 
@@ -960,7 +959,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 - **UI**：RTL/现有测试；告警条/预算条 ARIA/键盘/窄窗；面板空态。
 - **E2E**：mock provider + fake clock：卡死→nudge→pause+handoff→fallback→done；预算超限→hold→人工提高→resume；429→fallback；人工升级。
 
-### 12.2 AC（编号；共 86 条 = 原 77 + t141 新增 9）
+### 12.2 AC（编号；共 93 条 = 原 86 + t157 新增 3 + t161 新增 4）
 
 #### 信号/巡检（WD）
 
@@ -978,6 +977,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | WD-10 | deadman：last_tick 超过 2×间隔 → critical；renderer 显示 stale |
 | WD-11 | 同一 alert 15min 去重；不同 task 不互相抑制 |
 | WD-12 | 巡检单飞/防抖，不并发重复干预 |
+| WD-13 | deadman：last_tick > 2×间隔 → critical + `watchdog.deadman`；fake clock 确定性测试；UI 显示 stale |
 
 #### 干预（IN）
 
@@ -993,7 +993,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | IN-08 | 人工 releaseHold 后 task 可启动；预算/循环未解决时仍被策略阻止 |
 | IN-09 | 429 跳过 nudge/pause 直接 fallback；链空→human |
 | IN-10 | 所有干预写 watchdog.* 事件 + 查询表；审计含 reason/from/to |
-| IN-11 | budget hold + watchdog/escalation hold 同时存在时，release 只清当前 reason；最后一个 hold 才清 nextRunAt；释放其一仍不启动 |
+| IN-11 | budget hold + watchdog/escalation hold 同时存在时，release 只清当前 reason；最后一个 hold 才清 nextRunAt；释放其一仍不启动（t157 双 hold 测试） |
 | IN-12 | 2 次自动干预后的信号矩阵：nudge/L2/L3/L4 均不执行，只 critical alert + human |
 
 #### 交接（HO）
@@ -1001,13 +1001,14 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | AC | 内容 |
 |---|---|
 | HO-01 | Handoff 含 summary/nextStep/files/diffStat/lastEventSeq/model/agent |
-| HO-02 | diff 从 Git worktree 读取，敏感路径过滤，≤256KB；超限只存 stat |
+| HO-02 | diff 从 Git worktree 读取，按路径先过滤敏感路径再拼接；`.env`/`.ssh` 等 tracked 变更只保留 `[REDACTED]`/stat，不落完整 patch；summary.files/assistant 文本过滤，≤256KB |
 | HO-03 | handoff 在 abort 前持久化；失败则禁止切换→human |
 | HO-04 | 新 Run 注入 handoff ≤1500 tokens；task acceptance 不丢 |
 | HO-05 | 旧 Run 结果不能覆盖新 Run（lease/fencing/result_discarded） |
 | HO-06 | handoff 事件不含密钥/完整 prompt；UI 只显示摘要 |
 | HO-07 | handoff 过期清理（7 天）不影响审计事件 |
 | HO-08 | 换成员/fallback 均生成 handoff；可查询 `getRunHandoff` |
+| HO-10 | summaryLines/changes/openQuestions/nextStep 统一 redactSensitiveText；摘要含 `.env`/secret 测试 |
 
 #### 成本（CO）
 
@@ -1041,6 +1042,9 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | BU-10 | 预算/模型设置校验（非负/存在/不重复） |
 | BU-11 | `spentForBudget = final + active provisional + reservation` 在 beforeStart/activity 使用；active Run 超支被拦截；final 后去重 |
 | BU-12 | provider 级 429 写 `model='*'` 后所有 model 跳过；到期/清理恢复；同时检查 provider/model 两级 |
+| BU-13 | provider 失败事件生成 `provider_quota` 信号并自动走既有 fallback：新 Run model override + handoff + 原 provider/model 冷却；429→fallback→新模型→冷却测试 |
+| BU-14 | provider 5min 内 2 次失败写 `model='*'`；beforeStart 对冷却 model/provider 拒绝并 hold/alert，禁止内核 auto-retry 同 model；真实 429 两次→`*`、同 model 拦截测试 |
+| BU-15 | fallback 链空/全部 cooling → escalate + escalation hold + critical alert，任务不自动重跑；链空/all cooling 测试 |
 
 #### API/UI（UI/API）
 
@@ -1060,6 +1064,8 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | UI-07 | aria-live 播报 critical/warning；不重复 |
 | UI-08 | 960/760 窄窗不溢出；reduced-motion 无动画 |
 | UI-09 | 人工升级 alertdialog/确认，Esc 取消不误恢复 |
+| UI-10 | Watchdog 挂载 App/Dock 默认关闭；顶部预算条、任务详情告警条、RunHistory handoff 卡；按钮键盘可达；900/760 窄窗不溢出 |
+| UI-11 | App/Dock 组件级渲染/交互（预算条、ack/release、RunHistory handoff）覆盖；完整 App DOM e2e 标 **P1 manual**，不冒充 UI 全通过 |
 
 #### 内核契约/迁移/E2E（KRN/MG/E2E）
 
@@ -1076,7 +1082,7 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | MG-02 | 表/列重复启动幂等；失败回滚且应用可用 |
 | MG-03 | 旧 Run cost 不回填；UI legacy unknown |
 | MG-04 | 默认设置不覆盖用户已有；预算默认 0 |
-| MG-05 | watchdog rebuild 与 kernel rebuild 顺序一致；rebuild 后 `watchdog_task_state`/holds 与 nextRunAt 校验无 reset |
+| MG-05 | watchdog tables 为 durable cache：kernel rebuild 不 reset 计数/hold；watchdog.rebuild 做 schema 修复/计数校验（不完整事件重放）；删除表后可重建空 schema 并记录 missing |
 | E2E-01 | 卡死→nudge→pause+handoff→fallback→done（mock provider） |
 | E2E-02 | 循环工具→重复检测→pause；人工 release 后正常 |
 | E2E-03 | 预算硬限→hold→人工提高→resume→done |
@@ -1099,6 +1105,14 @@ provider.quota_error | provider.cooldown_started | provider.cooldown_ended
 | hold 多原因组合与释放 | §5.2、§9.1、IN-11 |
 | waiting_human 豁免 | §11.4、KRN-07 |
 | provider 两级冷却 | §7.4、BU-12 |
+| 429 自动 fallback + 新模型 + 冷却测试 | §4.5、§5.1、BU-13、E2E-04 |
+| 多 hold 释放/nextRunAt 边界 | §5.2、IN-11 |
+| 敏感 diff（.env/.ssh tracked） | §6、HO-02 |
+| deadman fake clock | §4.6、WD-10/WD-13 |
+| provider 计数窗口/*/beforeStart 拦截 | §4.5、§5.1、BU-14 |
+| fallback 空/全冷却 human hold | §4.5、BU-15 |
+| summary/nextStep 脱敏 | §6、HO-10 |
+| UI 挂载/键盘/900/760 窄窗 | §10、UI-01..11 |
 | API workspace 隔离（handoff/alert/hold） | §10.1/10.2、API-05 |
 
 ---
@@ -1279,6 +1293,35 @@ fallback.maxSwitches=2
 | F9 | AC 缺口/计数 | §12.2 共 **86 条**（原 77 + 9）；§12.3 增加 F1–F8 映射；新增 IN-11/IN-12、CO-11、BU-11/BU-12、API-05、KRN-06/KRN-07、MG-05 |
 
 **实现顺序**：先补 kernel 最小扩展（activity/interrupt/hold/reassign/nudge）、watchdog 表/事件、fake clock 契约测试，再实现 detector/intervention/handoff/cost/budget，最后 UI。测试必须覆盖 F1 rebuild、F2 active 超支、F3 多 hold、F4 计数矩阵、F5 waiting_human、F6 final 故障注入、F7 provider `*`、F8 跨 workspace 拒绝。
+
+---
+
+## 16. t157 修复记录（round 2）
+
+> t145 评审 needs_revision（2 high + 4 medium）后，t157 按下面方式修复；本版 AC 增为 89（新增 BU-13、WD-13、UI-10 并把 HO-02/IN-11 文本收紧）。
+
+| Finding | 修复 |
+|---|---|
+| F1 high 敏感 diff 泄露 | handoff 先按路径过滤；`.env`/`.ssh` tracked 变更仅 `[REDACTED]`/stat，不落完整 patch；summary.files/assistant 文本过滤；补 tracked `.env`/`.ssh` 测试 |
+| F2 high 429 无自动 fallback | provider 失败事件生成 `provider_quota` 信号，冷却原 provider/model，生成 handoff，调用 `retryTaskWithModel` 新 Run model override；补 429→fallback→新模型→冷却测试 |
+| F3 high UI 未挂载 | `watchdog` 加入 Dock panelRegistry（默认关闭）、App 顶部预算条、任务详情告警条、RunHistory handoff 卡；styles 900/760/reduced-motion；补 panel registry/窄窗/ARIA 测试 |
+| F4 medium release 释放全部 | release API 必须 `reason` 或 `all=true`；默认只释放当前 reason，最后一个 hold 才清 nextRunAt；补 budget+watchdog 双 hold 测试 |
+| F5 medium rebuild 只计数 | 明确把 watchdog 表降级为 durable cache，修改 INV-9/MG-05/§9.3/AC；`WatchdogService.rebuild()` 做 schema 修复（删除表可重建空 schema）并记录 missing；补删除表测试 |
+| F6 测试/AC | 增加 429/fallback、多 hold、敏感 diff、deadman、UI 挂载/窄窗测试；AC 增加 BU-13/WD-13/UI-10 |
+
+---
+
+## 17. t161 修复记录（round 3）
+
+> t158 复审 needs_revision（2 high + 1 medium + low）后修复；AC 增为 93（BU-14/BU-15/HO-10/UI-11）。
+
+| Finding | 修复 |
+|---|---|
+| F1 high provider 级冷却不存在 | `recordProviderFailureWindow` 按 provider/5min 计数，第 2 次写 `model='*'`；`beforeStart` 用 pending model/agent profile 检查 `(provider,model)` 与 `(provider,'*')`，冷却则 hold+critical 并拒绝启动；真实 429 两次→`*`、beforeStart 拦截测试 |
+| F2 high 链空不 human | target=null → `escalate` + escalation hold + critical alert + pauseScheduler + holdTask；链空/all cooling 测试断言任务不自动重跑 |
+| F3 medium UI 证据不足 | 新增 BudgetBar/AlertBanner 交互（ack/release）、RunHistory handoff、panelRegistry/900/760 组件测试；完整 App DOM e2e 明确标 P1 manual |
+| F4 low summary 未全量脱敏 | summaryLines/changes/openQuestions/nextStep 统一 redactSensitiveText；summary 含 `.env`/secret 测试 |
+| F5 测试缺口 | 补真实 429 两次、同 model 拦截、链空/all cooling、summary 脱敏、UI 交互测试 |
 
 ---
 

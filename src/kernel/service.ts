@@ -60,6 +60,19 @@ import {
 } from "./execution/kernel.js";
 import { GitService } from "../git/gitService.js";
 import type { FinalizeRunInput } from "../git/types.js";
+import { WatchdogService } from "../watchdog/service.js";
+import type {
+  CostSnapshot,
+  FallbackChain,
+  RunHandoff,
+  SetBudgetInput,
+  SetFallbackChainInput,
+  WatchdogAlert,
+  WatchdogHealth,
+  WatchdogHoldReason,
+  WatchdogResult,
+  WatchdogSnapshot,
+} from "../shared/watchdog.js";
 import { MemoryRuntime } from "../shared/memoryRuntime.js";
 import { createMemoryTools } from "../shared/memoryTools.js";
 import type {
@@ -191,6 +204,8 @@ export class AppService {
   readonly git: GitService;
   /** t123：记忆工作台运行时（MemoryStore/Service 适配，不改核心 schema）。 */
   readonly memory: MemoryRuntime;
+  /** t144：看门狗/成本（独立 watchdog 表，不侵入内核投影）。 */
+  readonly watchdog: WatchdogService;
   /**
    * DESIGN §15.4：Full Throttle 会话级状态（key = `workspaceId:agentId`）。
    * 仅会话级：不持久化、不写回 Agent 默认值、不随应用启动恢复；Agent 无工具可自行开启。
@@ -224,11 +239,22 @@ export class AppService {
       dataDir,
       executor: (ctx) => this.executeRun(ctx),
       hooks: {
-        // Git admission runs before the kernel creates a Run. A capacity
-        // miss returns false; the task stays queued with nextRunAt and its
-        // attempt is not consumed (kernel G3 defer semantics, wrapper form).
-        beforeStart: (info) => this.git.beforeStart(info),
+        // Budget must be checked before Git prepares a worktree; Git capacity
+        // still defers the task without consuming an attempt.
+        beforeStart: (info) => {
+          if (!this.watchdog.beforeStart(info)) return false;
+          return this.git.beforeStart(info);
+        },
+        onRunStarted: (info) => this.watchdog.onRunStarted(info),
+        onRunActivity: (info) => this.watchdog.onRunActivity(info),
+        onRunHeartbeat: (info) => this.watchdog.onRunHeartbeat(info),
+        onRunFinished: (info) => this.watchdog.onRunFinished(info),
       },
+    });
+    this.watchdog = new WatchdogService({
+      store: this.store,
+      kernel: this.kernel,
+      dataDir,
     });
   }
 
@@ -253,6 +279,7 @@ export class AppService {
   }
 
   close(): void {
+    this.watchdog.close();
     this.git.close();
     this.kernel.dispose();
     this.store.close();
@@ -1225,6 +1252,49 @@ export class AppService {
     return this.kernel.rebuildProjections();
   }
 
+  // ---------------------------------------------------------- watchdog API
+
+  getWatchdogSnapshot(workspaceId: string): WatchdogResult<WatchdogSnapshot> {
+    return this.watchdog.getSnapshot(workspaceId);
+  }
+
+  getWatchdogCosts(workspaceId: string): WatchdogResult<CostSnapshot> {
+    return this.watchdog.getCosts(workspaceId);
+  }
+
+  getRunHandoff(workspaceId: string, runId: string): WatchdogResult<RunHandoff | null> {
+    return this.watchdog.getRunHandoff(workspaceId, runId);
+  }
+
+  ackWatchdogAlert(workspaceId: string, alertId: string): WatchdogResult<WatchdogAlert> {
+    return this.watchdog.ackAlert(workspaceId, alertId);
+  }
+
+  resolveWatchdogAlert(workspaceId: string, alertId: string): WatchdogResult<WatchdogAlert> {
+    return this.watchdog.resolveAlert(workspaceId, alertId);
+  }
+
+  releaseWatchdogTaskHold(
+    workspaceId: string,
+    taskId: string,
+    reason?: WatchdogHoldReason,
+    all = false,
+  ): WatchdogResult<void> {
+    return this.watchdog.releaseTaskHold(workspaceId, taskId, reason, all);
+  }
+
+  setWatchdogBudget(input: SetBudgetInput) {
+    return this.watchdog.setBudget(input);
+  }
+
+  setWatchdogFallback(input: SetFallbackChainInput): WatchdogResult<FallbackChain> {
+    return this.watchdog.setFallbackChain(input);
+  }
+
+  getWatchdogHealth(): WatchdogHealth {
+    return this.watchdog.getHealth();
+  }
+
   /** 内核执行器：一次 Run 的 LLM/工具执行（不含生命周期/状态写入，由 kernel 负责）。 */
   private async executeRun(ctx: RunExecutionContext): Promise<RunExecutionResult> {
     const { run, task, agent } = ctx;
@@ -1250,12 +1320,13 @@ export class AppService {
     ctx: RunExecutionContext,
     worktreeOverride: string | null,
   ): Promise<RunExecutionResult> {
-    const { run, task, agent, signal, heartbeat, checkpoint, waitingHuman, resumeHuman } = ctx;
+    const { run, task, agent, signal, heartbeat, checkpoint, waitingHuman, resumeHuman, activity, consumeNudges } = ctx;
     const workspace = this.store.getWorkspace(task.workspaceId);
     if (!workspace) throw new Error("workspace not found");
 
     const settings = this.store.getLlmSettings();
-    const profile = resolveModelProfile(settings, agent.model);
+    // t144：watchdog fallback 时 run.modelProfileId 覆盖成员默认模型。
+    const profile = resolveModelProfile(settings, run.modelProfileId ?? agent.model);
     const provider = resolveProvider(settings, profile.providerId);
     const client = createLlmClientForModel(settings, profile);
     const model = profile.modelId;
@@ -1284,6 +1355,7 @@ export class AppService {
         agent.permission === "auto_risk"
           ? async (input) => {
               waitingHuman("risk_approval");
+              activity("run.waiting_human", { reason: "risk_approval" });
               try {
                 return await this.requestRiskApproval({
                   workspaceId: workspace.id,
@@ -1293,6 +1365,7 @@ export class AppService {
                 });
               } finally {
                 resumeHuman();
+                activity("run.resumed", { reason: "risk_approval" });
               }
             }
           : undefined,
@@ -1312,7 +1385,27 @@ export class AppService {
       }
     })();
     const basePrompt = buildWorkerSystemPrompt(agent, task, workspace);
-    const promptWithMemory = memoryContext?.text ? `${basePrompt}\n\n${memoryContext.text}` : basePrompt;
+    const handoffResult = this.watchdog.getRunHandoff(workspace.id, run.id);
+    const handoff =
+      handoffResult.ok && handoffResult.value
+        ? [
+            "",
+            "## HANDOFF (watchdog)",
+            handoffResult.value.summary,
+            `Next step: ${handoffResult.value.nextStep}`,
+            handoffResult.value.files.length
+              ? `Files: ${handoffResult.value.files.slice(0, 20).join(", ")}`
+              : "",
+            handoffResult.value.diffStat
+              ? `Diff stat:\n${handoffResult.value.diffStat.slice(0, 2_000)}`
+              : "",
+            "Continue from the next step; verify before editing; do not repeat finished work.",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : "";
+    const promptWithHandoff = handoff ? `${basePrompt}\n${handoff}` : basePrompt;
+    const promptWithMemory = memoryContext?.text ? `${promptWithHandoff}\n\n${memoryContext.text}` : promptWithHandoff;
     const systemPrompt = fullThrottle ? withFullThrottle(promptWithMemory) : promptWithMemory;
     if (memoryContext) {
       this.store.appendEvent({
@@ -1338,7 +1431,8 @@ export class AppService {
         type === "run.step" ||
         type === "assistant.message" ||
         type === "tool.call" ||
-        type === "tool.result"
+        type === "tool.result" ||
+        type === "usage"
       ) {
         this.store.appendEvent({
           aggregateType: "task",
@@ -1347,6 +1441,7 @@ export class AppService {
           actor: `agent:${agent.name}`,
           payload: limitPayload(payload),
         });
+        activity(type, payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {});
         if (type === "run.step") {
           const step =
             payload && typeof payload === "object" && "step" in payload
@@ -1354,6 +1449,14 @@ export class AppService {
               : 0;
           heartbeat({ steps: step });
           checkpoint({ step });
+        }
+        if (type === "usage" && payload && typeof payload === "object") {
+          const usage = payload as { inputTokens?: unknown; outputTokens?: unknown; step?: unknown };
+          heartbeat({
+            tokenIn: Number(usage.inputTokens ?? 0),
+            tokenOut: Number(usage.outputTokens ?? 0),
+            steps: Number(usage.step ?? 0),
+          });
         }
       }
     };
@@ -1379,6 +1482,7 @@ export class AppService {
           toolContext,
           signal,
           onEvent: emit,
+          consumeNudges,
         });
       } finally {
         clearInterval(heartbeatTimer);
