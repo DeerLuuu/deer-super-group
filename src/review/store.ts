@@ -247,12 +247,19 @@ export class ReviewStore {
   getConfig(workspaceId: string): ReviewConfig {
     let row = this.db.prepare("SELECT * FROM review_config WHERE workspace_id = ?").get(workspaceId) as Row | undefined;
     if (!row) {
+      const schema = this.db
+        .prepare("SELECT applied_at FROM review_schema ORDER BY version DESC LIMIT 1")
+        .get() as { applied_at?: string } | undefined;
+      const workspace = this.store.getWorkspace(workspaceId);
+      const isNewWorkspace = Boolean(
+        schema?.applied_at && workspace && String(workspace.createdAt) > String(schema.applied_at),
+      );
       this.db
         .prepare(
           `INSERT INTO review_config(workspace_id, mode, required_approvals, notify_mailbox, board_summary, updated_at)
-           VALUES (?, 'advisory', 1, 1, 1, ?)`,
+           VALUES (?, ?, 1, 1, 1, ?)`,
         )
-        .run(workspaceId, now());
+        .run(workspaceId, isNewWorkspace ? "required" : "advisory", now());
       row = this.db.prepare("SELECT * FROM review_config WHERE workspace_id = ?").get(workspaceId) as Row;
     }
     return {

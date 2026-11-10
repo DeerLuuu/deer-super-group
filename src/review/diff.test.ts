@@ -47,6 +47,17 @@ describe("review unified diff parser", () => {
     expect(pageLines(lines, 999, 10)).toMatchObject({ lines: [], offset: 5, hasMore: false });
   });
 
+  it("parses rename metadata without losing old/new paths", () => {
+    const files = parseUnifiedDiff(
+      `diff --git a/src/old.ts b/src/new.ts
+similarity index 100%
+rename from src/old.ts
+rename to src/new.ts
+`,
+    );
+    expect(files[0]).toMatchObject({ changeType: "R", path: "src/new.ts", oldPath: "src/old.ts" });
+  });
+
   it("marks oversized file patch truncated", () => {
     const body = Array.from({ length: 2100 }, (_, index) => `+line ${index}`).join("\n");
     const files = parseUnifiedDiff(`diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -0,0 +1,2100 @@\n${body}\n`);

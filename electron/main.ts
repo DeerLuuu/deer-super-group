@@ -133,6 +133,12 @@ app.whenReady().then(() => {
   service = new AppService(app.getPath("userData"));
   service.onEvent((event) => {
     win?.webContents.send("app:event", event);
+    if ((event.type === "pr.created" || event.type === "pr.updated") && event.aggregateType === "task") {
+      // PR events are best-effort target creation; never block task completion.
+      void getReview()
+        .ensureTarget(event.aggregateId)
+        .catch(() => undefined);
+    }
   });
   service.onChatEvent((event) => {
     win?.webContents.send("chat:event", event);
@@ -253,7 +259,10 @@ app.whenReady().then(() => {
     await getReview().assertMergeAllowed(taskId);
     return getService().git.mergeStart(taskId);
   });
-  handle("git:merge-process", (workspaceId: string) => getService().git.processQueue(workspaceId));
+  handle("git:merge-process", async (workspaceId: string) => {
+    await getReview().assertQueueAllowed(workspaceId);
+    return getService().git.processQueue(workspaceId);
+  });
   handle("git:recover", (workspaceId: string) => getService().git.recover(workspaceId));
   // t154：行级评审
   handle("review:summary", (taskId: string) => getReview().getSummary(taskId));

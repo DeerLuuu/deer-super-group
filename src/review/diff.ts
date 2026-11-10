@@ -1,10 +1,9 @@
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { realpathSync } from "node:fs";
+import path from "node:path";
+import { GitExec } from "../git/gitExec.js";
 import type { TaskVcs } from "../git/types.js";
 import type { ReviewFile, ReviewLine } from "./types.js";
-
-const execFileAsync = promisify(execFile);
 
 export interface ReviewDiffFile extends ReviewFile {
   patchText: string;
@@ -184,14 +183,16 @@ export class ReviewDiffProvider {
   private async git(workspaceId: string, args: string[], maxBuffer = 16 * 1024 * 1024): Promise<string> {
     const cwd = this.workspacePath(workspaceId);
     try {
-      const { stdout } = await execFileAsync("git", args, {
-        cwd,
-        encoding: "utf8",
+      const safeCwd = realpathSync(cwd);
+      const hooks = path.join(safeCwd, ".deer-review", "hooks-empty");
+      const output = await new GitExec(hooks).run(args, {
+        cwd: safeCwd,
         maxBuffer,
-        timeout: 30_000,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", GIT_TERMINAL_PROMPT: "0" },
+        timeoutMs: 30_000,
+        env: { GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", GIT_TERMINAL_PROMPT: "0" },
       });
-      return stdout;
+      if (output.code !== 0) throw new ReviewDiffError(output.stderr || "git failed");
+      return output.stdout;
     } catch (err) {
       throw new ReviewDiffError(err instanceof Error ? err.message : String(err));
     }
@@ -210,15 +211,10 @@ export class ReviewDiffProvider {
     }
     if (!mergeBaseSha) throw new ReviewDiffError("merge base empty");
     const patch = await this.git(workspaceId, [
-      "-c",
-      "core.hooksPath=/dev/null",
       "diff",
-      "--no-color",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--find-renames",
-      "-U3",
-      `${mergeBaseSha}..${headSha}`,
+      "--unified=3",
+      mergeBaseSha,
+      headSha,
     ]);
     if (Buffer.byteLength(patch, "utf8") > MAX_TOTAL_BYTES) {
       throw new ReviewDiffError("diff too large");
@@ -242,7 +238,7 @@ export class ReviewDiffProvider {
   }
 
   async nameStatus(workspaceId: string, oldHead: string, newHead: string): Promise<Map<string, string>> {
-    const output = await this.git(workspaceId, ["diff", "--name-status", "-z", "-M", oldHead, newHead]);
+    const output = await this.git(workspaceId, ["diff", "--name-status", "-z", oldHead, newHead]);
     const parts = output.split("\0").filter(Boolean);
     const map = new Map<string, string>();
     for (let i = 0; i < parts.length; i += 1) {
@@ -263,17 +259,10 @@ export class ReviewDiffProvider {
 
   async diffBetween(workspaceId: string, oldHead: string, newHead: string, path: string): Promise<string> {
     return this.git(workspaceId, [
-      "-c",
-      "core.hooksPath=/dev/null",
       "diff",
-      "--no-color",
-      "--no-ext-diff",
-      "--no-textconv",
-      "-U3",
+      "--unified=3",
       oldHead,
       newHead,
-      "--",
-      path,
     ]);
   }
 }

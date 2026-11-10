@@ -33,6 +33,8 @@ export type Route = {
   gitSettings: boolean;
   /** t103：任务页聚焦 VCS 区（`vcs=1`）。 */
   taskVcs: boolean;
+  /** t154：任务页聚焦行级评审区（`review=1`）。 */
+  taskReview: boolean;
   /** 是否由旧深链（如 #/router）重定向而来。 */
   redirected: boolean;
 };
@@ -47,6 +49,7 @@ export const DEFAULT_ROUTE: Route = {
   mergeQueue: false,
   gitSettings: false,
   taskVcs: false,
+  taskReview: false,
   redirected: false,
 };
 
@@ -71,6 +74,7 @@ export function parseHash(hash: string): Route {
     mergeQueue: params.get("merge") === "1",
     gitSettings: params.get("git") === "1",
     taskVcs: params.get("vcs") === "1",
+    taskReview: params.get("review") === "1",
     redirected,
   };
 }
@@ -85,6 +89,7 @@ export type RouteSelection = {
   mergeQueue?: boolean;
   gitSettings?: boolean;
   taskVcs?: boolean;
+  taskReview?: boolean;
 };
 
 export function buildHash(tab: RouteTab, selection: RouteSelection = {}): string {
@@ -94,6 +99,7 @@ export function buildHash(tab: RouteTab, selection: RouteSelection = {}): string
     if (tab === "tasks" && selection.run) params.set("r", selection.run);
     if (selection.mergeQueue) params.set("merge", "1");
     if (tab === "tasks" && selection.taskVcs) params.set("vcs", "1");
+    if (tab === "tasks" && selection.taskReview) params.set("review", "1");
   } else if (tab === "chat") {
     if (selection.chatTask) params.set("task", selection.chatTask);
   } else if (tab === "mailbox") {

@@ -21,7 +21,7 @@ index 1111111..2222222 100644
 
 const dirs: string[] = [];
 
-function setup() {
+function setup(options: { sendMail?: (mail: import("./types.js").ReviewMail) => void } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "review-test-"));
   dirs.push(dir);
   const store = new Store(path.join(dir, "db.sqlite"));
@@ -46,6 +46,7 @@ function setup() {
     ownerId: agent.id,
   });
   let head = "head1";
+  let base = "base1";
   const snapshot = (): TaskVcsSnapshot =>
     ({
       vcs: {
@@ -81,9 +82,10 @@ function setup() {
     store,
     workspacePath: () => path.join(dir, "repo"),
     getTaskVcs: async () => snapshot(),
-    computeDiff: async () => ({ ...diff, headSha: head }),
+    computeDiff: async () => ({ ...diff, baseSha: base, mergeBaseSha: base, headSha: head, diffHash: `hash-${base}` }),
+    sendMail: options.sendMail,
   });
-  return { store, workspace, agent, task, service, setHead: (next: string) => (head = next) };
+  return { store, workspace, agent, task, service, setHead: (next: string) => (head = next), setBase: (next: string) => (base = next) };
 }
 
 afterEach(() => {
@@ -97,6 +99,51 @@ afterEach(() => {
 });
 
 describe("review service", () => {
+  it("defaults existing workspaces advisory and newly created workspaces required", () => {
+    const { store, workspace, service } = setup();
+    expect(service.getConfig(workspace.id).mode).toBe("advisory");
+    const fresh = store.createWorkspace("Fresh", path.join(workspace.path, "fresh"));
+    expect(service.getConfig(fresh.id).mode).toBe("required");
+    store.close();
+  });
+
+  it("dedupes agent notifications and never sends local human to mailbox", async () => {
+    const mails: string[] = [];
+    const { store, workspace, task, service } = setup({ sendMail: (mail) => mails.push(mail.to[0]) });
+    const first = await service.ensureTarget(task.id);
+    await service.ensureTarget(task.id);
+    expect(mails.filter((to) => to === first.authorAgentId)).toHaveLength(1);
+    await service.createThread({
+      taskId: task.id,
+      filePath: "src/a.ts",
+      side: "new",
+      lineStart: 2,
+      body: "blocker",
+      severity: "blocker",
+    });
+    expect(mails).toHaveLength(2);
+    const humanTask = store.createTask({
+      workspaceId: workspace.id,
+      title: "human-owned",
+      description: "no agent author",
+      acceptance: [],
+    });
+    const before = mails.length;
+    await service.ensureTarget(humanTask.id);
+    expect(mails).toHaveLength(before);
+    store.close();
+  });
+
+  it("does not let notification failure block target creation", async () => {
+    const { store, task, service } = setup({
+      sendMail: () => {
+        throw new Error("mail down");
+      },
+    });
+    await expect(service.ensureTarget(task.id)).resolves.toBeTruthy();
+    store.close();
+  });
+
   it("creates a commit-bound target, files and default human reviewer", async () => {
     const { store, task, service } = setup();
     const target = await service.ensureTarget(task.id);
@@ -238,6 +285,31 @@ describe("review service", () => {
     store.close();
   });
 
+  it("blocks processQueue for a ready item until required review passes", async () => {
+    const { store, workspace, task, service } = setup();
+    service.saveConfig(workspace.id, { mode: "required" });
+    await service.ensureTarget(task.id);
+    store.db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS merge_queue (
+          id TEXT PRIMARY KEY, workspace_id TEXT, task_id TEXT, head_sha TEXT, state TEXT,
+          approved_head_sha TEXT, checks_waived INTEGER NOT NULL DEFAULT 0,
+          checks_waived_by TEXT, checks_waived_reason TEXT, checks_waived_at TEXT, updated_at TEXT
+        )`,
+      )
+      .run();
+    store.db
+      .prepare(
+        `INSERT INTO merge_queue(id, workspace_id, task_id, head_sha, state, updated_at)
+         VALUES ('q2', ?, ?, 'head1', 'ready', ?)`,
+      )
+      .run(workspace.id, task.id, new Date().toISOString());
+    await expect(service.assertQueueAllowed(workspace.id)).rejects.toMatchObject({ code: "REVIEW_PENDING" });
+    await service.submitDecision({ taskId: task.id, decision: "approve", headSha: "head1" });
+    await expect(service.assertQueueAllowed(workspace.id)).resolves.toBeUndefined();
+    store.close();
+  });
+
   it("requires confirmation to clear merge approvals on mode downgrade", async () => {
     const { store, workspace, service } = setup();
     service.saveConfig(workspace.id, { mode: "required" });
@@ -264,6 +336,17 @@ describe("review service", () => {
     expect(row.approved_head_sha).toBeNull();
     expect(Number(row.checks_waived)).toBe(0);
     expect(String(row.state)).toBe("waiting_review");
+    store.close();
+  });
+
+  it("marks old target stale on base advance with the same head", async () => {
+    const { store, task, service, setBase } = setup();
+    const first = await service.ensureTarget(task.id);
+    setBase("base2");
+    const second = await service.ensureTarget(task.id);
+    expect(second.id).not.toBe(first.id);
+    expect(second.headSha).toBe(first.headSha);
+    expect(service.patches.getTargetById(first.id)?.status).toBe("stale");
     store.close();
   });
 

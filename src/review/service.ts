@@ -59,6 +59,7 @@ export class ReviewService {
   readonly patches: ReviewStore;
   private readonly diffs: ReviewDiffProvider;
   private readonly computeDiff: (workspaceId: string, vcs: import("../git/types.js").TaskVcs) => Promise<ReviewDiffResult>;
+  private readonly notified = new Set<string>();
 
   constructor(private readonly options: ReviewServiceOptions) {
     this.patches = new ReviewStore(options.store);
@@ -157,13 +158,17 @@ export class ReviewService {
     }
     if (existing) this.patches.markTargetStale(existing.id, "base_or_diff_changed");
     const latest = this.patches.getTarget(taskId);
-    if (latest && latest.headSha !== diff.headSha) {
-      this.patches.markTargetStale(latest.id, "head_changed");
+    const targetChanged = Boolean(
+      latest && (latest.headSha !== diff.headSha || latest.baseSha !== diff.baseSha || latest.diffHash !== diff.diffHash),
+    );
+    if (latest && targetChanged) {
+      this.patches.markTargetStale(latest.id, latest.headSha !== diff.headSha ? "head_changed" : "base_changed");
       this.patches.appendEvent(latest, "review.stale", {
         oldHeadSha: latest.headSha,
         newHeadSha: diff.headSha,
-        reason: "head_changed",
-      }, `review:stale:${latest.id}:${diff.headSha}`);
+        reason: latest.headSha !== diff.headSha ? "head_changed" : "base_changed",
+      }, `review:stale:${latest.id}:${diff.headSha}:${diff.baseSha}`);
+      this.notifyAgent(latest, "stale", `[评审] 新提交 · ${latest.taskId}`, `任务 ${latest.taskId} 有新提交，旧评审已失效，请重新评审。`);
     }
     const owner = task.ownerId ? this.options.store.getAgent(task.ownerId) : null;
     const authorAgentId = owner && owner.workspaceId === task.workspaceId ? owner.id : null;
@@ -205,7 +210,7 @@ export class ReviewService {
     }
     this.ensureDefaultReviewer(target);
     this.notifyTarget(target);
-    if (latest && latest.headSha !== diff.headSha) {
+    if (latest && targetChanged) {
       await reanchorTargets({
         store: this.options.store,
         reviewStore: this.patches,
@@ -232,14 +237,7 @@ export class ReviewService {
     }, `review:req:${target.id}:${reviewer.reviewerId}`);
     const owner = target.authorAgentId ? this.options.store.getAgent(target.authorAgentId) : null;
     if (owner && this.getConfig(target.workspaceId).notifyMailbox) {
-      this.options.sendMail?.({
-        workspaceId: target.workspaceId,
-        from: "review",
-        to: [owner.id],
-        subject: `[评审] 任务 ${target.taskId} · ${target.headSha.slice(0, 7)}`,
-        body: `任务 ${target.taskId} 的行级评审已创建；请打开任务详情完成评审。`,
-        kind: "review",
-      });
+      this.notifyAgent(target, "requested", `[评审] 任务 ${target.taskId} · ${target.headSha.slice(0, 7)}`, `任务 ${target.taskId} 的行级评审已创建；请打开任务详情完成评审。`);
     }
   }
 
@@ -330,6 +328,7 @@ export class ReviewService {
     if (this.patches.listThreads(target.id).length >= MAX_THREADS) {
       throw new ReviewError("REVIEW_LIMIT", "too many threads");
     }
+    if (input.severity === "blocker") this.notifyAgent(target, "blocker", `[评审] blocker · ${target.taskId}`, `任务 ${target.taskId} 新增一条 blocker；请打开任务详情处理。`);
     const before = lines.slice(Math.max(0, lines.indexOf(line) - 3), lines.indexOf(line)).map((entry) => entry.text);
     const after = lines.slice(lines.indexOf(line) + 1, lines.indexOf(line) + 4).map((entry) => entry.text);
     return this.patches.createThread({
@@ -578,6 +577,29 @@ export class ReviewService {
     if (!gate.ok) throw new ReviewError(gate.code, gate.reason);
   }
 
+  /**
+   * Guard every processQueue/merge entrypoint. Only items that could transition
+   * to merging/ready are checked; waiting_checks items may still advance checks.
+   */
+  async assertQueueAllowed(workspaceId: string): Promise<void> {
+    const hasQueue = Boolean(
+      this.options.store.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'merge_queue'")
+        .get(),
+    );
+    if (!hasQueue) return;
+    const rows = this.options.store.db
+      .prepare(
+        `SELECT task_id, head_sha, state FROM merge_queue
+         WHERE workspace_id = ? AND state IN ('ready','merging','updating')`,
+      )
+      .all(workspaceId) as Array<{ task_id: string; head_sha: string }>;
+    for (const row of rows) {
+      const gate = await this.evaluateTask(row.task_id, row.head_sha);
+      if (!gate.ok) throw new ReviewError(gate.code, gate.reason);
+    }
+  }
+
   private evaluate(target: ReviewTarget, mode: ReviewMode): ReviewGateResult {
     const blockers = this.patches.countBlockers(target.id);
     const current = this.patches.currentDecisions(target.id, target.headSha);
@@ -637,6 +659,12 @@ export class ReviewService {
   }
 
   private notifyDecision(target: ReviewTarget, decision: "approved" | "changes_requested"): void {
+    this.notifyAgent(
+      target,
+      decision,
+      `[评审] ${decision === "approved" ? "通过" : "要求修改"} · ${target.taskId}`,
+      `任务 ${target.taskId} 的合并评审${decision === "approved" ? "已通过" : "要求修改"}；head ${target.headSha.slice(0, 7)}。`,
+    );
     if (!this.getConfig(target.workspaceId).boardSummary) return;
     this.options.postBoard?.({
       workspaceId: target.workspaceId,
@@ -646,5 +674,26 @@ export class ReviewService {
       content: `合并评审 ${decision === "approved" ? "通过" : "要求修改"}：任务 ${target.taskId} · head ${target.headSha.slice(0, 7)} · blockers ${target.blockerCount}`,
       confidence: "high",
     });
+  }
+
+  private notifyAgent(target: ReviewTarget, event: string, subject: string, body: string): void {
+    if (!this.getConfig(target.workspaceId).notifyMailbox) return;
+    const owner = target.authorAgentId ? this.options.store.getAgent(target.authorAgentId) : null;
+    if (!owner) return; // local human is UI/Toast only, never mailbox
+    const key = `${owner.id}:${target.id}:${target.headSha}:${event}`;
+    if (this.notified.has(key)) return;
+    this.notified.add(key);
+    try {
+      this.options.sendMail?.({
+        workspaceId: target.workspaceId,
+        from: "review",
+        to: [owner.id],
+        subject,
+        body,
+        kind: "review",
+      });
+    } catch {
+      // Notification is best-effort and must never block the review gate.
+    }
   }
 }

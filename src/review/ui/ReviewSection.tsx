@@ -42,6 +42,8 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState<{ line: number; side: "new" | "old" } | null>(null);
+  const [activeLine, setActiveLine] = useState<string | null>(null);
+  const [windowStart, setWindowStart] = useState(0);
   const [commentBody, setCommentBody] = useState("");
   const [commentSeverity, setCommentSeverity] = useState<ReviewSeverity>("suggestion");
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -89,6 +91,12 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
   useEffect(() => {
     if (selectedFile) void loadFile(selectedFile);
   }, [selectedFile, loadFile]);
+
+  useEffect(() => {
+    const first = diff?.lines[0];
+    setActiveLine(first ? `${first.kind}-${first.oldLine}-${first.newLine}-${first.hunk}` : null);
+    setWindowStart(0);
+  }, [diff?.file.path]);
 
   const refreshThreads = async () => {
     setThreads(await window.deer.getReviewThreads({ taskId, status: "all" }));
@@ -205,6 +213,20 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
     blockers === 0 &&
     hasReviewer;
   const diffLines = diff?.lines ?? [];
+  const visibleStart = Math.min(windowStart, Math.max(0, diffLines.length - 1));
+  const visibleLines = diffLines.slice(visibleStart, visibleStart + 200);
+
+  const openComposerAt = (lineNo: number, side: "new" | "old") => {
+    setComposer({ line: lineNo, side });
+    setCommentBody("");
+  };
+
+  const moveDiffFocus = (current: HTMLElement, delta: number) => {
+    const rows = Array.from(current.parentElement?.querySelectorAll<HTMLElement>("[data-review-line]") ?? []);
+    const index = rows.indexOf(current);
+    const next = rows[Math.max(0, Math.min(rows.length - 1, index + delta))];
+    next?.focus();
+  };
 
   return (
     <section className="review-section" aria-label="行级评审" aria-busy={loading || busy}>
@@ -295,11 +317,34 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
                     <p className="muted small">二进制文件不显示 diff。</p>
                   ) : (
                     <div className="review-diff" role="list" aria-label={`${diff.file.path} diff`}>
-                      {diffLines.map((line) => {
+                      {visibleLines.map((line, visibleIndex) => {
                         const lineNo = line.newLine ?? line.oldLine ?? 0;
                         const side = line.newLine != null ? "new" : "old";
+                        const lineKey = `${line.kind}-${line.oldLine}-${line.newLine}-${line.hunk}`;
                         return (
-                          <div key={`${line.kind}-${line.oldLine}-${line.newLine}-${line.hunk}`} className={`review-line ${line.kind}`} role="listitem">
+                          <div
+                            key={lineKey}
+                            data-review-line={lineKey}
+                            tabIndex={activeLine === lineKey ? 0 : -1}
+                            onFocus={() => setActiveLine(lineKey)}
+                            onKeyDown={(event) => {
+                              if (event.key === "ArrowDown") {
+                                event.preventDefault();
+                                moveDiffFocus(event.currentTarget, 1);
+                              } else if (event.key === "ArrowUp") {
+                                event.preventDefault();
+                                moveDiffFocus(event.currentTarget, -1);
+                              } else if (event.key === "Enter") {
+                                event.preventDefault();
+                                openComposerAt(lineNo, side);
+                              }
+                            }}
+                            className={`review-line ${line.kind}`}
+                            role="listitem"
+                            aria-posinset={visibleStart + visibleIndex + 1}
+                            aria-setsize={diffLines.length}
+                            aria-label={`${line.kind === "add" ? "新增" : line.kind === "del" ? "删除" : "上下文"}行 ${lineNo}`}
+                          >
                             <span className="review-line-no">{line.oldLine ?? ""}</span>
                             <span className="review-line-no">{line.newLine ?? ""}</span>
                             <span className="review-line-text">{redact(line.text) || " "}</span>
@@ -307,16 +352,36 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
                               type="button"
                               className="ghost tiny review-line-comment"
                               aria-label={`评论第 ${lineNo} 行`}
-                              onClick={() => {
-                                setComposer({ line: lineNo, side });
-                                setCommentBody("");
-                              }}
+                              onClick={() => openComposerAt(lineNo, side)}
                             >
                               评论
                             </button>
                           </div>
                         );
                       })}
+                      {diffLines.length > 200 ? (
+                        <div className="row gap review-virtual-nav">
+                          <button
+                            type="button"
+                            className="ghost tiny"
+                            disabled={visibleStart === 0}
+                            onClick={() => setWindowStart(Math.max(0, visibleStart - 200))}
+                          >
+                            上一页
+                          </button>
+                          <span className="muted tiny">
+                            {visibleStart + 1}–{Math.min(diffLines.length, visibleStart + 200)} / {diffLines.length}
+                          </span>
+                          <button
+                            type="button"
+                            className="ghost tiny"
+                            disabled={visibleStart + 200 >= diffLines.length}
+                            onClick={() => setWindowStart(visibleStart + 200)}
+                          >
+                            下一页
+                          </button>
+                        </div>
+                      ) : null}
                       {diff.hasMore ? (
                         <button
                           type="button"
