@@ -6,7 +6,7 @@ import { Store } from "../kernel/store.js";
 import type { TaskVcsSnapshot } from "../git/types.js";
 import { parseUnifiedDiff } from "./diff.js";
 import type { ReviewDiffResult } from "./diff.js";
-import { ReviewService } from "./service.js";
+import { ReviewService, ensureTargetForPrEvent } from "./service.js";
 import type { ReviewConfig } from "./types.js";
 
 const patch = `diff --git a/src/a.ts b/src/a.ts
@@ -307,6 +307,56 @@ describe("review service", () => {
     await expect(service.assertQueueAllowed(workspace.id)).rejects.toMatchObject({ code: "REVIEW_PENDING" });
     await service.submitDecision({ taskId: task.id, decision: "approve", headSha: "head1" });
     await expect(service.assertQueueAllowed(workspace.id)).resolves.toBeUndefined();
+    store.close();
+  });
+
+  it("blocks processQueue for queued/waiting_checks items under required+autoMerge", async () => {
+    const { store, workspace, task, service } = setup();
+    service.saveConfig(workspace.id, { mode: "required" });
+    await service.ensureTarget(task.id);
+    store.db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS merge_queue (
+          id TEXT PRIMARY KEY, workspace_id TEXT, task_id TEXT, head_sha TEXT, state TEXT,
+          approved_head_sha TEXT, checks_waived INTEGER NOT NULL DEFAULT 0,
+          checks_waived_by TEXT, checks_waived_reason TEXT, checks_waived_at TEXT, updated_at TEXT
+        )`,
+      )
+      .run();
+    for (const [index, state] of ["queued", "waiting_checks"].entries()) {
+      store.db
+        .prepare(
+          `INSERT INTO merge_queue(id, workspace_id, task_id, head_sha, state, updated_at)
+           VALUES (?, ?, ?, 'head1', ?, ?)`,
+        )
+        .run(`q-${state}`, workspace.id, task.id, state, new Date(Date.now() + index).toISOString());
+    }
+    await expect(service.assertQueueAllowed(workspace.id)).rejects.toMatchObject({ code: "REVIEW_PENDING" });
+    await service.submitDecision({ taskId: task.id, decision: "approve", headSha: "head1" });
+    await expect(service.assertQueueAllowed(workspace.id)).resolves.toBeUndefined();
+    store.close();
+  });
+
+  it("fail-closes required gate when review is globally unavailable and rolls back to off", async () => {
+    const { store, workspace, task, service } = setup();
+    service.saveConfig(workspace.id, { mode: "required" });
+    await service.ensureTarget(task.id);
+    service.setUnavailable(workspace.id, "diff backend down");
+    const gate = await service.evaluateTask(task.id);
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.code).toBe("REVIEW_UNAVAILABLE");
+    service.rollback(workspace.id);
+    expect((await service.evaluateTask(task.id)).ok).toBe(true);
+    expect(service.getConfig(workspace.id).unavailableReason).toBeNull();
+    expect(service.getConfig(workspace.id).mode).toBe("off");
+    store.close();
+  });
+
+  it("treats PR-event target creation as best effort", async () => {
+    const { store, task, service } = setup();
+    await expect(ensureTargetForPrEvent(service, task.id)).resolves.toBe(true);
+    const failed = { ensureTarget: async () => Promise.reject(new Error("pr not ready")) };
+    await expect(ensureTargetForPrEvent(failed as unknown as { ensureTarget: (id: string) => Promise<never> }, task.id)).resolves.toBe(false);
     store.close();
   });
 

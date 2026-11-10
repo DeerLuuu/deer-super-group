@@ -135,7 +135,21 @@ describe("ReviewSection", () => {
       expect(deer.submitReviewDecision).toHaveBeenCalledWith(
         expect.objectContaining({ taskId: "t1", decision: "approve", headSha: "head123456" }),
       );
-      expect(root.findAllByType("div").some((node) => node.props.role === "listitem")).toBe(true);
+      expect(root.findAllByType("div").some((node) => node.props.role === "grid")).toBe(true);
+      const rows = root.findAllByType("div").filter((node) => node.props.role === "row");
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows[0].props["aria-rowindex"]).toBe(1);
+      const grid = root.findAllByType("div").find((node) => node.props.role === "grid");
+      expect(grid?.props["aria-rowcount"]).toBeDefined();
+      await rtr.act(async () => {
+        (rows[0].props.onKeyDown as (event: unknown) => void)({
+          key: "Enter",
+          preventDefault: () => undefined,
+          currentTarget: {},
+        });
+        await Promise.resolve();
+      });
+      expect(root.findAllByType("textarea").some((node) => node.props["aria-label"] === "评论内容")).toBe(true);
     } finally {
       if (renderer) await rtr.act(async () => renderer!.unmount());
     }

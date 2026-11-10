@@ -17,6 +17,7 @@ export interface ReviewConfig {
   requiredApprovals: number;
   notifyMailbox: boolean;
   boardSummary: boolean;
+  unavailableReason: string | null;
   updatedAt: string;
 }
 

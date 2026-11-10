@@ -20,7 +20,7 @@ import type {
 } from "../src/shared/memoryRuntime.js";
 import type { MemorySearchInput, MemorySnapshotOptions } from "../src/memory/types.js";
 import type { CastPollRequest, ClosePollRequest, CreatePollRequest, PollStatus } from "../src/shared/poll.js";
-import { ReviewService } from "../src/review/service.js";
+import { ReviewService, ensureTargetForPrEvent } from "../src/review/service.js";
 import type { ReviewConfigPatch, ReviewDecision, ReviewSeverity } from "../src/review/types.js";
 
 let win: BrowserWindow | null = null;
@@ -135,9 +135,7 @@ app.whenReady().then(() => {
     win?.webContents.send("app:event", event);
     if ((event.type === "pr.created" || event.type === "pr.updated") && event.aggregateType === "task") {
       // PR events are best-effort target creation; never block task completion.
-      void getReview()
-        .ensureTarget(event.aggregateId)
-        .catch(() => undefined);
+      void ensureTargetForPrEvent(getReview(), event.aggregateId);
     }
   });
   service.onChatEvent((event) => {

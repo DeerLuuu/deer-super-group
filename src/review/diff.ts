@@ -212,6 +212,10 @@ export class ReviewDiffProvider {
     if (!mergeBaseSha) throw new ReviewDiffError("merge base empty");
     const patch = await this.git(workspaceId, [
       "diff",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-color",
+      "--find-renames",
       "--unified=3",
       mergeBaseSha,
       headSha,
@@ -238,7 +242,7 @@ export class ReviewDiffProvider {
   }
 
   async nameStatus(workspaceId: string, oldHead: string, newHead: string): Promise<Map<string, string>> {
-    const output = await this.git(workspaceId, ["diff", "--name-status", "-z", oldHead, newHead]);
+    const output = await this.git(workspaceId, ["diff", "--name-status", "--find-renames", "-z", oldHead, newHead]);
     const parts = output.split("\0").filter(Boolean);
     const map = new Map<string, string>();
     for (let i = 0; i < parts.length; i += 1) {
@@ -257,9 +261,13 @@ export class ReviewDiffProvider {
     return map;
   }
 
-  async diffBetween(workspaceId: string, oldHead: string, newHead: string, path: string): Promise<string> {
+  async diffBetween(workspaceId: string, oldHead: string, newHead: string, _path: string): Promise<string> {
     return this.git(workspaceId, [
       "diff",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-color",
+      "--find-renames",
       "--unified=3",
       oldHead,
       newHead,

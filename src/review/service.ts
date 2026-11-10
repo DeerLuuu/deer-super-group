@@ -39,6 +39,19 @@ export interface ReviewServiceOptions {
   computeDiff?: (workspaceId: string, vcs: import("../git/types.js").TaskVcs) => Promise<ReviewDiffResult>;
 }
 
+/** Best-effort PR event hook: target creation must never block task completion. */
+export async function ensureTargetForPrEvent(
+  review: Pick<ReviewService, "ensureTarget">,
+  taskId: string,
+): Promise<boolean> {
+  try {
+    await review.ensureTarget(taskId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function assertHuman(actor: string): void {
   if (!actor || actor.startsWith("agent:") || actor !== HUMAN) {
     throw new ReviewError("REVIEW_FORBIDDEN", "review writes are human-only");
@@ -69,6 +82,16 @@ export class ReviewService {
 
   getConfig(workspaceId: string): ReviewConfig {
     return this.patches.getConfig(workspaceId);
+  }
+
+  setUnavailable(workspaceId: string, reason: string | null): void {
+    this.patches.setUnavailable(workspaceId, reason);
+  }
+
+  /** Human rollback: retain review data, disable gating, clear approvals. */
+  rollback(workspaceId: string, actor = HUMAN): ReviewConfig {
+    this.setUnavailable(workspaceId, null);
+    return this.saveConfig(workspaceId, { mode: "off" }, { confirmResets: true, actor });
   }
 
   saveConfig(
@@ -150,7 +173,12 @@ export class ReviewService {
     if (!vcs || !vcs.branch || !vcs.headSha) {
       throw new ReviewError("REVIEW_TARGET_MISSING", "task has no branch/head");
     }
-    const diff = await this.computeDiff(task.workspaceId, vcs);
+    const diff = await this.computeDiff(task.workspaceId, vcs).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.patches.setUnavailable(task.workspaceId, message);
+      throw new ReviewError("REVIEW_UNAVAILABLE", message);
+    });
+    this.patches.setUnavailable(task.workspaceId, null);
     const existing = this.patches.getTarget(taskId, diff.headSha);
     if (existing && existing.baseSha === diff.baseSha && existing.diffHash === diff.diffHash) {
       if (existing.reviewers.length === 0) this.ensureDefaultReviewer(existing);
@@ -541,6 +569,22 @@ export class ReviewService {
     if (!workspaceId) throw new ReviewError("REVIEW_NOT_FOUND", "task not found");
     const mode = this.getConfig(workspaceId).mode;
     if (mode === "off") return { ok: true, mode, targetId: target?.id ?? null };
+    const unavailableReason = this.getConfig(workspaceId).unavailableReason;
+    if (unavailableReason) {
+      if (mode === "advisory") {
+        return { ok: true, mode, targetId: target?.id ?? null, warnings: [`review unavailable: ${unavailableReason}`] };
+      }
+      return {
+        ok: false,
+        mode,
+        targetId: target?.id ?? null,
+        code: "REVIEW_UNAVAILABLE",
+        reason: unavailableReason,
+        blockers: target?.blockerCount ?? 0,
+        approvals: target?.approvalCount ?? 0,
+        requiredApprovals: 1,
+      };
+    }
     if (!target) {
       if (mode === "advisory") return { ok: true, mode, targetId: null, warnings: ["review target not created"] };
       return {
@@ -578,8 +622,9 @@ export class ReviewService {
   }
 
   /**
-   * Guard every processQueue/merge entrypoint. Only items that could transition
-   * to merging/ready are checked; waiting_checks items may still advance checks.
+   * Guard every processQueue/merge entrypoint. Any active queue item that can
+   * eventually merge (queued/checks/review/ready/merging/updating) must pass
+   * the current target/head/blocker/approval gate before processing.
    */
   async assertQueueAllowed(workspaceId: string): Promise<void> {
     const hasQueue = Boolean(
@@ -591,7 +636,7 @@ export class ReviewService {
     const rows = this.options.store.db
       .prepare(
         `SELECT task_id, head_sha, state FROM merge_queue
-         WHERE workspace_id = ? AND state IN ('ready','merging','updating')`,
+         WHERE workspace_id = ? AND state IN ('queued','waiting_checks','waiting_review','ready','merging','updating')`,
       )
       .all(workspaceId) as Array<{ task_id: string; head_sha: string }>;
     for (const row of rows) {

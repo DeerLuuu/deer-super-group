@@ -49,8 +49,19 @@ export async function reanchorTargets(input: {
   const renames = await diffs.nameStatus(input.workspaceId, input.oldTarget.headSha, input.newTarget.headSha).catch(() => new Map<string, string>());
   for (const thread of threads) {
     const mapped = renames.get(thread.filePath) ?? renames.get(thread.oldPath ?? "");
-    const mappedPath = mapped ? mapped.split("\0")[0] : thread.filePath;
+    let mappedPath = mapped ? mapped.split("\0")[0] : thread.filePath;
     const status = mapped ? mapped.split("\0")[1] : "M";
+    if (!mapped) {
+      // Git may not emit rename metadata in --name-status depending on config;
+      // fall back to the patch's explicit rename headers.
+      const patch = await diffs
+        .diffBetween(input.workspaceId, input.oldTarget.headSha, input.newTarget.headSha, thread.filePath)
+        .catch(() => "");
+      const lines = patch.split(/\r?\n/);
+      const renameAt = lines.findIndex((line) => line === `rename from ${thread.filePath}`);
+      const renameTo = renameAt >= 0 ? lines[renameAt + 1] : null;
+      if (renameTo?.startsWith("rename to ")) mappedPath = renameTo.slice("rename to ".length);
+    }
     if (status === "D") {
       markOutdated(reviewStore, thread, "file_deleted");
       continue;
@@ -69,10 +80,20 @@ export async function reanchorTargets(input: {
     if (result.result === "moved" && result.line) {
       reviewStore.store.db
         .prepare(
-          `UPDATE review_threads SET anchor_head_sha = ?, line_start = ?, line_end = ?, reanchored_at = ?
+          `UPDATE review_threads
+           SET target_id = ?, anchor_head_sha = ?, file_path = ?, old_path = ?, line_start = ?, line_end = ?, reanchored_at = ?
            WHERE id = ?`,
         )
-        .run(input.newTarget.headSha, result.line, result.line, new Date().toISOString(), thread.id);
+        .run(
+          input.newTarget.id,
+          input.newTarget.headSha,
+          mappedPath,
+          thread.filePath,
+          result.line,
+          result.line,
+          new Date().toISOString(),
+          thread.id,
+        );
       reviewStore.store.db
         .prepare(
           `INSERT INTO review_reanchor_log(id, thread_id, from_head_sha, to_head_sha, from_line, to_line, result, reason, created_at)

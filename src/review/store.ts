@@ -64,6 +64,7 @@ export class ReviewStore {
             required_approvals INTEGER NOT NULL DEFAULT 1 CHECK (required_approvals = 1),
             notify_mailbox INTEGER NOT NULL DEFAULT 1,
             board_summary INTEGER NOT NULL DEFAULT 1,
+            unavailable_reason TEXT,
             updated_at TEXT NOT NULL
           )`,
         )
@@ -235,6 +236,10 @@ export class ReviewStore {
              ON review_threads(target_id, file_path, status, severity)`,
         )
         .run();
+      const configColumns = this.db.prepare("PRAGMA table_info(review_config)").all() as Array<{ name: string }>;
+      if (!configColumns.some((column) => column.name === "unavailable_reason")) {
+        this.db.prepare("ALTER TABLE review_config ADD COLUMN unavailable_reason TEXT").run();
+      }
       this.db
         .prepare(
           `INSERT INTO review_schema(version, applied_at, note)
@@ -268,8 +273,16 @@ export class ReviewStore {
       requiredApprovals: 1,
       notifyMailbox: bool(row.notify_mailbox),
       boardSummary: bool(row.board_summary),
+      unavailableReason: row.unavailable_reason ? String(row.unavailable_reason) : null,
       updatedAt: String(row.updated_at),
     };
+  }
+
+  setUnavailable(workspaceId: string, reason: string | null): void {
+    this.getConfig(workspaceId);
+    this.db
+      .prepare("UPDATE review_config SET unavailable_reason = ?, updated_at = ? WHERE workspace_id = ?")
+      .run(reason, now(), workspaceId);
   }
 
   saveConfig(workspaceId: string, patch: ReviewConfigPatch): ReviewConfig {

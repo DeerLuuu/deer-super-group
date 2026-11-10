@@ -316,7 +316,7 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
                   {diff.file.isBinary ? (
                     <p className="muted small">二进制文件不显示 diff。</p>
                   ) : (
-                    <div className="review-diff" role="list" aria-label={`${diff.file.path} diff`}>
+                    <div className="review-diff" role="grid" aria-label={`${diff.file.path} diff`} aria-rowcount={diffLines.length} aria-colcount={4}>
                       {visibleLines.map((line, visibleIndex) => {
                         const lineNo = line.newLine ?? line.oldLine ?? 0;
                         const side = line.newLine != null ? "new" : "old";
@@ -340,16 +340,18 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
                               }
                             }}
                             className={`review-line ${line.kind}`}
-                            role="listitem"
+                            role="row"
                             aria-posinset={visibleStart + visibleIndex + 1}
+                            aria-rowindex={visibleStart + visibleIndex + 1}
                             aria-setsize={diffLines.length}
                             aria-label={`${line.kind === "add" ? "新增" : line.kind === "del" ? "删除" : "上下文"}行 ${lineNo}`}
                           >
-                            <span className="review-line-no">{line.oldLine ?? ""}</span>
-                            <span className="review-line-no">{line.newLine ?? ""}</span>
-                            <span className="review-line-text">{redact(line.text) || " "}</span>
+                            <span className="review-line-no" role="gridcell">{line.oldLine ?? ""}</span>
+                            <span className="review-line-no" role="gridcell">{line.newLine ?? ""}</span>
+                            <span className="review-line-text" role="gridcell">{redact(line.text) || " "}</span>
                             <button
                               type="button"
+                              role="gridcell"
                               className="ghost tiny review-line-comment"
                               aria-label={`评论第 ${lineNo} 行`}
                               onClick={() => openComposerAt(lineNo, side)}
