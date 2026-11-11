@@ -400,4 +400,120 @@ describe("t168 chat turn projection", () => {
       CHAT_TURNS_RESPONSE_MAX,
     );
   });
+
+  it("projects cancelled/error terminal events and keeps old user-only turns pending", () => {
+    const user = message("u1", "user", "跑一下", "2026-01-01T00:00:00.000Z");
+    const cancelled = build(
+      [user],
+      [
+        event(
+          1,
+          "chat.turn_cancelled",
+          {
+            userMessageId: "u1",
+            turnId: "turn:u1",
+            agentId: AGENT,
+            status: "cancelled",
+            stage: "tool",
+            code: "ABORTED",
+            message: null,
+            retryable: true,
+            step: 2,
+            toolCallId: "c1",
+            toolName: "fs.read",
+            at: "2026-01-01T00:00:02.000Z",
+          },
+          "2026-01-01T00:00:02.000Z",
+        ),
+      ],
+    );
+    const cancelledTurn = cancelled.turns[0]!;
+    expect(cancelledTurn.status).toBe("cancelled");
+    expect(cancelledTurn.assistants).toHaveLength(0);
+    expect(cancelledTurn.terminal).toMatchObject({
+      status: "cancelled",
+      stage: "tool",
+      code: "ABORTED",
+      retryable: true,
+      tool: { callId: "c1", name: "fs.read", step: 2 },
+    });
+    expect(cancelledTurn.retryable).toBe(true);
+    expect(cancelledTurn.endedAt).toBe("2026-01-01T00:00:02.000Z");
+
+    const error = build(
+      [user],
+      [
+        event(
+          1,
+          "chat.turn_error",
+          {
+            userMessageId: "u1",
+            turnId: "turn:u1",
+            agentId: AGENT,
+            status: "error",
+            stage: "model",
+            code: "PROVIDER_500",
+            message: "Authorization: Bearer sk-secret-123 failed token=abc",
+            retryable: false,
+            step: null,
+            toolCallId: null,
+            toolName: null,
+            at: "2026-01-01T00:00:03.000Z",
+          },
+          "2026-01-01T00:00:03.000Z",
+        ),
+      ],
+    );
+    const errorTurn = error.turns[0]!;
+    expect(errorTurn.status).toBe("error");
+    expect(errorTurn.terminal).toMatchObject({ status: "error", stage: "model", retryable: false });
+    expect(errorTurn.terminal?.message).not.toContain("sk-secret");
+    expect(errorTurn.terminal?.message).toContain("[REDACTED]");
+    expect(errorTurn.terminal?.message).not.toContain("token=abc");
+
+    const old = build([user], []);
+    expect(old.turns[0]!.status).toBe("pending");
+    expect(old.turns[0]!.legacyUnresolved).toBe(true);
+    expect(old.turns[0]!.terminal).toBeNull();
+    expect(old.turns[0]!.retryable).toBe(true);
+  });
+
+  it("complete assistant wins over a conflicting terminal; invalid terminal bindings are ignored", () => {
+    const messages = [
+      message("u1", "user", "问", "2026-01-01T00:00:00.000Z"),
+      message("a1", "assistant", "答", "2026-01-01T00:00:02.000Z"),
+    ];
+    const terminal = (agentId: string, userMessageId = "u1", turnId = "turn:u1") =>
+      event(
+        1,
+        "chat.turn_error",
+        {
+          userMessageId,
+          turnId,
+          agentId,
+          status: "error",
+          stage: "model",
+          code: "E",
+          message: "fail",
+          retryable: true,
+          at: "2026-01-01T00:00:03.000Z",
+        },
+        "2026-01-01T00:00:03.000Z",
+      );
+    const complete = build(messages, [terminal(AGENT)]);
+    expect(complete.turns[0]!.status).toBe("complete");
+    expect(complete.turns[0]!.retryable).toBe(false);
+    expect(complete.turns[0]!.terminal?.status).toBe("error");
+
+    const wrongAgent = build([messages[0]!], [terminal("agent_other")]);
+    expect(wrongAgent.turns[0]!.status).toBe("pending");
+    expect(wrongAgent.turns[0]!.terminal).toBeNull();
+
+    const wrongTurn = build([messages[0]!], [terminal(AGENT, "u1", "turn:other")]);
+    expect(wrongTurn.turns[0]!.terminal).toBeNull();
+
+    const wrongWorkspaceEvent = { ...terminal(AGENT), aggregateId: "ws_other" };
+    const wrongWorkspace = build([messages[0]!], [wrongWorkspaceEvent]);
+    expect(wrongWorkspace.turns[0]!.terminal).toBeNull();
+  });
 });

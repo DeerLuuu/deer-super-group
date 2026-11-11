@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -6,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from "react";
 import type {
   Agent,
@@ -14,8 +16,10 @@ import type {
   ChatMessage,
   ChatQuestionRecord,
   ChatTrajectoryEntry,
+  ChatTurn,
   ChatTurnHistoryPage,
   ChatTurnReasoning,
+  ChatTurnTerminal,
   ChatTurnTool,
   ContextSnapshot,
   EventRecord,
@@ -196,6 +200,22 @@ function toolLabel(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
+/**
+ * t175：重试只更新 composer，不发送。空输入填入；已有不同内容不覆盖；
+ * 相同内容只聚焦。返回 null 表示空重试文本，不做操作。
+ */
+export function retryComposerState(
+  currentInput: string,
+  retryText: string,
+): { value: string; message: string } | null {
+  const text = retryText.trim();
+  if (!text) return null;
+  const current = currentInput.trim();
+  if (!current) return { value: text, message: "已填入输入框，确认后发送" };
+  if (current === text) return { value: currentInput, message: "输入框已是该内容，确认后发送" };
+  return { value: currentInput, message: "输入框已有内容，请确认后替换" };
+}
+
 
 /** t69：需要二次确认的内核操作（重试/取消/暂停/评审拒绝等有副作用的动作）。 */
 type ConfirmIntent =
@@ -277,6 +297,8 @@ export default function App() {
   const [chatTools, setChatTools] = useState<ChatToolTrace[]>([]);
   const [chatReasoningSegments, setChatReasoningSegments] = useState<ChatReasoningSegment[]>([]);
   const [chatTurns, setChatTurns] = useState<ChatTurnHistoryPage | null>(null);
+  const [liveTerminals, setLiveTerminals] = useState<Map<string, ChatTurnTerminal>>(new Map());
+  const chatComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const translationRequests = useRef(new Set<string>());
   const historyTranslationMemo = useMemo(
     () => createChatTranslationMemo((text) => window.deer.translateText(text)),
@@ -291,6 +313,15 @@ export default function App() {
         chatTurns?.turns.flatMap((turn) =>
           turn.assistants.map((assistant) => [assistant.messageId, assistant] as const),
         ) ?? [],
+      ),
+    [chatTurns],
+  );
+  const chatTurnByUser = useMemo(
+    () =>
+      new Map(
+        chatTurns?.turns
+          .filter((turn) => turn.userMessage)
+          .map((turn) => [turn.userMessage!.id, turn] as const) ?? [],
       ),
     [chatTurns],
   );
@@ -1201,6 +1232,9 @@ export default function App() {
         setChatBusy(false);
         void loadChat().catch((error) => setError(errorText(error)));
       } else if (event.type === "cancelled") {
+        if (event.userMessageId && event.terminal) {
+          setLiveTerminals((prev) => new Map(prev).set(event.userMessageId!, event.terminal!));
+        }
         setChatStream("");
         setChatReasoning("");
         setChatTools([]);
@@ -1208,6 +1242,9 @@ export default function App() {
         setChatBusy(false);
         void loadChat().catch(() => {});
       } else if (event.type === "error") {
+        if (event.userMessageId && event.terminal) {
+          setLiveTerminals((prev) => new Map(prev).set(event.userMessageId!, event.terminal!));
+        }
         setChatStream("");
         setChatReasoning("");
         setChatTools([]);
@@ -1290,6 +1327,7 @@ export default function App() {
     setChatTools([]);
     setChatReasoningSegments([]);
     setChatTurns(null);
+    setLiveTerminals(new Map());
     chatTurnsRequestRef.current += 1;
     chatTurnsToastRef.current = false;
     historyTranslationMemo.clear();
@@ -1826,6 +1864,15 @@ export default function App() {
     } finally {
       setChatContextBusy(false);
     }
+  }
+
+  function handleRetryTurn(content: string) {
+    if (chatBusy || chatContextBusy) return;
+    const next = retryComposerState(chatInput, content);
+    if (!next) return;
+    setChatInput(next.value);
+    pushToast({ kind: "info", message: next.message });
+    window.setTimeout(() => chatComposerRef.current?.focus(), 0);
   }
 
   async function handleSendChat() {
@@ -2711,6 +2758,10 @@ export default function App() {
                       tools={chatTools}
                       reasoningSegments={chatReasoningSegments}
                       turnByAssistant={chatTurnsByAssistant}
+                      turnByUser={chatTurnByUser}
+                      liveTerminals={liveTerminals}
+                      onRetryTurn={handleRetryTurn}
+                      composerRef={chatComposerRef}
                       translateHistoryText={translateHistoryText}
                       view={chatView}
                       onViewChange={setChatView}
@@ -4505,6 +4556,10 @@ export function ChatView({
   tools,
   reasoningSegments,
   turnByAssistant,
+  turnByUser,
+  liveTerminals,
+  onRetryTurn,
+  composerRef,
   translateHistoryText,
   view,
   onViewChange,
@@ -4544,6 +4599,10 @@ export function ChatView({
   tools: ChatToolTrace[];
   reasoningSegments: ChatReasoningSegment[];
   turnByAssistant: ReadonlyMap<string, ChatAssistantTurn>;
+  turnByUser: ReadonlyMap<string, ChatTurn>;
+  liveTerminals: ReadonlyMap<string, ChatTurnTerminal>;
+  onRetryTurn: (content: string) => void;
+  composerRef: RefObject<HTMLTextAreaElement | null>;
   translateHistoryText: (text: string) => Promise<string>;
   view: "chat" | "trajectory";
   onViewChange: (view: "chat" | "trajectory") => void;
@@ -4736,27 +4795,57 @@ export function ChatView({
           {messages.map((message) => {
             const historical =
               message.role === "assistant" ? turnByAssistant.get(message.id) : undefined;
+            const turn = message.role === "user" ? turnByUser.get(message.id) : undefined;
+            const terminal =
+              turn?.terminal ??
+              (message.role === "user" ? liveTerminals.get(message.id) : undefined) ??
+              null;
+            const showTerminal =
+              !turn || turn.status !== "complete" ? Boolean(terminal) : false;
+            const legacyUnresolved = Boolean(
+              !terminal && turn?.legacyUnresolved && message.role === "user",
+            );
+            const legacyError = Boolean(
+              !terminal &&
+                message.role === "user" &&
+                turn?.status === "error" &&
+                turn.assistants.length > 0,
+            );
+            const retryable = terminal
+              ? turn?.retryable ?? terminal.retryable
+              : Boolean(legacyUnresolved || legacyError);
             return (
-              <ChatBubble
-                key={message.id}
-                messageId={message.id}
-                role={message.role}
-                content={message.content}
-                reasoning={historical ? "" : message.reasoning}
-                process={
-                  historical && historical.steps.length > 0 ? (
-                    <ChatTurnHistoryProcess
-                      assistant={historical}
-                      translate={translateHistoryText}
-                    />
-                  ) : undefined
-                }
-                createdAt={message.createdAt}
-                questions={questions}
-                questionsLoaded={questionsLoaded}
-                onAnswerQuestion={onAnswerQuestion}
-                onToast={onToast}
-              />
+              <Fragment key={message.id}>
+                <ChatBubble
+                  messageId={message.id}
+                  role={message.role}
+                  content={message.content}
+                  reasoning={historical ? "" : message.reasoning}
+                  process={
+                    historical && historical.steps.length > 0 ? (
+                      <ChatTurnHistoryProcess
+                        assistant={historical}
+                        translate={translateHistoryText}
+                      />
+                    ) : undefined
+                  }
+                  createdAt={message.createdAt}
+                  questions={questions}
+                  questionsLoaded={questionsLoaded}
+                  onAnswerQuestion={onAnswerQuestion}
+                  onToast={onToast}
+                />
+                {(showTerminal || legacyUnresolved || legacyError) && (
+                  <ChatTurnTerminalBubble
+                    terminal={terminal}
+                    legacyUnresolved={legacyUnresolved}
+                    legacyError={legacyError}
+                    retryable={retryable}
+                    retryDisabled={busy}
+                    onRetry={() => onRetryTurn(message.content)}
+                  />
+                )}
+              </Fragment>
             );
           })}
           {showLiveBubble && (
@@ -4776,6 +4865,7 @@ export function ChatView({
 
         <div className="chat-composer">
           <textarea
+            ref={composerRef}
             value={input}
             onChange={(event) => onInput(event.target.value)}
             onKeyDown={(event) => {
@@ -5042,6 +5132,87 @@ function ChatToolItem({ tool }: { tool: ChatToolTrace }) {
         )}
       </div>
     </details>
+  );
+}
+
+function ChatTurnTerminalBubble({
+  terminal,
+  legacyUnresolved,
+  legacyError,
+  retryable,
+  retryDisabled,
+  onRetry,
+}: {
+  terminal: ChatTurnTerminal | null;
+  legacyUnresolved: boolean;
+  legacyError: boolean;
+  retryable: boolean;
+  retryDisabled: boolean;
+  onRetry: () => void;
+}) {
+  const cancelled = terminal?.status === "cancelled";
+  const isError = terminal?.status === "error" || legacyError;
+  const title = legacyUnresolved
+    ? "未完成（旧数据）"
+    : legacyError
+      ? "回复失败（旧数据）"
+      : cancelled
+        ? "已取消"
+        : "回复失败";
+  const stageText = terminal
+    ? terminal.stage === "tool"
+      ? `工具执行中${terminal.tool?.name ? `：${toolLabel(terminal.tool.name)}` : ""}`
+      : terminal.stage === "approval"
+        ? "等待审批"
+        : terminal.stage === "persist"
+          ? "保存回复中"
+          : terminal.stage === "model"
+            ? "模型回复中"
+            : "执行中"
+    : null;
+  const role = isError ? "alert" : "status";
+  return (
+    <div
+      className={`chat-turn-terminal ${cancelled ? "is-cancelled" : isError ? "is-error" : "is-legacy"}`}
+      role={role}
+      aria-live={isError ? "assertive" : "polite"}
+    >
+      <div className="chat-turn-terminal-head">
+        <span className="chat-turn-terminal-icon" aria-hidden="true">
+          {isError ? "!" : "·"}
+        </span>
+        <strong>{title}</strong>
+        {terminal && <span className="chat-turn-terminal-time">{time(terminal.at)}</span>}
+      </div>
+      {terminal ? (
+        <>
+          {isError && (terminal.code || terminal.message) && (
+            <div className="chat-turn-terminal-summary">
+              {terminal.code && <span className="mono">{terminal.code}</span>}
+              {terminal.message && <span>{terminal.message}</span>}
+            </div>
+          )}
+          {stageText && <div className="chat-turn-terminal-stage">阶段：{stageText}</div>}
+        </>
+      ) : (
+        <div className="chat-turn-terminal-stage">
+          {legacyUnresolved
+            ? "该轮没有终态记录；可确认后重试。"
+            : "旧记录没有错误详情；可确认后重试。"}
+        </div>
+      )}
+      {retryable && (
+        <button
+          type="button"
+          className="ghost tiny chat-turn-terminal-retry"
+          aria-label="重试这条消息"
+          disabled={retryDisabled}
+          onClick={onRetry}
+        >
+          重试
+        </button>
+      )}
+    </div>
   );
 }
 

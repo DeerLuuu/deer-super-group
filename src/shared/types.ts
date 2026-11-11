@@ -269,6 +269,29 @@ export interface CompactChatContextResult {
 
 export type ChatTurnStatus = "complete" | "cancelled" | "error" | "pending";
 
+/** t175：持久化终态（零 schema，来自 chat.turn_cancelled/chat.turn_error）。 */
+export type ChatTurnTerminalStatus = "cancelled" | "error";
+export type ChatTurnStage = "model" | "tool" | "approval" | "persist" | "unknown";
+
+export interface ChatTurnTerminalTool {
+  callId: string;
+  name: string;
+  step: number | null;
+}
+
+export interface ChatTurnTerminal {
+  status: ChatTurnTerminalStatus;
+  stage: ChatTurnStage;
+  code: string | null;
+  /** 服务端/投影双重脱敏、≤500 字符。 */
+  message: string | null;
+  at: IsoDate;
+  retryable: boolean;
+  tool: ChatTurnTerminalTool | null;
+  source: "event";
+}
+
+
 export interface ChatTurnReasoning {
   /** 稳定键：`<eventId>:reasoning` 或 `<messageId>:reasoning`。 */
   id: string;
@@ -327,6 +350,12 @@ export interface ChatTurn {
   startedAt: string | null;
   endedAt: string | null;
   status: ChatTurnStatus;
+  /** t175：durable terminal；旧数据无终态为 null。 */
+  terminal: ChatTurnTerminal | null;
+  /** t175：完整回复为 false；terminal/旧数据按可重试策略。 */
+  retryable: boolean;
+  /** t175：无 assistant 且无 terminal 的旧数据，不判 error。 */
+  legacyUnresolved?: boolean;
   /** t172：用户内容/思考总量、工具数量或响应裁剪触发。 */
   truncated?: boolean;
 }
@@ -384,8 +413,23 @@ export type ChatEvent =
       step?: number;
     }
   | { type: "done"; workspaceId: Id; agentId: Id; message: ChatMessage }
-  | { type: "cancelled"; workspaceId: Id; agentId: Id }
-  | { type: "error"; workspaceId: Id; agentId: Id; error: string };
+  | {
+      type: "cancelled";
+      workspaceId: Id;
+      agentId: Id;
+      userMessageId?: Id;
+      terminal?: ChatTurnTerminal;
+      terminalPersisted?: boolean;
+    }
+  | {
+      type: "error";
+      workspaceId: Id;
+      agentId: Id;
+      error: string;
+      userMessageId?: Id;
+      terminal?: ChatTurnTerminal;
+      terminalPersisted?: boolean;
+    };
 
 // ---------------------------------------------------------------------------
 // t64：交互画布 / 提问表单（docs/team/interactive-canvas-design.md §9/§10）

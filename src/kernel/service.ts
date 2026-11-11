@@ -14,6 +14,9 @@ import type {
   ChatTrajectoryEntry,
   ChatTurnHistoryOptions,
   ChatTurnHistoryPage,
+  ChatTurnStage,
+  ChatTurnTerminal,
+  ChatTurnTerminalStatus,
   ClearChatContextResult,
   CompactChatContextResult,
   ContextSection,
@@ -178,6 +181,119 @@ function limitPayload(payload: unknown): unknown {
   if (raw.length <= 6000) return payload;
   return { truncated: true, preview: raw.slice(0, 6000) };
 }
+
+// t175：终态摘要只保留用户可读错误；禁止 stack/provider body/tool args。
+const TERMINAL_MESSAGE_MAX = 500;
+const TERMINAL_CODE_MAX = 64;
+const TERMINAL_TOOL_MAX = 120;
+const TERMINAL_PAYLOAD_MAX = 2_048;
+
+function terminalText(value: unknown, max: number): string {
+  let text = String(value ?? "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  text = text
+    .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/gi, "[REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(/\bAuthorization\s*:\s*[^\s]+/gi, "Authorization: [REDACTED]")
+    .replace(/\b(api[_-]?key|token|secret)\s*[=:]\s*[^&\s]+/gi, "$1=[REDACTED]")
+    .replace(/([?&](?:api[_-]?key|token|secret|key)=)[^&\s]+/gi, "$1[REDACTED]");
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function terminalCode(error: unknown, fallback = "UNKNOWN"): string {
+  if (!error || typeof error !== "object") return fallback;
+  const record = error as { code?: unknown; name?: unknown };
+  const raw = record.code ?? record.name;
+  if (raw === undefined || raw === null) return fallback;
+  const normalized = String(raw)
+    .toUpperCase()
+    .replace(/[^A-Z0-9_.-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, TERMINAL_CODE_MAX);
+  return normalized || fallback;
+}
+
+function terminalRetryable(error: unknown): boolean {
+  return !(error && typeof error === "object" && (error as { retryable?: unknown }).retryable === false);
+}
+
+function terminalTool(
+  tool: { callId: string; name: string; step: number | null } | null,
+): ChatTurnTerminal["tool"] {
+  if (!tool) return null;
+  return {
+    callId: terminalText(tool.callId, TERMINAL_TOOL_MAX),
+    name: terminalText(tool.name, TERMINAL_TOOL_MAX),
+    step: Number.isFinite(tool.step) ? Number(tool.step) : null,
+  };
+}
+
+function makeTerminal(input: {
+  status: ChatTurnTerminalStatus;
+  stage: ChatTurnStage;
+  error?: unknown;
+  tool?: { callId: string; name: string; step: number | null } | null;
+  at?: string;
+}): ChatTurnTerminal {
+  const cancelled = input.status === "cancelled";
+  return {
+    status: input.status,
+    stage: input.stage,
+    code: cancelled ? "ABORTED" : terminalCode(input.error),
+    message: cancelled ? null : terminalText(
+      input.error instanceof Error ? input.error.message : input.error ?? "",
+      TERMINAL_MESSAGE_MAX,
+    ) || null,
+    at: input.at ?? new Date().toISOString(),
+    retryable: cancelled ? true : terminalRetryable(input.error),
+    tool: terminalTool(input.tool ?? null),
+    source: "event",
+  };
+}
+
+function terminalFromEvent(event: EventRecord): ChatTurnTerminal | null {
+  if (event.type !== "chat.turn_cancelled" && event.type !== "chat.turn_error") return null;
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const status: ChatTurnTerminalStatus =
+    event.type === "chat.turn_cancelled" ? "cancelled" : "error";
+  const stageRaw = String(payload.stage ?? "unknown");
+  const stage: ChatTurnStage = ["model", "tool", "approval", "persist", "unknown"].includes(
+    stageRaw,
+  )
+    ? (stageRaw as ChatTurnStage)
+    : "unknown";
+  const toolCallId = payload.toolCallId == null ? "" : String(payload.toolCallId);
+  const toolName = payload.toolName == null ? "" : String(payload.toolName);
+  const step = Number(payload.step);
+  return {
+    status,
+    stage,
+    code:
+      payload.code == null
+        ? status === "cancelled"
+          ? "ABORTED"
+          : "UNKNOWN"
+        : terminalText(payload.code, TERMINAL_CODE_MAX) || null,
+    message:
+      status === "error" ? terminalText(payload.message, TERMINAL_MESSAGE_MAX) || null : null,
+    at: String(payload.at ?? event.occurredAt ?? event.createdAt),
+    retryable: payload.retryable !== false,
+    tool:
+      toolCallId || toolName
+        ? {
+            callId: terminalText(toolCallId, TERMINAL_TOOL_MAX),
+            name: terminalText(toolName, TERMINAL_TOOL_MAX),
+            step: Number.isFinite(step) ? step : null,
+          }
+        : null,
+    source: "event",
+  };
+}
+
 
 function parsePlan(text: string): Array<{
   title: string;
@@ -744,7 +860,11 @@ export class AppService {
       before,
     );
     const events = this.store.listRecentChatEvents(workspaceId, CHAT_TURNS_EVENT_LIMIT);
-    return buildChatTurns(messages, events, {
+    const terminalEvents = this.store.listChatTurnTerminalEvents(workspaceId, 500);
+    const eventById = new Map<string, EventRecord>();
+    for (const event of [...events, ...terminalEvents]) eventById.set(event.id, event);
+    const mergedEvents = [...eventById.values()].sort((left, right) => left.seq - right.seq);
+    return buildChatTurns(messages, mergedEvents, {
       workspaceId,
       agentId: resolvedAgent.id,
       limit: options.limit,
@@ -772,6 +892,78 @@ export class AppService {
     return this.store.compactChatContext(workspaceId, router.id, 8);
   }
 
+  /**
+   * t175：写一次终态事件。cancelled/error 共用 idempotencyKey；
+   * 失败时仍向 renderer 返回内存 terminal，但 persisted=false。
+   */
+  private persistChatTurnTerminal(input: {
+    workspaceId: string;
+    agentId: string;
+    agentName: string;
+    userMessageId: string;
+    status: ChatTurnTerminalStatus;
+    stage: ChatTurnStage;
+    error?: unknown;
+    tool?: { callId: string; name: string; step: number | null } | null;
+  }): { terminal: ChatTurnTerminal; persisted: boolean } {
+    const terminal = makeTerminal({
+      status: input.status,
+      stage: input.stage,
+      error: input.error,
+      tool: input.tool,
+      at: new Date().toISOString(),
+    });
+    let message = terminal.message;
+    let toolName = terminal.tool?.name ?? null;
+    let toolCallId = terminal.tool?.callId ?? null;
+    const buildPayload = (): Record<string, unknown> => ({
+      version: 1,
+      userMessageId: input.userMessageId,
+      turnId: `turn:${input.userMessageId}`,
+      agentId: input.agentId,
+      status: input.status,
+      stage: input.stage,
+      code: terminal.code,
+      message,
+      retryable: terminal.retryable,
+      step: terminal.tool?.step ?? null,
+      toolCallId,
+      toolName,
+      at: terminal.at,
+    });
+    let payload = buildPayload();
+    while (JSON.stringify(payload).length > TERMINAL_PAYLOAD_MAX) {
+      if (message && message.length > 120) {
+        message = terminalText(message, Math.max(80, message.length - 120));
+      } else if (message) {
+        message = null;
+      } else if (toolName) {
+        toolName = null;
+        toolCallId = null;
+      } else {
+        break;
+      }
+      payload = buildPayload();
+    }
+    try {
+      const result = this.store.appendEventIdempotent({
+        aggregateType: "chat",
+        aggregateId: input.workspaceId,
+        type:
+          input.status === "cancelled" ? "chat.turn_cancelled" : "chat.turn_error",
+        actor: input.status === "cancelled" ? "user" : `agent:${input.agentName}`,
+        payload,
+        idempotencyKey: `chat-turn-terminal:${input.userMessageId}`,
+      });
+      return {
+        terminal: terminalFromEvent(result.event) ?? terminal,
+        persisted: true,
+      };
+    } catch {
+      return { terminal, persisted: false };
+    }
+  }
+
   async sendChat(workspaceId: string, content: string): Promise<ChatMessage | null> {
     const message = content.trim();
     if (!message) throw new Error("message is required");
@@ -785,7 +977,7 @@ export class AppService {
     const provider = resolveProvider(settings, profile.providerId);
     const client = createLlmClientForModel(settings, profile);
 
-    this.store.addChatMessage({
+    const userMessage = this.store.addChatMessage({
       workspaceId,
       agentId: router.id,
       role: "user",
@@ -837,6 +1029,28 @@ export class AppService {
       .registerAll(createBuiltinTools())
       .registerAll(createMemoryTools(this.memory));
     const toolPolicy: ToolPolicy = { mode: "chat", taskId: null };
+    const controller = new AbortController();
+    let stage: ChatTurnStage = "model";
+    let lastTool: { callId: string; name: string; step: number | null } | null = null;
+    const activeTools = new Map<string, { callId: string; name: string; step: number | null }>();
+    const requestApproval =
+      router.permission === "auto_risk"
+        ? async (input: Parameters<NonNullable<ToolContext["requestApproval"]>>[0]) => {
+            stage = "approval";
+            try {
+              return await this.requestRiskApproval({
+                workspaceId,
+                taskId: "",
+                agentName: router.name,
+                ...input,
+              });
+            } finally {
+              if (!controller.signal.aborted) {
+                stage = activeTools.size > 0 ? "tool" : "model";
+              }
+            }
+          }
+        : undefined;
     const toolContext: ToolContext = {
       workspaceId,
       workspacePath: workspace.path,
@@ -846,20 +1060,11 @@ export class AppService {
       agentId: router.id,
       agentName: router.name,
       store: this.store,
+      signal: controller.signal,
       permission: router.permission,
-      requestApproval:
-        router.permission === "auto_risk"
-          ? async (input) =>
-              this.requestRiskApproval({
-                workspaceId,
-                taskId: "",
-                agentName: router.name,
-                ...input,
-              })
-          : undefined,
+      requestApproval: requestApproval as ToolContext["requestApproval"],
     };
 
-    const controller = new AbortController();
     this.chatAborts.set(workspaceId, controller);
 
     try {
@@ -888,6 +1093,7 @@ export class AppService {
         onEvent: (type, payload) => {
           const data = (payload ?? {}) as Record<string, unknown>;
           if (type === "assistant.reasoning") {
+            if (activeTools.size === 0) stage = "model";
             const step = Number(data.step ?? 0);
             const text = String(data.text ?? "");
             this.emitChat({
@@ -910,6 +1116,14 @@ export class AppService {
             }
           } else if (type === "tool.call") {
             const step = Number(data.step ?? 0);
+            stage = "tool";
+            const tool = {
+              callId: String(data.id ?? ""),
+              name: String(data.name ?? ""),
+              step: Number.isFinite(step) ? step : null,
+            };
+            lastTool = tool;
+            activeTools.set(tool.callId, tool);
             this.emitChat({
               type: "tool_call",
               workspaceId,
@@ -938,6 +1152,13 @@ export class AppService {
             }
           } else if (type === "tool.result") {
             const step = Number(data.step ?? 0);
+            activeTools.delete(String(data.id ?? ""));
+            if (activeTools.size === 0 && !controller.signal.aborted) {
+              stage = "model";
+              lastTool = null;
+            } else if (activeTools.size > 0) {
+              stage = "tool";
+            }
             this.emitChat({
               type: "tool_result",
               workspaceId,
@@ -971,6 +1192,7 @@ export class AppService {
           }
         },
       });
+      stage = "persist";
       const assistant = this.store.addChatMessage({
         workspaceId,
         agentId: router.id,
@@ -995,15 +1217,44 @@ export class AppService {
       return assistant;
     } catch (error) {
       if (controller.signal.aborted) {
-        this.emitChat({ type: "cancelled", workspaceId, agentId: router.id });
+        const { terminal, persisted } = this.persistChatTurnTerminal({
+          workspaceId,
+          agentId: router.id,
+          agentName: router.name,
+          userMessageId: userMessage.id,
+          status: "cancelled",
+          stage,
+          tool: lastTool,
+        });
+        this.emitChat({
+          type: "cancelled",
+          workspaceId,
+          agentId: router.id,
+          userMessageId: userMessage.id,
+          terminal,
+          terminalPersisted: persisted,
+        });
         return null;
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const { terminal, persisted } = this.persistChatTurnTerminal({
+        workspaceId,
+        agentId: router.id,
+        agentName: router.name,
+        userMessageId: userMessage.id,
+        status: "error",
+        stage,
+        error,
+        tool: lastTool,
+      });
       this.emitChat({
         type: "error",
         workspaceId,
         agentId: router.id,
         error: errorMessage,
+        userMessageId: userMessage.id,
+        terminal,
+        terminalPersisted: persisted,
       });
       throw error;
     } finally {

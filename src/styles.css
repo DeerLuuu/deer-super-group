@@ -1959,6 +1959,85 @@ label.check input {
   max-height: 180px;
 }
 
+/* ---------- t175 chat turn terminal ---------- */
+
+.chat-turn-terminal {
+  display: grid;
+  gap: 5px;
+  margin: -2px 0 12px 44px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--status-queued);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-2) 72%, transparent);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.chat-turn-terminal.is-error {
+  border-left-color: var(--status-failed);
+}
+
+.chat-turn-terminal.is-legacy {
+  border-left-color: var(--muted);
+  color: var(--muted);
+}
+
+.chat-turn-terminal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.chat-turn-terminal-head strong {
+  font-size: 12px;
+}
+
+.chat-turn-terminal.is-cancelled .chat-turn-terminal-head strong {
+  color: var(--status-queued);
+}
+
+.chat-turn-terminal.is-error .chat-turn-terminal-head strong {
+  color: color-mix(in srgb, var(--status-failed) 78%, white);
+}
+
+.chat-turn-terminal-icon {
+  color: inherit;
+  font-weight: 700;
+}
+
+.chat-turn-terminal-time,
+.chat-turn-terminal-stage {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chat-turn-terminal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.chat-turn-terminal-summary .mono {
+  color: var(--muted);
+}
+
+.chat-turn-terminal-retry {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .chat-turn-terminal {
+    margin-left: 0;
+  }
+}
+
 /* ---------- t177 unified assistant turn process ---------- */
 
 .chat-turn-process {
