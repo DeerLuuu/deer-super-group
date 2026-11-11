@@ -36,6 +36,11 @@ import {
   TEAM_MIN_WIDTH,
   effectivePanelMinWidth,
 } from "./narrowWindow";
+import {
+  canAddDockGroup,
+  dockGroupLimitMessage,
+  effectiveMaxDockGroups,
+} from "./dockGroups";
 
 /**
  * t50 VSCode 风格 Dock 容器（dockview-react 8.9.0，按 docs/team/dock-layout-design.md）。
@@ -119,18 +124,28 @@ const PANEL_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelPro
   );
 
 const SAVE_DEBOUNCE_MS = 400;
-const MAX_GROUPS = 4;
 
 export default forwardRef<DockHandle, {
   workspaceId: string;
   dockWidth: number;
   windowWidth: number;
+  /** t208：全局最大分栏数（2–8，默认 6），来自 LayoutSettings。 */
+  maxGroups: number;
   initialPanelKey: PanelKey | null;
   renderPanel: (key: PanelKey) => ReactNode;
   onActivePanelChange: (key: PanelKey) => void;
   onNotify?: (message: string) => void;
 }>(function DockShell(
-  { workspaceId, dockWidth, windowWidth, initialPanelKey, renderPanel, onActivePanelChange, onNotify },
+  {
+    workspaceId,
+    dockWidth,
+    windowWidth,
+    maxGroups,
+    initialPanelKey,
+    renderPanel,
+    onActivePanelChange,
+    onNotify,
+  },
   ref,
 ) {
   const apiRef = useRef<DockviewApi | null>(null);
@@ -141,6 +156,8 @@ export default forwardRef<DockHandle, {
   const activeKeyRef = useRef<PanelKey | null>(initialPanelKey);
   const saveTimerRef = useRef<number | null>(null);
   const variantFrameRef = useRef<number | null>(null);
+  const groupLimitRef = useRef(effectiveMaxDockGroups(maxGroups));
+  groupLimitRef.current = effectiveMaxDockGroups(maxGroups);
   const suppressSaveUntilRef = useRef(0);
   const [panelCount, setPanelCount] = useState(0);
 
@@ -461,13 +478,13 @@ export default forwardRef<DockHandle, {
       const adjacent = api.adjacentGroupInDirection(panel.group, navDirection);
       if (adjacent) {
         panel.api.moveTo({ group: adjacent as never, position: "center" });
-      } else if (api.groups.length < MAX_GROUPS) {
+      } else if (canAddDockGroup(api.groups.length, groupLimitRef.current)) {
         const splitPosition =
           direction === "above" ? "top" : direction === "below" ? "bottom" : direction;
         panel.api.moveTo({ position: splitPosition });
         notify(`已把「${panel.title ?? panel.id}」拆分到新分栏`);
       } else {
-        notify(`最多 ${MAX_GROUPS} 个分栏，请先拖回合并`);
+        notify(dockGroupLimitMessage(groupLimitRef.current));
       }
     },
     resizeActiveGroup(delta) {
@@ -523,15 +540,15 @@ export default forwardRef<DockHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // F3（bb-83）：鼠标拖拽同样受 4 组上限约束——拆分型 drop（left/right/top/bottom/center 以外）
-  // 在已满 4 组时拒绝并提示合并；center（并入现有组）不新增组，放行。
+  // F3（bb-83）+ t208：鼠标拖拽受 maxGroups（默认 6，2–8 可配）约束——拆分型 drop
+  // （left/right/top/bottom/center 以外）在已满时拒绝并提示合并；center 不新增组，放行。
   const onWillDrop = useCallback((event: { preventDefault: () => void; position: string }) => {
     const api = apiRef.current;
     if (!api) return;
     if (event.position === "center") return;
-    if (api.groups.length >= MAX_GROUPS) {
+    if (!canAddDockGroup(api.groups.length, groupLimitRef.current)) {
       event.preventDefault();
-      notify(`最多 ${MAX_GROUPS} 个分栏，请先拖回合并`);
+      notify(dockGroupLimitMessage(groupLimitRef.current));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

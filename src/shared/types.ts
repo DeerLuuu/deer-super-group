@@ -569,6 +569,32 @@ export interface ModelProfile {
   pricing?: ModelPricing | null;
 }
 
+export interface LayoutSettings {
+  /** Dock 最大分栏/分组数；默认 6，范围 2–8。 */
+  maxDockGroups: number;
+}
+
+export const MIN_MAX_DOCK_GROUPS = 2;
+export const MAX_MAX_DOCK_GROUPS = 8;
+export const DEFAULT_MAX_DOCK_GROUPS = 6;
+export const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
+  maxDockGroups: DEFAULT_MAX_DOCK_GROUPS,
+};
+
+/** 非法/越界值 clamp 到 2–8；非数字回默认 6。 */
+export function normalizeMaxDockGroups(value: unknown): number {
+  const numeric =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  if (!Number.isFinite(numeric)) return DEFAULT_MAX_DOCK_GROUPS;
+  return Math.min(MAX_MAX_DOCK_GROUPS, Math.max(MIN_MAX_DOCK_GROUPS, Math.round(numeric)));
+}
+
+export function normalizeLayoutSettings(value: unknown): LayoutSettings {
+  if (!value || typeof value !== "object") return { ...DEFAULT_LAYOUT_SETTINGS };
+  const input = value as { maxDockGroups?: unknown };
+  return { maxDockGroups: normalizeMaxDockGroups(input.maxDockGroups) };
+}
+
 export interface LlmSettings {
   /** Legacy single-provider fields; kept for migration and mirrored from the first provider. */
   baseUrl: string;
@@ -582,6 +608,8 @@ export interface LlmSettings {
   /** Models added in Settings, across all providers. Members can only choose from this list. */
   models: ModelProfile[];
   mock: boolean;
+  /** 全局布局设置；缺省时 store 保留旧值，SettingsView 保存时携带。 */
+  layout?: LayoutSettings;
 }
 
 export interface LlmSettingsInfo extends LlmSettings {
@@ -595,6 +623,8 @@ export interface LlmSettingsInfo extends LlmSettings {
   baseUrlEnvActive: string | null;
   baseUrlEnvSet: boolean;
   effectiveBaseUrl: string;
+  /** 全局布局设置（store 总是返回；旧快照缺失时 UI 回退默认 6）。 */
+  layout?: LayoutSettings;
 }
 
 /** t181：思考机翻设置（全局，不按工作区）。 */

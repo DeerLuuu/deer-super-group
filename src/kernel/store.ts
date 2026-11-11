@@ -56,6 +56,7 @@ import type {
   TranslationSettings,
   Workspace,
 } from "../shared/types.js";
+import { normalizeLayoutSettings } from "../shared/types.js";
 import { normalizeTranslationSettings, parseTranslationSettings } from "../shared/translation.js";
 
 type Row = Record<string, unknown>;
@@ -2617,6 +2618,9 @@ export class Store {
       model,
       models,
       mock,
+      layout: normalizeLayoutSettings(
+        parseJson<unknown>(this.getSetting("layout.settings"), null),
+      ),
       apiKeySource: first.apiKeySource,
       apiKeyEnvActive: first.apiKeyEnvActive,
       apiKeyEnvSet: first.apiKeyEnvSet,
@@ -2655,5 +2659,9 @@ export class Store {
     this.setSetting("llm.baseUrlEnv", first.baseUrlEnv);
     this.setSetting("llm.apiKey", first.apiKey);
     this.setSetting("llm.apiKeyEnv", first.apiKeyEnv);
+    // 逐字段保存：旧调用不带 layout 时保留用户已保存的最大分栏数，不被重置为默认。
+    if (settings.layout !== undefined) {
+      this.setSetting("layout.settings", JSON.stringify(normalizeLayoutSettings(settings.layout)));
+    }
   }
 }

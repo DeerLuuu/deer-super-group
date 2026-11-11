@@ -7,6 +7,7 @@ import type {
   ThinkingEffort,
   TranslationSettings,
 } from "./shared/types";
+import { DEFAULT_MAX_DOCK_GROUPS, normalizeMaxDockGroups } from "./shared/types";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models";
 import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation";
 import { formatError } from "./shared/copy";
@@ -14,6 +15,7 @@ import { GitSettingsPanel } from "./git/ui/GitPanels";
 
 type SettingsSection =
   | "models"
+  | "interface"
   | "translation"
   | "git"
   | "plugins"
@@ -23,6 +25,7 @@ type SettingsSection =
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string }> = [
   { id: "models", label: "模型", hint: "供应商、模型与参数" },
+  { id: "interface", label: "界面", hint: "Dock 分栏与布局" },
   { id: "translation", label: "翻译", hint: "思考机翻源" },
   { id: "git", label: "Git", hint: "分支、worktree 与合并" },
   { id: "plugins", label: "插件", hint: "扩展与工具集" },
@@ -57,6 +60,9 @@ export default function SettingsView({
   const [providers, setProviders] = useState<ProviderProfile[]>(snapshot.settings.providers);
   const [models, setModels] = useState<ModelProfile[]>(snapshot.settings.models);
   const [defaultModel, setDefaultModel] = useState(snapshot.settings.model);
+  const [maxDockGroups, setMaxDockGroups] = useState(
+    snapshot.settings.layout?.maxDockGroups ?? DEFAULT_MAX_DOCK_GROUPS,
+  );
   const [activeProviderId, setActiveProviderId] = useState(
     snapshot.settings.providers[0]?.id ?? "",
   );
@@ -84,6 +90,9 @@ export default function SettingsView({
     }),
   );
   const translationBaselineRef = useRef<string | null>(null);
+  const layoutBaselineRef = useRef(
+    JSON.stringify({ maxDockGroups: normalizeMaxDockGroups(snapshot.settings.layout?.maxDockGroups) }),
+  );
 
   const modelFingerprint = useMemo(
     () =>
@@ -96,8 +105,10 @@ export default function SettingsView({
     [defaultModel, mock, models, providers],
   );
   const translationFingerprint = translation ? JSON.stringify(translation) : null;
+  const layoutFingerprint = JSON.stringify({ maxDockGroups });
   const dirty =
     modelFingerprint !== modelBaselineRef.current ||
+    layoutFingerprint !== layoutBaselineRef.current ||
     (translationFingerprint !== null &&
       translationBaselineRef.current !== null &&
       translationFingerprint !== translationBaselineRef.current) ||
@@ -302,6 +313,7 @@ export default function SettingsView({
   async function save() {
     if (saving) return;
     const first = providers[0] ?? defaultProviderProfile();
+    const nextMaxDockGroups = normalizeMaxDockGroups(maxDockGroups);
     const payload: LlmSettings = {
       baseUrl: first.baseUrl,
       baseUrlEnv: first.baseUrlEnv,
@@ -311,6 +323,7 @@ export default function SettingsView({
       model: defaultModel || models[0]?.id || "",
       models,
       mock,
+      layout: { maxDockGroups: nextMaxDockGroups },
     };
     const fingerprint = JSON.stringify({
       mock: payload.mock,
@@ -324,6 +337,8 @@ export default function SettingsView({
       const result = await onSave(payload);
       if (result.ok) {
         modelBaselineRef.current = fingerprint;
+        setMaxDockGroups(nextMaxDockGroups);
+        layoutBaselineRef.current = JSON.stringify({ maxDockGroups: nextMaxDockGroups });
         setSaveStatus({ kind: "success", message: "已保存" });
       } else {
         setSaveStatus({ kind: "error", message: `保存失败：${result.error}` });
@@ -710,6 +725,53 @@ export default function SettingsView({
               </div>
             </section>
           </>
+        )}
+
+        {section === "interface" && (
+          <section className="panel settings-block">
+            <div className="panel-head">
+              <div>
+                <div className="panel-title">界面设置</div>
+                <div className="muted tiny">Dock 分栏上限与工作区布局</div>
+              </div>
+              <span className="badge">当前 {maxDockGroups} 栏</span>
+            </div>
+            <div className="settings-block-body">
+              <label>
+                最大分栏数
+                <select
+                  aria-label="最大分栏数"
+                  value={maxDockGroups}
+                  onChange={(event) =>
+                    setMaxDockGroups(normalizeMaxDockGroups(event.target.value))
+                  }
+                >
+                  {[2, 3, 4, 5, 6, 7, 8].map((value) => (
+                    <option key={value} value={value}>
+                      {value} 栏{value === DEFAULT_MAX_DOCK_GROUPS ? "（默认）" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="muted tiny">
+                Dock 最多可拆分的分栏数，范围 2–8，默认 {DEFAULT_MAX_DOCK_GROUPS}。
+                保存后立即生效，不会重置当前布局；已超过新上限的现有分栏会保留，只拒绝继续拆分。
+              </div>
+            </div>
+            <div className="settings-block-foot">
+              <button className="primary" onClick={() => void save()} disabled={busy || saving}>
+                {saving ? "保存中…" : "保存界面设置"}
+              </button>
+              {saveStatus && (
+                <span
+                  role={saveStatus.kind === "error" ? "alert" : "status"}
+                  className={`settings-save-status is-${saveStatus.kind}`}
+                >
+                  {saveStatus.message}
+                </span>
+              )}
+            </div>
+          </section>
         )}
 
         {section === "translation" && (

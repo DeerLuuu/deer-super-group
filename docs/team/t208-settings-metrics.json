@@ -1,0 +1,38 @@
+[
+  {
+    "step": "default",
+    "state": {
+      "layout": {
+        "maxDockGroups": 6
+      },
+      "select": "6",
+      "text": "界面设置\nDock 分栏上限与工作区布局\n当前 6 栏\n最大分栏数\n2 栏\n3 栏\n4 栏\n5 栏\n6 栏（默认）\n7 栏\n8 栏\nDock 最多可拆分的分栏数，范围 2–8，默认 6。 保存后立即生效，不会重置当前布局；已超过新上限的现有"
+    }
+  },
+  {
+    "step": "saved8",
+    "state": {
+      "layout": {
+        "maxDockGroups": 8
+      },
+      "select": "8",
+      "text": "界面设置\nDock 分栏上限与工作区布局\n当前 8 栏\n最大分栏数\n2 栏\n3 栏\n4 栏\n5 栏\n6 栏（默认）\n7 栏\n8 栏\nDock 最多可拆分的分栏数，范围 2–8，默认 6。 保存后立即生效，不会重置当前布局；已超过新上限的现有"
+    }
+  },
+  {
+    "step": "afterReload",
+    "state": {
+      "layout": {
+        "maxDockGroups": 8
+      }
+    }
+  },
+  {
+    "step": "restored6",
+    "state": {
+      "layout": {
+        "maxDockGroups": 6
+      }
+    }
+  }
+]
