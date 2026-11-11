@@ -1,3 +1,4 @@
+import { sanitizeErrorText } from "./errorRedaction.js";
 import type {
   AgentStatus,
   BoardKind,
@@ -146,5 +147,5 @@ const REMOTE_METHOD_PREFIX =
 export function formatError(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
   const stripped = text.replace(REMOTE_METHOD_PREFIX, "").trim();
-  return stripped || text;
+  return sanitizeErrorText(stripped || text);
 }

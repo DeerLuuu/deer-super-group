@@ -1,5 +1,12 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import {
+  isTopModal,
+  popModal,
+  pushModal,
+  registerModalElement,
+  type ModalToken,
+} from "./shared/modalStack.js";
 
 /**
  * C25 模态框可用性基线：全部弹窗共用的 Modal 原语。
@@ -51,12 +58,16 @@ export default function Modal({
 }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const tokenRef = useRef<ModalToken>(Symbol("modal"));
   const confirmCloseRef = useRef(confirmClose);
   confirmCloseRef.current = confirmClose;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   useEffect(() => {
+    const token = tokenRef.current;
+    pushModal(token);
+    registerModalElement(token, dialogRef.current);
     restoreFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const node = dialogRef.current;
@@ -70,14 +81,17 @@ export default function Modal({
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
+      const wasTop = isTopModal(token);
+      popModal(token);
       document.body.style.overflow = prevOverflow;
-      restoreFocusRef.current?.focus();
+      if (wasTop) restoreFocusRef.current?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     function requestClose() {
+      if (!isTopModal(tokenRef.current)) return;
       if (confirmCloseRef.current) {
         const ok = window.confirm("有未保存的内容，确定关闭吗？");
         if (!ok) return;
@@ -85,6 +99,7 @@ export default function Modal({
       onCloseRef.current();
     }
     function onKeyDown(event: KeyboardEvent) {
+      if (!isTopModal(tokenRef.current)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -115,6 +130,7 @@ export default function Modal({
   }, []);
 
   function requestClose() {
+    if (!isTopModal(tokenRef.current)) return;
     if (confirmCloseRef.current) {
       const ok = window.confirm("有未保存的内容，确定关闭吗？");
       if (!ok) return;

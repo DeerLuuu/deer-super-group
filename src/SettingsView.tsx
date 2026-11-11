@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   LlmSettings,
   ModelProfile,
@@ -9,6 +9,7 @@ import type {
 } from "./shared/types";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models";
 import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation";
+import { formatError } from "./shared/copy";
 import { GitSettingsPanel } from "./git/ui/GitPanels";
 
 type SettingsSection =
@@ -40,12 +41,14 @@ export default function SettingsView({
   snapshot,
   busy,
   onSave,
+  onDirtyChange,
   onReload,
   initialSection,
 }: {
   snapshot: Snapshot;
   busy: boolean;
-  onSave: (settings: LlmSettings) => void;
+  onSave: (settings: LlmSettings) => Promise<{ ok: true } | { ok: false; error: string }>;
+  onDirtyChange?: (dirty: boolean) => void;
   onReload: () => void;
   initialSection?: SettingsSection;
 }) {
@@ -67,6 +70,44 @@ export default function SettingsView({
   const [translation, setTranslation] = useState<TranslationSettings | null>(null);
   const [translationBusy, setTranslationBusy] = useState(false);
   const [translationStatus, setTranslationStatus] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ kind: "success" | "error"; message: string } | null>(
+    null,
+  );
+  const modelBaselineRef = useRef(
+    JSON.stringify({
+      mock: snapshot.settings.mock,
+      providers: snapshot.settings.providers,
+      models: snapshot.settings.models,
+      model: snapshot.settings.model,
+    }),
+  );
+  const translationBaselineRef = useRef<string | null>(null);
+
+  const modelFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        mock,
+        providers,
+        models,
+        model: defaultModel,
+      }),
+    [defaultModel, mock, models, providers],
+  );
+  const translationFingerprint = translation ? JSON.stringify(translation) : null;
+  const dirty =
+    modelFingerprint !== modelBaselineRef.current ||
+    (translationFingerprint !== null &&
+      translationBaselineRef.current !== null &&
+      translationFingerprint !== translationBaselineRef.current);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (dirty) setSaveStatus(null);
+  }, [dirty]);
 
   useEffect(() => {
     if (initialSection) setSection(initialSection);
@@ -77,10 +118,17 @@ export default function SettingsView({
     void window.deer
       .getTranslationSettings()
       .then((settings) => {
-        if (active) setTranslation(settings);
+        if (active) {
+          translationBaselineRef.current = JSON.stringify(settings);
+          setTranslation(settings);
+        }
       })
       .catch(() => {
-        if (active) setTranslation({ ...DEFAULT_TRANSLATION_SETTINGS });
+        if (active) {
+          const fallback = { ...DEFAULT_TRANSLATION_SETTINGS };
+          translationBaselineRef.current = JSON.stringify(fallback);
+          setTranslation(fallback);
+        }
       });
     return () => {
       active = false;
@@ -102,10 +150,11 @@ export default function SettingsView({
     setTranslationStatus("");
     try {
       const saved = await window.deer.saveTranslationSettings(translation);
+      translationBaselineRef.current = JSON.stringify(saved);
       setTranslation(saved);
       setTranslationStatus("已保存，下一条思考生效");
     } catch (error) {
-      setTranslationStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+      setTranslationStatus(`保存失败：${formatError(error)}`);
     } finally {
       setTranslationBusy(false);
     }
@@ -165,7 +214,10 @@ export default function SettingsView({
       const result = await window.deer.listModels(settings, provider.id);
       if (result.error) {
         setAvailableByProvider((prev) => ({ ...prev, [provider.id]: [] }));
-        setProviderErrors((prev) => ({ ...prev, [provider.id]: result.error ?? "获取失败" }));
+        setProviderErrors((prev) => ({
+          ...prev,
+          [provider.id]: formatError(result.error ?? "获取失败"),
+        }));
         return;
       }
       const available = result.models.filter(
@@ -182,7 +234,7 @@ export default function SettingsView({
     } catch (error) {
       setProviderErrors((prev) => ({
         ...prev,
-        [provider.id]: error instanceof Error ? error.message : String(error),
+        [provider.id]: formatError(error),
       }));
     } finally {
       setLoadingProvider(null);
@@ -225,9 +277,10 @@ export default function SettingsView({
     );
   }
 
-  function save() {
+  async function save() {
+    if (saving) return;
     const first = providers[0] ?? defaultProviderProfile();
-    onSave({
+    const payload: LlmSettings = {
       baseUrl: first.baseUrl,
       baseUrlEnv: first.baseUrlEnv,
       apiKey: first.apiKey,
@@ -236,7 +289,28 @@ export default function SettingsView({
       model: defaultModel || models[0]?.id || "",
       models,
       mock,
+    };
+    const fingerprint = JSON.stringify({
+      mock: payload.mock,
+      providers: payload.providers,
+      models: payload.models,
+      model: payload.model,
     });
+    setSaving(true);
+    setSaveStatus(null);
+    try {
+      const result = await onSave(payload);
+      if (result.ok) {
+        modelBaselineRef.current = fingerprint;
+        setSaveStatus({ kind: "success", message: "已保存" });
+      } else {
+        setSaveStatus({ kind: "error", message: `保存失败：${result.error}` });
+      }
+    } catch (error) {
+      setSaveStatus({ kind: "error", message: `保存失败：${formatError(error)}` });
+    } finally {
+      setSaving(false);
+    }
   }
 
   // One opportunistic fetch when opening Settings with a configured key.
@@ -253,6 +327,9 @@ export default function SettingsView({
     <div className="settings-shell">
       <aside className="settings-subnav">
         <div className="section-label">设置</div>
+        <div className={`settings-dirty ${dirty ? "is-dirty" : ""}`} role="status">
+          {dirty ? "有未保存修改" : "已同步"}
+        </div>
         {SECTIONS.map((item) => (
           <button
             key={item.id}
@@ -597,9 +674,17 @@ export default function SettingsView({
                     ))}
                   </select>
                 </label>
-                <button className="primary" onClick={save} disabled={busy}>
-                  保存
+                <button className="primary" onClick={() => void save()} disabled={busy || saving}>
+                  {saving ? "保存中…" : "保存"}
                 </button>
+                {saveStatus && (
+                  <span
+                    role={saveStatus.kind === "error" ? "alert" : "status"}
+                    className={`settings-save-status is-${saveStatus.kind}`}
+                  >
+                    {saveStatus.message}
+                  </span>
+                )}
               </div>
             </section>
           </>
