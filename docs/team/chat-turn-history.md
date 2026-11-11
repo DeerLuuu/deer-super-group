@@ -26,9 +26,10 @@
 src/shared/types.ts                  ChatTurn*/ChatTurnHistoryPage/Options + 容量语义
 src/kernel/chatTurnProjection.ts     buildChatTurns 纯投影 + chatTurnSteps 映射 + 容量常量
 src/kernel/chatTurnProjection.test.ts
-src/kernel/chatTranslationMemo.ts     renderer 会话翻译缓存（去重/prime/clear）
+src/kernel/chatTranslationMemo.ts     renderer 会话翻译缓存（generation/去重/prime/clear）
 src/kernel/chatTranslationMemo.test.ts
 src/kernel/chatTurnService.test.ts
+src/kernel/chatTurnUi.test.tsx        历史折叠/懒翻译/live 去重 UI 测试
 src/kernel/store.ts                  listChatMessagesPage + listRecentChatEvents
 src/kernel/service.ts                getChatTurns(workspaceId, agentId?, options)
 src/shared/ipc.ts                    DeerApi.getChatTurns
@@ -37,6 +38,7 @@ electron/preload.ts                  getChatTurns
 src/App.tsx                          chatTurns 加载/映射、历史气泡、懒翻译 cache、live 去重
 src/styles.css                       history process/step 折叠与窄窗
 docs/team/chat-turn-history.md        本文件
+docs/team/chat-turn-history-verification.md  t172 验证报告
 ```
 
 ### `getChatTurns`
@@ -54,8 +56,8 @@ getChatTurns(
 ): ChatTurnHistoryPage
 ```
 
-- 默认 agent 为 Router；agent 必须属于 workspace，否则稳定报错 `agent not found in workspace`。
-- 消息读取窗口 200 条，事件窗口最近 2000 条；`before` 只向更早翻页，`hasMore`/`nextBefore` 由服务端计算。
+- 默认 agent 用 `listAgents` 找 Router（无 Router 抛 `router not found in workspace`，不创建）；agent 必须属于 workspace，否则稳定报错 `agent not found in workspace`。
+- 消息读取窗口 200 条，事件窗口最近 2000 条；`before` 只向更早翻页，`hasMore`/`nextBefore` 由服务端计算，**响应裁剪后重算**。
 - 投影不写事件/表，不改 `ChatEvent` 必填字段，不进入 `getSnapshot`；`getChatTrajectory` 保留为全量审计账本。
 
 ### 容量
@@ -63,12 +65,17 @@ getChatTurns(
 | 字段 | 上限 |
 |---|---|
 | turns | 默认 20 / 最大 40 |
+| user content | 64 KiB |
+| user reasoning | 8,000 字符 |
 | assistant content | 64 KiB |
 | reasoning 单段 | 8,000 字符 |
+| 单轮总 content | 128 KiB |
+| 单轮总 reasoning | 64 KiB |
+| 单轮工具数 | 100 |
 | tool arguments/value | 4,000 字符（value 按 JSON 序列化） |
-| 响应总量 | 512 KiB（超出先裁更早整轮并置 `truncated`） |
+| 响应总量 | 512 KiB（含元数据；超出先裁更早整轮，再裁单轮旧 assistant/大工具负载，置 `truncated`） |
 
-超限字段返回省略号并带 `truncated` 标记；不会静默截断。
+字段超限返回省略号并带 `truncated`；字段截断与响应总量上限分开验证，见 `docs/team/chat-turn-history-verification.md`。
 
 ## 3. 投影规则
 
@@ -88,7 +95,7 @@ getChatTurns(
 ## 4. UI 行为
 
 - 每个 assistant 消息以 `messageId` 查 `chatTurnsByAssistant`；命中则渲染历史 process，且不再渲染 `ChatMessageReasoning`（避免双份）。
-- 历史 process 默认关闭；step 和工具默认折叠；step 按钮带 `aria-expanded`，工具用原生 `<details>`；窄窗 900px 允许换行，不横向溢出。
+- 历史 process 默认关闭；step 和工具默认折叠；**step 展开不触发翻译，只有展开「思考」才请求**；step 按钮带 `aria-expanded`，工具用原生 `<details>`；窄窗 900px 允许换行，不横向溢出。
 - 工具名复用现有 `TOOL_LABELS` 中文映射；原始 id 以 mono muted 展示；参数/结果沿用 `formatToolPayload`。
 - 历史翻译：
   - 展开 step 才挂载 reasoning 块，首次展开调用 `window.deer.translateText`；
@@ -120,15 +127,16 @@ getChatTurns(
 ```text
 pnpm typecheck   # exit 0
 pnpm build       # exit 0（406 modules；css 243.95 kB / gzip 29.33；js 1,220.34 kB / gzip 334.14；main 1.5mb、preload 11.7kb）
-pnpm test        # exit 0（50 files / 550 tests）
+pnpm test        # exit 0（51 files / 560 tests）
 ```
 
 专项：
 
-- `src/kernel/chatTurnProjection.test.ts`：10 个投影用例（单轮/多 step、多 assistant、无 step、callId synthetic、孤立 result、orphan、message.reasoning 降级/去重、分页、容量截断、include 开关、UI step 映射）。
-- `src/kernel/chatTranslationMemo.test.ts`：4 个翻译缓存用例（并发/重复去重、实时 prime 复用、失败不缓存/clear、容量上限）。
-- `src/kernel/chatTurnService.test.ts`：3 个服务用例（类型/agent 校验、before/hasMore/工具归属、非法游标）。
-- 全量 50 files / 550 tests 通过；原有 Chat trajectory/context/translate 测试不回归。
+- `src/kernel/chatTurnProjection.test.ts`：13 个投影用例（单轮/多 step、多 assistant、无 step、callId synthetic、孤立 result、orphan、message.reasoning 降级/去重、分页、字段截断、>512KiB 单轮、裁剪后 nextBefore、include 开关、UI step 映射）。
+- `src/kernel/chatTranslationMemo.test.ts`：5 个翻译缓存用例（并发/重复去重、实时 prime 复用、失败不缓存/clear、pending-after-clear、容量上限）。
+- `src/kernel/chatTurnService.test.ts`：6 个服务用例（类型/agent 校验、before/hasMore/工具归属、非法游标、无 Router 不创建、跨 workspace 拒绝、响应裁剪分页）。
+- `src/kernel/chatTurnUi.test.tsx`：3 个 UI 用例（折叠/step 不翻译/思考一次、失败降级、live 不挂历史气泡）。
+- 全量 51 files / 560 tests 通过；原有 Chat trajectory/context/translate 测试不回归。
 
 ## 7. UI 证据
 

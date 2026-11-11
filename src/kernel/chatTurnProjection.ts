@@ -17,6 +17,10 @@ export const CHAT_TURNS_EVENT_LIMIT = 2000;
 export const CHAT_TURN_REASONING_MAX = 8_000;
 export const CHAT_TURN_TOOL_MAX = 4_000;
 export const CHAT_TURN_CONTENT_MAX = 64 * 1024;
+export const CHAT_TURN_USER_CONTENT_MAX = 64 * 1024;
+export const CHAT_TURN_TOTAL_CONTENT_MAX = 128 * 1024;
+export const CHAT_TURN_TOTAL_REASONING_MAX = 64 * 1024;
+export const CHAT_TURN_MAX_TOOLS = 100;
 export const CHAT_TURNS_RESPONSE_MAX = 512 * 1024;
 export const CHAT_TURN_LATE_GRACE_MS = 5_000;
 
@@ -75,6 +79,7 @@ function clampLimit(limit: number | undefined): number {
 
 function capText(value: string, max: number): { text: string; truncated: boolean } {
   if (value.length <= max) return { text: value, truncated: false };
+  if (max <= 0) return { text: "", truncated: value.length > 0 };
   return { text: `${value.slice(0, Math.max(0, max - 1))}…`, truncated: true };
 }
 
@@ -91,10 +96,10 @@ function capValue(value: unknown, max: number): { value: unknown; truncated: boo
 }
 
 function encodeCursor(turn: ChatTurn): string | null {
-  if (!turn.userMessage) return null;
-  return Buffer.from(`${turn.userMessage.createdAt}|${turn.userMessage.id}`, "utf8").toString(
-    "base64url",
-  );
+  const createdAt = turn.userMessage?.createdAt ?? turn.endedAt;
+  const id = turn.userMessage?.id ?? turn.assistants[0]?.messageId;
+  if (!createdAt || !id) return null;
+  return Buffer.from(`${createdAt}|${id}`, "utf8").toString("base64url");
 }
 
 function assistantDraftEvents(draft: AssistantDraft): EventRecord[] {
@@ -280,6 +285,100 @@ function buildAssistant(
   };
 }
 
+function estimatedResponseBytes(turns: ChatTurn[]): number {
+  return Buffer.byteLength(
+    JSON.stringify({
+      workspaceId: "x".repeat(80),
+      agentId: "x".repeat(80),
+      turns,
+      hasMore: true,
+      nextBefore: "x".repeat(120),
+      truncated: true,
+      projectionVersion: 1,
+      generatedAt: "2026-01-01T00:00:00.000Z",
+    }),
+    "utf8",
+  );
+}
+
+/**
+ * t172：单轮硬预算。先算用户内容/思考，再按顺序扣 assistant content / reasoning / tool 数量；
+ * 任何裁剪都置 turn.truncated，供 UI/验证报告区分“字段截断”与响应总量上限。
+ */
+function capTurnBudget(turn: ChatTurn): boolean {
+  let contentBudget = CHAT_TURN_TOTAL_CONTENT_MAX;
+  let reasoningBudget = CHAT_TURN_TOTAL_REASONING_MAX;
+  let toolBudget = CHAT_TURN_MAX_TOOLS;
+  let truncated = false;
+
+  if (turn.userMessage) {
+    const content = capText(
+      turn.userMessage.content,
+      Math.min(CHAT_TURN_USER_CONTENT_MAX, contentBudget),
+    );
+    contentBudget = Math.max(0, contentBudget - content.text.length);
+    const reasoning = capText(
+      turn.userMessage.reasoning,
+      Math.min(CHAT_TURN_REASONING_MAX, reasoningBudget),
+    );
+    reasoningBudget = Math.max(0, reasoningBudget - reasoning.text.length);
+    if (content.truncated || reasoning.truncated) truncated = true;
+    turn.userMessage = {
+      ...turn.userMessage,
+      content: content.text,
+      reasoning: reasoning.text,
+    };
+  }
+
+  for (const assistant of turn.assistants) {
+    const content = capText(assistant.content, Math.min(CHAT_TURN_CONTENT_MAX, contentBudget));
+    contentBudget = Math.max(0, contentBudget - content.text.length);
+    const rawReasoning = capText(
+      assistant.reasoning,
+      Math.min(CHAT_TURN_REASONING_MAX, reasoningBudget),
+    );
+    reasoningBudget = Math.max(0, reasoningBudget - rawReasoning.text.length);
+    let assistantTruncated = assistant.truncated || content.truncated || rawReasoning.truncated;
+    assistant.content = content.text;
+    assistant.reasoning = rawReasoning.text;
+
+    for (const step of assistant.steps) {
+      const keptTools: ChatTurnTool[] = [];
+      for (const tool of step.tools) {
+        if (toolBudget <= 0) {
+          assistantTruncated = true;
+          continue;
+        }
+        toolBudget -= 1;
+        keptTools.push(tool);
+      }
+      step.tools = keptTools;
+      const keptReasoning: ChatTurnReasoning[] = [];
+      for (const reasoning of step.reasoning) {
+        const capped = capText(
+          reasoning.text,
+          Math.min(CHAT_TURN_REASONING_MAX, reasoningBudget),
+        );
+        reasoningBudget = Math.max(0, reasoningBudget - capped.text.length);
+        if (capped.truncated) {
+          assistantTruncated = true;
+          keptReasoning.push({ ...reasoning, text: capped.text, truncated: true });
+        } else if (capped.text.trim()) {
+          keptReasoning.push({ ...reasoning, text: capped.text });
+        }
+      }
+      step.reasoning = keptReasoning;
+    }
+    if (assistantTruncated) {
+      assistant.truncated = true;
+      truncated = true;
+    }
+  }
+
+  if (truncated) turn.truncated = true;
+  return truncated;
+}
+
 /**
  * t168：只读投影。消息是骨架，事件按时间窗口 + assistant 边界归属；
  * 事件没有显式 turnId 时不伪造，orphan 事件不进入气泡。
@@ -411,24 +510,25 @@ export function buildChatTurns(
     };
   });
 
+  let truncated = allTurns.some((turn) => capTurnBudget(turn));
   const hasEarlier = Boolean(options.hasEarlierMessages) || allTurns.length > limit;
   let turns = allTurns.slice(-limit);
-  let truncated = turns.some((turn) => turn.assistants.some((assistant) => assistant.truncated));
-  const nextBefore = hasEarlier && turns.length > 0 ? encodeCursor(turns[0]!) : null;
+  let turnTrimmedByResponse = false;
 
   // 响应总量兜底：优先裁掉更早的整轮，保留最新；绝不静默超限。
   while (
     turns.length > 1 &&
-    Buffer.byteLength(JSON.stringify({ turns }), "utf8") > CHAT_TURNS_RESPONSE_MAX
+    estimatedResponseBytes(turns) > CHAT_TURNS_RESPONSE_MAX
   ) {
     turns = turns.slice(1);
+    turnTrimmedByResponse = true;
     truncated = true;
   }
 
   // 单轮极端超限：保留最近 3 个 step，裁掉大工具负载；仍超限才继续裁旧 assistant。
   if (
     turns.length === 1 &&
-    Buffer.byteLength(JSON.stringify({ turns }), "utf8") > CHAT_TURNS_RESPONSE_MAX
+    estimatedResponseBytes(turns) > CHAT_TURNS_RESPONSE_MAX
   ) {
     const turn = turns[0]!;
     for (const assistant of turn.assistants) {
@@ -450,18 +550,23 @@ export function buildChatTurns(
     }
     while (
       turn.assistants.length > 1 &&
-      Buffer.byteLength(JSON.stringify({ turns }), "utf8") > CHAT_TURNS_RESPONSE_MAX
+      estimatedResponseBytes(turns) > CHAT_TURNS_RESPONSE_MAX
     ) {
       turn.assistants = turn.assistants.slice(1);
       truncated = true;
     }
+    if (truncated) turn.truncated = true;
   }
+
+  const hasMore = hasEarlier || turnTrimmedByResponse;
+  // 先裁剪、后重算：nextBefore 必须指向当前最早返回的 turn，否则 before 会跳轮。
+  const nextBefore = hasMore && turns.length > 0 ? encodeCursor(turns[0]!) : null;
 
   return {
     workspaceId: options.workspaceId,
     agentId: options.agentId,
     turns,
-    hasMore: hasEarlier,
+    hasMore,
     nextBefore,
     truncated,
     projectionVersion: 1,

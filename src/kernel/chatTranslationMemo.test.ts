@@ -38,6 +38,31 @@ describe("t168 chat translation memo", () => {
     expect(await memo.translate("cached")).toBe("译:cached");
   });
 
+  it("ignores a pending request that resolves after clear", async () => {
+    const resolvers: Array<(value: string) => void> = [];
+    const request = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const memo = createChatTranslationMemo(request);
+    const first = memo.translate("pending");
+    expect(request).toHaveBeenCalledTimes(1);
+    memo.clear();
+    const second = memo.translate("pending");
+    expect(request).toHaveBeenCalledTimes(2);
+
+    resolvers[0]!("旧译文");
+    await expect(first).resolves.toBe("旧译文");
+    // 旧请求不能回填缓存，也不能覆盖/删除 clear 后的新 pending。
+    expect(request).toHaveBeenCalledTimes(2);
+    resolvers[1]!("新译文");
+    await expect(second).resolves.toBe("新译文");
+    expect(await memo.translate("pending")).toBe("新译文");
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("caps the cache without dropping the newest entry", async () => {
     const request = vi.fn(async (text: string) => `译:${text}`);
     const memo = createChatTranslationMemo(request, 2);

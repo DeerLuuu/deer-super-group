@@ -18,6 +18,7 @@ export function createChatTranslationMemo(
 ): ChatTranslationMemo {
   const cache = new Map<string, string>();
   const pending = new Map<string, Promise<string>>();
+  let generation = 0;
   const remember = (text: string, translation: string) => {
     cache.delete(text);
     cache.set(text, translation);
@@ -33,14 +34,20 @@ export function createChatTranslationMemo(
       if (cached !== undefined) return Promise.resolve(cached);
       const existing = pending.get(text);
       if (existing) return existing;
-      const promise = request(text)
+      const requestGeneration = generation;
+      let promise: Promise<string>;
+      promise = request(text)
         .then((translation) => {
+          // clear() 之后旧请求不得回写缓存，也不得删除新请求的 pending。
+          if (generation !== requestGeneration) return translation;
           remember(text, translation);
-          pending.delete(text);
+          if (pending.get(text) === promise) pending.delete(text);
           return translation;
         })
         .catch((error: unknown) => {
-          pending.delete(text);
+          if (generation === requestGeneration && pending.get(text) === promise) {
+            pending.delete(text);
+          }
           throw error;
         });
       pending.set(text, promise);
@@ -51,6 +58,7 @@ export function createChatTranslationMemo(
       remember(text, translation);
     },
     clear(): void {
+      generation += 1;
       cache.clear();
       pending.clear();
     },

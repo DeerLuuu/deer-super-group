@@ -327,6 +327,8 @@ export interface ChatTurn {
   startedAt: string | null;
   endedAt: string | null;
   status: ChatTurnStatus;
+  /** t172：用户内容/思考总量、工具数量或响应裁剪触发。 */
+  truncated?: boolean;
 }
 
 export interface ChatTurnHistoryPage {

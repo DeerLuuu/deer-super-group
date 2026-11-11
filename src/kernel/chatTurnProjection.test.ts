@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage, EventRecord } from "../shared/types.js";
 import {
   CHAT_TURN_CONTENT_MAX,
+  CHAT_TURN_MAX_TOOLS,
   CHAT_TURN_REASONING_MAX,
   CHAT_TURN_TOOL_MAX,
+  CHAT_TURN_TOTAL_CONTENT_MAX,
+  CHAT_TURN_TOTAL_REASONING_MAX,
+  CHAT_TURNS_RESPONSE_MAX,
   buildChatTurns,
   chatTurnSteps,
 } from "./chatTurnProjection.js";
@@ -284,5 +288,116 @@ describe("t168 chat turn projection", () => {
     const assistant = page.turns[0]!.assistants[0]!;
     expect(assistant.steps).toEqual([]);
     expect(assistant.legacy.toolsMissing).toBe(false);
+  });
+
+  it("caps user content/reasoning totals and tool count with truncated", () => {
+    const events = Array.from({ length: CHAT_TURN_MAX_TOOLS + 20 }, (_, index) =>
+      event(
+        index + 1,
+        "chat.tool_call",
+        { callId: `c${index}`, name: "fs.list", arguments: "{}", step: 0 },
+        new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      ),
+    );
+    const page = build(
+      [
+        message(
+          "u1",
+          "user",
+          "u".repeat(CHAT_TURN_CONTENT_MAX + 10_000),
+          "2026-01-01T00:00:00.000Z",
+          "r".repeat(CHAT_TURN_REASONING_MAX + 1_000),
+        ),
+        message(
+          "a1",
+          "assistant",
+          "a".repeat(CHAT_TURN_CONTENT_MAX + 10_000),
+          "2026-01-01T00:10:00.000Z",
+        ),
+      ],
+      events,
+    );
+    const turn = page.turns[0]!;
+    const assistant = turn.assistants[0]!;
+    expect(turn.truncated).toBe(true);
+    expect(page.truncated).toBe(true);
+    expect(turn.userMessage?.content.length).toBeLessThanOrEqual(CHAT_TURN_CONTENT_MAX);
+    expect(turn.userMessage?.reasoning.length).toBeLessThanOrEqual(CHAT_TURN_REASONING_MAX);
+    expect(assistant.content.length).toBeLessThanOrEqual(CHAT_TURN_CONTENT_MAX);
+    expect(assistant.steps.flatMap((step) => step.tools).length).toBeLessThanOrEqual(
+      CHAT_TURN_MAX_TOOLS,
+    );
+    expect(CHAT_TURN_TOTAL_CONTENT_MAX).toBeGreaterThanOrEqual(
+      (turn.userMessage?.content.length ?? 0) + assistant.content.length,
+    );
+    expect(CHAT_TURN_TOTAL_REASONING_MAX).toBeGreaterThanOrEqual(
+      (turn.userMessage?.reasoning.length ?? 0) +
+        assistant.steps.flatMap((step) => step.reasoning).reduce((sum, item) => sum + item.text.length, 0),
+    );
+  });
+
+  it("keeps the full response under 512KiB for one oversized turn", () => {
+    const events: EventRecord[] = [];
+    for (let index = 0; index < 100; index += 1) {
+      const at = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
+      events.push(
+        event(
+          index + 1,
+          "chat.tool_call",
+          {
+            callId: `big-${index}`,
+            name: "fs.write",
+            arguments: "x".repeat(CHAT_TURN_TOOL_MAX),
+            step: 0,
+          },
+          at,
+        ),
+        event(
+          index + 101,
+          "chat.tool_result",
+          {
+            callId: `big-${index}`,
+            name: "fs.write",
+            ok: true,
+            value: "y".repeat(CHAT_TURN_TOOL_MAX),
+            step: 0,
+          },
+          at,
+        ),
+      );
+    }
+    const page = build(
+      [
+        message("u1", "user", "big turn", "2026-01-01T00:00:00.000Z"),
+        message("a1", "assistant", "done", "2026-01-01T00:02:00.000Z"),
+      ],
+      events,
+    );
+    expect(page.turns).toHaveLength(1);
+    expect(page.truncated).toBe(true);
+    expect(page.turns[0]?.truncated).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThanOrEqual(
+      CHAT_TURNS_RESPONSE_MAX,
+    );
+  });
+
+  it("recomputes nextBefore after response trimming so before keeps older turns", () => {
+    const messages: ChatMessage[] = [];
+    for (let index = 1; index <= 8; index += 1) {
+      const at = `2026-01-01T00:00:${String(index * 2).padStart(2, "0")}.000Z`;
+      const answerAt = `2026-01-01T00:00:${String(index * 2 + 1).padStart(2, "0")}.000Z`;
+      messages.push(message(`u${index}`, "user", `q${index}-${"u".repeat(60_000)}`, at));
+      messages.push(message(`a${index}`, "assistant", `a${index}-${"a".repeat(55_000)}`, answerAt));
+    }
+    const page = build(messages, [], 20);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextBefore).toBeTruthy();
+    const first = page.turns[0]!;
+    const cursor = Buffer.from(page.nextBefore!, "base64url").toString("utf8");
+    expect(cursor).toBe(`${first.userMessage?.createdAt}|${first.userMessage?.id}`);
+    expect(first.userMessage?.content.startsWith("q1-")).toBe(false);
+    expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThanOrEqual(
+      CHAT_TURNS_RESPONSE_MAX,
+    );
   });
 });

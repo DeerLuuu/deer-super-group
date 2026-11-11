@@ -137,4 +137,62 @@ describe("t168 getChatTurns service", () => {
       service.getChatTurns(workspace.id, router.id, { before: "not-a-cursor" }),
     ).toThrow(/invalid chat turn cursor/);
   });
+
+  it("returns a stable error without creating a Router", async () => {
+    const { service, workspacePath } = setup();
+    const secondPath = path.join(path.dirname(workspacePath), "empty-workspace");
+    mkdirSync(secondPath, { recursive: true });
+    const empty = service.store.createWorkspace("空工作区", secondPath);
+    expect(service.store.listAgents(empty.id)).toHaveLength(0);
+    expect(() => service.getChatTurns(empty.id)).toThrow(/router not found in workspace/);
+    expect(service.store.listAgents(empty.id)).toHaveLength(0);
+  });
+
+  it("rejects an agent from another workspace", async () => {
+    const { service, workspacePath } = setup();
+    const { workspace } = await open(service, workspacePath);
+    const otherPath = path.join(path.dirname(workspacePath), "other-workspace");
+    mkdirSync(otherPath, { recursive: true });
+    const other = await service.openWorkspace(otherPath);
+    const otherRouter = service.getSnapshot(other.id).agents.find((agent) => agent.isRouter);
+    if (!otherRouter) throw new Error("other router missing");
+    expect(() => service.getChatTurns(workspace.id, otherRouter.id)).toThrow(
+      /agent not found in workspace/,
+    );
+  });
+
+  it("keeps response trimming paginated: before returns the dropped older turns", async () => {
+    const { service, workspacePath } = setup();
+    const { workspace, router } = await open(service, workspacePath);
+    for (let index = 1; index <= 8; index += 1) {
+      const userAt = `2026-01-01T00:00:${String(index * 2).padStart(2, "0")}.000Z`;
+      const assistantAt = `2026-01-01T00:00:${String(index * 2 + 1).padStart(2, "0")}.000Z`;
+      service.store.addChatMessage({
+        workspaceId: workspace.id,
+        agentId: router.id,
+        role: "user",
+        content: `q${index}-${"u".repeat(60_000)}`,
+        createdAt: userAt,
+      });
+      service.store.addChatMessage({
+        workspaceId: workspace.id,
+        agentId: router.id,
+        role: "assistant",
+        content: `a${index}-${"a".repeat(60_000)}`,
+        createdAt: assistantAt,
+      });
+    }
+    const latest = service.getChatTurns(workspace.id, router.id, { limit: 20 });
+    expect(latest.hasMore).toBe(true);
+    expect(latest.nextBefore).toBeTruthy();
+    expect(latest.turns[0]!.userMessage?.content.startsWith("q1-")).toBe(false);
+    expect(Buffer.byteLength(JSON.stringify(latest), "utf8")).toBeLessThanOrEqual(512 * 1024);
+
+    const older = service.getChatTurns(workspace.id, router.id, {
+      limit: 20,
+      before: latest.nextBefore!,
+    });
+    expect(older.turns[0]!.userMessage?.content.startsWith("q1-")).toBe(true);
+    expect(older.turns.length).toBeGreaterThan(0);
+  });
 });

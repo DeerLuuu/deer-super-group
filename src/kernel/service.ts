@@ -707,7 +707,10 @@ export class AppService {
   ): ChatTurnHistoryPage {
     const workspace = this.store.getWorkspace(workspaceId);
     if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
-    const router = this.ensureRouter(workspaceId);
+    const router = this.store.listAgents(workspaceId).find((agent) => agent.isRouter) ?? null;
+    if (!agentId && !router) {
+      throw new Error(`router not found in workspace: ${workspaceId}`);
+    }
     const resolvedAgent = agentId ? this.store.getAgent(agentId) : router;
     if (!resolvedAgent || resolvedAgent.workspaceId !== workspaceId) {
       throw new Error(`agent not found in workspace: ${agentId ?? "unknown"}`);

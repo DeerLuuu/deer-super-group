@@ -284,6 +284,7 @@ export default function App() {
   );
   const chatTurnsRequestRef = useRef(0);
   const chatTurnsToastRef = useRef(false);
+  const translationSettingsKeyRef = useRef<string | null>(null);
   const chatTurnsByAssistant = useMemo(
     () =>
       new Map<string, ChatAssistantTurn>(
@@ -438,6 +439,9 @@ export default function App() {
   function closeSettings() {
     setSettingsOpen(false);
     setGitSettingsFocus(false);
+    // t172：设置页可能修改了翻译源/目标；关闭时清空会话翻译缓存。
+    historyTranslationMemo.clear();
+    translationSettingsKeyRef.current = null;
     const back = settingsReturnTab === "settings" ? "chat" : settingsReturnTab;
     setTab(back);
     dockRef.current?.openPanel(back);
@@ -1244,9 +1248,25 @@ export default function App() {
     }
   }, [chatReasoningSegments, historyTranslationMemo]);
 
-  // t168：历史思考只在展开时翻译；文本缓存复用实时译文并合并并发请求。
+  // t168/t172：历史思考只在展开时翻译；设置指纹变化时清缓存，文本缓存复用实时译文。
   const translateHistoryText = useCallback(
-    (text: string): Promise<string> => historyTranslationMemo.translate(text),
+    async (text: string): Promise<string> => {
+      let settingsKey: string | null = null;
+      try {
+        settingsKey = JSON.stringify(await window.deer.getTranslationSettings());
+      } catch {
+        // 设置读取失败不阻断翻译；沿用现有缓存。
+      }
+      if (
+        settingsKey !== null &&
+        translationSettingsKeyRef.current !== null &&
+        settingsKey !== translationSettingsKeyRef.current
+      ) {
+        historyTranslationMemo.clear();
+      }
+      if (settingsKey !== null) translationSettingsKeyRef.current = settingsKey;
+      return historyTranslationMemo.translate(text);
+    },
     [historyTranslationMemo],
   );
 
@@ -1273,6 +1293,7 @@ export default function App() {
     chatTurnsRequestRef.current += 1;
     chatTurnsToastRef.current = false;
     historyTranslationMemo.clear();
+    translationSettingsKeyRef.current = null;
     translationRequests.current.clear();
     setChatView("chat");
     setChatTrajectory([]);
@@ -4479,7 +4500,7 @@ function formatToolPayload(value: unknown): string {
   }
 }
 
-function ChatView({
+export function ChatView({
   messages,
   tools,
   reasoningSegments,
@@ -5024,7 +5045,7 @@ function ChatToolItem({ tool }: { tool: ChatToolTrace }) {
   );
 }
 
-function ChatTurnHistoryProcess({
+export function ChatTurnHistoryProcess({
   assistant,
   translate,
 }: {
@@ -5108,7 +5129,7 @@ function ChatTurnHistoryReasoning({
   reasoning: ChatTurnReasoning;
   translate: (text: string) => Promise<string>;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [segment, setSegment] = useState<ChatReasoningSegment>(() => ({
     id: reasoning.id,
     step: reasoning.step,
