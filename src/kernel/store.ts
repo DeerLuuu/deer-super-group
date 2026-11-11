@@ -53,8 +53,10 @@ import type {
   Task,
   TaskStatus,
   TaskSummary,
+  TranslationSettings,
   Workspace,
 } from "../shared/types.js";
+import { normalizeTranslationSettings, parseTranslationSettings } from "../shared/translation.js";
 
 type Row = Record<string, unknown>;
 
@@ -2492,6 +2494,16 @@ export class Store {
         "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       )
       .run(key, value);
+  }
+
+  getTranslationSettings(): TranslationSettings {
+    return parseTranslationSettings(this.getSetting("translation.settings"));
+  }
+
+  saveTranslationSettings(settings: TranslationSettings): TranslationSettings {
+    const normalized = normalizeTranslationSettings(settings);
+    this.setSetting("translation.settings", JSON.stringify(normalized));
+    return normalized;
   }
 
   getLlmSettings(): LlmSettingsInfo {

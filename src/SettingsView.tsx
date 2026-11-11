@@ -5,13 +5,16 @@ import type {
   ProviderProfile,
   Snapshot,
   ThinkingEffort,
+  TranslationSettings,
 } from "./shared/types";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models";
+import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation";
 
-type SettingsSection = "models" | "plugins" | "mcp" | "skills" | "team";
+type SettingsSection = "models" | "translation" | "plugins" | "mcp" | "skills" | "team";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string }> = [
   { id: "models", label: "模型", hint: "供应商、模型与参数" },
+  { id: "translation", label: "翻译", hint: "思考机翻源" },
   { id: "plugins", label: "插件", hint: "扩展与工具集" },
   { id: "mcp", label: "MCP", hint: "外部工具服务器" },
   { id: "skills", label: "Skills", hint: "可复用能力包" },
@@ -50,6 +53,24 @@ export default function SettingsView({
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [providerErrors, setProviderErrors] = useState<Record<string, string>>({});
   const [providerStatus, setProviderStatus] = useState<Record<string, string>>({});
+  const [translation, setTranslation] = useState<TranslationSettings | null>(null);
+  const [translationBusy, setTranslationBusy] = useState(false);
+  const [translationStatus, setTranslationStatus] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void window.deer
+      .getTranslationSettings()
+      .then((settings) => {
+        if (active) setTranslation(settings);
+      })
+      .catch(() => {
+        if (active) setTranslation({ ...DEFAULT_TRANSLATION_SETTINGS });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const activeProvider =
     providers.find((provider) => provider.id === activeProviderId) ?? providers[0] ?? null;
@@ -58,6 +79,21 @@ export default function SettingsView({
 
   function providerName(providerId: string): string {
     return providers.find((provider) => provider.id === providerId)?.name ?? providerId;
+  }
+
+  async function saveTranslationSettings() {
+    if (!translation || translationBusy) return;
+    setTranslationBusy(true);
+    setTranslationStatus("");
+    try {
+      const saved = await window.deer.saveTranslationSettings(translation);
+      setTranslation(saved);
+      setTranslationStatus("已保存，下一条思考生效");
+    } catch (error) {
+      setTranslationStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setTranslationBusy(false);
+    }
   }
 
   function updateProvider(providerId: string, patch: Partial<ProviderProfile>) {
@@ -552,6 +588,100 @@ export default function SettingsView({
               </div>
             </section>
           </>
+        )}
+
+        {section === "translation" && (
+          <section className="panel settings-block">
+            <div className="panel-head">
+              <div>
+                <div className="panel-title">翻译设置</div>
+                <div className="muted tiny">思考过程自动机翻的来源与模型</div>
+              </div>
+              <span className="badge">
+                {translation?.enabled ? "已启用" : "已关闭"}
+              </span>
+            </div>
+            {!translation ? (
+              <div className="settings-block-body muted tiny">正在加载翻译设置…</div>
+            ) : (
+              <>
+                <div className="settings-block-body">
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={translation.enabled}
+                      onChange={(event) =>
+                        setTranslation({ ...translation, enabled: event.target.checked })
+                      }
+                    />
+                    自动翻译思考过程
+                  </label>
+                  <label>
+                    翻译源
+                    <select
+                      value={translation.provider}
+                      disabled={!translation.enabled}
+                      onChange={(event) =>
+                        setTranslation({
+                          ...translation,
+                          provider: event.target.value === "model" ? "model" : "bing",
+                        })
+                      }
+                    >
+                      <option value="bing">Bing 在线翻译（默认，无需 key）</option>
+                      <option value="model">已配置模型 API（DeepSeek 等）</option>
+                    </select>
+                  </label>
+                  {translation.provider === "model" && (
+                    <label>
+                      翻译模型
+                      <select
+                        value={translation.modelProfileId ?? ""}
+                        disabled={!translation.enabled || models.length === 0}
+                        onChange={(event) =>
+                          setTranslation({
+                            ...translation,
+                            modelProfileId: event.target.value || null,
+                          })
+                        }
+                      >
+                        <option value="">
+                          默认模型
+                          {models.find((model) => model.id === defaultModel)
+                            ? `（${models.find((model) => model.id === defaultModel)?.label}）`
+                            : ""}
+                        </option>
+                        {models.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label} · {providerName(model.providerId)} ({model.modelId})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <div className="muted tiny">
+                    目标语言：简体中文。Bing 不需要 API key；模型翻译使用「模型」页里该供应商的
+                    API Key，并按已配置模型计费。
+                  </div>
+                  {translation.provider === "model" && models.length === 0 && (
+                    <div className="muted tiny">
+                      还没有可用模型，请先到「模型」页添加。
+                    </div>
+                  )}
+                </div>
+                <div className="settings-block-foot">
+                  <span className="muted tiny">{translationStatus}</span>
+                  <button
+                    className="primary"
+                    onClick={() => void saveTranslationSettings()}
+                    disabled={translationBusy}
+                  >
+                    {translationBusy ? "保存中…" : "保存翻译设置"}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
         )}
 
         {section === "team" && (

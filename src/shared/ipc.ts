@@ -32,6 +32,7 @@ import type {
   SendMessageInput,
   Snapshot,
   Task,
+  TranslationSettings,
   Workspace,
 } from "./types.js";
 import type {
@@ -133,6 +134,9 @@ export interface DeerApi {
   getChatTrajectory(workspaceId: string, agentId?: string): Promise<ChatTrajectoryEntry[]>;
   /** t179：思考文本机翻（默认 Bing，目标简体中文）。 */
   translateText(text: string): Promise<string>;
+  /** t181：翻译源与开关设置。 */
+  getTranslationSettings(): Promise<TranslationSettings>;
+  saveTranslationSettings(settings: TranslationSettings): Promise<TranslationSettings>;
   getContext(workspaceId: string, agentId?: string, taskId?: string): Promise<ContextSnapshot>;
   /** DESIGN §15.4：满血模式开关（会话级提示/预算覆盖，不碰权限）。 */
   setFullThrottle(workspaceId: string, agentId: string, enabled: boolean): Promise<void>;

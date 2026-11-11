@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { isMostlyChinese, splitTranslationChunks } from "./translate.js";
+import {
+  DEFAULT_TRANSLATION_SETTINGS,
+  normalizeTranslationSettings,
+} from "../shared/translation.js";
 
 describe("t179 Bing translation helpers", () => {
   it("detects Chinese thinking and skips translating it", () => {
@@ -20,5 +24,30 @@ describe("t179 Bing translation helpers", () => {
     expect(splitTranslationChunks("I will read the file.", 900)).toEqual([
       "I will read the file.",
     ]);
+  });
+
+  it("normalizes translation settings with Bing as the default source", () => {
+    expect(DEFAULT_TRANSLATION_SETTINGS).toMatchObject({
+      enabled: true,
+      provider: "bing",
+      modelProfileId: null,
+    });
+    expect(normalizeTranslationSettings(undefined)).toEqual(DEFAULT_TRANSLATION_SETTINGS);
+    expect(
+      normalizeTranslationSettings({
+        enabled: false,
+        provider: "deepseek",
+        modelProfileId: " model_1 ",
+        target: "",
+      }),
+    ).toEqual({
+      enabled: false,
+      provider: "bing",
+      modelProfileId: "model_1",
+      target: "zh-Hans",
+    });
+    expect(
+      normalizeTranslationSettings({ provider: "model", modelProfileId: "model_2" }),
+    ).toMatchObject({ enabled: true, provider: "model", modelProfileId: "model_2" });
   });
 });

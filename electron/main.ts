@@ -224,6 +224,8 @@ app.whenReady().then(() => {
     getService().getChatTrajectory(workspaceId, agentId),
   );
   handle("chat:translate", (text: string) => getService().translateText(text));
+  handle("translation:get", () => getService().getTranslationSettings());
+  handle("translation:save", (settings) => getService().saveTranslationSettings(settings));
   handle("chat:send", (workspaceId: string, message: string) =>
     getService().sendChat(workspaceId, message),
   );

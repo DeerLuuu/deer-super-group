@@ -463,6 +463,18 @@ export interface LlmSettingsInfo extends LlmSettings {
   effectiveBaseUrl: string;
 }
 
+/** t181：思考机翻设置（全局，不按工作区）。 */
+export type TranslationProvider = "bing" | "model";
+
+export interface TranslationSettings {
+  enabled: boolean;
+  provider: TranslationProvider;
+  /** provider=model 时使用的已配置模型 profile；null 表示默认模型。 */
+  modelProfileId: string | null;
+  /** 目标语言；当前固定简体中文。 */
+  target: string;
+}
+
 export interface ModelListResult {
   models: string[];
   source: "env" | "local" | "none";

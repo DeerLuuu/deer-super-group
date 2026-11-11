@@ -33,6 +33,7 @@ import type {
   SendMessageInput,
   Snapshot,
   Task,
+  TranslationSettings,
   UpdateAgentInput,
   Workspace,
 } from "../shared/types.js";
@@ -61,7 +62,7 @@ import {
   type ToolPolicy,
 } from "./tools.js";
 import { runAgentLoop } from "./loop.js";
-import { BingTranslator } from "./translate.js";
+import { BingTranslator, splitTranslationChunks } from "./translate.js";
 import { Store } from "./store.js";
 import { fullThrottleBudget, withFullThrottle } from "./permission.js";
 import { RISK_APPROVAL_TIMEOUT_MS } from "../shared/approval.js";
@@ -213,6 +214,8 @@ export class AppService {
   private readonly chatAborts = new Map<string, AbortController>();
   /** t179：思考机翻（默认 Bing Web Translator，无需 key）。 */
   private readonly translator = new BingTranslator();
+  /** t181：模型翻译缓存（Bing 自身缓存）。 */
+  private readonly translationCache = new Map<string, string>();
   /** t68：执行内核（事件/状态机/调度/重试/恢复）。 */
   private readonly kernel: ExecutionKernel;
   /** t96：Git 并行开发（worktree/PR/合并队列）；与内核通过 service 包装协作。 */
@@ -485,8 +488,71 @@ export class AppService {
   }
 
   /** t179：把思考文本机翻为简体中文；失败由渲染层降级为只显示原文。 */
+  getTranslationSettings(): TranslationSettings {
+    return this.store.getTranslationSettings();
+  }
+
+  saveTranslationSettings(settings: TranslationSettings): TranslationSettings {
+    this.translationCache.clear();
+    return this.store.saveTranslationSettings(settings);
+  }
+
   async translateText(text: string): Promise<string> {
-    return this.translator.translate(text, "zh-Hans");
+    const settings = this.store.getTranslationSettings();
+    if (!settings.enabled) return text;
+    if (settings.provider === "model") return this.translateWithModel(text, settings);
+    return this.translator.translate(text, settings.target || "zh-Hans");
+  }
+
+  private async translateWithModel(
+    text: string,
+    settings: TranslationSettings,
+  ): Promise<string> {
+    const cacheKey = `model:${settings.modelProfileId ?? "default"}:${settings.target}:${text}`;
+    const cached = this.translationCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+    const llm = this.store.getLlmSettings();
+    const selected = settings.modelProfileId
+      ? llm.models.find((model) => model.id === settings.modelProfileId)
+      : undefined;
+    const profile = selected ?? resolveModelProfile(llm, llm.model);
+    const provider = resolveProvider(llm, profile.providerId);
+    const client = createLlmClientForModel(llm, profile);
+    const target =
+      settings.target === "zh-Hans" ? "Simplified Chinese" : settings.target || "Simplified Chinese";
+    const chunks = splitTranslationChunks(text, 3_000);
+    const translated: string[] = [];
+    for (const chunk of chunks) {
+      const completion = await client.complete({
+        model: profile.modelId,
+        messages: [
+          {
+            role: "system",
+            content: [
+              "You are a translation engine.",
+              `Translate the user's reasoning into ${target}.`,
+              "Preserve code, file paths, identifiers, numbers and technical terms.",
+              "Return only the translated text, without explanations or quotes.",
+            ].join(" "),
+          },
+          { role: "user", content: chunk },
+        ],
+        maxOutputTokens: Math.min(Math.max(profile.maxOutputTokens, 1_000), 4_000),
+        temperature: 0.1,
+        thinkingEnabled: false,
+        thinkingStyle: thinkingStyleFor(provider, profile.modelId),
+      });
+      const value = completion.text.trim();
+      if (!value) throw new Error("model translation returned an empty result");
+      translated.push(value);
+    }
+    const result = translated.join("\n").trim();
+    this.translationCache.set(cacheKey, result);
+    if (this.translationCache.size > 200) {
+      const oldest = this.translationCache.keys().next().value;
+      if (oldest !== undefined) this.translationCache.delete(oldest);
+    }
+    return result;
   }
 
   listChat(workspaceId: string, agentId?: string): ChatMessage[] {
