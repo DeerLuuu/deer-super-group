@@ -144,4 +144,57 @@ describe("t170 chat context commands", () => {
     expect(entries[1]).toMatchObject({ title: "fs.list", status: "ok", callId: "call-1" });
     expect(entries[2]?.status).toBe("ok");
   });
+
+  it("keeps one thinking segment on each side of a tool call", async () => {
+    const { service, workspacePath } = setup();
+    const { workspace, router } = await open(service, workspacePath);
+    service.store.addChatMessage({
+      workspaceId: workspace.id,
+      agentId: router.id,
+      role: "user",
+      content: "检查项目",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const append = (type: string, payload: Record<string, unknown>, at: string) =>
+      service.store.appendEvent({
+        aggregateType: "chat",
+        aggregateId: workspace.id,
+        type,
+        actor: "agent:Router",
+        payload: { agentId: router.id, ...payload },
+        occurredAt: at,
+      });
+    append("chat.reasoning", { step: 1, text: "先列目录" }, "2026-01-01T00:00:01.000Z");
+    append(
+      "chat.tool_call",
+      { callId: "call-1", name: "fs.list", arguments: "{}", step: 1 },
+      "2026-01-01T00:00:02.000Z",
+    );
+    append(
+      "chat.tool_result",
+      { callId: "call-1", name: "fs.list", ok: true, value: { entries: 1 }, step: 1 },
+      "2026-01-01T00:00:03.000Z",
+    );
+    append("chat.reasoning", { step: 2, text: "再读配置" }, "2026-01-01T00:00:04.000Z");
+    service.store.addChatMessage({
+      workspaceId: workspace.id,
+      agentId: router.id,
+      role: "assistant",
+      content: "配置已读取",
+      reasoning: "最终思考不应重复",
+      createdAt: "2026-01-01T00:00:05.000Z",
+    });
+    const entries = service.getChatTrajectory(workspace.id, router.id);
+    expect(entries.map((entry) => entry.kind)).toEqual([
+      "user",
+      "reasoning",
+      "tool_call",
+      "tool_result",
+      "reasoning",
+      "assistant",
+    ]);
+    expect(entries.filter((entry) => entry.kind === "reasoning")).toHaveLength(2);
+    expect(entries[1]).toMatchObject({ step: 1, detail: "先列目录" });
+    expect(entries[4]).toMatchObject({ step: 2, detail: "再读配置" });
+  });
 });

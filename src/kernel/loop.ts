@@ -107,11 +107,15 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     // t144：每步上报一次累计 usage，供看门狗/成本 provisional/预算采样。
     onEvent?.("usage", { ...usage, step });
 
+    if (completion.reasoning.trim()) {
+      lastReasoning = completion.reasoning;
+      // t176：每步思考单独成段；工具调用前后的思考可按 step 区分。
+      onEvent?.("assistant.reasoning", { step, text: completion.reasoning });
+    }
     if (completion.text.trim()) {
       lastText = completion.text;
       onEvent?.("assistant.message", { text: completion.text, step });
     }
-    if (completion.reasoning.trim()) lastReasoning = completion.reasoning;
 
     if (completion.toolCalls.length === 0) {
       break;
@@ -127,7 +131,12 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
     for (const call of completion.toolCalls) {
       if (signal?.aborted) throw new Error("aborted");
-      onEvent?.("tool.call", { id: call.id, name: call.name, arguments: call.arguments });
+      onEvent?.("tool.call", {
+        id: call.id,
+        name: call.name,
+        arguments: call.arguments,
+        step,
+      });
 
       let args: unknown;
       try {
@@ -155,6 +164,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         ok: result.ok,
         value: result.value,
         error: result.error,
+        step,
       });
       messages.push({
         role: "tool",

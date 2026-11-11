@@ -505,12 +505,18 @@ export class AppService {
       .listEvents({ aggregateType: "chat", aggregateId: workspaceId, limit: 500 })
       .filter((event) =>
         [
+          "chat.reasoning",
           "chat.tool_call",
           "chat.tool_result",
           "chat.context_cleared",
           "chat.context_compacted",
         ].includes(event.type),
       );
+    const reasoningEvents = events.filter((event) => event.type === "chat.reasoning");
+    const hasReasoningEvents = reasoningEvents.length > 0;
+    const firstReasoningAt = reasoningEvents
+      .map((event) => event.createdAt)
+      .sort((left, right) => left.localeCompare(right))[0];
     const resultByCall = new Map<string, Record<string, unknown>>();
     for (const event of events) {
       if (event.type !== "chat.tool_result") continue;
@@ -520,7 +526,11 @@ export class AppService {
     }
     const entries: ChatTrajectoryEntry[] = [];
     for (const message of messages) {
-      if (message.role === "assistant" && message.reasoning.trim()) {
+      if (
+        message.role === "assistant" &&
+        message.reasoning.trim() &&
+        (!hasReasoningEvents || (firstReasoningAt && message.createdAt < firstReasoningAt))
+      ) {
         const timestamp = Date.parse(message.createdAt);
         entries.push({
           id: `${message.id}:reasoning`,
@@ -547,7 +557,17 @@ export class AppService {
     }
     for (const event of events) {
       const payload = (event.payload ?? {}) as Record<string, unknown>;
-      if (event.type === "chat.tool_call") {
+      if (event.type === "chat.reasoning") {
+        entries.push({
+          id: `${event.id}:reasoning`,
+          kind: "reasoning",
+          title: "思考",
+          detail: String(payload.text ?? ""),
+          createdAt: event.createdAt,
+          step: Number(payload.step ?? 0) || undefined,
+          seq: event.seq,
+        });
+      } else if (event.type === "chat.tool_call") {
         const callId = String(payload.callId ?? "");
         const result = resultByCall.get(callId);
         entries.push({
@@ -558,6 +578,8 @@ export class AppService {
           createdAt: event.createdAt,
           status: result ? (result.ok ? "ok" : "error") : "running",
           callId,
+          step: Number(payload.step ?? 0) || undefined,
+          seq: event.seq,
         });
       } else if (event.type === "chat.tool_result") {
         entries.push({
@@ -570,6 +592,8 @@ export class AppService {
           createdAt: event.createdAt,
           status: payload.ok ? "ok" : "error",
           callId: String(payload.callId ?? ""),
+          step: Number(payload.step ?? 0) || undefined,
+          seq: event.seq,
         });
       } else {
         entries.push({
@@ -579,12 +603,15 @@ export class AppService {
           detail: JSON.stringify(payload),
           createdAt: event.createdAt,
           status: "ok",
+          seq: event.seq,
         });
       }
     }
     return entries.sort(
       (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        left.createdAt.localeCompare(right.createdAt) ||
+        (left.seq ?? 0) - (right.seq ?? 0) ||
+        left.id.localeCompare(right.id),
     );
   }
 
@@ -721,7 +748,29 @@ export class AppService {
         // t173：把工具调用/结果实时推给 chat UI。
         onEvent: (type, payload) => {
           const data = (payload ?? {}) as Record<string, unknown>;
-          if (type === "tool.call") {
+          if (type === "assistant.reasoning") {
+            const step = Number(data.step ?? 0);
+            const text = String(data.text ?? "");
+            this.emitChat({
+              type: "reasoning_segment",
+              workspaceId,
+              agentId: router.id,
+              step,
+              text,
+            });
+            try {
+              this.store.appendEvent({
+                aggregateType: "chat",
+                aggregateId: workspaceId,
+                type: "chat.reasoning",
+                actor: `agent:${router.name}`,
+                payload: { agentId: router.id, step, text: text.slice(0, 8_000) },
+              });
+            } catch {
+              // Trajectory persistence is best-effort; never block chat.
+            }
+          } else if (type === "tool.call") {
+            const step = Number(data.step ?? 0);
             this.emitChat({
               type: "tool_call",
               workspaceId,
@@ -729,6 +778,7 @@ export class AppService {
               callId: String(data.id ?? ""),
               name: String(data.name ?? ""),
               arguments: String(data.arguments ?? ""),
+              step,
             });
             try {
               this.store.appendEvent({
@@ -741,12 +791,14 @@ export class AppService {
                   callId: String(data.id ?? ""),
                   name: String(data.name ?? ""),
                   arguments: String(data.arguments ?? "").slice(0, 8_000),
+                  step,
                 },
               });
             } catch {
               // Trajectory persistence is best-effort; never block chat.
             }
           } else if (type === "tool.result") {
+            const step = Number(data.step ?? 0);
             this.emitChat({
               type: "tool_result",
               workspaceId,
@@ -756,6 +808,7 @@ export class AppService {
               ok: Boolean(data.ok),
               value: data.value,
               error: data.error == null ? undefined : String(data.error),
+              step,
             });
             try {
               this.store.appendEvent({
@@ -770,6 +823,7 @@ export class AppService {
                   ok: Boolean(data.ok),
                   value: limitPayload(data.value),
                   error: data.error == null ? null : String(data.error),
+                  step,
                 },
               });
             } catch {

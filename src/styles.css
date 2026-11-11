@@ -2277,6 +2277,12 @@ label.check input {
   font-size: 12px;
 }
 
+.chat-trajectory-step {
+  color: var(--muted);
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .chat-trajectory-status {
   font-size: 10px;
   color: var(--muted);
