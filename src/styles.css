@@ -2027,6 +2027,11 @@ label.check input {
   font-size: 10px;
 }
 
+.chat-turn-step-done {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .chat-turn-reasoning,
 .chat-turn-live {
   display: grid;
@@ -2038,6 +2043,37 @@ label.check input {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.chat-turn-reasoning > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  color: #c084fc;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  list-style: none;
+}
+
+.chat-turn-reasoning > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-turn-reasoning > summary::before {
+  content: "▸";
+  margin-right: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.chat-turn-reasoning[open] > summary::before {
+  content: "▾";
+}
+
+.chat-turn-reasoning pre {
+  margin-top: 3px;
 }
 
 .chat-turn-reasoning pre,
@@ -2135,13 +2171,21 @@ label.check input {
   background: var(--status-failed);
 }
 
-.chat-tool-name {
+.chat-tool-label {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.chat-tool-raw {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .chat-tool-status {
