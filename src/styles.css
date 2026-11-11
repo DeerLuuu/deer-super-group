@@ -1959,6 +1959,107 @@ label.check input {
   max-height: 180px;
 }
 
+/* ---------- t177 unified assistant turn process ---------- */
+
+.chat-turn-process {
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-2) 72%, transparent);
+  overflow: hidden;
+}
+
+.chat-turn-process > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chat-turn-process > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-turn-process > summary::before {
+  content: "▸";
+  margin-right: 2px;
+  font-size: 10px;
+}
+
+.chat-turn-process[open] > summary::before {
+  content: "▾";
+}
+
+.chat-turn-process-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 10px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-turn-step {
+  display: grid;
+  gap: 5px;
+  padding: 8px 0 2px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  margin-top: 2px;
+}
+
+.chat-turn-step-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.chat-turn-step-label {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+}
+
+.chat-turn-step-live {
+  color: var(--accent-2);
+  font-size: 10px;
+}
+
+.chat-turn-reasoning,
+.chat-turn-live {
+  display: grid;
+  gap: 3px;
+}
+
+.chat-turn-reasoning-label {
+  color: #c084fc;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.chat-turn-reasoning pre,
+.chat-turn-live pre {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, #c084fc 5%, var(--bg));
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-turn-step .chat-tool-item {
+  margin-top: 3px;
+}
+
 /* ---------- t173 chat tool trace ---------- */
 
 .chat-tool-trace {
