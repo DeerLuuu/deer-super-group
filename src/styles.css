@@ -2083,6 +2083,232 @@ label.check input {
   word-break: break-word;
 }
 
+/* ---------- t175 chat view tabs + trajectory ---------- */
+
+.chat-view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.chat-view-tabs button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 9px 12px 8px;
+  cursor: pointer;
+}
+
+.chat-view-tabs button:hover,
+.chat-view-tabs button.active {
+  color: var(--text);
+}
+
+.chat-view-tabs button.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.chat-view-count {
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chat-trajectory-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-trajectory-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-trajectory-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-trajectory-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.chat-trajectory-filters button span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chat-trajectory-filters button.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--text);
+}
+
+.chat-trajectory-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 16px;
+}
+
+.chat-trajectory-loading {
+  padding: 24px 8px;
+}
+
+.chat-trajectory-ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.chat-trajectory-row {
+  display: grid;
+  grid-template-columns: 58px 12px minmax(0, 1fr);
+  gap: 8px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.chat-trajectory-time {
+  color: var(--muted);
+  font-size: 10px;
+  padding-top: 2px;
+}
+
+.chat-trajectory-marker {
+  position: relative;
+  width: 12px;
+}
+
+.chat-trajectory-marker::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.chat-trajectory-row.kind-user .chat-trajectory-marker::before {
+  background: var(--accent-2);
+}
+
+.chat-trajectory-row.kind-assistant .chat-trajectory-marker::before {
+  background: var(--green);
+}
+
+.chat-trajectory-row.kind-reasoning .chat-trajectory-marker::before {
+  background: #c084fc;
+}
+
+.chat-trajectory-row.kind-reasoning pre {
+  border-left: 2px solid color-mix(in srgb, #c084fc 45%, var(--border));
+}
+
+.chat-trajectory-row.kind-tool_call .chat-trajectory-marker::before,
+.chat-trajectory-row.kind-tool_result .chat-trajectory-marker::before {
+  background: var(--accent);
+}
+
+.chat-trajectory-body {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.chat-trajectory-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.chat-trajectory-kind {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chat-trajectory-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.chat-trajectory-status {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.chat-trajectory-status.is-running {
+  color: var(--accent-2);
+}
+
+.chat-trajectory-status.is-ok {
+  color: var(--green);
+}
+
+.chat-trajectory-status.is-error {
+  color: color-mix(in srgb, var(--status-failed) 78%, white);
+}
+
+.chat-trajectory-body pre {
+  margin: 0;
+  padding: 7px 9px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .context-body {
   flex: 1;
   min-height: 0;

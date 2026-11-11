@@ -220,6 +220,9 @@ app.whenReady().then(() => {
   handle("chat:list", (workspaceId: string, agentId?: string) =>
     getService().listChat(workspaceId, agentId),
   );
+  handle("chat:trajectory", (workspaceId: string, agentId?: string) =>
+    getService().getChatTrajectory(workspaceId, agentId),
+  );
   handle("chat:send", (workspaceId: string, message: string) =>
     getService().sendChat(workspaceId, message),
   );

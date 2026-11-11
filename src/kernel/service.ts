@@ -11,6 +11,7 @@ import type {
   ChatEvent,
   ChatMessage,
   ChatQuestionRecord,
+  ChatTrajectoryEntry,
   ClearChatContextResult,
   CompactChatContextResult,
   ContextSection,
@@ -487,6 +488,106 @@ export class AppService {
     return this.store.listChatMessages(workspaceId, agentId ?? router.id, 100);
   }
 
+  /**
+   * t175：Chat 轨迹账本。消息来自 chat_messages；工具/上下文操作来自事件日志。
+   * 只读投影，不改变会话。
+   */
+  getChatTrajectory(workspaceId: string, agentId?: string): ChatTrajectoryEntry[] {
+    const workspace = this.store.getWorkspace(workspaceId);
+    if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
+    const router = this.ensureRouter(workspaceId);
+    const resolvedAgent = agentId ? this.store.getAgent(agentId) : router;
+    if (!resolvedAgent || resolvedAgent.workspaceId !== workspaceId) {
+      throw new Error(`agent not found in workspace: ${agentId ?? "unknown"}`);
+    }
+    const messages = this.store.listChatMessages(workspaceId, resolvedAgent.id, 200);
+    const events = this.store
+      .listEvents({ aggregateType: "chat", aggregateId: workspaceId, limit: 500 })
+      .filter((event) =>
+        [
+          "chat.tool_call",
+          "chat.tool_result",
+          "chat.context_cleared",
+          "chat.context_compacted",
+        ].includes(event.type),
+      );
+    const resultByCall = new Map<string, Record<string, unknown>>();
+    for (const event of events) {
+      if (event.type !== "chat.tool_result") continue;
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      const callId = String(payload.callId ?? "");
+      if (callId) resultByCall.set(callId, payload);
+    }
+    const entries: ChatTrajectoryEntry[] = [];
+    for (const message of messages) {
+      if (message.role === "assistant" && message.reasoning.trim()) {
+        const timestamp = Date.parse(message.createdAt);
+        entries.push({
+          id: `${message.id}:reasoning`,
+          kind: "reasoning",
+          title: "思考",
+          detail: message.reasoning,
+          createdAt: Number.isFinite(timestamp)
+            ? new Date(Math.max(0, timestamp - 1)).toISOString()
+            : message.createdAt,
+        });
+      }
+      entries.push({
+        id: message.id,
+        kind: message.role,
+        title:
+          message.role === "user"
+            ? "你"
+            : message.role === "assistant"
+              ? "Router"
+              : "上下文摘要",
+        detail: message.content,
+        createdAt: message.createdAt,
+      });
+    }
+    for (const event of events) {
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      if (event.type === "chat.tool_call") {
+        const callId = String(payload.callId ?? "");
+        const result = resultByCall.get(callId);
+        entries.push({
+          id: `${event.id}:call`,
+          kind: "tool_call",
+          title: String(payload.name ?? "tool"),
+          detail: String(payload.arguments ?? ""),
+          createdAt: event.createdAt,
+          status: result ? (result.ok ? "ok" : "error") : "running",
+          callId,
+        });
+      } else if (event.type === "chat.tool_result") {
+        entries.push({
+          id: `${event.id}:result`,
+          kind: "tool_result",
+          title: String(payload.name ?? "tool"),
+          detail: payload.ok
+            ? JSON.stringify(payload.value ?? null, null, 2)
+            : String(payload.error ?? "工具执行失败"),
+          createdAt: event.createdAt,
+          status: payload.ok ? "ok" : "error",
+          callId: String(payload.callId ?? ""),
+        });
+      } else {
+        entries.push({
+          id: event.id,
+          kind: "context",
+          title: event.type === "chat.context_cleared" ? "清空上下文" : "压缩上下文",
+          detail: JSON.stringify(payload),
+          createdAt: event.createdAt,
+          status: "ok",
+        });
+      }
+    }
+    return entries.sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
+  }
+
   /** t170：清空当前 Router 对话上下文；运行中先停止。 */
   clearChatContext(workspaceId: string): ClearChatContextResult {
     if (this.chatAborts.has(workspaceId)) throw new Error("chat is already running");
@@ -629,6 +730,22 @@ export class AppService {
               name: String(data.name ?? ""),
               arguments: String(data.arguments ?? ""),
             });
+            try {
+              this.store.appendEvent({
+                aggregateType: "chat",
+                aggregateId: workspaceId,
+                type: "chat.tool_call",
+                actor: `agent:${router.name}`,
+                payload: {
+                  agentId: router.id,
+                  callId: String(data.id ?? ""),
+                  name: String(data.name ?? ""),
+                  arguments: String(data.arguments ?? "").slice(0, 8_000),
+                },
+              });
+            } catch {
+              // Trajectory persistence is best-effort; never block chat.
+            }
           } else if (type === "tool.result") {
             this.emitChat({
               type: "tool_result",
@@ -640,6 +757,24 @@ export class AppService {
               value: data.value,
               error: data.error == null ? undefined : String(data.error),
             });
+            try {
+              this.store.appendEvent({
+                aggregateType: "chat",
+                aggregateId: workspaceId,
+                type: "chat.tool_result",
+                actor: `agent:${router.name}`,
+                payload: {
+                  agentId: router.id,
+                  callId: String(data.id ?? ""),
+                  name: String(data.name ?? ""),
+                  ok: Boolean(data.ok),
+                  value: limitPayload(data.value),
+                  error: data.error == null ? null : String(data.error),
+                },
+              });
+            } catch {
+              // Trajectory persistence is best-effort; never block chat.
+            }
           }
         },
       });

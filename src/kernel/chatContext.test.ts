@@ -87,4 +87,61 @@ describe("t170 chat context commands", () => {
     expect(result.summarizedMessages).toBe(0);
     expect(service.listChat(workspace.id, router.id)).toHaveLength(1);
   });
+
+  it("projects messages and tool events into a trajectory ledger", async () => {
+    const { service, workspacePath } = setup();
+    const { workspace, router } = await open(service, workspacePath);
+    service.store.addChatMessage({
+      workspaceId: workspace.id,
+      agentId: router.id,
+      role: "user",
+      content: "检查项目",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    service.store.addChatMessage({
+      workspaceId: workspace.id,
+      agentId: router.id,
+      role: "assistant",
+      content: "已检查",
+      reasoning: "我先查看根目录，再读取配置文件。",
+      createdAt: "2026-01-01T00:00:03.000Z",
+    });
+    service.store.appendEvent({
+      aggregateType: "chat",
+      aggregateId: workspace.id,
+      type: "chat.tool_call",
+      actor: "agent:Router",
+      payload: {
+        agentId: router.id,
+        callId: "call-1",
+        name: "fs.list",
+        arguments: '{"path":"."}',
+      },
+      occurredAt: "2026-01-01T00:00:01.000Z",
+    });
+    service.store.appendEvent({
+      aggregateType: "chat",
+      aggregateId: workspace.id,
+      type: "chat.tool_result",
+      actor: "agent:Router",
+      payload: {
+        agentId: router.id,
+        callId: "call-1",
+        name: "fs.list",
+        ok: true,
+        value: { entries: 3 },
+      },
+      occurredAt: "2026-01-01T00:00:02.000Z",
+    });
+    const entries = service.getChatTrajectory(workspace.id, router.id);
+    expect(entries.map((entry) => entry.kind)).toEqual([
+      "user",
+      "tool_call",
+      "tool_result",
+      "reasoning",
+      "assistant",
+    ]);
+    expect(entries[1]).toMatchObject({ title: "fs.list", status: "ok", callId: "call-1" });
+    expect(entries[2]?.status).toBe("ok");
+  });
 });

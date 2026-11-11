@@ -225,6 +225,26 @@ export interface ChatMessage {
   createdAt: IsoDate;
 }
 
+/** t175：Chat 轨迹账本条目（消息 + 工具事件 + 上下文操作的只读投影）。 */
+export type ChatTrajectoryKind =
+  | "user"
+  | "assistant"
+  | "system"
+  | "reasoning"
+  | "tool_call"
+  | "tool_result"
+  | "context";
+
+export interface ChatTrajectoryEntry {
+  id: string;
+  kind: ChatTrajectoryKind;
+  title: string;
+  detail: string;
+  createdAt: IsoDate;
+  status?: "running" | "ok" | "error";
+  callId?: string;
+}
+
 /** t170：清空对话上下文的结果。 */
 export interface ClearChatContextResult {
   removedMessages: number;
