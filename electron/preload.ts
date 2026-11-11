@@ -63,6 +63,9 @@ const api: DeerApi = {
     ipcRenderer.invoke("kernel:resumeScheduler", workspaceId),
   getTaskTrace: (taskId: string) => ipcRenderer.invoke("task:trace", taskId),
   plan: (workspaceId: string, goal: string) => ipcRenderer.invoke("router:plan", workspaceId, goal),
+  previewPlan: (workspaceId: string, source: unknown) =>
+    ipcRenderer.invoke("plan:preview", workspaceId, source),
+  confirmPlan: (input: unknown) => ipcRenderer.invoke("plan:confirm", input),
   sendMessage: (input: SendMessageInput) => ipcRenderer.invoke("mailbox:send", input),
   postBoard: (input: PostBoardInput) => ipcRenderer.invoke("board:post", input),
   getSettings: () => ipcRenderer.invoke("settings:get"),

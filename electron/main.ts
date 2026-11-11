@@ -211,6 +211,12 @@ app.whenReady().then(() => {
   );
   handle("watchdog:health", () => getService().getWatchdogHealth());
   handle("router:plan", (workspaceId: string, goal: string) => getService().plan(workspaceId, goal));
+  handle("plan:preview", (workspaceId: string, source: Parameters<AppService["previewPlan"]>[1]) =>
+    getService().previewPlan(workspaceId, source),
+  );
+  handle("plan:confirm", (input: Parameters<AppService["confirmPlan"]>[0]) =>
+    getService().confirmPlan(input),
+  );
   handle("mailbox:send", (input: SendMessageInput) => getService().sendMessage(input));
   handle("board:post", (input: PostBoardInput) => getService().postBoard(input));
   handle("settings:get", () => getService().getSettings());

@@ -81,6 +81,16 @@ import CommandPalette, {
 } from "./CommandPalette";
 import WorkflowRail from "./shell/WorkflowRail";
 import { useMergeQueue } from "./shell/useMergeQueue";
+import PlanDraftPanel from "./shell/PlanDraftPanel";
+import {
+  buildPlanSource,
+  planSourceIssues,
+  planDraftFingerprint,
+  validatePlanDraft,
+  type PlanDraft,
+  type PlanIssue,
+  type PlanSource,
+} from "./shared/planDraft";
 import {
   deriveNeedsMe,
   deriveWorkflow,
@@ -143,6 +153,7 @@ type Tab = RouteTab;
 const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "chat",
   "tasks",
+  "planDraft",
   "team",
   "runs",
   "mailbox",
@@ -333,6 +344,14 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // P0-4：Plan Draft 仅 session 内存；确认前不创建任务/事件。
+  const [planSource, setPlanSource] = useState<PlanSource | null>(null);
+  const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
+  const [planIssues, setPlanIssues] = useState<PlanIssue[]>([]);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planConfirming, setPlanConfirming] = useState(false);
+  const planConfirmKeyRef = useRef("");
   const [chatStream, setChatStream] = useState("");
   const [chatReasoning, setChatReasoning] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -1911,6 +1930,116 @@ export default function App() {
     }
   }
 
+  async function loadPlanPreview(source: PlanSource) {
+    const current = snapshotRef.current;
+    if (!current) return;
+    setPlanBusy(true);
+    setPlanError(null);
+    setPlanDraft(null);
+    setPlanIssues(planSourceIssues(source));
+    try {
+      const result = await window.deer.previewPlan(current.workspace.id, source);
+      setPlanIssues(result.issues);
+      if (!result.ok || !result.draft) {
+        setPlanError(
+          result.error === "PLAN_UNPARSEABLE"
+            ? "规划器返回无法解析，请重新生成（不会 fallback 建单任务）。"
+            : result.error
+              ? "规划生成失败，请重试。"
+              : "规划源不满足条件。",
+        );
+        return;
+      }
+      setPlanDraft(result.draft);
+      planConfirmKeyRef.current = planDraftFingerprint(result.draft);
+    } catch (error) {
+      setPlanError(`规划生成失败：${formatError(error)}`);
+    } finally {
+      setPlanBusy(false);
+    }
+  }
+
+  function handlePlanFromChat() {
+    const current = snapshotRef.current;
+    if (!current) return;
+    const lastUser = [...chatMessages].reverse().find((message) => message.role === "user");
+    const goal = chatInput.trim() || lastUser?.content || "";
+    const summary = chatMessages
+      .filter((message) => message.role === "system")
+      .map((message) => message.content)
+      .join("\n");
+    const source = buildPlanSource({
+      goal,
+      goalSource: chatInput.trim() ? "composer" : "last_user_message",
+      messages: chatMessages
+        .filter((message) => message.role !== "system")
+        .map((message) => ({ role: message.role, content: message.content })),
+      summary,
+      overview: current.workspace.overview ?? "",
+    });
+    setPlanSource(source);
+    setPlanDraft(null);
+    setPlanError(null);
+    setPlanIssues(planSourceIssues(source));
+    openPanel("planDraft");
+    void loadPlanPreview(source);
+  }
+
+  function handlePlanDraftChange(next: PlanDraft) {
+    setPlanDraft(next);
+    setPlanIssues([
+      ...planSourceIssues(next.source),
+      ...validatePlanDraft(next.tasks, { agents: snapshot?.agents ?? [] }),
+    ]);
+    planConfirmKeyRef.current = planDraftFingerprint(next);
+  }
+
+  async function handleConfirmPlan(ackHighRisk: boolean) {
+    const current = snapshotRef.current;
+    if (!current || !planDraft || planBusy || planConfirming) return;
+    setPlanConfirming(true);
+    setPlanError(null);
+    try {
+      const result = await window.deer.confirmPlan({
+        workspaceId: current.workspace.id,
+        sourceDigest: planDraft.source.digest,
+        idempotencyKey: planConfirmKeyRef.current,
+        tasks: planDraft.tasks,
+        ackHighRisk,
+      });
+      await refresh(current.workspace.id);
+      if (result.tasks[0]) {
+        setSelectedTaskId(result.tasks[0].id);
+        void loadTrace(result.tasks[0].id);
+        void loadRuns(result.tasks[0].id);
+      }
+      setPlanSource(null);
+      setPlanDraft(null);
+      setPlanIssues([]);
+      if (activePanelKey === "planDraft") dockRef.current?.closeActivePanel();
+      openPanel("tasks");
+      pushToast({
+        kind: "success",
+        message: result.alreadyConfirmed
+          ? `草案已确认过，复用 ${result.tasks.length} 个任务`
+          : `已创建 ${result.tasks.length} 个任务（DAG）`,
+      });
+    } catch (error) {
+      setPlanError(`确认失败：${formatError(error)}`);
+    } finally {
+      setPlanConfirming(false);
+    }
+  }
+
+  function handleCancelPlan() {
+    setPlanSource(null);
+    setPlanDraft(null);
+    setPlanIssues([]);
+    setPlanError(null);
+    if (activePanelKey === "planDraft") dockRef.current?.closeActivePanel();
+    openPanel("chat");
+  }
+
   /**
    * t64：对话发送的唯一实现（composer 与「回答表单」都走这里）。
    * t80 F5：回答回流失败时由调用方提供 onFailure（带「重新发送回答」action 的 toast）。
@@ -2842,6 +2971,24 @@ export default function App() {
             onNotify={(message) => pushToast({ kind: "success", message })}
             renderPanel={(key) => {
               switch (key) {
+                case "planDraft":
+                  return (
+                    <PlanDraftPanel
+                      draft={planDraft}
+                      source={planSource}
+                      issues={planIssues}
+                      agents={snapshot.agents}
+                      busy={planBusy}
+                      error={planError}
+                      confirming={planConfirming}
+                      onDraftChange={handlePlanDraftChange}
+                      onConfirm={(ack) => void handleConfirmPlan(ack)}
+                      onCancel={handleCancelPlan}
+                      onRetry={() => {
+                        if (planSource) void loadPlanPreview(planSource);
+                      }}
+                    />
+                  );
                 case "tasks":
                   return (
                     <TasksView
@@ -3022,6 +3169,7 @@ export default function App() {
                       input={chatInput}
                       onInput={setChatInput}
                       onSend={handleSendChat}
+                      onPlanFromChat={handlePlanFromChat}
                       onStop={handleStopChat}
                       questions={questionsByKey}
                       questionsLoaded={questionsLoaded}
@@ -4875,6 +5023,7 @@ export function ChatView({
   input,
   onInput,
   onSend,
+  onPlanFromChat,
   onStop,
   taskContext,
   taskContextSource,
@@ -4918,6 +5067,7 @@ export function ChatView({
   input: string;
   onInput: (value: string) => void;
   onSend: () => void;
+  onPlanFromChat?: () => void;
   onStop: () => void;
   /** t64：问题状态（按 messageId#bN 索引）与队列入口。 */
   questions: ReadonlyMap<string, ChatQuestionRecord>;
@@ -5187,6 +5337,15 @@ export function ChatView({
                 : "上下文与工具会随任务变化 · /clear 清空 · /compact 压缩"}
             </span>
             <div className="row gap">
+              <button
+                type="button"
+                className="ghost small"
+                onClick={onPlanFromChat}
+                disabled={busy || !onPlanFromChat || (!input.trim() && messages.length === 0)}
+                title="把当前输入框目标与对话带入可编辑计划草案；确认前不创建任务"
+              >
+                从这段对话规划
+              </button>
               {busy && (
                 <button className="ghost small" onClick={onStop}>
                   停止

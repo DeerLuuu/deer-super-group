@@ -61,6 +61,20 @@ import {
 import { resolveModelProfile, resolveProvider } from "../shared/models.js";
 import { safeErrorSummary, sanitizeErrorText } from "../shared/errorRedaction.js";
 import {
+  buildPlanDraftPrompt,
+  hasHighRiskTask,
+  parsePlanDraft,
+  planDraftFingerprint,
+  planSourceIssues,
+  PLAN_DRAFT_SYSTEM_PROMPT,
+  validatePlanDraft,
+  type ConfirmPlanRequest,
+  type ConfirmPlanResult,
+  type PlanDraft,
+  type PlanSource,
+  type PreviewPlanResult,
+} from "../shared/planDraft.js";
+import {
   createBuiltinTools,
   ToolRegistry,
   type RiskApprovalOutcome,
@@ -1866,6 +1880,149 @@ export class AppService {
       payload: { goal, tasks: created.map((task) => task.id) },
     });
     return created.map((task) => this.store.getTask(task.id) ?? task);
+  }
+
+  /**
+   * P0-4：只读规划预览。只调用 LLM/parse/validate，不 createTask、不 append event、
+   * 不 refresh、不选任务。
+   */
+  async previewPlan(workspaceId: string, source: PlanSource): Promise<PreviewPlanResult> {
+    const workspace = this.store.getWorkspace(workspaceId);
+    if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
+    const sourceIssues = planSourceIssues(source);
+    if (sourceIssues.some((issue) => issue.severity === "error")) {
+      return { ok: false, issues: sourceIssues };
+    }
+    const settings = this.store.getLlmSettings();
+    const profile = resolveModelProfile(settings, settings.model);
+    const provider = resolveProvider(settings, profile.providerId);
+    const client = createLlmClientForModel(settings, profile);
+    try {
+      const completion = await client.complete({
+        model: profile.modelId,
+        maxOutputTokens: profile.maxOutputTokens,
+        reasoningEffort: profile.thinkingEnabled ? profile.thinkingEffort : undefined,
+        thinkingEnabled: profile.thinkingEnabled,
+        thinkingStyle: thinkingStyleFor(provider, profile.modelId),
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: PLAN_DRAFT_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              `WORKSPACE: ${workspace.name}`,
+              `PATH: ${workspace.path}`,
+              buildPlanDraftPrompt(source),
+            ].join("\n\n"),
+          },
+        ],
+      });
+      const tasks = parsePlanDraft(completion.text);
+      const draft: PlanDraft = { source, tasks };
+      const issues = validatePlanDraft(tasks, {
+        agents: this.store.listAgents(workspaceId),
+      });
+      return { ok: true, draft, issues };
+    } catch (error) {
+      return {
+        ok: false,
+        issues: [],
+        error: error instanceof Error && error.message === "PLAN_UNPARSEABLE"
+          ? "PLAN_UNPARSEABLE"
+          : "PLAN_GENERATION_FAILED",
+      };
+    }
+  }
+
+  /**
+   * P0-4：确认后在一个 Store 事务里创建整张 DAG。
+   * idempotencyKey 已存在时返回同一批 task，不重复插入；任一失败全回滚。
+   */
+  confirmPlan(input: ConfirmPlanRequest): ConfirmPlanResult {
+    const workspace = this.store.getWorkspace(input.workspaceId);
+    if (!workspace) throw new Error(`workspace not found: ${input.workspaceId}`);
+    if (!input.idempotencyKey.trim()) throw new Error("idempotencyKey is required");
+    if (!Array.isArray(input.tasks) || input.tasks.length === 0) {
+      throw new Error("PLAN_INVALID: empty plan");
+    }
+    const agents = this.store.listAgents(input.workspaceId);
+    const issues = validatePlanDraft(input.tasks, { agents });
+    const errors = issues.filter((issue) => issue.severity === "error");
+    if (errors.length > 0) {
+      throw new Error(`PLAN_INVALID: ${errors.map((issue) => issue.code).join(",")}`);
+    }
+    if (hasHighRiskTask(input.tasks) && !input.ackHighRisk) {
+      throw new Error("PLAN_HIGH_RISK_UNACKNOWLEDGED");
+    }
+
+    const idempotencyKey = `plan.confirm:${input.idempotencyKey}`;
+    return this.store.withTransaction(() => {
+      const existing = this.store.db
+        .prepare("SELECT payload FROM events WHERE idempotency_key = ? AND type = 'router.plan'")
+        .get(idempotencyKey) as { payload?: string } | undefined;
+      if (existing?.payload) {
+        try {
+          const payload = JSON.parse(existing.payload) as { tasks?: string[] };
+          const tasks = (payload.tasks ?? [])
+            .map((id) => this.store.getTask(id))
+            .filter((task): task is Task => Boolean(task));
+          return { tasks, alreadyConfirmed: true };
+        } catch {
+          throw new Error("PLAN_IDEMPOTENCY_CORRUPT");
+        }
+      }
+
+      const created = input.tasks.map((task) =>
+        this.store.createTask({
+          workspaceId: input.workspaceId,
+          title: task.title.trim(),
+          description: task.description,
+          acceptance: task.acceptance,
+          ownerId: task.ownerId,
+        }),
+      );
+      const byDraftId = new Map(input.tasks.map((task, index) => [task.id, created[index]!.id]));
+      input.tasks.forEach((task, index) => {
+        const id = created[index]!.id;
+        const dependsOn = task.dependsOn
+          .map((draftId) => byDraftId.get(draftId))
+          .filter((value): value is string => Boolean(value));
+        this.store.updateTask(id, { dependsOn });
+        this.store.db.prepare("UPDATE tasks SET priority = ? WHERE id = ?").run(task.priority, id);
+      });
+      const taskIds = created.map((task) => task.id);
+      this.store.appendEventIdempotent({
+        aggregateType: "workspace",
+        aggregateId: input.workspaceId,
+        type: "router.plan",
+        actor: "Router",
+        payload: {
+          goal: input.tasks.map((task) => task.title).join("；"),
+          tasks: taskIds,
+          sourceDigest: input.sourceDigest,
+          draftFingerprint: planDraftFingerprint({
+            source: {
+              goal: "",
+              goalSource: "edited",
+              messages: [],
+              summary: "",
+              overview: "",
+              characterCount: 0,
+              digest: input.sourceDigest,
+            },
+            tasks: input.tasks,
+          }),
+        },
+        idempotencyKey,
+        schemaVersion: 1,
+      });
+      return {
+        tasks: taskIds
+          .map((id) => this.store.getTask(id))
+          .filter((task): task is Task => Boolean(task)),
+        alreadyConfirmed: false,
+      };
+    });
   }
 
   // ---------------------------------------------------------------- kernel
