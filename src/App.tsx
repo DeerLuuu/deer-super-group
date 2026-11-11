@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import type {
   Agent,
   BoardEntry,
@@ -77,7 +78,7 @@ import CommandPalette, {
   type CreateIntent,
   type PanelAction,
 } from "./CommandPalette";
-import { ToastHost, useToasts } from "./Toast";
+import { ToastHost, useToasts, type ToastItem } from "./Toast";
 import {
   BOARD_CONFIDENCE_LABEL,
   BOARD_KIND_LABEL,
@@ -89,6 +90,7 @@ import {
   formatError,
 } from "./shared/copy";
 import { buildHash, parseHash, type RouteTab } from "./shared/deeplink";
+import { hasOpenModal } from "./shared/modalStack";
 import { RISK_APPROVAL_TIMEOUT_MS } from "./shared/approval";
 import type { TaskStatus } from "./shared/types";
 import {
@@ -279,6 +281,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(
     () => initialRoute.tab === "settings",
   );
+  const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsReturnTab, setSettingsReturnTab] = useState<Tab>(() =>
     initialRoute.tab === "settings" ? "chat" : initialRoute.tab,
   );
@@ -398,7 +401,17 @@ export default function App() {
   const knownPendingQuestionIdsRef = useRef<Set<string>>(new Set());
   const questionsFirstLoadRef = useRef(true);
   // C26：全局 toast 反馈。
-  const { toasts, pushToast, dismissToast } = useToasts();
+  const { toasts, pushToast: pushRawToast, dismissToast } = useToasts();
+  const pushToast = useCallback(
+    (toast: { kind: "success" | "error" | "info"; message: string; detail?: string; action?: { label: string; onClick: () => void } }) => {
+      pushRawToast({
+        ...toast,
+        message: formatError(toast.message),
+        ...(toast.detail ? { detail: formatError(toast.detail) } : {}),
+      });
+    },
+    [pushRawToast],
+  );
   // t50：Dock 布局（对话/团队双主面板）。
   const dockRef = useRef<DockHandle | null>(null);
   const dockHostRef = useRef<HTMLDivElement | null>(null);
@@ -446,6 +459,10 @@ export default function App() {
         setTab("settings");
         return;
       }
+      if (settingsOpen && settingsDirty && !window.confirm("设置尚未保存，确定离开吗？")) {
+        return;
+      }
+      setSettingsDirty(false);
       setSettingsOpen(false);
       setGitSettingsFocus(false);
       if (key !== "tasks") setTaskVcsFocus(false);
@@ -456,7 +473,7 @@ export default function App() {
       setActivePanelKey(key);
       dockRef.current?.openPanel(key);
     },
-    [tab],
+    [settingsDirty, settingsOpen, tab],
   );
 
   function togglePanelMenu() {
@@ -469,6 +486,7 @@ export default function App() {
 
   function closeSettings() {
     setSettingsOpen(false);
+    setSettingsDirty(false);
     setGitSettingsFocus(false);
     // t172：设置页可能修改了翻译源/目标；关闭时清空会话翻译缓存。
     historyTranslationMemo.clear();
@@ -607,6 +625,8 @@ export default function App() {
   // C09/C11：全局快捷键——Ctrl/⌘+B 折叠侧栏、Ctrl/⌘+K 命令面板、Alt+1–6 切换页面。
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      // t190：Modal（含风险审批/队列）打开时全局快捷键不穿透。
+      if (hasOpenModal()) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
         event.preventDefault();
         setSidebarCollapsed((collapsed) => {
@@ -965,6 +985,10 @@ export default function App() {
         setSettingsOpen(true);
         setTab("settings");
       } else {
+        if (settingsOpen && settingsDirty && !window.confirm("设置尚未保存，确定离开吗？")) {
+          return;
+        }
+        setSettingsDirty(false);
         setSettingsOpen(false);
         setSettingsReturnTab(route.tab);
         setTab(route.tab);
@@ -1002,7 +1026,7 @@ export default function App() {
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [loadTrace, loadRuns]);
+  }, [loadRuns, loadTrace, settingsDirty, settingsOpen]);
 
   useEffect(() => {
     void (async () => {
@@ -1250,7 +1274,7 @@ export default function App() {
         setChatTools([]);
         setChatReasoningSegments([]);
         setChatBusy(false);
-        setError(event.error);
+        setError(formatError(event.error));
         void loadChat().catch(() => {});
       }
     });
@@ -2071,6 +2095,8 @@ export default function App() {
   // t103：Git 入口（命令面板 / 团队页 / 深链共用）。
   function handleOpenMergeQueue() {
     if (tab === "settings") {
+      if (settingsDirty && !window.confirm("设置尚未保存，确定离开吗？")) return;
+      setSettingsDirty(false);
       setSettingsOpen(false);
       setGitSettingsFocus(false);
     }
@@ -2254,17 +2280,18 @@ export default function App() {
     }
   }
 
-  async function handleSaveSettings(settings: LlmSettings) {
+  async function handleSaveSettings(
+    settings: LlmSettings,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     setBusy(true);
-    setError(null);
     try {
       await window.deer.saveSettings(settings);
       const current = snapshotRef.current;
       if (current) await refresh(current.workspace.id);
-      // C26：成功 toast。
-      pushToast({ kind: "success", message: "设置已保存" });
+      // t190：保存反馈由 SettingsView 内部呈现；不把错误丢到全局 banner。
+      return { ok: true };
     } catch (error) {
-      setError(errorText(error));
+      return { ok: false, error: errorText(error) };
     } finally {
       setBusy(false);
     }
@@ -2540,13 +2567,13 @@ export default function App() {
       <main className="main">
         {error && (
           <div className="error banner" role="alert">
-            {/* C26：格式化后的错误文案 + 复制详情 */}
-            <span className="error-banner-text">{error}</span>
+            {/* C26/t190：格式化 + 共享脱敏后的错误文案；复制详情同样脱敏。 */}
+            <span className="error-banner-text">{formatError(error)}</span>
             <div className="row gap">
               <button
                 className="ghost tiny"
                 onClick={() => {
-                  void navigator.clipboard?.writeText(error).catch(() => {});
+                  void navigator.clipboard?.writeText(formatError(error)).catch(() => {});
                 }}
               >
                 复制详情
@@ -2915,12 +2942,14 @@ export default function App() {
           title="设置"
           description="模型、翻译、Git、插件、MCP、Skills 与团队"
           onClose={closeSettings}
+          confirmClose={settingsDirty}
           className="settings-modal"
         >
           <SettingsView
             snapshot={snapshot}
             busy={busy}
             onSave={handleSaveSettings}
+            onDirtyChange={setSettingsDirty}
             onReload={() => void refresh(snapshot.workspace.id)}
             initialSection={gitSettingsFocus ? "git" : undefined}
           />
@@ -3036,19 +3065,69 @@ export default function App() {
         />
       )}
 
-      {/* t69：任务/Run/调度状态变化的 aria-live 播报（视觉隐藏）。t113：contextKey 变化静默重置基线。 */}
-      <KernelAnnouncer
+      {/* t69：任务/Run/调度状态变化的 aria-live 播报（视觉隐藏）。t113：contextKey 变化静默重置基线。
+          t204：全局 live region 与 toast 必须 portal 到 body；否则 Modal 打开时 #root inert 会冻结它们。 */}
+      <AppLiveRegions
         tasks={snapshot.tasks}
         scheduler={scheduler}
         runs={taskRuns}
         actionMessage={kernelAnnouncement}
         contextKey={`${snapshot.workspace.id}:${tab}:${selectedTaskId ?? "-"}`}
+        toasts={toasts}
+        onDismiss={dismissToast}
       />
-
-      {/* C26：全局 toast */}
-      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
+}
+
+/**
+ * t204：全局 live region（KernelAnnouncer + ToastHost）必须在 inert #root 外。
+ * 顶层风险/设置/队列 Modal 打开时 #root.inert=true；若 toast/播报仍挂在 app 内，
+ * 既不可读也不可关闭，aria-live 也不会被辅助技术播报。
+ */
+export function AppLiveRegions({
+  tasks,
+  scheduler,
+  runs,
+  actionMessage,
+  contextKey,
+  toasts,
+  onDismiss,
+}: {
+  tasks: Task[];
+  scheduler: SchedulerSnapshot | null;
+  runs: Run[];
+  actionMessage?: string | null;
+  contextKey?: string;
+  toasts: ToastItem[];
+  onDismiss: (id: number) => void;
+}) {
+  const content = (
+    <>
+      <KernelAnnouncer
+        tasks={tasks}
+        scheduler={scheduler}
+        runs={runs}
+        actionMessage={actionMessage}
+        contextKey={contextKey}
+      />
+      {/* t206：toast 必须在 modal-backdrop(1000)/palette(150) 之上；
+          用独立 fixed 层提升 z-index，且 pointer-events:none 不挡背景，
+          .toast 自身 pointer-events:auto 保持关闭/action 可点击。 */}
+      <div
+        className="app-toast-layer"
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1200,
+          pointerEvents: "none",
+        }}
+      >
+        <ToastHost toasts={toasts} onDismiss={onDismiss} />
+      </div>
+    </>
+  );
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 
 /** t69：有副作用的内核操作统一二次确认（Esc/焦点陷阱由 Modal 提供）。t107：文案走 kernelConfirmCopy 纯函数（含 resume）。 */
@@ -3707,7 +3786,7 @@ function TasksView({
 
             {actionError && (
               <div className="error banner task-action-error" role="alert">
-                <span>操作失败：{actionError}</span>
+                <span>操作失败：{formatError(actionError)}</span>
               </div>
             )}
 

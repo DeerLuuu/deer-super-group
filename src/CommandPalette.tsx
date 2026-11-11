@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Snapshot } from "./shared/types";
 import type { RouteTab } from "./shared/deeplink";
 import { TASK_STATUS_LABEL } from "./shared/copy";
+import {
+  isTopModal,
+  popModal,
+  pushModal,
+  registerModalElement,
+  type ModalToken,
+} from "./shared/modalStack";
 
 /**
  * C11 全局搜索 / 命令面板（Ctrl/⌘+K）。
@@ -75,10 +83,29 @@ export default function CommandPalette({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const tokenRef = useRef<ModalToken>(Symbol("command-palette"));
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    const token = tokenRef.current;
+    pushModal(token);
+    registerModalElement(token, dialogRef.current);
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     inputRef.current?.focus();
+    return () => {
+      const wasTop = isTopModal(token);
+      popModal(token);
+      if (wasTop) restoreFocusRef.current?.focus();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function requestClose() {
+    if (!isTopModal(tokenRef.current)) return;
+    onClose();
+  }
 
   useEffect(() => {
     setActive(0);
@@ -216,6 +243,7 @@ export default function CommandPalette({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (!isTopModal(tokenRef.current)) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActive((current) => (current + 1) % Math.max(1, results.length));
@@ -230,20 +258,53 @@ export default function CommandPalette({
       run(results[clamped]);
     } else if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      event.stopPropagation();
+      requestClose();
+    }
+  }
+
+  function onDialogKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!isTopModal(tokenRef.current)) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      requestClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const node = dialogRef.current;
+    if (!node) return;
+    const items = Array.from(
+      node.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((item) => item.offsetParent !== null || item === document.activeElement);
+    if (items.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   }
 
   let lastGroup = "";
 
-  return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
+  const content = (
+    <div className="palette-backdrop" onMouseDown={requestClose}>
       <div
+        ref={dialogRef}
         className="palette"
         role="dialog"
         aria-modal="true"
         aria-label="全局搜索与命令面板"
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={onDialogKeyDown}
       >
         <input
           ref={inputRef}
@@ -288,4 +349,8 @@ export default function CommandPalette({
       </div>
     </div>
   );
+
+  // t200：必须 portal 到 body；否则 modalStack 把 #root 设为 inert 时，
+  // 位于 #root 内的 palette 输入/Esc/Tab 会被祖先 inert 冻结。
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }

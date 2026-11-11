@@ -1375,6 +1375,26 @@ label.check input {
   gap: 4px;
 }
 
+.settings-dirty {
+  margin: 2px 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.settings-dirty.is-dirty {
+  color: var(--status-queued);
+}
+
+.settings-save-status {
+  color: var(--green);
+  font-size: 10px;
+  align-self: center;
+}
+
+.settings-save-status.is-error {
+  color: color-mix(in srgb, var(--status-failed) 78%, white);
+}
+
 .settings-nav-item {
   text-align: left;
   background: transparent;

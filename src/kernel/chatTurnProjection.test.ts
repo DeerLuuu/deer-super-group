@@ -453,7 +453,8 @@ describe("t168 chat turn projection", () => {
             status: "error",
             stage: "model",
             code: "PROVIDER_500",
-            message: "Authorization: Bearer sk-secret-123 failed token=abc",
+            message:
+              'Authorization: Basic dXNlcjpwYXNz; Cookie: session=cookie-secret; client_secret=cs-secret; accessToken=at-secret; private_key=pk-secret; https://10.0.0.5/internal\n{"error":{"message":"provider body secret"}}',
             retryable: false,
             step: null,
             toolCallId: null,
@@ -467,9 +468,14 @@ describe("t168 chat turn projection", () => {
     const errorTurn = error.turns[0]!;
     expect(errorTurn.status).toBe("error");
     expect(errorTurn.terminal).toMatchObject({ status: "error", stage: "model", retryable: false });
-    expect(errorTurn.terminal?.message).not.toContain("sk-secret");
-    expect(errorTurn.terminal?.message).toContain("[REDACTED]");
-    expect(errorTurn.terminal?.message).not.toContain("token=abc");
+    expect(errorTurn.terminal?.message).not.toContain("dXNlcjpwYXNz");
+    expect(errorTurn.terminal?.message).not.toContain("cookie-secret");
+    expect(errorTurn.terminal?.message).not.toContain("cs-secret");
+    expect(errorTurn.terminal?.message).not.toContain("at-secret");
+    expect(errorTurn.terminal?.message).not.toContain("pk-secret");
+    expect(errorTurn.terminal?.message).not.toContain("10.0.0.5");
+    expect(errorTurn.terminal?.message).not.toContain("provider body secret");
+    expect(errorTurn.terminal?.message).toContain("[provider 原始响应已隐藏]");
 
     const old = build([user], []);
     expect(old.turns[0]!.status).toBe("pending");
