@@ -1,0 +1,137 @@
+[
+  {
+    "step": "1440-team",
+    "title": "按钮工厂 · 团队 — DeerSuperGroup",
+    "hash": "#/team",
+    "width": 1440,
+    "height": 900,
+    "sidebarClass": "sidebar ",
+    "railClass": "primary-rail ",
+    "railWidth": 249,
+    "activeEntry": "团队",
+    "entries": [
+      {
+        "label": "对话",
+        "title": "对话（Chat）",
+        "labelDisplay": "block",
+        "ariaCurrent": null
+      },
+      {
+        "label": "任务",
+        "title": "任务（Tasks）",
+        "labelDisplay": "block",
+        "ariaCurrent": null
+      },
+      {
+        "label": "团队",
+        "title": "团队（Team）",
+        "labelDisplay": "block",
+        "ariaCurrent": "page"
+      },
+      {
+        "label": "记忆",
+        "title": "记忆（Board）",
+        "labelDisplay": "block",
+        "ariaCurrent": null
+      },
+      {
+        "label": "邮箱",
+        "title": "邮箱（Mailbox）",
+        "labelDisplay": "block",
+        "ariaCurrent": null
+      }
+    ],
+    "focusTag": "DIV",
+    "focusPanel": "team"
+  },
+  {
+    "step": "960-board",
+    "title": "按钮工厂 · 记忆 — DeerSuperGroup",
+    "hash": "#/board",
+    "width": 960,
+    "height": 700,
+    "sidebarClass": "sidebar collapsed",
+    "railClass": "primary-rail is-collapsed",
+    "railWidth": 55,
+    "activeEntry": "记忆",
+    "entries": [
+      {
+        "label": "对话",
+        "title": "对话",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      },
+      {
+        "label": "任务",
+        "title": "任务",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      },
+      {
+        "label": "团队",
+        "title": "团队",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      },
+      {
+        "label": "记忆",
+        "title": "记忆",
+        "labelDisplay": "none",
+        "ariaCurrent": "page"
+      },
+      {
+        "label": "邮箱",
+        "title": "邮箱",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      }
+    ],
+    "focusTag": "DIV",
+    "focusPanel": "board"
+  },
+  {
+    "step": "960-keyboard-tasks",
+    "title": "按钮工厂 · 任务 — DeerSuperGroup",
+    "hash": "#/tasks",
+    "width": 960,
+    "height": 700,
+    "sidebarClass": "sidebar collapsed",
+    "railClass": "primary-rail is-collapsed",
+    "railWidth": 55,
+    "activeEntry": "任务",
+    "entries": [
+      {
+        "label": "对话",
+        "title": "对话",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      },
+      {
+        "label": "任务",
+        "title": "任务",
+        "labelDisplay": "none",
+        "ariaCurrent": "page"
+      },
+      {
+        "label": "团队",
+        "title": "团队",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      },
+      {
+        "label": "记忆",
+        "title": "记忆",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      },
+      {
+        "label": "邮箱",
+        "title": "邮箱",
+        "labelDisplay": "none",
+        "ariaCurrent": null
+      }
+    ],
+    "focusTag": "DIV",
+    "focusPanel": "tasks"
+  }
+]

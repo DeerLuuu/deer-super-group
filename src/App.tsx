@@ -126,6 +126,8 @@ import {
   shouldAutoCollapseSidebar,
   sidebarWidthStateForWindow,
 } from "./shell/dock/narrowWindow";
+import PrimaryRail, { usePrimaryRailFocus } from "./shell/PrimaryRail";
+import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
 
@@ -494,6 +496,51 @@ export default function App() {
       dockRef.current?.openPanel(key);
     },
     [settingsDirty, settingsOpen, tab],
+  );
+
+  function focusPanelNow(key: PrimaryRailKey): boolean {
+    if (activePanelKey !== key) return false;
+    const panel = document.querySelector<HTMLElement>(
+      `.dock-panel-body[data-panel="${key}"]`,
+    );
+    if (!panel || panel.closest("[inert]")) return false;
+    if (panel.getClientRects().length === 0) return false;
+    const style = window.getComputedStyle(panel);
+    if (style.visibility === "hidden" || style.display === "none") return false;
+    if (key === "chat") {
+      const composer =
+        panel.querySelector<HTMLElement>('textarea:not([disabled]), [contenteditable="true"]') ??
+        panel.querySelector<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+      if (composer) {
+        composer.focus({ preventScroll: true });
+        return (
+          composer === document.activeElement ||
+          composer.contains(document.activeElement)
+        );
+      }
+      return false;
+    }
+    // 面板容器（tabIndex=-1）比首个按钮稳定：事件刷新/面板重渲染不会替换容器，
+    // 键盘下一次 Tab 仍会进入面板首个控件。
+    panel.focus({ preventScroll: true });
+    return panel === document.activeElement;
+  }
+
+  const { requestFocus: requestRailFocus } = usePrimaryRailFocus(
+    activePanelKey,
+    focusPanelNow,
+  );
+
+  const openPrimaryPanel = useCallback(
+    (key: PrimaryRailKey) => {
+      // 复用唯一面板入口：面板已关闭时 DockShell 会 ensurePanel 重开。
+      openPanel(key);
+      // generation/timer 由 hook 管理：旧请求在 pointerdown/keydown/active 变化时失效。
+      requestRailFocus(key);
+    },
+    [openPanel, requestRailFocus],
   );
 
   function togglePanelMenu() {
@@ -2413,6 +2460,8 @@ export default function App() {
     { preferred: sidebarWidth, displayed: sidebarDisplayWidth },
     viewportWidth,
   );
+  // P0-2：一级入口 active 只从现有 Dock 激活面板/route tab 派生，不新增第二套面板状态。
+  const activeRailKey = railKeyForActive(activePanelKey, tab);
 
   return (
     <div className="app">
@@ -2463,6 +2512,12 @@ export default function App() {
             </button>
           </div>
         )}
+
+        <PrimaryRail
+          activeKey={activeRailKey}
+          collapsed={sidebarCollapsed}
+          onOpen={openPrimaryPanel}
+        />
 
         <div className="sidebar-actions">
           {!sidebarCollapsed && <div className="section-label">操作</div>}

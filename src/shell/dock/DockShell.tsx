@@ -105,7 +105,7 @@ function DockPanelBody(props: IDockviewPanelProps) {
   return (
     <PanelContentContext.Consumer>
       {(render) => (
-        <div className="dock-panel-body" data-panel={props.api.id}>
+        <div className="dock-panel-body" data-panel={props.api.id} tabIndex={-1}>
           {render(props.api.id as PanelKey)}
         </div>
       )}
