@@ -50,11 +50,7 @@ import type {
 } from "./shared/watchdog";
 import KernelAnnouncer from "./KernelAnnouncer";
 import ChatContent from "./ChatContent";
-import {
-  GitSettingsPanel,
-  MergeQueueModal,
-  TaskVcsPanel,
-} from "./git/ui/GitPanels";
+import { MergeQueueModal, TaskVcsPanel } from "./git/ui/GitPanels";
 import MemoryWorkbench from "./shell/MemoryWorkbench";
 import ReviewSection from "./review/ui/ReviewSection";
 import PollPanel from "./shell/PollPanel";
@@ -265,7 +261,6 @@ export default function App() {
   const [gitSettingsFocus, setGitSettingsFocus] = useState(false);
   const [taskVcsFocus, setTaskVcsFocus] = useState(false);
   const [taskReviewFocus, setTaskReviewFocus] = useState(false);
-  const settingsGitRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -496,7 +491,7 @@ export default function App() {
   useEffect(() => {
     if (!gitSettingsFocus || !settingsOpen) return;
     const timer = window.setTimeout(() => {
-      const target = settingsGitRef.current;
+      const target = document.querySelector<HTMLElement>("#settings-git");
       if (!target) return;
       const modal = target.closest<HTMLElement>(".settings-modal");
       if (modal) scrollWithin(modal, target);
@@ -2786,7 +2781,7 @@ export default function App() {
       {settingsOpen && snapshot && (
         <Modal
           title="设置"
-          description="模型、插件、MCP、Skills、团队与 Git"
+          description="模型、翻译、Git、插件、MCP、Skills 与团队"
           onClose={closeSettings}
           className="settings-modal"
         >
@@ -2795,23 +2790,8 @@ export default function App() {
             busy={busy}
             onSave={handleSaveSettings}
             onReload={() => void refresh(snapshot.workspace.id)}
+            initialSection={gitSettingsFocus ? "git" : undefined}
           />
-          <div
-            ref={settingsGitRef}
-            id="settings-git"
-            className="settings-git-block"
-            tabIndex={-1}
-          >
-            <div className="settings-git-heading">
-              <div>
-                <div className="section-label">Git 开发</div>
-                <p className="muted tiny">
-                  仓库模式、分支/PR、worktree 容量与合并方式。Token 只来自 gh 登录或环境变量，不在此处输入或展示。
-                </p>
-              </div>
-            </div>
-            <GitSettingsPanel workspaceId={snapshot.workspace.id} />
-          </div>
         </Modal>
       )}
 
