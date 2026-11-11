@@ -1740,6 +1740,22 @@ export class Store {
     return rows.map((row) => this.toEventRecord(row)).reverse();
   }
 
+  /**
+   * t175：终态事件独立于 2000 process 窗口读取。
+   * 返回按 seq 升序的最近 limit 条（默认 500）。
+   */
+  listChatTurnTerminalEvents(workspaceId: string, limit = 500): EventRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events
+         WHERE aggregate_type = 'chat' AND aggregate_id = ?
+           AND type IN ('chat.turn_cancelled', 'chat.turn_error')
+         ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(workspaceId, Math.max(1, Math.min(limit, 500))) as Row[];
+    return rows.map((row) => this.toEventRecord(row)).reverse();
+  }
+
   /** t170：清空当前对话、画布索引与提问；事件日志保留。 */
   clearChatContext(
     workspaceId: string,

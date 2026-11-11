@@ -1,12 +1,19 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
-import type { Agent, ChatAssistantTurn, ChatMessage } from "../shared/types.js";
-import { ChatTurnHistoryProcess, ChatView } from "../App.js";
+import type {
+  Agent,
+  ChatAssistantTurn,
+  ChatMessage,
+  ChatTurn,
+  ChatTurnTerminal,
+} from "../shared/types.js";
+import { ChatTurnHistoryProcess, ChatView, retryComposerState } from "../App.js";
 
 interface ChatRenderer {
   root: {
     findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
+    findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }>;
     findByType: (type: string) => { props: Record<string, unknown> };
   };
   toJSON: () => unknown;
@@ -77,6 +84,89 @@ function chatMessage(id: string, role: ChatMessage["role"], content: string): Ch
     content,
     reasoning: "",
     createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function terminalTurn(status: "cancelled" | "error"): ChatTurn {
+  const terminal: ChatTurnTerminal =
+    status === "cancelled"
+      ? {
+          status,
+          stage: "tool",
+          code: "ABORTED",
+          message: null,
+          at: "2026-01-01T00:00:02.000Z",
+          retryable: true,
+          tool: { callId: "c1", name: "fs.read", step: 1 },
+          source: "event",
+        }
+      : {
+          status,
+          stage: "model",
+          code: "PROVIDER_500",
+          message: "provider failed",
+          at: "2026-01-01T00:00:02.000Z",
+          retryable: true,
+          tool: null,
+          source: "event",
+        };
+  return {
+    turnId: "turn:u1",
+    userMessage: chatMessage("u1", "user", "原始问题"),
+    assistants: [],
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: terminal.at,
+    status,
+    terminal,
+    retryable: true,
+  };
+}
+
+function chatViewProps(overrides: Record<string, unknown> = {}) {
+  return {
+    messages: [chatMessage("u1", "user", "原始问题")],
+    tools: [],
+    reasoningSegments: [],
+    turnByAssistant: new Map(),
+    turnByUser: new Map(),
+    liveTerminals: new Map(),
+    onRetryTurn: () => {},
+    composerRef: { current: null },
+    translateHistoryText: async () => "译文",
+    view: "chat" as const,
+    onViewChange: () => {},
+    trajectory: [],
+    trajectoryLoading: false,
+    onRefreshTrajectory: () => {},
+    stream: "",
+    reasoning: "",
+    busy: false,
+    input: "",
+    onInput: () => {},
+    onSend: () => {},
+    onStop: () => {},
+    questions: new Map(),
+    questionsLoaded: true,
+    pendingQuestionCount: 0,
+    onOpenFirstQuestion: () => {},
+    onAnswerQuestion: () => {},
+    onToast: () => {},
+    taskContext: null,
+    taskContextSource: null,
+    onReturnToSource: undefined,
+    onClearTaskContext: () => {},
+    onOpenContextPanel: () => {},
+    contextBusy: false,
+    onClearContext: () => {},
+    onCompactContext: () => {},
+    overview: null,
+    routerAgent: { permission: "full_access", model: null } as Agent,
+    modelOptions: [],
+    fullThrottle: false,
+    onModelChange: () => {},
+    onPermissionChange: () => {},
+    onFullThrottleChange: () => {},
+    ...overrides,
   };
 }
 
@@ -168,15 +258,14 @@ describe("t172 App UI history process", () => {
 
   it("does not attach live tools to a persisted assistant bubble", async () => {
     const assistant = assistantFixture();
-    const messages = [
-      chatMessage("u1", "user", "问题"),
-      {
-        ...chatMessage("a1", "assistant", "最终回复"),
-        createdAt: "2026-01-01T00:00:02.000Z",
-      },
-    ];
-    const props = {
-      messages,
+    const renderer = await render(<ChatView {...chatViewProps({
+      messages: [
+        chatMessage("u1", "user", "问题"),
+        {
+          ...chatMessage("a1", "assistant", "最终回复"),
+          createdAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
       tools: [
         {
           callId: "stale",
@@ -186,47 +275,115 @@ describe("t172 App UI history process", () => {
           step: 1,
         },
       ],
-      reasoningSegments: [],
       turnByAssistant: new Map([["a1", assistant]]),
-      translateHistoryText: async () => "译文",
-      view: "chat" as const,
-      onViewChange: () => {},
-      trajectory: [],
-      trajectoryLoading: false,
-      onRefreshTrajectory: () => {},
-      stream: "",
-      reasoning: "",
-      busy: false,
-      input: "",
-      onInput: () => {},
-      onSend: () => {},
-      onStop: () => {},
-      questions: new Map(),
-      questionsLoaded: true,
-      pendingQuestionCount: 0,
-      onOpenFirstQuestion: () => {},
-      onAnswerQuestion: () => {},
-      onToast: () => {},
-      taskContext: null,
-      taskContextSource: null,
-      onReturnToSource: undefined,
-      onClearTaskContext: () => {},
-      onOpenContextPanel: () => {},
-      contextBusy: false,
-      onClearContext: () => {},
-      onCompactContext: () => {},
-      overview: null,
-      routerAgent: { permission: "full_access", model: null } as Agent,
-      modelOptions: [],
-      fullThrottle: false,
-      onModelChange: () => {},
-      onPermissionChange: () => {},
-      onFullThrottleChange: () => {},
-    };
-    const renderer = await render(<ChatView {...props} />);
+    })} />);
     const output = textOf(renderer.toJSON());
     expect(output.match(/执行过程/g)).toHaveLength(1);
     expect(output).not.toContain("生成中");
     expect(output).toContain("历史记录");
+  });
+
+  it("renders one historical terminal bubble, no assistant, and retry only calls prefill", async () => {
+    const onRetry = vi.fn();
+    const onSend = vi.fn();
+    const turn = terminalTurn("cancelled");
+    const renderer = await render(
+      <ChatView
+        {...chatViewProps({
+          turnByUser: new Map([["u1", turn]]),
+          onRetryTurn: onRetry,
+          onSend,
+        })}
+      />,
+    );
+    const output = textOf(renderer.toJSON());
+    expect(output).toContain("已取消");
+    expect(output).toContain("工具执行中");
+    expect(output).toContain("读取文件");
+    expect(output).not.toContain("生成中");
+    expect(renderer.root.findAllByProps({ role: "status" })).toHaveLength(1);
+    expect(renderer.root.findAllByProps({ className: "chat-row assistant" })).toHaveLength(0);
+    const retry = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("重试"));
+    expect(retry).toBeTruthy();
+    await act(() => {
+      (retry!.props.onClick as () => void)();
+    });
+    expect(onRetry).toHaveBeenCalledWith("原始问题");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("renders error alerts with sanitized summary, disables retry while busy, and dedupes live terminal", async () => {
+    const turn = terminalTurn("error");
+    const renderer = await render(
+      <ChatView
+        {...chatViewProps({
+          busy: true,
+          turnByUser: new Map([["u1", turn]]),
+          liveTerminals: new Map([["u1", turn.terminal!]]),
+        })}
+      />,
+    );
+    const output = textOf(renderer.toJSON());
+    expect(output).toContain("回复失败");
+    expect(output).toContain("PROVIDER_500");
+    expect(output).toContain("provider failed");
+    expect(renderer.root.findAllByProps({ role: "alert" })).toHaveLength(1);
+    expect(renderer.root.findAllByProps({ className: "chat-turn-terminal is-error" })).toHaveLength(1);
+    const retry = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("重试"));
+    expect(retry?.props.disabled).toBe(true);
+  });
+
+  it("retry prefill never overwrites a different draft and never sends", () => {
+    expect(retryComposerState("", "原始问题")).toEqual({
+      value: "原始问题",
+      message: "已填入输入框，确认后发送",
+    });
+    expect(retryComposerState("我的草稿", "原始问题")).toEqual({
+      value: "我的草稿",
+      message: "输入框已有内容，请确认后替换",
+    });
+    expect(retryComposerState("原始问题", "原始问题")).toEqual({
+      value: "原始问题",
+      message: "输入框已是该内容，确认后发送",
+    });
+    expect(retryComposerState("", "   ")).toBeNull();
+  });
+
+  it("shows a live terminal before the durable turn page arrives", async () => {    const terminal = terminalTurn("cancelled").terminal!;
+    const renderer = await render(
+      <ChatView
+        {...chatViewProps({
+          liveTerminals: new Map([["u1", terminal]]),
+        })}
+      />,
+    );
+    const output = textOf(renderer.toJSON());
+    expect(output).toContain("已取消");
+    expect(renderer.root.findAllByProps({ role: "status" })).toHaveLength(1);
+  });
+
+  it("shows a legacy pending bubble for user-only old data without a terminal", async () => {
+    const userTurn: ChatTurn = {
+      turnId: "turn:u1",
+      userMessage: chatMessage("u1", "user", "旧消息"),
+      assistants: [],
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      status: "pending",
+      terminal: null,
+      retryable: true,
+      legacyUnresolved: true,
+    };
+    const renderer = await render(
+      <ChatView {...chatViewProps({ turnByUser: new Map([["u1", userTurn]])} )} />,
+    );
+    const output = textOf(renderer.toJSON());
+    expect(output).toContain("未完成（旧数据）");
+    expect(output).not.toContain("回复失败");
+    expect(renderer.root.findAllByProps({ className: "chat-row assistant" })).toHaveLength(0);
   });
 });

@@ -195,4 +195,101 @@ describe("t168 getChatTurns service", () => {
     expect(older.turns[0]!.userMessage?.content.startsWith("q1-")).toBe(true);
     expect(older.turns.length).toBeGreaterThan(0);
   });
+
+  it("binds a persistent terminal by userMessageId and returns pending for old user-only", async () => {
+    const { service, workspacePath } = setup();
+    const { workspace, router } = await open(service, workspacePath);
+    const user = service.store.addChatMessage({
+      workspaceId: workspace.id,
+      agentId: router.id,
+      role: "user",
+      content: "执行工具",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    service.store.appendEvent({
+      aggregateType: "chat",
+      aggregateId: workspace.id,
+      type: "chat.turn_cancelled",
+      actor: "user",
+      idempotencyKey: `chat-turn-terminal:${user.id}`,
+      payload: {
+        version: 1,
+        userMessageId: user.id,
+        turnId: `turn:${user.id}`,
+        agentId: router.id,
+        status: "cancelled",
+        stage: "tool",
+        code: "ABORTED",
+        message: null,
+        retryable: true,
+        step: 1,
+        toolCallId: "call-1",
+        toolName: "fs.read",
+        at: "2026-01-01T00:00:01.000Z",
+      },
+    });
+    const page = service.getChatTurns(workspace.id, router.id);
+    expect(page.turns[0]!.status).toBe("cancelled");
+    expect(page.turns[0]!.assistants).toHaveLength(0);
+    expect(page.turns[0]!.terminal).toMatchObject({
+      stage: "tool",
+      tool: { callId: "call-1", name: "fs.read", step: 1 },
+    });
+    expect(page.turns[0]!.retryable).toBe(true);
+
+    const old = service.store.addChatMessage({
+      workspaceId: workspace.id,
+      agentId: router.id,
+      role: "user",
+      content: "旧数据",
+      createdAt: "2026-01-01T00:01:00.000Z",
+    });
+    const pending = service.getChatTurns(workspace.id, router.id);
+    expect(pending.turns.find((turn) => turn.userMessage?.id === old.id)?.status).toBe("pending");
+    expect(
+      pending.turns.find((turn) => turn.userMessage?.id === old.id)?.legacyUnresolved,
+    ).toBe(true);
+  });
+
+  it("reads terminal events outside the 2000 process window", async () => {    const { service, workspacePath } = setup();
+    const { workspace, router } = await open(service, workspacePath);
+    const user = service.store.addChatMessage({
+      workspaceId: workspace.id,
+      agentId: router.id,
+      role: "user",
+      content: "长工具风暴",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    service.store.appendEvent({
+      aggregateType: "chat",
+      aggregateId: workspace.id,
+      type: "chat.turn_error",
+      actor: "agent:Router",
+      idempotencyKey: `chat-turn-terminal:${user.id}`,
+      payload: {
+        version: 1,
+        userMessageId: user.id,
+        turnId: `turn:${user.id}`,
+        agentId: router.id,
+        status: "error",
+        stage: "model",
+        code: "PROVIDER_500",
+        message: "provider failed",
+        retryable: true,
+        at: "2026-01-01T00:00:01.000Z",
+      },
+    });
+    for (let index = 0; index < 2_001; index += 1) {
+      service.store.appendEvent({
+        aggregateType: "chat",
+        aggregateId: workspace.id,
+        type: "chat.reasoning",
+        actor: "agent:Router",
+        payload: { agentId: router.id, step: 0, text: `step ${index}` },
+      });
+    }
+    const page = service.getChatTurns(workspace.id, router.id);
+    expect(page.turns[0]!.status).toBe("error");
+    expect(page.turns[0]!.terminal?.code).toBe("PROVIDER_500");
+  }, 20_000);
 });

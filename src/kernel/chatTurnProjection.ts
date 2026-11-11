@@ -4,8 +4,11 @@ import type {
   ChatTurn,
   ChatTurnHistoryPage,
   ChatTurnReasoning,
+  ChatTurnStage,
   ChatTurnStatus,
   ChatTurnStep,
+  ChatTurnTerminal,
+  ChatTurnTerminalStatus,
   ChatTurnTool,
   EventRecord,
 } from "../shared/types.js";
@@ -302,9 +305,90 @@ function estimatedResponseBytes(turns: ChatTurn[]): number {
 }
 
 /**
- * t172：单轮硬预算。先算用户内容/思考，再按顺序扣 assistant content / reasoning / tool 数量；
- * 任何裁剪都置 turn.truncated，供 UI/验证报告区分“字段截断”与响应总量上限。
+ * t175：从持久化终态事件构造投影 terminal。
+ * 只接受 type/status/turnId/userMessageId/agentId 全部自洽的事件；
+ * message/code 再做一次 cap + 脱敏，防止旧事件/手工导入泄露。
  */
+function terminalFromEvent(
+  event: EventRecord,
+  agentId: string,
+): { userMessageId: string; terminal: ChatTurnTerminal } | null {
+  if (event.type !== "chat.turn_cancelled" && event.type !== "chat.turn_error") return null;
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const userMessageId = String(payload.userMessageId ?? "").trim();
+  if (!userMessageId) return null;
+  if (String(payload.agentId ?? "") !== agentId) return null;
+  const expectedTurnId = `turn:${userMessageId}`;
+  if (payload.turnId != null && String(payload.turnId) !== expectedTurnId) return null;
+  const status: ChatTurnTerminalStatus =
+    event.type === "chat.turn_cancelled" ? "cancelled" : "error";
+  if (payload.status != null && payload.status !== status) return null;
+  const stageRaw = String(payload.stage ?? "unknown");
+  const stage: ChatTurnStage = ["model", "tool", "approval", "persist", "unknown"].includes(
+    stageRaw,
+  )
+    ? (stageRaw as ChatTurnStage)
+    : "unknown";
+  const messageRaw = payload.message == null ? "" : String(payload.message);
+  const codeRaw = payload.code == null ? "" : String(payload.code);
+  const toolCallId = payload.toolCallId == null ? "" : String(payload.toolCallId);
+  const toolName = payload.toolName == null ? "" : String(payload.toolName);
+  const step = Number(payload.step);
+  return {
+    userMessageId,
+    terminal: {
+      status,
+      stage,
+      code: codeRaw ? capTerminalText(codeRaw, 64) : status === "cancelled" ? "ABORTED" : null,
+      message: status === "error" ? capTerminalText(messageRaw, 500) || null : null,
+      at: String(payload.at ?? event.occurredAt ?? event.createdAt),
+      retryable: payload.retryable !== false,
+      tool:
+        toolCallId || toolName
+          ? {
+              callId: capTerminalText(toolCallId, 120),
+              name: capTerminalText(toolName, 120),
+              step: Number.isFinite(step) ? step : null,
+            }
+          : null,
+      source: "event",
+    },
+  };
+}
+
+function capTerminalText(value: string, max: number): string {
+  const text = value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/gi, "[REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(/\bAuthorization\s*:\s*[^\s]+/gi, "Authorization: [REDACTED]")
+    .replace(/\b(api[_-]?key|token|secret)\s*[=:]\s*[^&\s]+/gi, "$1=[REDACTED]")
+    .replace(/([?&](?:api[_-]?key|token|secret|key)=)[^&\s]+/gi, "$1[REDACTED]");
+  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+
+/**
+ * t175：终态按 userMessageId 权威绑定；只取最早一条（幂等事件的审计保护）。
+ */
+function collectTerminals(
+  events: EventRecord[],
+  workspaceId: string,
+  agentId: string,
+): Map<string, ChatTurnTerminal> {
+  const terminals = new Map<string, ChatTurnTerminal>();
+  for (const event of events) {
+    if (event.aggregateType !== "chat" || event.aggregateId !== workspaceId) continue;
+    const parsed = terminalFromEvent(event, agentId);
+    if (!parsed || terminals.has(parsed.userMessageId)) continue;
+    terminals.set(parsed.userMessageId, parsed.terminal);
+  }
+  return terminals;
+}
+
+
 function capTurnBudget(turn: ChatTurn): boolean {
   let contentBudget = CHAT_TURN_TOTAL_CONTENT_MAX;
   let reasoningBudget = CHAT_TURN_TOTAL_REASONING_MAX;
@@ -486,18 +570,26 @@ export function buildChatTurns(
     if (target) target.events.push(event);
   }
 
+  const terminalByUser = collectTerminals(sortedEvents, options.workspaceId, options.agentId);
   let allTurns: ChatTurn[] = drafts.map((draft) => {
     const assistants = draft.assistants.map((assistant) =>
       buildAssistant(assistant, draft.turnId, includeTools, includeReasoning),
     );
-    const status: ChatTurnStatus =
-      assistants.length === 0
-        ? draft.user
-          ? "error"
-          : "pending"
-        : assistants.some((assistant) => assistant.status === "complete")
-          ? "complete"
+    const terminal = draft.user ? terminalByUser.get(draft.user.id) ?? null : null;
+    const hasComplete = assistants.some((assistant) => assistant.status === "complete");
+    const legacyUnresolved = Boolean(draft.user && assistants.length === 0 && !terminal);
+    const status: ChatTurnStatus = hasComplete
+      ? "complete"
+      : terminal
+        ? terminal.status
+        : assistants.length === 0
+          ? "pending"
           : "error";
+    const retryable = hasComplete
+      ? false
+      : terminal
+        ? terminal.retryable
+        : Boolean(draft.user?.content.trim());
     return {
       turnId: draft.turnId,
       userMessage: draft.user,
@@ -505,8 +597,11 @@ export function buildChatTurns(
       startedAt: draft.user?.createdAt ?? null,
       endedAt: assistants.length
         ? draft.assistants[draft.assistants.length - 1]!.message.createdAt
-        : null,
+        : terminal?.at ?? null,
       status,
+      terminal,
+      retryable,
+      ...(legacyUnresolved ? { legacyUnresolved: true } : {}),
     };
   });
 
