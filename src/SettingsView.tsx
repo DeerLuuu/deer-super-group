@@ -9,12 +9,21 @@ import type {
 } from "./shared/types";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models";
 import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation";
+import { GitSettingsPanel } from "./git/ui/GitPanels";
 
-type SettingsSection = "models" | "translation" | "plugins" | "mcp" | "skills" | "team";
+type SettingsSection =
+  | "models"
+  | "translation"
+  | "git"
+  | "plugins"
+  | "mcp"
+  | "skills"
+  | "team";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string }> = [
   { id: "models", label: "模型", hint: "供应商、模型与参数" },
   { id: "translation", label: "翻译", hint: "思考机翻源" },
+  { id: "git", label: "Git", hint: "分支、worktree 与合并" },
   { id: "plugins", label: "插件", hint: "扩展与工具集" },
   { id: "mcp", label: "MCP", hint: "外部工具服务器" },
   { id: "skills", label: "Skills", hint: "可复用能力包" },
@@ -32,13 +41,15 @@ export default function SettingsView({
   busy,
   onSave,
   onReload,
+  initialSection,
 }: {
   snapshot: Snapshot;
   busy: boolean;
   onSave: (settings: LlmSettings) => void;
   onReload: () => void;
+  initialSection?: SettingsSection;
 }) {
-  const [section, setSection] = useState<SettingsSection>("models");
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? "models");
   const [mock, setMock] = useState(snapshot.settings.mock);
   const [providers, setProviders] = useState<ProviderProfile[]>(snapshot.settings.providers);
   const [models, setModels] = useState<ModelProfile[]>(snapshot.settings.models);
@@ -56,6 +67,10 @@ export default function SettingsView({
   const [translation, setTranslation] = useState<TranslationSettings | null>(null);
   const [translationBusy, setTranslationBusy] = useState(false);
   const [translationStatus, setTranslationStatus] = useState("");
+
+  useEffect(() => {
+    if (initialSection) setSection(initialSection);
+  }, [initialSection]);
 
   useEffect(() => {
     let active = true;
@@ -682,6 +697,26 @@ export default function SettingsView({
               </>
             )}
           </section>
+        )}
+
+        {section === "git" && (
+          <>
+            <div className="settings-page-head">
+              <div>
+                <div className="panel-title">Git 开发</div>
+                <div className="muted tiny">
+                  仓库模式、分支/PR、worktree 容量与合并方式
+                </div>
+              </div>
+            </div>
+            <div id="settings-git" className="settings-git-tab" tabIndex={-1}>
+              <section className="panel settings-block">
+                <div className="settings-block-body">
+                  <GitSettingsPanel workspaceId={snapshot.workspace.id} />
+                </div>
+              </section>
+            </div>
+          </>
         )}
 
         {section === "team" && (
