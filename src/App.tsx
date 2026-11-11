@@ -4,6 +4,7 @@ import type {
   BoardEntry,
   ChatMessage,
   ChatQuestionRecord,
+  ChatTrajectoryEntry,
   ContextSnapshot,
   EventRecord,
   KernelResult,
@@ -138,6 +139,16 @@ type ChatToolTrace = {
   error?: string;
 };
 
+const CHAT_TRAJECTORY_KIND_LABEL: Record<ChatTrajectoryEntry["kind"], string> = {
+  user: "用户",
+  assistant: "助手",
+  system: "系统",
+  reasoning: "思考",
+  tool_call: "工具调用",
+  tool_result: "工具结果",
+  context: "上下文",
+};
+
 /** t69：需要二次确认的内核操作（重试/取消/暂停/评审拒绝等有副作用的动作）。 */
 type ConfirmIntent =
   | { kind: "retry"; task: Task }
@@ -217,6 +228,9 @@ export default function App() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatContextBusy, setChatContextBusy] = useState(false);
   const [chatTools, setChatTools] = useState<ChatToolTrace[]>([]);
+  const [chatView, setChatView] = useState<"chat" | "trajectory">("chat");
+  const [chatTrajectory, setChatTrajectory] = useState<ChatTrajectoryEntry[]>([]);
+  const [chatTrajectoryLoading, setChatTrajectoryLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [context, setContext] = useState<ContextSnapshot | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
@@ -648,6 +662,28 @@ export default function App() {
       });
     }
   }, [contextTaskId, pushToast]);
+
+  const loadChatTrajectory = useCallback(async () => {
+    const current = snapshotRef.current;
+    if (!current) return;
+    const router = current.agents.find((agent) => agent.isRouter);
+    if (!router) return;
+    setChatTrajectoryLoading(true);
+    try {
+      const entries = await window.deer.getChatTrajectory(current.workspace.id, router.id);
+      setChatTrajectory(entries);
+    } catch (error) {
+      setError(errorText(error));
+      pushToast({ kind: "error", message: `轨迹加载失败：${formatError(error)}` });
+    } finally {
+      setChatTrajectoryLoading(false);
+    }
+  }, [pushToast]);
+
+  useEffect(() => {
+    if (chatView !== "trajectory") return;
+    void loadChatTrajectory();
+  }, [chatView, snapshot?.workspace.id, loadChatTrajectory]);
 
   const loadWatchdog = useCallback(async (workspaceId: string) => {
     try {
@@ -1096,6 +1132,8 @@ export default function App() {
     setChatStream("");
     setChatReasoning("");
     setChatTools([]);
+    setChatView("chat");
+    setChatTrajectory([]);
     setChatBusy(false);
     setContext(null);
     setContextTaskId(null);
@@ -1584,6 +1622,8 @@ export default function App() {
     try {
       const result = await window.deer.clearChatContext(current.workspace.id);
       await loadChat();
+      setChatTrajectory([]);
+      if (chatView === "trajectory") await loadChatTrajectory();
       pushToast({
         kind: "success",
         message: `已清空上下文：${result.removedMessages} 条消息、${result.removedArtifacts} 个画布、${result.removedQuestions} 个提问`,
@@ -1605,6 +1645,8 @@ export default function App() {
     try {
       const result = await window.deer.compactChatContext(current.workspace.id);
       await loadChat();
+      setChatTrajectory([]);
+      if (chatView === "trajectory") await loadChatTrajectory();
       pushToast({
         kind: result.summarizedMessages > 0 ? "success" : "info",
         message:
@@ -2501,6 +2543,11 @@ export default function App() {
                     <ChatView
                       messages={chatMessages}
                       tools={chatTools}
+                      view={chatView}
+                      onViewChange={setChatView}
+                      trajectory={chatTrajectory}
+                      trajectoryLoading={chatTrajectoryLoading}
+                      onRefreshTrajectory={() => void loadChatTrajectory()}
                       stream={chatStream}
                       reasoning={chatReasoning}
                       busy={chatBusy}
@@ -4302,6 +4349,11 @@ function formatToolPayload(value: unknown): string {
 function ChatView({
   messages,
   tools,
+  view,
+  onViewChange,
+  trajectory,
+  trajectoryLoading,
+  onRefreshTrajectory,
   stream,
   reasoning,
   busy,
@@ -4333,6 +4385,11 @@ function ChatView({
 }: {
   messages: ChatMessage[];
   tools: ChatToolTrace[];
+  view: "chat" | "trajectory";
+  onViewChange: (view: "chat" | "trajectory") => void;
+  trajectory: ChatTrajectoryEntry[];
+  trajectoryLoading: boolean;
+  onRefreshTrajectory: () => void;
   stream: string;
   reasoning: string;
   busy: boolean;
@@ -4443,6 +4500,30 @@ function ChatView({
           </div>
         </div>
 
+        <div className="chat-view-tabs" role="tablist" aria-label="对话视图">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "chat"}
+            className={view === "chat" ? "active" : ""}
+            onClick={() => onViewChange("chat")}
+          >
+            对话
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "trajectory"}
+            className={view === "trajectory" ? "active" : ""}
+            onClick={() => onViewChange("trajectory")}
+          >
+            轨迹
+            {trajectory.length > 0 && <span className="chat-view-count">{trajectory.length}</span>}
+          </button>
+        </div>
+
+        {view === "chat" ? (
+          <>
         {/* C10：工作区概述并入对话页，可折叠卡片 */}
         {overview && (
           <details className="overview-card">
@@ -4602,7 +4683,129 @@ function ChatView({
             </label>
           </div>
         </div>
+          </>
+        ) : (
+          <ChatTrajectoryPanel
+            entries={trajectory}
+            loading={trajectoryLoading}
+            onRefresh={onRefreshTrajectory}
+          />
+        )}
       </section>
+    </div>
+  );
+}
+
+function ChatTrajectoryPanel({
+  entries,
+  loading,
+  onRefresh,
+}: {
+  entries: ChatTrajectoryEntry[];
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [filter, setFilter] = useState<"all" | "conversation" | "reasoning" | "tools">("all");
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [entries.length, filter]);
+  const isConversation = (kind: ChatTrajectoryEntry["kind"]) =>
+    kind === "user" || kind === "assistant" || kind === "system" || kind === "context";
+  const isTool = (kind: ChatTrajectoryEntry["kind"]) =>
+    kind === "tool_call" || kind === "tool_result";
+  const visible = entries.filter((entry) =>
+    filter === "all"
+      ? true
+      : filter === "conversation"
+        ? isConversation(entry.kind)
+        : filter === "reasoning"
+          ? entry.kind === "reasoning"
+          : isTool(entry.kind),
+  );
+  const filters: Array<{ id: typeof filter; label: string; count: number }> = [
+    { id: "all", label: "全部", count: entries.length },
+    {
+      id: "conversation",
+      label: "对话",
+      count: entries.filter((entry) => isConversation(entry.kind)).length,
+    },
+    {
+      id: "reasoning",
+      label: "思考",
+      count: entries.filter((entry) => entry.kind === "reasoning").length,
+    },
+    { id: "tools", label: "工具", count: entries.filter((entry) => isTool(entry.kind)).length },
+  ];
+  return (
+    <div className="chat-trajectory-panel">
+      <div className="chat-trajectory-toolbar">
+        <div>
+          <div className="panel-title">运行轨迹</div>
+          <div className="muted tiny">
+            {visible.length}/{entries.length} 条记录 · 对话、思考与工具
+          </div>
+        </div>
+        <button type="button" className="ghost tiny" onClick={onRefresh} disabled={loading}>
+          {loading ? "刷新中…" : "刷新"}
+        </button>
+      </div>
+      <div className="chat-trajectory-filters" role="group" aria-label="轨迹分类">
+        {filters.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={filter === item.id ? "active" : ""}
+            aria-pressed={filter === item.id}
+            onClick={() => setFilter(item.id)}
+          >
+            {item.label}
+            <span>{item.count}</span>
+          </button>
+        ))}
+      </div>
+      <div className="chat-trajectory-scroll" ref={scrollRef}>
+        {loading && entries.length === 0 ? (
+          <div className="muted tiny chat-trajectory-loading">正在加载轨迹…</div>
+        ) : entries.length === 0 ? (
+          <EmptyState
+            compact
+            icon="▤"
+            title="还没有轨迹"
+            description="发送一条消息后，这里会按时间记录对话、思考、工具调用与上下文操作。"
+          />
+        ) : visible.length === 0 ? (
+          <div className="muted tiny chat-trajectory-loading">该分类暂无记录。</div>
+        ) : (
+          <ol className="chat-trajectory-ledger" aria-label="Chat 运行轨迹">
+            {visible.map((entry) => (
+              <li key={entry.id} className={`chat-trajectory-row kind-${entry.kind}`}>
+                <span className="chat-trajectory-time mono">{time(entry.createdAt)}</span>
+                <span className="chat-trajectory-marker" aria-hidden="true" />
+                <span className="chat-trajectory-body">
+                  <span className="chat-trajectory-head">
+                    <span className="chat-trajectory-kind">
+                      {CHAT_TRAJECTORY_KIND_LABEL[entry.kind]}
+                    </span>
+                    <strong>{entry.title}</strong>
+                    {entry.status && (
+                      <span className={`chat-trajectory-status is-${entry.status}`}>
+                        {entry.status === "running"
+                          ? "运行中"
+                          : entry.status === "ok"
+                            ? "完成"
+                            : "失败"}
+                      </span>
+                    )}
+                  </span>
+                  <pre>{entry.detail.length > 6_000 ? `${entry.detail.slice(0, 6_000)}…` : entry.detail}</pre>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }

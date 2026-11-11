@@ -71,6 +71,8 @@ const api: DeerApi = {
     ipcRenderer.invoke("llm:models", settings, providerId),
   listChat: (workspaceId: string, agentId?: string) =>
     ipcRenderer.invoke("chat:list", workspaceId, agentId),
+  getChatTrajectory: (workspaceId: string, agentId?: string) =>
+    ipcRenderer.invoke("chat:trajectory", workspaceId, agentId),
   sendChat: (workspaceId: string, message: string) =>
     ipcRenderer.invoke("chat:send", workspaceId, message),
   cancelChat: (workspaceId: string) => ipcRenderer.invoke("chat:cancel", workspaceId),

@@ -9,6 +9,7 @@ import type {
   ChatEvent,
   ChatMessage,
   ChatQuestionRecord,
+  ChatTrajectoryEntry,
   ClearChatContextResult,
   CompactChatContextResult,
   ContextSnapshot,
@@ -128,6 +129,8 @@ export interface DeerApi {
   clearChatContext(workspaceId: string): Promise<ClearChatContextResult>;
   /** t170：/compact 命令——保留最近 8 条，其余压缩为 system 摘要。 */
   compactChatContext(workspaceId: string): Promise<CompactChatContextResult>;
+  /** t175：Chat 轨迹账本（消息 + 工具事件 + 上下文操作）。 */
+  getChatTrajectory(workspaceId: string, agentId?: string): Promise<ChatTrajectoryEntry[]>;
   getContext(workspaceId: string, agentId?: string, taskId?: string): Promise<ContextSnapshot>;
   /** DESIGN §15.4：满血模式开关（会话级提示/预算覆盖，不碰权限）。 */
   setFullThrottle(workspaceId: string, agentId: string, enabled: boolean): Promise<void>;
