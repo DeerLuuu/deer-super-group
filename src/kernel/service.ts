@@ -61,6 +61,7 @@ import {
   type ToolPolicy,
 } from "./tools.js";
 import { runAgentLoop } from "./loop.js";
+import { BingTranslator } from "./translate.js";
 import { Store } from "./store.js";
 import { fullThrottleBudget, withFullThrottle } from "./permission.js";
 import { RISK_APPROVAL_TIMEOUT_MS } from "../shared/approval.js";
@@ -210,6 +211,8 @@ export class AppService {
   private readonly listeners = new Set<(event: EventRecord) => void>();
   private readonly chatListeners = new Set<(event: ChatEvent) => void>();
   private readonly chatAborts = new Map<string, AbortController>();
+  /** t179：思考机翻（默认 Bing Web Translator，无需 key）。 */
+  private readonly translator = new BingTranslator();
   /** t68：执行内核（事件/状态机/调度/重试/恢复）。 */
   private readonly kernel: ExecutionKernel;
   /** t96：Git 并行开发（worktree/PR/合并队列）；与内核通过 service 包装协作。 */
@@ -479,6 +482,11 @@ export class AppService {
       boardEntries: this.store.listBoard(workspaceId),
       settings: this.store.getLlmSettings(),
     };
+  }
+
+  /** t179：把思考文本机翻为简体中文；失败由渲染层降级为只显示原文。 */
+  async translateText(text: string): Promise<string> {
+    return this.translator.translate(text, "zh-Hans");
   }
 
   listChat(workspaceId: string, agentId?: string): ChatMessage[] {

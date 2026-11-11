@@ -149,8 +149,11 @@ type ChatToolTrace = {
 };
 
 type ChatReasoningSegment = {
+  id: string;
   step: number;
   text: string;
+  status: "loading" | "done" | "error";
+  translation?: string;
 };
 
 const CHAT_TRAJECTORY_KIND_LABEL: Record<ChatTrajectoryEntry["kind"], string> = {
@@ -272,6 +275,7 @@ export default function App() {
   const [chatContextBusy, setChatContextBusy] = useState(false);
   const [chatTools, setChatTools] = useState<ChatToolTrace[]>([]);
   const [chatReasoningSegments, setChatReasoningSegments] = useState<ChatReasoningSegment[]>([]);
+  const translationRequests = useRef(new Set<string>());
   const [chatView, setChatView] = useState<"chat" | "trajectory">("chat");
   const [chatTrajectory, setChatTrajectory] = useState<ChatTrajectoryEntry[]>([]);
   const [chatTrajectoryLoading, setChatTrajectoryLoading] = useState(false);
@@ -1114,7 +1118,12 @@ export default function App() {
       } else if (event.type === "reasoning_segment") {
         setChatReasoningSegments((prev) => [
           ...prev,
-          { step: event.step, text: event.text },
+          {
+            id: `reasoning-${event.step}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            step: event.step,
+            text: event.text,
+            status: "loading",
+          },
         ]);
         setChatReasoning("");
       } else if (event.type === "tool_call") {
@@ -1165,6 +1174,33 @@ export default function App() {
     });
     return off;
   }, [loadChat]);
+
+  // t179：思考段完成后自动机翻；每段只请求一次，失败只降级为无译文。
+  useEffect(() => {
+    const pending = chatReasoningSegments.filter(
+      (segment) =>
+        segment.status === "loading" &&
+        !translationRequests.current.has(segment.id) &&
+        segment.text.trim(),
+    );
+    for (const segment of pending) {
+      translationRequests.current.add(segment.id);
+      void window.deer
+        .translateText(segment.text)
+        .then((translation) => {
+          setChatReasoningSegments((prev) =>
+            prev.map((item) =>
+              item.id === segment.id ? { ...item, status: "done", translation } : item,
+            ),
+          );
+        })
+        .catch(() => {
+          setChatReasoningSegments((prev) =>
+            prev.map((item) => (item.id === segment.id ? { ...item, status: "error" } : item)),
+          );
+        });
+    }
+  }, [chatReasoningSegments]);
 
   function resetForWorkspace() {
     setSelectedTaskId(null);
@@ -4947,7 +4983,7 @@ function ChatTurnProcess({
   const [open, setOpen] = useState(true);
   const steps = new Map<
     number,
-    { step: number; reasoning: string[]; tools: ChatToolTrace[] }
+    { step: number; reasoning: ChatReasoningSegment[]; tools: ChatToolTrace[] }
   >();
   const getStep = (step: number) => {
     const existing = steps.get(step);
@@ -4957,7 +4993,7 @@ function ChatTurnProcess({
     return created;
   };
   for (const segment of reasoningSegments) {
-    if (segment.text.trim()) getStep(segment.step).reasoning.push(segment.text);
+    if (segment.text.trim()) getStep(segment.step).reasoning.push(segment);
   }
   for (const tool of tools) {
     getStep(tool.step ?? 0).tools.push(tool);
@@ -5003,7 +5039,7 @@ function ChatTurnStep({
   step,
   running,
 }: {
-  step: { step: number; reasoning: string[]; tools: ChatToolTrace[] };
+  step: { step: number; reasoning: ChatReasoningSegment[]; tools: ChatToolTrace[] };
   running: boolean;
 }) {
   const [open, setOpen] = useState(running);
@@ -5021,18 +5057,32 @@ function ChatTurnStep({
           <span className="chat-turn-step-done">完成</span>
         )}
       </div>
-      {step.reasoning.map((text, index) => (
+      {step.reasoning.map((segment) => (
         <details
           className="chat-turn-reasoning"
-          key={`${step.step}-${index}`}
+          key={segment.id}
           open={open}
           onToggle={(event) => setOpen(event.currentTarget.open)}
         >
           <summary>
             <span>思考</span>
-            <span className="muted tiny"> · {text.length} 字</span>
+            <span className="muted tiny"> · {segment.text.length} 字</span>
           </summary>
-          <pre>{text}</pre>
+          <pre>{segment.text}</pre>
+          {segment.status === "loading" && (
+            <div className="chat-turn-translation-status">机翻中…</div>
+          )}
+          {segment.status === "error" && (
+            <div className="chat-turn-translation-status is-error">机翻失败</div>
+          )}
+          {segment.status === "done" &&
+            segment.translation &&
+            segment.translation.trim() !== segment.text.trim() && (
+              <div className="chat-turn-translation">
+                <div className="chat-turn-translation-label">机翻 · Bing</div>
+                <pre>{segment.translation}</pre>
+              </div>
+            )}
         </details>
       ))}
       {step.tools.map((tool) => (
