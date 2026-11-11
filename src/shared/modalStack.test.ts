@@ -45,6 +45,30 @@ describe("t190 modal stack", () => {
     unsubscribe();
   });
 
+  it("keeps body locked until the last modal pops (non-top unmount)", () => {
+    const root = {
+      inert: false,
+      toggleAttribute(name: string, force?: boolean) {
+        if (name === "inert") this.inert = Boolean(force);
+      },
+    };
+    const body = { style: { overflow: "auto" } };
+    (globalThis as { document?: unknown }).document = {
+      body,
+      getElementById: (id: string) => (id === "root" ? root : null),
+    };
+    const first = Symbol("first");
+    const second = Symbol("second");
+    pushModal(first);
+    pushModal(second);
+    expect(body.style.overflow).toBe("hidden");
+    popModal(first); // non-top closes first
+    expect(body.style.overflow).toBe("hidden");
+    popModal(second);
+    expect(body.style.overflow).toBe("auto");
+    expect(root.inert).toBe(false);
+  });
+
   it("makes the app root and non-top dialogs inert", () => {
     const root = {
       inert: false,

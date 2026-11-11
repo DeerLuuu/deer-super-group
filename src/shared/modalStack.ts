@@ -13,6 +13,30 @@ export type ModalToken = symbol;
 const stack: ModalToken[] = [];
 const elements = new Map<ModalToken, HTMLElement>();
 const listeners = new Set<() => void>();
+let bodyLockCount = 0;
+let bodyOriginalOverflow: string | null = null;
+
+function lockBodyScroll(): void {
+  if (typeof document === "undefined") return;
+  const body = document.body;
+  if (!body?.style) return;
+  if (bodyLockCount === 0) {
+    bodyOriginalOverflow = body.style.overflow;
+    body.style.overflow = "hidden";
+  }
+  bodyLockCount += 1;
+}
+
+function unlockBodyScroll(): void {
+  if (typeof document === "undefined") return;
+  const body = document.body;
+  if (!body?.style || bodyLockCount === 0) return;
+  bodyLockCount -= 1;
+  if (bodyLockCount === 0) {
+    body.style.overflow = bodyOriginalOverflow ?? "";
+    bodyOriginalOverflow = null;
+  }
+}
 
 function notify(): void {
   for (const listener of listeners) listener();
@@ -32,7 +56,10 @@ function syncDocument(): void {
 }
 
 export function pushModal(token: ModalToken): void {
-  if (!stack.includes(token)) stack.push(token);
+  if (!stack.includes(token)) {
+    stack.push(token);
+    if (stack.length === 1) lockBodyScroll();
+  }
   syncDocument();
   notify();
 }
@@ -49,7 +76,10 @@ export function unregisterModalElement(token: ModalToken): void {
 
 export function popModal(token: ModalToken): void {
   const index = stack.lastIndexOf(token);
-  if (index >= 0) stack.splice(index, 1);
+  if (index >= 0) {
+    stack.splice(index, 1);
+    if (stack.length === 0) unlockBodyScroll();
+  }
   unregisterModalElement(token);
   syncDocument();
   notify();

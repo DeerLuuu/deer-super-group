@@ -12,6 +12,7 @@ import type {
   ChatTurnTool,
   EventRecord,
 } from "../shared/types.js";
+import { sanitizeErrorText } from "../shared/errorRedaction.js";
 
 export const CHAT_TURNS_DEFAULT_LIMIT = 20;
 export const CHAT_TURNS_MAX_LIMIT = 40;
@@ -357,17 +358,10 @@ function terminalFromEvent(
 }
 
 function capTerminalText(value: string, max: number): string {
-  const text = value
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/gi, "[REDACTED]")
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-    .replace(/\bAuthorization\s*:\s*[^\s]+/gi, "Authorization: [REDACTED]")
-    .replace(/\b(api[_-]?key|token|secret)\s*[=:]\s*[^&\s]+/gi, "$1=[REDACTED]")
-    .replace(/([?&](?:api[_-]?key|token|secret|key)=)[^&\s]+/gi, "$1[REDACTED]");
-  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  // t204：投影与 terminal 写入共用 shared sanitizer（旧事件/手工导入也清洗）。
+  return sanitizeErrorText(raw, max);
 }
 
 /**

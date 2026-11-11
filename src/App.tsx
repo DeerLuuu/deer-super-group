@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import type {
   Agent,
   BoardEntry,
@@ -77,7 +78,7 @@ import CommandPalette, {
   type CreateIntent,
   type PanelAction,
 } from "./CommandPalette";
-import { ToastHost, useToasts } from "./Toast";
+import { ToastHost, useToasts, type ToastItem } from "./Toast";
 import {
   BOARD_CONFIDENCE_LABEL,
   BOARD_KIND_LABEL,
@@ -3064,19 +3065,56 @@ export default function App() {
         />
       )}
 
-      {/* t69：任务/Run/调度状态变化的 aria-live 播报（视觉隐藏）。t113：contextKey 变化静默重置基线。 */}
-      <KernelAnnouncer
+      {/* t69：任务/Run/调度状态变化的 aria-live 播报（视觉隐藏）。t113：contextKey 变化静默重置基线。
+          t204：全局 live region 与 toast 必须 portal 到 body；否则 Modal 打开时 #root inert 会冻结它们。 */}
+      <AppLiveRegions
         tasks={snapshot.tasks}
         scheduler={scheduler}
         runs={taskRuns}
         actionMessage={kernelAnnouncement}
         contextKey={`${snapshot.workspace.id}:${tab}:${selectedTaskId ?? "-"}`}
+        toasts={toasts}
+        onDismiss={dismissToast}
       />
-
-      {/* C26：全局 toast */}
-      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
+}
+
+/**
+ * t204：全局 live region（KernelAnnouncer + ToastHost）必须在 inert #root 外。
+ * 顶层风险/设置/队列 Modal 打开时 #root.inert=true；若 toast/播报仍挂在 app 内，
+ * 既不可读也不可关闭，aria-live 也不会被辅助技术播报。
+ */
+export function AppLiveRegions({
+  tasks,
+  scheduler,
+  runs,
+  actionMessage,
+  contextKey,
+  toasts,
+  onDismiss,
+}: {
+  tasks: Task[];
+  scheduler: SchedulerSnapshot | null;
+  runs: Run[];
+  actionMessage?: string | null;
+  contextKey?: string;
+  toasts: ToastItem[];
+  onDismiss: (id: number) => void;
+}) {
+  const content = (
+    <>
+      <KernelAnnouncer
+        tasks={tasks}
+        scheduler={scheduler}
+        runs={runs}
+        actionMessage={actionMessage}
+        contextKey={contextKey}
+      />
+      <ToastHost toasts={toasts} onDismiss={onDismiss} />
+    </>
+  );
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 
 /** t69：有副作用的内核操作统一二次确认（Esc/焦点陷阱由 Modal 提供）。t107：文案走 kernelConfirmCopy 纯函数（含 resume）。 */

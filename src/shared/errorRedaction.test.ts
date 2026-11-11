@@ -66,6 +66,34 @@ describe("t190 error redaction", () => {
     expect(out.match(/\[内部地址已隐藏\]/g)?.length).toBeGreaterThanOrEqual(7);
   });
 
+  it("redacts key aliases and Cookie/Set-Cookie headers", () => {
+    const raw = [
+      "client_secret=cs_123 clientSecret=csCamel access_token=at_123 accessToken=atCamel",
+      "private_key=pk_123 access_key=ak_123 password=pw_123",
+      "Cookie: session=abc; csrf=def",
+      "Set-Cookie: sid=ghi; HttpOnly",
+    ].join(" ");
+    const out = sanitizeErrorText(raw);
+    for (const secret of ["cs_123", "csCamel", "at_123", "atCamel", "pk_123", "ak_123", "pw_123", "abc", "def", "ghi"]) {
+      expect(out).not.toContain(secret);
+    }
+    expect(out).toContain("[REDACTED]");
+  });
+
+  it("extended key aliases are redacted in URL queries and provider bodies", () => {
+    const raw =
+      'GET https://example.com/x?client_secret=cs_url&accessToken=at_url&private_key=pk_url ' +
+      '{"error":{"client_secret":"cs_body","accessToken":"at_body","password":"pw_body"}}';
+    const out = sanitizeErrorText(raw);
+    expect(out).not.toContain("cs_url");
+    expect(out).not.toContain("at_url");
+    expect(out).not.toContain("pk_url");
+    expect(out).not.toContain("cs_body");
+    expect(out).not.toContain("at_body");
+    expect(out).not.toContain("pw_body");
+    expect(out).toContain("[provider 原始响应已隐藏]");
+  });
+
   it("strips stack frames and provider raw bodies", () => {
     const raw = [
       "provider request failed",

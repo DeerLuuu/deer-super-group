@@ -59,7 +59,7 @@ import {
   type LlmMessage,
 } from "./model.js";
 import { resolveModelProfile, resolveProvider } from "../shared/models.js";
-import { safeErrorSummary } from "../shared/errorRedaction.js";
+import { safeErrorSummary, sanitizeErrorText } from "../shared/errorRedaction.js";
 import {
   createBuiltinTools,
   ToolRegistry,
@@ -190,22 +190,10 @@ const TERMINAL_TOOL_MAX = 120;
 const TERMINAL_PAYLOAD_MAX = 2_048;
 
 function terminalText(value: unknown, max: number): string {
-  let text = String(value ?? "")
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  text = text
-    .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/gi, "[REDACTED]")
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-    .replace(/\b(?:Authorization|x-api-key|api-key)\s*:\s*[^\r\n;]+/gi, (match) => {
-      const colon = match.indexOf(":");
-      return `${colon > 0 ? match.slice(0, colon) : "Authorization"}: [REDACTED]`;
-    })
-    .replace(/\b(api[_-]?key|token|secret)\s*[=:]\s*[^&\s]+/gi, "$1=[REDACTED]")
-    .replace(/([?&](?:api[_-]?key|token|secret|key)=)[^&\s]+/gi, "$1[REDACTED]");
-  if (text.length <= max) return text;
-  return `${text.slice(0, Math.max(0, max - 1))}…`;
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  // t204：terminal 写入与投影/UI 共用同一 shared sanitizer，避免各写一套。
+  return sanitizeErrorText(raw, max);
 }
 
 function terminalCode(error: unknown, fallback = "UNKNOWN"): string {

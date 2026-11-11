@@ -94,12 +94,9 @@ export default function CommandPalette({
     restoreFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     inputRef.current?.focus();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       const wasTop = isTopModal(token);
       popModal(token);
-      document.body.style.overflow = prevOverflow;
       if (wasTop) restoreFocusRef.current?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

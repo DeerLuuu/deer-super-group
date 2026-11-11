@@ -22,9 +22,11 @@ const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
 // 整段 Authorization 值（含 Basic/Token/Digest 等任意 scheme）到行尾/分号；
 // 不能只替换 scheme，否则凭据仍会留在 UI/剪贴板。
 const AUTH_HEADER = /\b(?:Authorization|x-api-key|api-key)\s*:\s*[^\r\n;]+/gi;
+const COOKIE_HEADER = /\b(?:Cookie|Set-Cookie)\s*:\s*[^\r\n]+/gi;
 const ASSIGNED_SECRET =
-  /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)\s*[=:]\s*[^&\s,;]+/gi;
-const URL_SECRET = /([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)=)[^&\s]+/gi;
+  /\b(?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|token|secret|password)\s*[=:]\s*[^&\s,;]+/gi;
+const URL_SECRET =
+  /([?&](?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|token|secret|password)=)[^&\s]+/gi;
 const PROVIDER_BODY =
   /\{[\s\S]*(?:"error"\s*:|"choices"\s*:|"request_id"\s*:|"provider"\s*:)[\s\S]*\}/gi;
 
@@ -52,6 +54,11 @@ export function sanitizeErrorText(value: string, max = 1_000): string {
     .replace(AUTH_HEADER, (match) => {
       const colon = match.indexOf(":");
       const name = colon > 0 ? match.slice(0, colon) : "Authorization";
+      return `${name}: [REDACTED]`;
+    })
+    .replace(COOKIE_HEADER, (match) => {
+      const colon = match.indexOf(":");
+      const name = colon > 0 ? match.slice(0, colon) : "Cookie";
       return `${name}: [REDACTED]`;
     })
     .replace(ASSIGNED_SECRET, (match) => `${match.split(/[=:]/)[0]}=[REDACTED]`)

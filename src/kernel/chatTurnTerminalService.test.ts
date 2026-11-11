@@ -104,7 +104,8 @@ describe("t175 terminal persistence", () => {
     }
   });
 
-  it("persists a sanitized error terminal when the provider fails", async () => {    const { service, workspacePath } = setup();
+  it("persists a sanitized error terminal when the provider fails", async () => {
+    const { service, workspacePath } = setup();
     const { workspace, router } = await open(service, workspacePath);
     service.saveSettings({
       baseUrl: "http://127.0.0.1:1/v1",
@@ -138,6 +139,66 @@ describe("t175 terminal persistence", () => {
     expect(terminalEvents).toHaveLength(1);
     const event = events.find((item) => item.type === "error");
     expect(event).toMatchObject({ userMessageId: turn?.userMessage?.id, terminalPersisted: true });
+  });
+
+  it("sanitizes provider 401 body + Cookie/client/access/private secrets in persisted terminal", async () => {
+    const { service, workspacePath } = setup();
+    const { workspace, router } = await open(service, workspacePath);
+    const server = createServer((_request, response) => {
+      response.writeHead(401, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({
+          error: {
+            message: "bad credentials",
+            client_secret: "cs-live-secret",
+            accessToken: "at-live-secret",
+            private_key: "pk-live-secret",
+          },
+          Cookie: "session=cookie-live-secret",
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server address missing");
+    service.saveSettings({
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      baseUrlEnv: "",
+      apiKey: "test-key",
+      apiKeyEnv: "",
+      providers: [
+        defaultProviderProfile(
+          { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: "test-key", baseUrlEnv: "", apiKeyEnv: "" },
+          "provider_default",
+          "Default",
+        ),
+      ],
+      model: "provider_default:deepseek-flash",
+      models: [defaultModelProfile("deepseek-flash")],
+      mock: false,
+    });
+    try {
+      const events: ChatEvent[] = [];
+      const off = service.onChatEvent((event) => events.push(event));
+      await expect(service.sendChat(workspace.id, "触发 provider 401")).rejects.toBeTruthy();
+      off();
+      const turn = service.getChatTurns(workspace.id, router.id).turns.find(
+        (item) => item.userMessage?.content === "触发 provider 401",
+      );
+      expect(turn?.terminal?.status).toBe("error");
+      expect(turn?.terminal?.message ?? "").not.toContain("cs-live-secret");
+      expect(turn?.terminal?.message ?? "").not.toContain("at-live-secret");
+      expect(turn?.terminal?.message ?? "").not.toContain("pk-live-secret");
+      expect(turn?.terminal?.message ?? "").not.toContain("cookie-live-secret");
+      expect(turn?.terminal?.message ?? "").toContain("provider 原始响应已隐藏");
+      const terminalEvents = service.store.listChatTurnTerminalEvents(workspace.id);
+      expect(terminalEvents).toHaveLength(1);
+      const event = events.find((item) => item.type === "error");
+      expect(event).toMatchObject({ userMessageId: turn?.userMessage?.id, terminalPersisted: true });
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 
   it("records stage=tool and toolName when cancelled during a tool call", async () => {
