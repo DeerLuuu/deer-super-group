@@ -74,6 +74,8 @@ const api: DeerApi = {
   getChatTrajectory: (workspaceId: string, agentId?: string) =>
     ipcRenderer.invoke("chat:trajectory", workspaceId, agentId),
   translateText: (text: string) => ipcRenderer.invoke("chat:translate", text),
+  getTranslationSettings: () => ipcRenderer.invoke("translation:get"),
+  saveTranslationSettings: (settings) => ipcRenderer.invoke("translation:save", settings),
   sendChat: (workspaceId: string, message: string) =>
     ipcRenderer.invoke("chat:send", workspaceId, message),
   cancelChat: (workspaceId: string) => ipcRenderer.invoke("chat:cancel", workspaceId),
