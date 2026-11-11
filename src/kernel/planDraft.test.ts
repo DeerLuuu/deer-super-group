@@ -6,6 +6,7 @@ import path from "node:path";
 import { AppService } from "./service.js";
 import { defaultModelProfile, defaultProviderProfile } from "../shared/models.js";
 import type { PlanDraftTask } from "../shared/planDraft.js";
+import { buildPlanSource } from "../shared/planDraft.js";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -40,16 +41,8 @@ function draftTask(id: string, title: string, extra: Partial<PlanDraftTask> = {}
   };
 }
 
-function planSource(digest = "source-digest") {
-  return {
-    goal: "goal",
-    goalSource: "composer" as const,
-    messages: [],
-    summary: "",
-    overview: "",
-    characterCount: 4,
-    digest,
-  };
+function planSource() {
+  return buildPlanSource({ goal: "goal", messages: [] });
 }
 
 async function ws(service: AppService) {
@@ -119,15 +112,10 @@ describe("t231 confirmPlan atomic/idempotent", () => {
         .count,
     );
     try {
-      const result = await service.previewPlan(workspace.id, {
-        goal: "preview only",
-        goalSource: "composer",
-        messages: [],
-        summary: "",
-        overview: "",
-        characterCount: 12,
-        digest: "preview-digest",
-      });
+      const result = await service.previewPlan(
+        workspace.id,
+        buildPlanSource({ goal: "preview only", messages: [] }),
+      );
       expect(result.ok).toBe(true);
       expect(result.draft?.tasks).toHaveLength(1);
       expect(service.getSnapshot(workspace.id).tasks).toHaveLength(beforeTasks);
@@ -143,22 +131,31 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     }
   });
 
-  it("preview source-limit failure has zero task side effects", async () => {
+  it("preview source-limit/forged metadata failure has zero task side effects", async () => {
     const service = setup();
     const workspace = await ws(service);
     const before = service.getSnapshot(workspace.id).tasks.length;
-    const result = await service.previewPlan(workspace.id, {
-      goal: "too big",
-      goalSource: "composer",
-      messages: [],
-      summary: "",
-      overview: "",
-      characterCount: 12_001,
-      digest: "1234abcd",
-    });
+    const result = await service.previewPlan(
+      workspace.id,
+      buildPlanSource({ goal: "x".repeat(12_001), messages: [] }),
+    );
     expect(result.ok).toBe(false);
     expect(result.issues).toContainEqual(
       expect.objectContaining({ code: "SOURCE_TOO_LARGE" }),
+    );
+    const forged = { ...planSource(), characterCount: 1 };
+    const forgedResult = await service.previewPlan(workspace.id, forged);
+    expect(forgedResult.ok).toBe(false);
+    expect(forgedResult.issues).toContainEqual(
+      expect.objectContaining({ code: "SOURCE_COUNT_MISMATCH" }),
+    );
+    const digestResult = await service.previewPlan(workspace.id, {
+      ...planSource(),
+      digest: "forged",
+    });
+    expect(digestResult.ok).toBe(false);
+    expect(digestResult.issues).toContainEqual(
+      expect.objectContaining({ code: "SOURCE_DIGEST_MISMATCH" }),
     );
     expect(service.getSnapshot(workspace.id).tasks).toHaveLength(before);
   });
@@ -170,10 +167,11 @@ describe("t231 confirmPlan atomic/idempotent", () => {
       draftTask("a", "First", { priority: 70 }),
       draftTask("b", "Second", { dependsOn: ["a"], priority: 30 }),
     ];
+    const source = planSource();
     const first = service.confirmPlan({
       workspaceId: workspace.id,
-      source: planSource(),
-      sourceDigest: "source-digest",
+      source,
+      sourceDigest: source.digest,
       idempotencyKey: "key-1",
       tasks,
       ackHighRisk: false,
@@ -187,8 +185,8 @@ describe("t231 confirmPlan atomic/idempotent", () => {
 
     const second = service.confirmPlan({
       workspaceId: workspace.id,
-      source: planSource(),
-      sourceDigest: "source-digest",
+      source,
+      sourceDigest: source.digest,
       idempotencyKey: "key-1",
       tasks,
       ackHighRisk: false,
@@ -198,26 +196,53 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     expect(service.getSnapshot(workspace.id).tasks).toHaveLength(2);
   });
 
-  it("rejects source over 12k or digest mismatch before writing", async () => {
+  it("rejects forged count/digest and oversized sources before writing", async () => {
     const service = setup();
     const workspace = await ws(service);
     const before = service.getSnapshot(workspace.id).tasks.length;
     const tasks = [draftTask("a", "A")];
+    const oversized = buildPlanSource({ goal: "x".repeat(12_001), messages: [] });
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
-        source: { ...planSource(), characterCount: 12_001 },
-        sourceDigest: "source-digest",
+        source: oversized,
+        sourceDigest: oversized.digest,
         idempotencyKey: "too-large",
         tasks,
         ackHighRisk: false,
       }),
     ).toThrow(/PLAN_SOURCE_INVALID/);
+
+    const forgedCount = { ...planSource(), characterCount: 1 } as ReturnType<typeof planSource>;
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
-        source: planSource("digest-a"),
-        sourceDigest: "digest-b",
+        source: forgedCount,
+        sourceDigest: forgedCount.digest,
+        idempotencyKey: "forged-count",
+        tasks,
+        ackHighRisk: false,
+      }),
+    ).toThrow(/PLAN_SOURCE_INVALID/);
+
+    const forgedDigest = { ...planSource(), digest: "forged-digest" };
+    expect(() =>
+      service.confirmPlan({
+        workspaceId: workspace.id,
+        source: forgedDigest,
+        sourceDigest: forgedDigest.digest,
+        idempotencyKey: "forged-digest",
+        tasks,
+        ackHighRisk: false,
+      }),
+    ).toThrow(/PLAN_SOURCE_INVALID/);
+
+    const mismatch = planSource();
+    expect(() =>
+      service.confirmPlan({
+        workspaceId: workspace.id,
+        source: mismatch,
+        sourceDigest: "different",
         idempotencyKey: "digest-mismatch",
         tasks,
         ackHighRisk: false,
@@ -237,11 +262,12 @@ describe("t231 confirmPlan atomic/idempotent", () => {
       if (calls === 2) throw new Error("injected createTask failure");
       return original(input);
     });
+    const source = planSource();
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
-        source: planSource(),
-        sourceDigest: "source-digest",
+        source,
+        sourceDigest: source.digest,
         idempotencyKey: "create-fail",
         tasks: [draftTask("a", "A"), draftTask("b", "B")],
         ackHighRisk: false,
@@ -264,11 +290,12 @@ describe("t231 confirmPlan atomic/idempotent", () => {
         }
         return original(input);
       });
+    const source = planSource();
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
-        source: planSource(),
-        sourceDigest: "source-digest",
+        source,
+        sourceDigest: source.digest,
         idempotencyKey: "append-fail",
         tasks: [draftTask("a", "A"), draftTask("b", "B")],
         ackHighRisk: false,
@@ -282,11 +309,12 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     const service = setup();
     const workspace = await ws(service);
     const before = service.getSnapshot(workspace.id).tasks.length;
+    const source = planSource();
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
-        source: planSource("d"),
-        sourceDigest: "d",
+        source,
+        sourceDigest: source.digest,
         idempotencyKey: "cycle",
         tasks: [
           draftTask("a", "A", { dependsOn: ["b"] }),
@@ -300,8 +328,8 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
-        source: planSource("d"),
-        sourceDigest: "d",
+        source,
+        sourceDigest: source.digest,
         idempotencyKey: "risk",
         tasks: [draftTask("a", "Delete migration secret", { description: "delete data" })],
         ackHighRisk: false,

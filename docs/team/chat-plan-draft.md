@@ -69,14 +69,16 @@ Chat 输入目标（或已有最近 user message）
 
 新增测试：
 - `src/shared/planDraft.test.ts`（4）：source digest/空/12k、parse/坏 JSON、环/缺失/自依赖/owner/验收 warning、fingerprint 稳定性。
-- `src/kernel/planDraft.test.ts`（4）：preview 成功零任务/事件副作用；source 超限零任务副作用；confirm 创建 DAG/owner/priority/deps + 同 key replay；cycle/高风险 ack 无写。
-- `src/shell/PlanDraftPanel.test.tsx`（2）：来源/契约/添加/确认/取消；高风险/错误禁用确认。
+- `src/kernel/planDraft.test.ts`（7）：preview 零副作用；source 超限/伪造 count/digest；confirm DAG/幂等；create/append 故障回滚；cycle/高风险 ack。
+- `src/shell/PlanDraftPanel.test.tsx`（4）：来源/契约/添加/确认/取消；高风险/错误禁用；ack 重置；aria-describedby。
+- `src/shell/planDraftSession.test.ts`（3）：preview gate、undefined vs 空串、dirty/close preserve。
+- `src/shell/planEntryApp.test.ts`（2）：Tasks/WorkflowRail/CommandPalette 路由与旧 UI 守卫。
 - `src/kernel/chatTurnUi.test.tsx` 新增 Chat 规划入口点击测试。
 
 ```text
 pnpm typecheck   # exit 0
-pnpm build       # exit 0（418 modules；css 253.49 kB/gzip 30.93；js 1,257.86 kB/gzip 346.39）
-pnpm test -- --testTimeout=10000  # exit 0（71 files / 678 tests）
+pnpm build       # exit 0（419 modules；css 253.49 kB/gzip 30.93；js 1,260.95 kB/gzip 347.56）
+pnpm test        # exit 0（73 files / 690 tests）
 ```
 
 ## 5. 1440 / 960 截图
@@ -88,7 +90,16 @@ pnpm test -- --testTimeout=10000  # exit 0（71 files / 678 tests）
 
 ---
 
-## 6. 限制 / 后续
+## 6. t237 repair-round-2（会话/校验/a11y）
+
+- **统一离开确认**：取消丢弃、Dock 关闭保留可从 launcher 恢复、入口重开替换、深链/workspace 切换离开，均经 `isPlanDraftDirty` + `planDraftLeaveMessage` 确认；取消确认保持原样，深链取消恢复旧 hash；workspace 切换清空会话草案。
+- **preview 失效**：`openPlanDraft` 无论 preview true/false 都先 `PlanPreviewGate.invalidate()`；旧响应 token 不匹配直接丢弃；取消/改 goal/重新生成同样失效。
+- **空目标**：`resolvePlanGoal` 区分 undefined（回退 composer/最近 user）与空串（保留空 goal），空 goal 触发 `SOURCE_EMPTY`。
+- **服务端 source 校验**：`planSourceMetrics` 从 goal/messages/summary/overview 重算 characterCount/digest；`SOURCE_COUNT_MISMATCH` / `SOURCE_DIGEST_MISMATCH` / `SOURCE_TOO_LARGE` 阻断 preview/confirm 零写；补伪造 count/digest 测试。
+- **owner/孤儿**：Router owner 给 `TASK_OWNER_ROUTER` warning；多任务中无依赖且无后继给 `TASK_ORPHAN` warning；UI 对 Router owner 显示不可分配提示。
+- **a11y/ack**：source/draft 变化重置高风险 ack；issues 加 `aria-live`/`aria-describedby`；增删移动后聚焦新增/受影响任务。
+
+## 7. 限制 / 后续
 
 - 逐任务 model/permission/FT override 按裁决留 P1-5；当前 chip 只读来源契约。
 - Source digest 由 UI 捕获；服务端请求只带 digest（无聊天正文）用于事件/幂等标识，完整 source 不落库。

@@ -34,11 +34,18 @@ describe("t231 plan draft data", () => {
     expect(source.digest).toMatch(/^[0-9a-f]{8}$/);
     expect(source.characterCount).toBeGreaterThan(0);
     expect(planSourceIssues(source)).toEqual([]);
-    expect(planSourceIssues({ ...source, characterCount: 12_001 })).toEqual([
+    const oversized = buildPlanSource({ goal: "x".repeat(12_001), messages: [] });
+    expect(planSourceIssues(oversized)).toEqual([
       expect.objectContaining({ code: "SOURCE_TOO_LARGE", severity: "error" }),
     ]);
+    expect(planSourceIssues({ ...source, characterCount: 1 })).toEqual([
+      expect.objectContaining({ code: "SOURCE_COUNT_MISMATCH", severity: "error" }),
+    ]);
+    expect(planSourceIssues({ ...source, digest: "forged" })).toEqual([
+      expect.objectContaining({ code: "SOURCE_DIGEST_MISMATCH", severity: "error" }),
+    ]);
     expect(
-      planSourceIssues({ ...source, goal: "", messages: [] }),
+      planSourceIssues(buildPlanSource({ goal: "", messages: [] })),
     ).toEqual([expect.objectContaining({ code: "SOURCE_EMPTY", severity: "error" })]);
   });
 
@@ -56,6 +63,22 @@ describe("t231 plan draft data", () => {
     expect(validatePlanDraft([])).toEqual([
       expect.objectContaining({ code: "PLAN_EMPTY", severity: "error" }),
     ]);
+    const routerOwner = validatePlanDraft([task("a", { ownerId: "router" })], {
+      agents: [{ id: "router", isRouter: true }],
+    });
+    expect(routerOwner).toContainEqual(
+      expect.objectContaining({ code: "TASK_OWNER_ROUTER", severity: "warning" }),
+    );
+    expect(routerOwner).not.toContainEqual(
+      expect.objectContaining({ code: "TASK_OWNER_MISSING" }),
+    );
+    const orphan = validatePlanDraft([
+      task("a", { acceptance: [] }),
+      task("b"),
+    ]);
+    expect(orphan).toContainEqual(
+      expect.objectContaining({ code: "TASK_ORPHAN", severity: "warning", taskId: "a" }),
+    );
     const cycle = validatePlanDraft([
       task("a", { dependsOn: ["b"] }),
       task("b", { dependsOn: ["a"] }),

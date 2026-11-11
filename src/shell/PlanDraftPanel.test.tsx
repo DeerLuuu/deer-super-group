@@ -6,11 +6,15 @@ import PlanDraftPanel from "./PlanDraftPanel.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
-  create: (element: unknown) => {
+  create: (
+    element: unknown,
+    options?: { createNodeMock?: (element: { type: string; props?: Record<string, unknown> }) => unknown },
+  ) => {
     root: {
       findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
       findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }>;
     };
+    update: (element: unknown) => void;
     toJSON: () => unknown;
   };
 };
@@ -143,5 +147,101 @@ describe("t231 PlanDraftPanel", () => {
     });
     // Still disabled because the error remains, despite ack.
     expect(confirm!.props.disabled).toBe(true);
+  });
+
+  it("resets high-risk ack when the draft changes and exposes describedby issues", async () => {
+    const onConfirm = vi.fn();
+    const high = draft([task("a", "Delete migration secret", { description: "delete data" })]);
+    const props = {
+      source: source(),
+      issues: [],
+      agents: [],
+      busy: false,
+      error: null,
+      confirming: false,
+      onDraftChange: () => {},
+      onGoalChange: () => {},
+      onConfirm,
+      onCancel: () => {},
+      onRetry: () => {},
+    };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<PlanDraftPanel {...props} draft={high} />);
+    });
+    const confirm = () =>
+      renderer!.root.findAllByType("button").find((button) => textOf(button.children).includes("确认创建"));
+    const ack = () =>
+      renderer!.root.findAllByType("input").find((input) => input.props.type === "checkbox");
+    expect(confirm()!.props.disabled).toBe(true);
+    await act(() => {
+      (ack()!.props.onChange as (event: unknown) => void)({ target: { checked: true } });
+    });
+    expect(confirm()!.props.disabled).toBe(false);
+    await act(() => {
+      renderer!.update(
+        <PlanDraftPanel
+          {...props}
+          draft={draft([task("a", "Delete migration secret v2", { description: "delete data" })])}
+        />,
+      );
+    });
+    expect((ack()!.props.checked as boolean)).toBe(false);
+    expect(confirm()!.props.disabled).toBe(true);
+  });
+
+  it("links validation issues to the task title with aria-describedby", async () => {
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <PlanDraftPanel
+          draft={draft([task("a", "")])}
+          source={source()}
+          issues={[
+            { code: "TASK_TITLE_EMPTY", severity: "error", message: "任务标题不能为空", taskId: "a" },
+          ]}
+          agents={[]}
+          busy={false}
+          error={null}
+          confirming={false}
+          onDraftChange={() => {}}
+          onGoalChange={() => {}}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+          onRetry={() => {}}
+        />,
+      );
+    });
+    const title = renderer!.root.findAllByType("input")[0];
+    expect(title!.props["aria-describedby"]).toBe("plan-task-issues-a");
+    const issues = renderer!.root.findAllByProps({ "aria-live": "polite" });
+    expect(issues.length).toBeGreaterThan(0);
+  });
+
+  it("focuses the first task title when a draft arrives", async () => {
+    const focus = vi.fn();
+    await act(async () => {
+      create(
+        <PlanDraftPanel
+          draft={draft([task("a", "First")])}
+          source={source()}
+          issues={[]}
+          agents={[]}
+          busy={false}
+          error={null}
+          confirming={false}
+          onDraftChange={() => {}}
+          onGoalChange={() => {}}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+          onRetry={() => {}}
+        />,
+        {
+          createNodeMock: (element) =>
+            element.type === "input" ? { focus } : undefined,
+        },
+      );
+    });
+    expect(focus).toHaveBeenCalled();
   });
 });

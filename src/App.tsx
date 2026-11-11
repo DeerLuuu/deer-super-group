@@ -83,6 +83,13 @@ import WorkflowRail from "./shell/WorkflowRail";
 import { useMergeQueue } from "./shell/useMergeQueue";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
 import {
+  isPlanDraftDirty,
+  PlanPreviewGate,
+  planDraftLeaveDisposition,
+  planDraftLeaveMessage,
+  type PlanDraftLeaveReason,
+} from "./shell/planDraftSession";
+import {
   buildPlanSource,
   planSourceIssues,
   planDraftFingerprint,
@@ -150,9 +157,10 @@ import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 type Tab = RouteTab;
 
 /** 侧栏「面板」启动器：设置独立为弹窗，不在此列。 */
-const PANEL_LAUNCHER_KEYS: PanelKey[] = [
+export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "chat",
   "tasks",
+  "planDraft",
   "team",
   "runs",
   "mailbox",
@@ -270,6 +278,16 @@ function errorText(error: unknown): string {
   return formatError(error);
 }
 
+/** t237：显式空串表示“清空目标”，不能回退到 composer/最近消息。 */
+export function resolvePlanGoal(
+  goalOverride: string | undefined,
+  composer: string,
+  lastUser: string | null,
+): string {
+  if (goalOverride !== undefined) return goalOverride.trim();
+  return composer.trim() || lastUser?.trim() || "";
+}
+
 /** t235：Tasks 的自动打开意图只映射到新建任务或 Plan Draft，不再映射旧 Modal。 */
 export function tasksAutoOpenAction(
   autoOpen: "task" | "plan" | null,
@@ -361,7 +379,7 @@ export default function App() {
   const [planBusy, setPlanBusy] = useState(false);
   const [planConfirming, setPlanConfirming] = useState(false);
   const planConfirmKeyRef = useRef("");
-  const planPreviewTokenRef = useRef(0);
+  const planPreviewGateRef = useRef(new PlanPreviewGate());
   const [chatStream, setChatStream] = useState("");
   const [chatReasoning, setChatReasoning] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -1154,7 +1172,16 @@ export default function App() {
   useEffect(() => {
     function onHashChange() {
       if (window.location.hash === lastWrittenHashRef.current) return;
+      const previousHash = lastWrittenHashRef.current;
       lastWrittenHashRef.current = window.location.hash;
+      if (isPlanDraftDirty(planSource, planDraft)) {
+        if (!window.confirm(planDraftLeaveMessage("deep-link"))) {
+          lastWrittenHashRef.current = previousHash;
+          window.location.hash = previousHash;
+          return;
+        }
+        clearPlanDraftSession();
+      }
       const route = parseHash(window.location.hash);
       lastTabRef.current = route.tab;
       if (route.tab === "settings") {
@@ -1202,7 +1229,7 @@ export default function App() {
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [loadRuns, loadTrace, settingsDirty, settingsOpen]);
+  }, [loadRuns, loadTrace, settingsDirty, settingsOpen, planSource, planDraft]);
 
   useEffect(() => {
     void (async () => {
@@ -1508,6 +1535,13 @@ export default function App() {
   );
 
   function resetForWorkspace() {
+    planPreviewGateRef.current.invalidate();
+    setPlanSource(null);
+    setPlanDraft(null);
+    setPlanIssues([]);
+    setPlanError(null);
+    setPlanBusy(false);
+    planConfirmKeyRef.current = "";
     setSelectedTaskId(null);
     setSelectedRunId(null);
     setTrace([]);
@@ -1572,6 +1606,7 @@ export default function App() {
   }
 
   async function handleOpenWorkspace() {
+    if (!confirmPlanDraftLeave("workspace")) return;
     setBusy(true);
     setError(null);
     try {
@@ -1589,6 +1624,7 @@ export default function App() {
   }
 
   async function handleSelectWorkspace(workspaceId: string) {
+    if (!confirmPlanDraftLeave("workspace")) return;
     setBusy(true);
     setError(null);
     try {
@@ -1917,14 +1953,14 @@ export default function App() {
   async function loadPlanPreview(source: PlanSource) {
     const current = snapshotRef.current;
     if (!current) return;
-    const token = ++planPreviewTokenRef.current;
+    const token = planPreviewGateRef.current.start();
     setPlanBusy(true);
     setPlanError(null);
     setPlanDraft(null);
     setPlanIssues(planSourceIssues(source));
     try {
       const result = await window.deer.previewPlan(current.workspace.id, source);
-      if (token !== planPreviewTokenRef.current) return;
+      if (!planPreviewGateRef.current.isCurrent(token)) return;
       setPlanIssues(result.issues);
       if (!result.ok || !result.draft) {
         setPlanError(
@@ -1939,18 +1975,18 @@ export default function App() {
       setPlanDraft(result.draft);
       planConfirmKeyRef.current = planDraftFingerprint(result.draft);
     } catch (error) {
-      if (token === planPreviewTokenRef.current) {
+      if (planPreviewGateRef.current.isCurrent(token)) {
         setPlanError(`规划生成失败：${formatError(error)}`);
       }
     } finally {
-      if (token === planPreviewTokenRef.current) setPlanBusy(false);
+      if (planPreviewGateRef.current.isCurrent(token)) setPlanBusy(false);
     }
   }
 
   function planSourceFromChat(goalOverride?: string): PlanSource {
     const current = snapshotRef.current;
     const lastUser = [...chatMessages].reverse().find((message) => message.role === "user");
-    const goal = goalOverride?.trim() || chatInput.trim() || lastUser?.content || "";
+    const goal = resolvePlanGoal(goalOverride, chatInput, lastUser?.content ?? null);
     const summary = chatMessages
       .filter((message) => message.role === "system")
       .map((message) => message.content)
@@ -1971,13 +2007,46 @@ export default function App() {
     });
   }
 
-  function openPlanDraft(source: PlanSource, preview: boolean) {
+  function invalidatePlanPreview() {
+    planPreviewGateRef.current.invalidate();
+    setPlanBusy(false);
+  }
+
+  function clearPlanDraftSession() {
+    planPreviewGateRef.current.invalidate();
+    setPlanSource(null);
+    setPlanDraft(null);
+    setPlanIssues([]);
+    setPlanError(null);
+    setPlanBusy(false);
+    planConfirmKeyRef.current = "";
+  }
+
+  function confirmPlanDraftLeave(reason: PlanDraftLeaveReason): boolean {
+    if (!isPlanDraftDirty(planSource, planDraft)) return true;
+    if (!window.confirm(planDraftLeaveMessage(reason))) return false;
+    if (planDraftLeaveDisposition(reason) === "discard") clearPlanDraftSession();
+    else invalidatePlanPreview();
+    return true;
+  }
+
+  function openPlanDraft(source: PlanSource, preview: boolean): boolean {
+    // t237：无论是否立即 preview，都先失效在途请求，避免旧响应回填新 source。
+    planPreviewGateRef.current.invalidate();
+    setPlanBusy(false);
+    const sameSource = planSource?.digest === source.digest;
+    if (!sameSource && !confirmPlanDraftLeave("replace")) return false;
+    if (sameSource && planDraft) {
+      openPanel("planDraft");
+      return true;
+    }
     setPlanSource(source);
     setPlanDraft(null);
     setPlanError(null);
     setPlanIssues(planSourceIssues(source));
     openPanel("planDraft");
     if (preview) void loadPlanPreview(source);
+    return true;
   }
 
   function handlePlanFromChat() {
@@ -1998,8 +2067,7 @@ export default function App() {
     setPlanDraft(null);
     setPlanIssues(planSourceIssues(next));
     setPlanError(null);
-    planPreviewTokenRef.current += 1;
-    setPlanBusy(false);
+    invalidatePlanPreview();
   }
 
   function handlePlanDraftChange(next: PlanDraft) {
@@ -2051,14 +2119,20 @@ export default function App() {
   }
 
   function handleCancelPlan() {
-    planPreviewTokenRef.current += 1;
-    setPlanBusy(false);
-    setPlanSource(null);
-    setPlanDraft(null);
-    setPlanIssues([]);
-    setPlanError(null);
+    if (!confirmPlanDraftLeave("cancel")) return;
+    clearPlanDraftSession();
     if (activePanelKey === "planDraft") dockRef.current?.closeActivePanel();
     openPanel("chat");
+  }
+
+  /** Dock 关闭：dirty 时确认；确认“关闭”会保留会话草案，可从 launcher 恢复。 */
+  function handlePlanDraftPanelClosed() {
+    if (!isPlanDraftDirty(planSource, planDraft)) return;
+    if (!window.confirm(planDraftLeaveMessage("close"))) {
+      openPanel("planDraft");
+      return;
+    }
+    invalidatePlanPreview();
   }
 
   /**
@@ -2849,7 +2923,10 @@ export default function App() {
                       type="button"
                       role="menuitem"
                       className={`panel-menu-item ${isOpen ? "is-open" : ""}`}
-                      onClick={() => openPanel(key)}
+                      onClick={() => {
+                        if (key === "planDraft" && !planSource) handlePlanDraftEntry();
+                        else openPanel(key);
+                      }}
                     >
                       <span className="panel-menu-title">{def.title}</span>
                       <span className="panel-menu-state">
@@ -2993,6 +3070,9 @@ export default function App() {
             maxGroups={snapshot.settings.layout?.maxDockGroups ?? DEFAULT_MAX_DOCK_GROUPS}
             initialPanelKey={bootPanel}
             onActivePanelChange={handleDockActivePanel}
+            onPanelClose={(key) => {
+              if (key === "planDraft") handlePlanDraftPanelClosed();
+            }}
             onNotify={(message) => pushToast({ kind: "success", message })}
             renderPanel={(key) => {
               switch (key) {

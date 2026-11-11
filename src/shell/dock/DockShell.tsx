@@ -143,6 +143,8 @@ export default forwardRef<DockHandle, {
   initialPanelKey: PanelKey | null;
   renderPanel: (key: PanelKey) => ReactNode;
   onActivePanelChange: (key: PanelKey) => void;
+  /** t237：计划草案面板被 X 关闭时通知 App 做 dirty 确认/恢复。 */
+  onPanelClose?: (key: PanelKey) => void;
   onNotify?: (message: string) => void;
 }>(function DockShell(
   {
@@ -153,6 +155,7 @@ export default forwardRef<DockHandle, {
     initialPanelKey,
     renderPanel,
     onActivePanelChange,
+    onPanelClose,
     onNotify,
   },
   ref,
@@ -172,6 +175,8 @@ export default forwardRef<DockHandle, {
 
   const onActivePanelChangeRef = useRef(onActivePanelChange);
   onActivePanelChangeRef.current = onActivePanelChange;
+  const onPanelCloseRef = useRef(onPanelClose);
+  onPanelCloseRef.current = onPanelClose;
   const onNotifyRef = useRef(onNotify);
   onNotifyRef.current = onNotify;
 
@@ -376,7 +381,11 @@ export default forwardRef<DockHandle, {
       scheduleSave();
     });
     api.onDidAddPanel(() => setPanelCount(api.panels.length));
-    api.onDidRemovePanel(() => setPanelCount(api.panels.length));
+    api.onDidRemovePanel((event) => {
+      setPanelCount(api.panels.length);
+      const panel = (event as { panel?: { id?: string } }).panel;
+      if (panel?.id) onPanelCloseRef.current?.(panel.id as PanelKey);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

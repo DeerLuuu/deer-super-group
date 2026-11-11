@@ -125,16 +125,52 @@ export function buildPlanSource(input: {
   };
 }
 
+/** 从 source 正文重算字符数与 digest；服务端不信任客户端传入值。 */
+export function planSourceMetrics(source: Pick<PlanSource, "goal" | "messages" | "summary" | "overview">): {
+  characterCount: number;
+  digest: string;
+} {
+  const characterCount =
+    source.goal.length +
+    source.messages.reduce((sum, message) => sum + message.content.length, 0) +
+    source.summary.length +
+    source.overview.length;
+  return {
+    characterCount,
+    digest: planDigest({
+      goal: source.goal,
+      messages: source.messages,
+      summary: source.summary,
+      overview: source.overview,
+    }),
+  };
+}
+
 export function planSourceIssues(source: PlanSource): PlanIssue[] {
   const issues: PlanIssue[] = [];
-  if (!source.goal && source.messages.length === 0) {
+  const actual = planSourceMetrics(source);
+  if (!source.goal) {
     issues.push({ code: "SOURCE_EMPTY", severity: "error", message: "没有可规划的当前目标或对话" });
   }
-  if (source.characterCount > PLAN_SOURCE_MAX) {
+  if (source.characterCount !== actual.characterCount) {
+    issues.push({
+      code: "SOURCE_COUNT_MISMATCH",
+      severity: "error",
+      message: "规划源字符数校验失败，请重新捕获来源",
+    });
+  }
+  if (source.digest !== actual.digest) {
+    issues.push({
+      code: "SOURCE_DIGEST_MISMATCH",
+      severity: "error",
+      message: "规划源摘要校验失败，请重新捕获来源",
+    });
+  }
+  if (actual.characterCount > PLAN_SOURCE_MAX) {
     issues.push({
       code: "SOURCE_TOO_LARGE",
       severity: "error",
-      message: `规划源 ${source.characterCount} 字符，超过上限 ${PLAN_SOURCE_MAX}；请先 /compact 或仅使用输入框目标`,
+      message: `规划源 ${actual.characterCount} 字符，超过上限 ${PLAN_SOURCE_MAX}；请先 /compact 或仅使用输入框目标`,
     });
   }
   return issues;
@@ -179,7 +215,7 @@ export function validatePlanDraft(
   }
   const ids = new Set(tasks.map((task) => task.id));
   const titles = new Set<string>();
-  const ownerIds = new Set((ctx.agents ?? []).filter((agent) => !agent.isRouter).map((agent) => agent.id));
+  const agentById = new Map((ctx.agents ?? []).map((agent) => [agent.id, agent]));
   for (const task of tasks) {
     if (!task.title.trim()) {
       issues.push({ code: "TASK_TITLE_EMPTY", severity: "error", message: "任务标题不能为空", taskId: task.id });
@@ -197,8 +233,18 @@ export function validatePlanDraft(
     }
     if (!task.ownerId) {
       issues.push({ code: "TASK_OWNER_EMPTY", severity: "warning", message: "未分配负责人，确认后可在任务页分配", taskId: task.id });
-    } else if (ctx.agents && !ownerIds.has(task.ownerId)) {
-      issues.push({ code: "TASK_OWNER_MISSING", severity: "error", message: "负责人不存在或不可用", taskId: task.id });
+    } else {
+      const owner = agentById.get(task.ownerId);
+      if (owner?.isRouter) {
+        issues.push({
+          code: "TASK_OWNER_ROUTER",
+          severity: "warning",
+          message: "Router 是协调者，不建议作为任务负责人；确认后请改派成员",
+          taskId: task.id,
+        });
+      } else if (ctx.agents && !owner) {
+        issues.push({ code: "TASK_OWNER_MISSING", severity: "error", message: "负责人不存在或不可用", taskId: task.id });
+      }
     }
     if (task.dependsOn.includes(task.id)) {
       issues.push({ code: "TASK_SELF_DEPENDENCY", severity: "error", message: "任务不能依赖自身", taskId: task.id });
@@ -211,6 +257,19 @@ export function validatePlanDraft(
   }
   if (hasCycle(tasks)) {
     issues.push({ code: "PLAN_CYCLE", severity: "error", message: "任务依赖存在环" });
+  }
+  const dependedOn = new Set(tasks.flatMap((task) => task.dependsOn));
+  if (tasks.length > 1) {
+    for (const task of tasks) {
+      if (task.dependsOn.length === 0 && !dependedOn.has(task.id)) {
+        issues.push({
+          code: "TASK_ORPHAN",
+          severity: "warning",
+          message: "孤立任务：既不依赖其他任务，也没有后续任务依赖它",
+          taskId: task.id,
+        });
+      }
+    }
   }
   return issues;
 }

@@ -50,6 +50,8 @@ export default function PlanDraftPanel({
 }) {
   const [ack, setAck] = useState(false);
   const firstTitleRef = useRef<HTMLInputElement | null>(null);
+  const taskTitleRefs = useRef(new Map<string, HTMLInputElement | null>());
+  const pendingFocusRef = useRef<string | null>(null);
   const tasks = draft?.tasks ?? [];
   const errors = issues.filter((issue) => issue.severity === "error");
   const highRisk = hasHighRiskTask(tasks);
@@ -57,8 +59,18 @@ export default function PlanDraftPanel({
     Boolean(draft) && !busy && !confirming && errors.length === 0 && (!highRisk || ack);
 
   useEffect(() => {
+    setAck(false);
+  }, [draft?.source.digest, draft?.tasks]);
+
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (pending) {
+      pendingFocusRef.current = null;
+      taskTitleRefs.current.get(pending)?.focus();
+      return;
+    }
     if (!busy && draft?.tasks.length) firstTitleRef.current?.focus();
-  }, [busy, draft?.source.digest, draft?.tasks.length]);
+  }, [busy, draft?.source.digest, draft?.tasks]);
 
   function patchTask(taskId: string, patch: Partial<PlanDraftTask>) {
     if (!draft) return;
@@ -70,7 +82,10 @@ export default function PlanDraftPanel({
 
   function removeTask(taskId: string) {
     if (!draft) return;
+    const index = draft.tasks.findIndex((task) => task.id === taskId);
     const remaining = draft.tasks.filter((task) => task.id !== taskId);
+    const focusTarget = remaining[Math.min(Math.max(index, 0), remaining.length - 1)];
+    pendingFocusRef.current = focusTarget?.id ?? null;
     onDraftChange({
       ...draft,
       tasks: remaining.map((task) => ({
@@ -85,13 +100,15 @@ export default function PlanDraftPanel({
     let nextId = 1;
     const used = new Set(draft.tasks.map((task) => task.id));
     while (used.has(`draft-${nextId}`)) nextId += 1;
+    const newId = `draft-${nextId}`;
+    pendingFocusRef.current = newId;
     const index = draft.tasks.length + 1;
     onDraftChange({
       ...draft,
       tasks: [
         ...draft.tasks,
         {
-          id: `draft-${nextId}`,
+          id: newId,
           title: `新任务 ${index}`,
           description: "",
           acceptance: [],
@@ -111,6 +128,7 @@ export default function PlanDraftPanel({
     const target = index + delta;
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target]!, next[index]!];
+    pendingFocusRef.current = next[target]!.id;
     onDraftChange({ ...draft, tasks: next });
   }
 
@@ -181,10 +199,16 @@ export default function PlanDraftPanel({
                   <div className="plan-draft-task-head">
                     <span className="plan-draft-index">{index + 1}</span>
                     <input
-                      ref={index === 0 ? firstTitleRef : undefined}
+                      ref={(node) => {
+                        taskTitleRefs.current.set(task.id, node);
+                        if (index === 0) firstTitleRef.current = node;
+                      }}
                       aria-label={`任务 ${index + 1} 标题`}
                       value={task.title}
                       aria-invalid={Boolean(issueFor(issues, task.id, "TASK_TITLE_EMPTY"))}
+                      aria-describedby={
+                        taskIssues.length > 0 ? `plan-task-issues-${task.id}` : undefined
+                      }
                       onChange={(event) => patchTask(task.id, { title: event.target.value })}
                     />
                     <div className="row gap">
@@ -233,6 +257,12 @@ export default function PlanDraftPanel({
                               {agent.name}
                             </option>
                           ))}
+                        {task.ownerId &&
+                        agents.find((agent) => agent.id === task.ownerId)?.isRouter ? (
+                          <option value={task.ownerId}>
+                            {agents.find((agent) => agent.id === task.ownerId)?.name}（Router，不建议）
+                          </option>
+                        ) : null}
                       </select>
                     </label>
                     <label>
@@ -300,7 +330,12 @@ export default function PlanDraftPanel({
                   </div>
 
                   {taskIssues.length > 0 ? (
-                    <ul className="plan-draft-issues" aria-label={`任务 ${index + 1} 校验`}>
+                    <ul
+                  id={`plan-task-issues-${task.id}`}
+                  className="plan-draft-issues"
+                  aria-label={`任务 ${index + 1} 校验`}
+                  aria-live="polite"
+                >
                       {taskIssues.map((issue) => (
                         <li key={`${issue.code}:${issue.message}`} className={`is-${issue.severity}`}>
                           {issue.message}
@@ -320,7 +355,12 @@ export default function PlanDraftPanel({
           </div>
 
           {issues.filter((issue) => !issue.taskId).length > 0 ? (
-            <ul className="plan-draft-issues" aria-label="草案校验">
+            <ul
+              id="plan-draft-global-issues"
+              className="plan-draft-issues"
+              aria-label="草案校验"
+              aria-live="polite"
+            >
               {issues
                 .filter((issue) => !issue.taskId)
                 .map((issue) => (
