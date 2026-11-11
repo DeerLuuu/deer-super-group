@@ -4789,6 +4789,9 @@ function ChatTrajectoryPanel({
                       {CHAT_TRAJECTORY_KIND_LABEL[entry.kind]}
                     </span>
                     <strong>{entry.title}</strong>
+                    {entry.step ? (
+                      <span className="chat-trajectory-step">step {entry.step}</span>
+                    ) : null}
                     {entry.status && (
                       <span className={`chat-trajectory-status is-${entry.status}`}>
                         {entry.status === "running"

@@ -243,6 +243,10 @@ export interface ChatTrajectoryEntry {
   createdAt: IsoDate;
   status?: "running" | "ok" | "error";
   callId?: string;
+  /** 模型 step 序号；思考/工具事件可据此排序。 */
+  step?: number;
+  /** 事件日志序号；同时间戳时保持工具/思考顺序。 */
+  seq?: number;
 }
 
 /** t170：清空对话上下文的结果。 */
@@ -263,12 +267,20 @@ export type ChatEvent =
   | { type: "delta"; workspaceId: Id; agentId: Id; text: string }
   | { type: "reasoning"; workspaceId: Id; agentId: Id; text: string }
   | {
+      type: "reasoning_segment";
+      workspaceId: Id;
+      agentId: Id;
+      step: number;
+      text: string;
+    }
+  | {
       type: "tool_call";
       workspaceId: Id;
       agentId: Id;
       callId: string;
       name: string;
       arguments: string;
+      step?: number;
     }
   | {
       type: "tool_result";
@@ -279,6 +291,7 @@ export type ChatEvent =
       ok: boolean;
       value?: unknown;
       error?: string;
+      step?: number;
     }
   | { type: "done"; workspaceId: Id; agentId: Id; message: ChatMessage }
   | { type: "cancelled"; workspaceId: Id; agentId: Id }

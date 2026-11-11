@@ -14,8 +14,10 @@
 每条记录包含时间、类型、标题、状态和正文：
 
 - 对话：用户 / 助手 / 系统摘要 / 上下文操作（来自 `chat_messages` 与 context 事件）；
-- 思考：助手消息的 `reasoning`，独立成行并排在对应回复前；
-- 工具：`chat.tool_call` 参数与 `chat.tool_result` 结果/错误。
+- 思考：**每个模型 step 一条** `chat.reasoning` 事件，排在对应 step 的工具调用前；
+  - 旧会话没有 reasoning 事件时，回退到 assistant 消息的 `reasoning`；
+- 工具：`chat.tool_call` 参数与 `chat.tool_result` 结果/错误；均带 `step`；
+- 同一秒内的事件按事件 `seq` 排序，保证「思考 → 工具调用 → 工具结果 → 下一次思考」的顺序。
 
 轨迹顶部提供分类过滤：
 
