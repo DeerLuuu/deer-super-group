@@ -38,6 +38,12 @@ import type {
   Workspace,
 } from "./types.js";
 import type {
+  ConfirmPlanRequest,
+  ConfirmPlanResult,
+  PlanSource,
+  PreviewPlanResult,
+} from "./planDraft.js";
+import type {
   GitSettings,
   MergeQueueItem,
   MergeQueueSnapshot,
@@ -120,6 +126,8 @@ export interface DeerApi {
   resumeScheduler(workspaceId: string): Promise<KernelResult<SchedulerSnapshot>>;
   getTaskTrace(taskId: string): Promise<EventRecord[]>;
   plan(workspaceId: string, goal: string): Promise<Task[]>;
+  previewPlan(workspaceId: string, source: PlanSource): Promise<PreviewPlanResult>;
+  confirmPlan(input: ConfirmPlanRequest): Promise<ConfirmPlanResult>;
   sendMessage(input: SendMessageInput): Promise<MailboxMessage>;
   postBoard(input: PostBoardInput): Promise<BoardEntry>;
   getSettings(): Promise<LlmSettingsInfo>;

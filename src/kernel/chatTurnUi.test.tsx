@@ -171,6 +171,21 @@ function chatViewProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("t172 App UI history process", () => {
+  it("t231 Chat exposes a plan-from-conversation entry", async () => {
+    const onPlanFromChat = vi.fn();
+    const renderer = await render(
+      <ChatView {...chatViewProps({ onPlanFromChat, input: "补充健康检查" })} />,
+    );
+    const plan = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("从这段对话规划"));
+    expect(plan).toBeTruthy();
+    await act(() => {
+      (plan!.props.onClick as () => void)();
+    });
+    expect(onPlanFromChat).toHaveBeenCalledTimes(1);
+  });
+
   it("opens process/step/thinking lazily; translation only starts on thinking expand and runs once", async () => {
     const translate = vi.fn(async () => "机翻结果");
     const renderer = await render(

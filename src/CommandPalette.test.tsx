@@ -19,7 +19,7 @@ vi.mock("react-dom", async (importOriginal) => {
 
 import type { Snapshot } from "./shared/types.js";
 import { hasOpenModal } from "./shared/modalStack.js";
-import CommandPalette from "./CommandPalette.js";
+import CommandPalette, { CREATE_LABELS, CREATE_TARGET_TAB } from "./CommandPalette.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -73,6 +73,11 @@ function makeSnapshot(): Snapshot {
 }
 
 describe("t200 CommandPalette inert-root boundary", () => {
+  it("t235 plan create routes through Tasks shell (which opens Plan Draft)", () => {
+    expect(CREATE_TARGET_TAB.plan).toBe("tasks");
+    expect(CREATE_LABELS.plan).toContain("规划任务");
+  });
+
   it("portals to body while #root is inert; input/Esc/Tab/focus work and close restores trigger", async () => {
     const root = new FakeElement();
     const body = new FakeElement();

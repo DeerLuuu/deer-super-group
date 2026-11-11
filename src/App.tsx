@@ -81,6 +81,24 @@ import CommandPalette, {
 } from "./CommandPalette";
 import WorkflowRail from "./shell/WorkflowRail";
 import { useMergeQueue } from "./shell/useMergeQueue";
+import PlanDraftPanel from "./shell/PlanDraftPanel";
+import {
+  isPlanDraftDirty,
+  isPlanDraftSourceChanged,
+  PlanPreviewGate,
+  planDraftLeaveDisposition,
+  planDraftLeaveMessage,
+  type PlanDraftLeaveReason,
+} from "./shell/planDraftSession";
+import {
+  buildPlanSource,
+  planSourceIssues,
+  planDraftFingerprint,
+  validatePlanDraft,
+  type PlanDraft,
+  type PlanIssue,
+  type PlanSource,
+} from "./shared/planDraft";
 import {
   deriveNeedsMe,
   deriveWorkflow,
@@ -140,9 +158,10 @@ import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 type Tab = RouteTab;
 
 /** 侧栏「面板」启动器：设置独立为弹窗，不在此列。 */
-const PANEL_LAUNCHER_KEYS: PanelKey[] = [
+export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "chat",
   "tasks",
+  "planDraft",
   "team",
   "runs",
   "mailbox",
@@ -260,18 +279,38 @@ function errorText(error: unknown): string {
   return formatError(error);
 }
 
+/** t237：显式空串表示“清空目标”，不能回退到 composer/最近消息。 */
+export function resolvePlanGoal(
+  goalOverride: string | undefined,
+  composer: string,
+  lastUser: string | null,
+): string {
+  if (goalOverride !== undefined) return goalOverride.trim();
+  return composer.trim() || lastUser?.trim() || "";
+}
+
+/** t235：Tasks 的自动打开意图只映射到新建任务或 Plan Draft，不再映射旧 Modal。 */
+export function tasksAutoOpenAction(
+  autoOpen: "task" | "plan" | null,
+): "compose" | "planDraft" | null {
+  if (autoOpen === "task") return "compose";
+  if (autoOpen === "plan") return "planDraft";
+  return null;
+}
+
 export type WorkflowStageNavigation = {
-  panel: "chat" | "tasks" | "board" | "merge";
+  panel: "chat" | "tasks" | "board" | "merge" | "planDraft";
   taskId?: string;
   review?: boolean;
 };
 
-/** P0-3：阶段 CTA 的目标仅由阶段/task 决定；App 与测试共用，避免文案与行为漂移。 */
+/** P0-3/P0-4：阶段 CTA 的目标仅由阶段/task 决定；plan 统一进 Plan Draft。 */
 export function workflowStageNavigation(
   stage: WorkflowStage,
   taskId: string | null,
 ): WorkflowStageNavigation {
   if (stage === "discuss") return { panel: "chat" };
+  if (stage === "plan") return { panel: "planDraft" };
   if (stage === "deliver") return { panel: "merge" };
   if (stage === "remember") return { panel: "board" };
   if (stage === "review") {
@@ -333,6 +372,15 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // P0-4：Plan Draft 仅 session 内存；确认前不创建任务/事件。
+  const [planSource, setPlanSource] = useState<PlanSource | null>(null);
+  const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
+  const [planIssues, setPlanIssues] = useState<PlanIssue[]>([]);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planConfirming, setPlanConfirming] = useState(false);
+  const planConfirmKeyRef = useRef("");
+  const planPreviewGateRef = useRef(new PlanPreviewGate());
   const [chatStream, setChatStream] = useState("");
   const [chatReasoning, setChatReasoning] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -1125,7 +1173,16 @@ export default function App() {
   useEffect(() => {
     function onHashChange() {
       if (window.location.hash === lastWrittenHashRef.current) return;
+      const previousHash = lastWrittenHashRef.current;
       lastWrittenHashRef.current = window.location.hash;
+      if (isPlanDraftDirty(planSource, planDraft)) {
+        if (!window.confirm(planDraftLeaveMessage("deep-link"))) {
+          lastWrittenHashRef.current = previousHash;
+          window.location.hash = previousHash;
+          return;
+        }
+        clearPlanDraftSession();
+      }
       const route = parseHash(window.location.hash);
       lastTabRef.current = route.tab;
       if (route.tab === "settings") {
@@ -1173,7 +1230,7 @@ export default function App() {
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [loadRuns, loadTrace, settingsDirty, settingsOpen]);
+  }, [loadRuns, loadTrace, settingsDirty, settingsOpen, planSource, planDraft]);
 
   useEffect(() => {
     void (async () => {
@@ -1479,6 +1536,13 @@ export default function App() {
   );
 
   function resetForWorkspace() {
+    planPreviewGateRef.current.invalidate();
+    setPlanSource(null);
+    setPlanDraft(null);
+    setPlanIssues([]);
+    setPlanError(null);
+    setPlanBusy(false);
+    planConfirmKeyRef.current = "";
     setSelectedTaskId(null);
     setSelectedRunId(null);
     setTrace([]);
@@ -1543,6 +1607,7 @@ export default function App() {
   }
 
   async function handleOpenWorkspace() {
+    if (!confirmPlanDraftLeave("workspace")) return;
     setBusy(true);
     setError(null);
     try {
@@ -1560,6 +1625,7 @@ export default function App() {
   }
 
   async function handleSelectWorkspace(workspaceId: string) {
+    if (!confirmPlanDraftLeave("workspace")) return;
     setBusy(true);
     setError(null);
     try {
@@ -1885,30 +1951,196 @@ export default function App() {
     }
   }
 
-  async function handlePlan(goal: string) {
+  async function loadPlanPreview(source: PlanSource) {
     const current = snapshotRef.current;
     if (!current) return;
-    setBusy(true);
-    setError(null);
+    const token = planPreviewGateRef.current.start();
+    setPlanBusy(true);
+    setPlanError(null);
+    setPlanDraft(null);
+    setPlanIssues(planSourceIssues(source));
     try {
-      const tasks = await window.deer.plan(current.workspace.id, goal);
-      await refresh(current.workspace.id);
-      if (tasks[0]) {
-        setSelectedTaskId(tasks[0].id);
-        await loadTrace(tasks[0].id);
+      const result = await window.deer.previewPlan(current.workspace.id, source);
+      if (!planPreviewGateRef.current.isCurrent(token)) return;
+      setPlanIssues(result.issues);
+      if (!result.ok || !result.draft) {
+        setPlanError(
+          result.error === "PLAN_UNPARSEABLE"
+            ? "规划器返回无法解析，请重新生成（不会 fallback 建单任务）。"
+            : result.error
+              ? "规划生成失败，请重试。"
+              : "规划源不满足条件。",
+        );
+        return;
       }
+      setPlanDraft(result.draft);
+      planConfirmKeyRef.current = planDraftFingerprint(result.draft);
+    } catch (error) {
+      if (planPreviewGateRef.current.isCurrent(token)) {
+        setPlanError(`规划生成失败：${formatError(error)}`);
+      }
+    } finally {
+      if (planPreviewGateRef.current.isCurrent(token)) setPlanBusy(false);
+    }
+  }
+
+  function planSourceFromChat(goalOverride?: string): PlanSource {
+    const current = snapshotRef.current;
+    const lastUser = [...chatMessages].reverse().find((message) => message.role === "user");
+    const goal = resolvePlanGoal(goalOverride, chatInput, lastUser?.content ?? null);
+    const summary = chatMessages
+      .filter((message) => message.role === "system")
+      .map((message) => message.content)
+      .join("\n");
+    return buildPlanSource({
+      goal,
+      goalSource:
+        goalOverride !== undefined
+          ? "edited"
+          : chatInput.trim()
+            ? "composer"
+            : "last_user_message",
+      messages: chatMessages
+        .filter((message) => message.role !== "system")
+        .map((message) => ({ role: message.role, content: message.content })),
+      summary,
+      overview: current?.workspace.overview ?? "",
+    });
+  }
+
+  function invalidatePlanPreview() {
+    planPreviewGateRef.current.invalidate();
+    setPlanBusy(false);
+  }
+
+  function clearPlanDraftSession() {
+    planPreviewGateRef.current.invalidate();
+    setPlanSource(null);
+    setPlanDraft(null);
+    setPlanIssues([]);
+    setPlanError(null);
+    setPlanBusy(false);
+    planConfirmKeyRef.current = "";
+  }
+
+  function confirmPlanDraftLeave(reason: PlanDraftLeaveReason): boolean {
+    if (!isPlanDraftDirty(planSource, planDraft)) return true;
+    if (!window.confirm(planDraftLeaveMessage(reason))) return false;
+    if (planDraftLeaveDisposition(reason) === "discard") clearPlanDraftSession();
+    else invalidatePlanPreview();
+    return true;
+  }
+
+  function openPlanDraft(source: PlanSource, preview: boolean): boolean {
+    // t237：无论是否立即 preview，都先失效在途请求，避免旧响应回填新 source。
+    planPreviewGateRef.current.invalidate();
+    setPlanBusy(false);
+    const sameSource = planSource?.digest === source.digest;
+    if (!sameSource && !confirmPlanDraftLeave("replace")) return false;
+    if (sameSource && planDraft) {
+      openPanel("planDraft");
+      return true;
+    }
+    setPlanSource(source);
+    setPlanDraft(null);
+    setPlanError(null);
+    setPlanIssues(planSourceIssues(source));
+    openPanel("planDraft");
+    if (preview) void loadPlanPreview(source);
+    return true;
+  }
+
+  function handlePlanFromChat() {
+    if (!snapshotRef.current) return;
+    openPlanDraft(planSourceFromChat(), true);
+  }
+
+  /** Tasks/CommandPalette/WorkflowRail 旧规划入口统一落到草案，不直接建任务。 */
+  function handlePlanDraftEntry() {
+    if (!snapshotRef.current) return;
+    const source = planSourceFromChat();
+    openPlanDraft(source, Boolean(source.goal.trim() || source.messages.length));
+  }
+
+  function handlePlanGoalChange(goal: string) {
+    const next = planSourceFromChat(goal);
+    setPlanSource(next);
+    setPlanIssues([
+      ...planSourceIssues(next),
+      ...(planDraft
+        ? validatePlanDraft(planDraft.tasks, { agents: snapshot?.agents ?? [] })
+        : []),
+    ]);
+    setPlanError(null);
+    invalidatePlanPreview();
+  }
+
+  function handlePlanDraftChange(next: PlanDraft) {
+    setPlanDraft(next);
+    setPlanIssues([
+      ...planSourceIssues(planSource ?? next.source),
+      ...validatePlanDraft(next.tasks, { agents: snapshot?.agents ?? [] }),
+    ]);
+    planConfirmKeyRef.current = planDraftFingerprint(next);
+  }
+
+  async function handleConfirmPlan(ackHighRisk: boolean) {
+    const current = snapshotRef.current;
+    if (!current || !planDraft || planBusy || planConfirming) return;
+    if (isPlanDraftSourceChanged(planDraft, planSource)) {
+      setPlanError("目标已修改，当前草案对应的目标已过期；请重新生成后再确认。");
+      return;
+    }
+    setPlanConfirming(true);
+    setPlanError(null);
+    try {
+      const result = await window.deer.confirmPlan({
+        workspaceId: current.workspace.id,
+        source: planDraft.source,
+        sourceDigest: planDraft.source.digest,
+        idempotencyKey: planConfirmKeyRef.current,
+        tasks: planDraft.tasks,
+        ackHighRisk,
+      });
+      await refresh(current.workspace.id);
+      if (result.tasks[0]) {
+        setSelectedTaskId(result.tasks[0].id);
+        void loadTrace(result.tasks[0].id);
+        void loadRuns(result.tasks[0].id);
+      }
+      setPlanSource(null);
+      setPlanDraft(null);
+      setPlanIssues([]);
+      if (activePanelKey === "planDraft") dockRef.current?.closeActivePanel();
       openPanel("tasks");
-      // C26：成功 toast + 下一步动作。
       pushToast({
         kind: "success",
-        message: `已规划 ${tasks.length} 个任务`,
-        action: { label: "查看", onClick: () => openPanel("tasks") },
+        message: result.alreadyConfirmed
+          ? `草案已确认过，复用 ${result.tasks.length} 个任务`
+          : `已创建 ${result.tasks.length} 个任务（DAG）`,
       });
     } catch (error) {
-      setError(errorText(error));
+      setPlanError(`确认失败：${formatError(error)}`);
     } finally {
-      setBusy(false);
+      setPlanConfirming(false);
     }
+  }
+
+  function handleCancelPlan() {
+    if (!confirmPlanDraftLeave("cancel")) return;
+    clearPlanDraftSession();
+    if (activePanelKey === "planDraft") dockRef.current?.closeActivePanel();
+    openPanel("chat");
+  }
+
+  /** Dock 关闭：dirty 时确认；确认“关闭”会保留会话草案，可从 launcher 恢复。 */
+  function handlePlanDraftPanelClosed() {
+    if (!isPlanDraftDirty(planSource, planDraft)) return;
+    if (!window.confirm(planDraftLeaveMessage("close"))) {
+      openPanel("planDraft");
+      return;
+    }
+    invalidatePlanPreview();
   }
 
   /**
@@ -2299,6 +2531,10 @@ export default function App() {
     }
     if (target.panel === "board") {
       openPanel("board");
+      return;
+    }
+    if (target.panel === "planDraft") {
+      handlePlanDraftEntry();
       return;
     }
     if (target.review) {
@@ -2695,7 +2931,10 @@ export default function App() {
                       type="button"
                       role="menuitem"
                       className={`panel-menu-item ${isOpen ? "is-open" : ""}`}
-                      onClick={() => openPanel(key)}
+                      onClick={() => {
+                        if (key === "planDraft" && !planSource) handlePlanDraftEntry();
+                        else openPanel(key);
+                      }}
                     >
                       <span className="panel-menu-title">{def.title}</span>
                       <span className="panel-menu-state">
@@ -2839,9 +3078,32 @@ export default function App() {
             maxGroups={snapshot.settings.layout?.maxDockGroups ?? DEFAULT_MAX_DOCK_GROUPS}
             initialPanelKey={bootPanel}
             onActivePanelChange={handleDockActivePanel}
+            onPanelClose={(key) => {
+              if (key === "planDraft") handlePlanDraftPanelClosed();
+            }}
             onNotify={(message) => pushToast({ kind: "success", message })}
             renderPanel={(key) => {
               switch (key) {
+                case "planDraft":
+                  return (
+                    <PlanDraftPanel
+                      draft={planDraft}
+                      source={planSource}
+                      sourceChanged={isPlanDraftSourceChanged(planDraft, planSource)}
+                      issues={planIssues}
+                      agents={snapshot.agents}
+                      busy={planBusy}
+                      error={planError}
+                      confirming={planConfirming}
+                      onDraftChange={handlePlanDraftChange}
+                      onGoalChange={handlePlanGoalChange}
+                      onConfirm={(ack) => void handleConfirmPlan(ack)}
+                      onCancel={handleCancelPlan}
+                      onRetry={() => {
+                        if (planSource) void loadPlanPreview(planSource);
+                      }}
+                    />
+                  );
                 case "tasks":
                   return (
                     <TasksView
@@ -2869,7 +3131,7 @@ export default function App() {
                         openPanel("context");
                       }}
                       onLocate={handleLocateInStarMap}
-                      onPlan={handlePlan}
+                      onPlanDraft={handlePlanDraftEntry}
                       onStartPoll={(task) => {
                         setPollIntent({
                           title: task.title,
@@ -3022,6 +3284,7 @@ export default function App() {
                       input={chatInput}
                       onInput={setChatInput}
                       onSend={handleSendChat}
+                      onPlanFromChat={handlePlanFromChat}
                       onStop={handleStopChat}
                       questions={questionsByKey}
                       questionsLoaded={questionsLoaded}
@@ -3475,7 +3738,7 @@ function TasksView({
   onCreate,
   onContext,
   onLocate,
-  onPlan,
+  onPlanDraft,
   onStartPoll,
   scheduler,
   schedulerLoading,
@@ -3517,7 +3780,7 @@ function TasksView({
   onCreate: (title: string, description: string, acceptance: string[]) => void;
   onContext: (taskId: string) => void;
   onLocate: (taskId: string) => void;
-  onPlan: (goal: string) => void;
+  onPlanDraft: () => void;
   onStartPoll: (task: Task) => void;
   scheduler: SchedulerSnapshot | null;
   schedulerLoading: boolean;
@@ -3548,16 +3811,16 @@ function TasksView({
   watchdogHandoffs?: Record<string, RunHandoff>;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
-  const [planOpen, setPlanOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // C11：从顶栏/命令面板进入时自动打开对应弹窗（一次性）。
   useEffect(() => {
     if (!autoOpen) return;
-    if (autoOpen === "task") setComposeOpen(true);
-    if (autoOpen === "plan") setPlanOpen(true);
+    const action = tasksAutoOpenAction(autoOpen);
+    if (action === "compose") setComposeOpen(true);
+    if (action === "planDraft") onPlanDraft();
     onAutoOpenHandled();
-  }, [autoOpen, onAutoOpenHandled]);
+  }, [autoOpen, onAutoOpenHandled, onPlanDraft]);
   const [search, setSearch] = useState("");
   // C06：任务列表分栏 280–520px 可拖宽、双击复位、可收起，宽度持久化。
   const [listWidth, setListWidth] = useState(() => {
@@ -3700,7 +3963,7 @@ function TasksView({
               <button
                 type="button"
                 className="ghost small"
-                onClick={() => setPlanOpen(true)}
+                onClick={() => onPlanDraft()}
                 disabled={busy}
                 title="让 Router 把一个目标拆成任务 DAG"
               >
@@ -3747,7 +4010,7 @@ function TasksView({
                 title="还没有任务"
                 description="直接创建一个任务，或让 Router 把目标拆成任务 DAG。"
                 actions={[
-                  { label: "规划任务", onClick: () => setPlanOpen(true) },
+                  { label: "规划任务", onClick: () => onPlanDraft() },
                   { label: "+ 新建任务", onClick: () => setComposeOpen(true), primary: true },
                 ]}
               />
@@ -3861,7 +4124,7 @@ function TasksView({
             actions={
               snapshot.tasks.length === 0
                 ? [
-                    { label: "规划任务", onClick: () => setPlanOpen(true) },
+                    { label: "规划任务", onClick: () => onPlanDraft() },
                     { label: "+ 新建任务", onClick: () => setComposeOpen(true), primary: true },
                   ]
                 : undefined
@@ -4158,14 +4421,6 @@ function TasksView({
         />
       )}
 
-      {planOpen && (
-        <RouterPlanModal
-          busy={busy}
-          onClose={() => setPlanOpen(false)}
-          onPlan={onPlan}
-        />
-      )}
-
       {deleteOpen && selectedTask && (
         <DangerConfirmModal
           title="删除任务？"
@@ -4296,60 +4551,7 @@ function TraceItem({ event }: { event: EventRecord }) {
   );
 }
 
-// C10：旧 RouterView 已移除——工作区概述并入对话页（ChatView），「规划任务」移入任务页头部。
-
-function RouterPlanModal({
-  busy,
-  onClose,
-  onPlan,
-}: {
-  busy: boolean;
-  onClose: () => void;
-  onPlan: (goal: string) => void;
-}) {
-  const [goal, setGoal] = useState("");
-  const dirty = Boolean(goal.trim());
-
-  return (
-    <Modal
-      title="让 Router 规划"
-      description="目标会被拆成 2–4 个带依赖的任务"
-      onClose={onClose}
-      confirmClose={dirty}
-    >
-      <form
-        className="form modal-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!goal.trim()) return;
-          onPlan(goal.trim());
-          onClose();
-        }}
-      >
-        <label>
-          目标
-          <textarea
-            value={goal}
-            onChange={(event) => setGoal(event.target.value)}
-            rows={7}
-            placeholder="例如：给这个项目加一个健康检查接口，并补上测试。"
-          />
-        </label>
-        <div className="notice small">
-          规划完成后会自动跳到「任务」页；任务默认按依赖顺序执行。
-        </div>
-        <div className="modal-foot">
-          <button type="button" className="ghost" onClick={onClose}>
-            取消
-          </button>
-          <button className="primary" disabled={busy || !goal.trim()}>
-            {busy ? "规划中…" : "开始规划"}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
+// C10：旧 RouterView 已移除；t235 旧 RouterPlanModal 也删除，所有规划入口统一到 Plan Draft。
 
 function MailboxView({
   snapshot,
@@ -4875,6 +5077,7 @@ export function ChatView({
   input,
   onInput,
   onSend,
+  onPlanFromChat,
   onStop,
   taskContext,
   taskContextSource,
@@ -4918,6 +5121,7 @@ export function ChatView({
   input: string;
   onInput: (value: string) => void;
   onSend: () => void;
+  onPlanFromChat?: () => void;
   onStop: () => void;
   /** t64：问题状态（按 messageId#bN 索引）与队列入口。 */
   questions: ReadonlyMap<string, ChatQuestionRecord>;
@@ -5187,6 +5391,15 @@ export function ChatView({
                 : "上下文与工具会随任务变化 · /clear 清空 · /compact 压缩"}
             </span>
             <div className="row gap">
+              <button
+                type="button"
+                className="ghost small"
+                onClick={onPlanFromChat}
+                disabled={busy || !onPlanFromChat || (!input.trim() && messages.length === 0)}
+                title="把当前输入框目标与对话带入可编辑计划草案；确认前不创建任务"
+              >
+                从这段对话规划
+              </button>
               {busy && (
                 <button className="ghost small" onClick={onStop}>
                   停止

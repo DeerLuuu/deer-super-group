@@ -8009,3 +8009,210 @@ body li {
     display: none;
   }
 }
+
+/* P0-4 Plan Draft */
+.plan-draft-panel {
+  display: grid;
+  gap: 12px;
+  height: 100%;
+  padding: 14px 16px 20px;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.plan-draft-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-draft-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.plan-draft-status,
+.plan-draft-empty {
+  padding: 16px;
+  border: 1px dashed var(--border-2);
+  border-radius: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.plan-draft-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-draft-list {
+  display: grid;
+  gap: 10px;
+}
+
+.plan-draft-task {
+  display: grid;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.plan-draft-task-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-draft-task-head > input {
+  flex: 1;
+  min-width: 0;
+  font-weight: 650;
+}
+
+.plan-draft-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.plan-draft-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.plan-draft-grid label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.plan-draft-grid textarea,
+.plan-draft-grid input,
+.plan-draft-grid select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.plan-draft-deps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding-top: 2px;
+}
+
+.plan-draft-dep {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.plan-draft-contract {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-contract-chip {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.plan-contract-chip.is-owner {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--text);
+}
+
+.plan-contract-chip.is-unavailable {
+  border-color: color-mix(in srgb, var(--status-failed) 35%, var(--border));
+}
+
+.plan-draft-issues {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 10px;
+}
+
+.plan-draft-issues .is-error {
+  color: var(--status-failed);
+}
+
+.plan-draft-issues .is-warning {
+  color: var(--status-queued);
+}
+
+.plan-draft-add {
+  justify-content: flex-end;
+}
+
+.plan-draft-risk-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--status-failed) 38%, var(--border));
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.plan-draft-foot {
+  position: sticky;
+  bottom: -20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+@media (max-width: 960px) {
+  .plan-draft-panel {
+    padding: 10px 10px 16px;
+  }
+
+  .plan-draft-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-draft-task-head {
+    flex-wrap: wrap;
+  }
+
+  .plan-draft-task-head > input {
+    flex-basis: calc(100% - 40px);
+  }
+}

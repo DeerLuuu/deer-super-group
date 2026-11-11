@@ -22,7 +22,8 @@ export type PanelKey =
   | "board"
   | "polls"
   | "watchdog"
-  | "settings";
+  | "settings"
+  | "planDraft";
 
 export type PanelDef = {
   key: PanelKey;
@@ -141,6 +142,19 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     renderer: "onlyWhenVisible",
     minWidth: 420,
     minHeight: 320,
+    closable: true,
+    defaultGroup: "main",
+    defaultClosed: true,
+  },
+  planDraft: {
+    key: "planDraft",
+    title: "计划草案",
+    component: "planDraft",
+    // 草案由 Chat 入口显式打开，不新增 hash 路由。
+    routeTab: null,
+    renderer: "onlyWhenVisible",
+    minWidth: 560,
+    minHeight: 420,
     closable: true,
     defaultGroup: "main",
     defaultClosed: true,
