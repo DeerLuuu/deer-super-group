@@ -74,6 +74,7 @@ export default function SettingsView({
   const [saveStatus, setSaveStatus] = useState<{ kind: "success" | "error"; message: string } | null>(
     null,
   );
+  const [gitDirty, setGitDirty] = useState(false);
   const modelBaselineRef = useRef(
     JSON.stringify({
       mock: snapshot.settings.mock,
@@ -99,15 +100,36 @@ export default function SettingsView({
     modelFingerprint !== modelBaselineRef.current ||
     (translationFingerprint !== null &&
       translationBaselineRef.current !== null &&
-      translationFingerprint !== translationBaselineRef.current);
+      translationFingerprint !== translationBaselineRef.current) ||
+    gitDirty;
 
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
   useEffect(() => {
+    if (!dirty) return;
+    if (typeof window.addEventListener !== "function") return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [dirty]);
+
+  useEffect(() => {
     if (dirty) setSaveStatus(null);
   }, [dirty]);
+
+  function changeSection(next: SettingsSection) {
+    if (next === section) return;
+    if (section === "git" && gitDirty && !window.confirm("Git 设置尚未保存，确定离开吗？")) {
+      return;
+    }
+    if (section === "git") setGitDirty(false);
+    setSection(next);
+  }
 
   useEffect(() => {
     if (initialSection) setSection(initialSection);
@@ -334,7 +356,7 @@ export default function SettingsView({
           <button
             key={item.id}
             className={`settings-nav-item ${section === item.id ? "active" : ""}`}
-            onClick={() => setSection(item.id)}
+            onClick={() => changeSection(item.id)}
           >
             <span>{item.label}</span>
             <span className="muted tiny">{item.hint}</span>
@@ -797,7 +819,10 @@ export default function SettingsView({
             <div id="settings-git" className="settings-git-tab" tabIndex={-1}>
               <section className="panel settings-block">
                 <div className="settings-block-body">
-                  <GitSettingsPanel workspaceId={snapshot.workspace.id} />
+                  <GitSettingsPanel
+              workspaceId={snapshot.workspace.id}
+              onDirtyChange={setGitDirty}
+            />
                 </div>
               </section>
             </div>

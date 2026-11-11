@@ -59,6 +59,7 @@ import {
   type LlmMessage,
 } from "./model.js";
 import { resolveModelProfile, resolveProvider } from "../shared/models.js";
+import { safeErrorSummary } from "../shared/errorRedaction.js";
 import {
   createBuiltinTools,
   ToolRegistry,
@@ -197,7 +198,10 @@ function terminalText(value: unknown, max: number): string {
   text = text
     .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/gi, "[REDACTED]")
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-    .replace(/\bAuthorization\s*:\s*[^\s]+/gi, "Authorization: [REDACTED]")
+    .replace(/\b(?:Authorization|x-api-key|api-key)\s*:\s*[^\r\n;]+/gi, (match) => {
+      const colon = match.indexOf(":");
+      return `${colon > 0 ? match.slice(0, colon) : "Authorization"}: [REDACTED]`;
+    })
     .replace(/\b(api[_-]?key|token|secret)\s*[=:]\s*[^&\s]+/gi, "$1=[REDACTED]")
     .replace(/([?&](?:api[_-]?key|token|secret|key)=)[^&\s]+/gi, "$1[REDACTED]");
   if (text.length <= max) return text;
@@ -1204,7 +1208,7 @@ export class AppService {
       try {
         this.ingestAssistantInteractive(workspaceId, router.id, assistant);
       } catch (error) {
-        const code = error instanceof Error ? error.message.slice(0, 120) : "unknown";
+        const code = safeErrorSummary(error, 120);
         this.store.appendEvent({
           aggregateType: "chat",
           aggregateId: assistant.id,
@@ -1236,7 +1240,7 @@ export class AppService {
         });
         return null;
       }
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = safeErrorSummary(error);
       const { terminal, persisted } = this.persistChatTurnTerminal({
         workspaceId,
         agentId: router.id,
@@ -2291,7 +2295,7 @@ export class AppService {
         models: [],
         source,
         providerId: provider.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: safeErrorSummary(error),
       };
     }
   }

@@ -8,13 +8,22 @@
  * 内部 URL 查询参数；不把整段 JSON 贴进 UI。
  */
 
+const PRIVATE_IP =
+  /\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|169\.254(?:\.\d{1,3}){2})\b/g;
+const PRIVATE_IPV6 = /\b(?:f[cd][0-9a-f]{2}|fe80):[0-9a-f:]+\b/gi;
+const INTERNAL_HOST =
+  /\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|intranet|corp|home|localdomain|svc)\b/gi;
+const LOOPBACK_HOST = /\b(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0)\b/gi;
 const INTERNAL_URL =
-  /https?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|0\.0\.0\.0|[^\s/:]+\.internal)(?::\d+)?[^\s)"]*/gi;
+  /https?:\/\/(?:\[(?:::1|f[cd][0-9a-f]{2}:[0-9a-f:]+|fe80:[0-9a-f:]+)\]|(?:localhost|127(?:\.\d{1,3}){3}|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|169\.254(?:\.\d{1,3}){2}|[^\s/:]+\.(?:internal|local|lan|intranet|corp|home|localdomain|svc)))(?::\d+)?[^\s)"]*/gi;
 const FILE_URL = /file:\/\/[^\s)"]*/gi;
 const SECRET_KEY = /\bsk-[A-Za-z0-9_-]{6,}\b/gi;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
-const AUTH_HEADER = /\b(?:Authorization|x-api-key|api-key)\s*:\s*[^\s,;]+/gi;
-const ASSIGNED_SECRET = /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)\s*[=:]\s*[^&\s,;]+/gi;
+// 整段 Authorization 值（含 Basic/Token/Digest 等任意 scheme）到行尾/分号；
+// 不能只替换 scheme，否则凭据仍会留在 UI/剪贴板。
+const AUTH_HEADER = /\b(?:Authorization|x-api-key|api-key)\s*:\s*[^\r\n;]+/gi;
+const ASSIGNED_SECRET =
+  /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)\s*[=:]\s*[^&\s,;]+/gi;
 const URL_SECRET = /([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)=)[^&\s]+/gi;
 const PROVIDER_BODY =
   /\{[\s\S]*(?:"error"\s*:|"choices"\s*:|"request_id"\s*:|"provider"\s*:)[\s\S]*\}/gi;
@@ -40,10 +49,18 @@ export function sanitizeErrorText(value: string, max = 1_000): string {
   text = text
     .replace(SECRET_KEY, "[REDACTED]")
     .replace(BEARER, "Bearer [REDACTED]")
-    .replace(AUTH_HEADER, "Authorization: [REDACTED]")
+    .replace(AUTH_HEADER, (match) => {
+      const colon = match.indexOf(":");
+      const name = colon > 0 ? match.slice(0, colon) : "Authorization";
+      return `${name}: [REDACTED]`;
+    })
     .replace(ASSIGNED_SECRET, (match) => `${match.split(/[=:]/)[0]}=[REDACTED]`)
     .replace(URL_SECRET, "$1[REDACTED]")
     .replace(INTERNAL_URL, "[内部地址已隐藏]")
+    .replace(PRIVATE_IP, "[内部地址已隐藏]")
+    .replace(PRIVATE_IPV6, "[内部地址已隐藏]")
+    .replace(INTERNAL_HOST, "[内部地址已隐藏]")
+    .replace(LOOPBACK_HOST, "[内部地址已隐藏]")
     .replace(FILE_URL, "[本地路径已隐藏]")
     .replace(PROVIDER_BODY, "[provider 原始响应已隐藏]")
     .replace(/[ \t]+/g, " ")
@@ -56,10 +73,12 @@ export function sanitizeErrorText(value: string, max = 1_000): string {
 /** 保留错误码/首行摘要；不返回 stack/provider body。 */
 export function safeErrorSummary(error: unknown, max = 1_000): string {
   const record = error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  const rawCode = record ? (record.code ?? record.name) : null;
+  const isGenericName =
+    typeof rawCode === "string" &&
+    ["error", "typeerror", "rangeerror", "syntaxerror"].includes(rawCode.toLowerCase());
   const code =
-    record && (record.code ?? record.name) != null
-      ? sanitizeErrorText(String(record.code ?? record.name), 64)
-      : "";
+    rawCode != null && !isGenericName ? sanitizeErrorText(String(rawCode), 64) : "";
   const message = error instanceof Error ? error.message : error == null ? "" : String(error);
   const summary = sanitizeErrorText(message, max);
   return code && !summary.includes(code) ? `${code}: ${summary}` : summary;

@@ -26,6 +26,46 @@ describe("t190 error redaction", () => {
     expect(out).toContain("[本地路径已隐藏]");
   });
 
+  it("redacts complete Authorization values for Basic/Token/Digest/Bearer", () => {
+    const cases = [
+      "Authorization: Basic dXNlcjpwYXNz",
+      "Authorization: Token abc.def.ghi",
+      'Authorization: Digest username="u", realm="r", nonce="n", uri="/", response="deadbeef"',
+      "Authorization: Bearer abc.def.ghi",
+      "authorization: Basic dXNlcjpwYXNz",
+    ];
+    for (const raw of cases) {
+      const out = sanitizeErrorText(`request failed ${raw}`);
+      expect(out).toContain("[REDACTED]");
+      expect(out).not.toContain("dXNlcjpwYXNz");
+      expect(out).not.toContain("abc.def.ghi");
+      expect(out).not.toContain("deadbeef");
+      expect(out).not.toContain("username=");
+      expect(out).toContain("request failed");
+    }
+  });
+
+  it("redacts common private/internal IP and host forms", () => {
+    const raw = [
+      "http://192.168.1.20:8787/api",
+      "http://10.0.0.5/v1",
+      "http://172.20.3.4/health",
+      "http://169.254.1.2/meta",
+      "http://db.corp.local:5432",
+      "http://host.docker.internal:3000",
+      "http://[fe80::1]:8080",
+    ].join(" ");
+    const out = sanitizeErrorText(raw);
+    expect(out).not.toContain("192.168.1.20");
+    expect(out).not.toContain("10.0.0.5");
+    expect(out).not.toContain("172.20.3.4");
+    expect(out).not.toContain("169.254.1.2");
+    expect(out).not.toContain("db.corp.local");
+    expect(out).not.toContain("host.docker.internal");
+    expect(out).not.toContain("fe80::1");
+    expect(out.match(/\[内部地址已隐藏\]/g)?.length).toBeGreaterThanOrEqual(7);
+  });
+
   it("strips stack frames and provider raw bodies", () => {
     const raw = [
       "provider request failed",
@@ -56,6 +96,7 @@ describe("t190 error redaction", () => {
     expect(safeErrorSummary(Object.assign(new Error("rate limited"), { code: "RATE_LIMITED" }))).toBe(
       "RATE_LIMITED: rate limited",
     );
+    expect(safeErrorSummary(new Error("plain failure"))).toBe("plain failure");
     expect(sanitizeErrorText("")).toContain("操作失败");
   });
 });

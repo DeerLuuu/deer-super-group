@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Modal from "../../Modal.js";
+import { formatError } from "../../shared/copy.js";
 import type { GitSettings, MergeQueueItem, TaskVcsSnapshot } from "../types.js";
 
 export interface TaskVcsPanelProps {
@@ -110,8 +112,6 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [waiveReason, setWaiveReason] = useState("");
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  const closeRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,7 +121,7 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
       setActiveMerge(queue.activeMerge);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -130,35 +130,11 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
   useEffect(() => {
     if (!open) return;
     void load();
-    closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-      if (event.key === "Tab" && dialogRef.current) {
-        const nodes = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!nodes.length) return;
-        const first = nodes[0];
-        const last = nodes[nodes.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", onKey);
     const timer = window.setInterval(() => void load(), 4_000);
     return () => {
-      document.removeEventListener("keydown", onKey);
       window.clearInterval(timer);
     };
-  }, [open, load, onClose]);
+  }, [open, load]);
 
   if (!open) return null;
 
@@ -168,25 +144,13 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
       await load();
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     }
   };
 
   return (
-    <div className="git-queue-backdrop" role="presentation">
-      <div
-        ref={dialogRef}
-        className="git-queue-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-busy={loading}
-        aria-labelledby="git-queue-title"
-        style={{ width: "min(720px, 96vw)", maxWidth: "96vw", maxHeight: "90vh", overflow: "auto", boxSizing: "border-box" }}
-      >
-        <header>
-          <h2 id="git-queue-title">合并队列</h2>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="关闭合并队列">×</button>
-        </header>
+    <Modal title="合并队列" onClose={onClose} className="git-queue-modal">
+      <div aria-busy={loading}>
         {error ? <p role="alert">{error}</p> : null}
         {loading && items.length === 0 ? <p role="status">加载合并队列…</p> : null}
         {!loading && items.length === 0 && !error ? <p>队列为空。</p> : null}
@@ -231,31 +195,41 @@ export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalP
           </ol>
         ) : null}
       </div>
-    </div>
+    </Modal>
   );
 }
 
 export interface GitSettingsPanelProps {
   workspaceId: string;
+  /** t198：把 Git 草稿纳入 Settings dirty guard；保存成功后回调 false。 */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-export function GitSettingsPanel({ workspaceId }: GitSettingsPanelProps) {
+export function GitSettingsPanel({ workspaceId, onDirtyChange }: GitSettingsPanelProps) {
   const [settings, setSettings] = useState<GitSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const baselineRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setSettings(await window.deer.getGitSettings(workspaceId));
+      const next = await window.deer.getGitSettings(workspaceId);
+      setSettings(next);
+      baselineRef.current = JSON.stringify(next);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     }
   }, [workspaceId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const dirty = settings !== null && baselineRef.current !== JSON.stringify(settings);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   if (!settings) {
     return (
@@ -270,11 +244,12 @@ export function GitSettingsPanel({ workspaceId }: GitSettingsPanelProps) {
     try {
       const next = await window.deer.saveGitSettings(workspaceId, settings);
       setSettings(next);
+      baselineRef.current = JSON.stringify(next);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2_000);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     }
   };
 

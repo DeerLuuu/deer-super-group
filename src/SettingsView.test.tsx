@@ -54,11 +54,16 @@ afterEach(() => {
   else (globalThis as { window?: unknown }).window = originalWindow;
 });
 
-async function renderSettings(onSave: (next: LlmSettings) => Promise<{ ok: true } | { ok: false; error: string }>, onDirtyChange = vi.fn()) {
+async function renderSettings(
+  onSave: (next: LlmSettings) => Promise<{ ok: true } | { ok: false; error: string }>,
+  onDirtyChange = vi.fn(),
+  windowApi: Record<string, unknown> = {},
+) {
   (globalThis as { window?: unknown }).window = {
     deer: {
       getTranslationSettings: async () => ({ ...DEFAULT_TRANSLATION_SETTINGS }),
     },
+    ...windowApi,
   };
   let renderer: SettingsRenderer | null = null;
   await act(async () => {
@@ -129,5 +134,30 @@ describe("t190 Settings draft/save safety", () => {
     const output = textOf(renderer.toJSON());
     expect(output).toContain("已保存");
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("registers a beforeunload guard while Settings is dirty", async () => {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    const onSave = vi.fn(async () => ({ ok: true as const }));
+    const { renderer } = await renderSettings(onSave, vi.fn(), {
+      addEventListener,
+      removeEventListener,
+    });
+    const nameInput = renderer.root
+      .findAllByType("input")
+      .find((input) => input.props["aria-label"] === "供应商名称");
+    await act(() => {
+      (nameInput!.props.onChange as (event: unknown) => void)({
+        target: { value: "Dirty Provider" },
+      });
+    });
+    expect(addEventListener).toHaveBeenCalledWith("beforeunload", expect.any(Function));
+    const handler = addEventListener.mock.calls.find((call) => call[0] === "beforeunload")?.[1] as
+      | ((event: { preventDefault: () => void; returnValue: string }) => void)
+      | undefined;
+    const event = { preventDefault: vi.fn(), returnValue: "" };
+    handler?.(event);
+    expect(event.preventDefault).toHaveBeenCalled();
   });
 });
