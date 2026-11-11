@@ -10,6 +10,8 @@ import type {
   ChatMessage,
   ChatQuestionRecord,
   ChatTrajectoryEntry,
+  ChatTurnHistoryOptions,
+  ChatTurnHistoryPage,
   ClearChatContextResult,
   CompactChatContextResult,
   ContextSnapshot,
@@ -132,6 +134,11 @@ export interface DeerApi {
   compactChatContext(workspaceId: string): Promise<CompactChatContextResult>;
   /** t175：Chat 轨迹账本（消息 + 工具事件 + 上下文操作）。 */
   getChatTrajectory(workspaceId: string, agentId?: string): Promise<ChatTrajectoryEntry[]>;
+  getChatTurns(
+    workspaceId: string,
+    agentId?: string,
+    options?: ChatTurnHistoryOptions,
+  ): Promise<ChatTurnHistoryPage>;
   /** t179：思考文本机翻（默认 Bing，目标简体中文）。 */
   translateText(text: string): Promise<string>;
   /** t181：翻译源与开关设置。 */

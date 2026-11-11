@@ -263,6 +263,96 @@ export interface CompactChatContextResult {
   summary: string;
 }
 
+// ---------------------------------------------------------------------------
+// t167/t168：历史对话轮次只读投影（getChatTurns）
+// ---------------------------------------------------------------------------
+
+export type ChatTurnStatus = "complete" | "cancelled" | "error" | "pending";
+
+export interface ChatTurnReasoning {
+  /** 稳定键：`<eventId>:reasoning` 或 `<messageId>:reasoning`。 */
+  id: string;
+  step: number;
+  text: string;
+  seq?: number;
+  /** event=chat.reasoning；message=旧 assistant.reasoning 降级。 */
+  source: "event" | "message";
+  /** 文本因容量上限截断。 */
+  truncated?: boolean;
+}
+
+export interface ChatTurnTool {
+  callId: string;
+  name: string;
+  arguments: string;
+  status: "running" | "ok" | "error" | "unknown";
+  value?: unknown;
+  error?: string;
+  step: number;
+  callSeq?: number;
+  resultSeq?: number;
+  /** 只有 result、没有 call 的孤立结果。 */
+  synthetic?: boolean;
+  truncated?: { arguments?: boolean; value?: boolean };
+}
+
+export interface ChatTurnStep {
+  step: number;
+  reasoning: ChatTurnReasoning[];
+  tools: ChatTurnTool[];
+}
+
+export interface ChatAssistantTurn {
+  /** `${turnId}:assistant:${message.id}`。 */
+  id: string;
+  messageId: string;
+  content: string;
+  /** 原始 assistant.reasoning（legacy fallback）。 */
+  reasoning: string;
+  steps: ChatTurnStep[];
+  status: ChatTurnStatus;
+  legacy: {
+    reasoningFromMessage: boolean;
+    toolsMissing: boolean;
+    stepFallback: boolean;
+  };
+  truncated: boolean;
+}
+
+export interface ChatTurn {
+  /** `turn:<userMessageId>`；无 user 时为 `orphan:<assistantMessageId>`。 */
+  turnId: string;
+  userMessage: ChatMessage | null;
+  assistants: ChatAssistantTurn[];
+  startedAt: string | null;
+  endedAt: string | null;
+  status: ChatTurnStatus;
+  /** t172：用户内容/思考总量、工具数量或响应裁剪触发。 */
+  truncated?: boolean;
+}
+
+export interface ChatTurnHistoryPage {
+  workspaceId: string;
+  agentId: string;
+  turns: ChatTurn[];
+  hasMore: boolean;
+  /** base64url(`${createdAt}|${userMessageId}`)，仅服务端解释。 */
+  nextBefore: string | null;
+  truncated: boolean;
+  projectionVersion: 1;
+  generatedAt: string;
+}
+
+export interface ChatTurnHistoryOptions {
+  /** 最近 N 轮，1..40，默认 20。 */
+  limit?: number;
+  /** 更早轮次游标（服务端生成）。 */
+  before?: string | null;
+  includeTools?: boolean;
+  includeReasoning?: boolean;
+}
+
+
 export type ChatEvent =
   | { type: "delta"; workspaceId: Id; agentId: Id; text: string }
   | { type: "reasoning"; workspaceId: Id; agentId: Id; text: string }
