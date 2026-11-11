@@ -1,0 +1,242 @@
+[
+  {
+    "file": "t212-electron-1440-chat.png",
+    "width": 1440,
+    "height": 900,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 1440,
+      "h": 900,
+      "dpr": 1,
+      "hash": "#/chat",
+      "title": "按钮工厂 · 对话 — DeerSuperGroup",
+      "sidebar": "sidebar ",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-1100-chat.png",
+    "width": 1100,
+    "height": 760,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 1100,
+      "h": 760,
+      "dpr": 1,
+      "hash": "#/chat",
+      "title": "按钮工厂 · 对话 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-1100-team.png",
+    "width": 1100,
+    "height": 760,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 1100,
+      "h": 760,
+      "dpr": 1,
+      "hash": "#/team",
+      "title": "按钮工厂 · 团队 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-960-chat.png",
+    "width": 960,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 960,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/chat",
+      "title": "按钮工厂 · 对话 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-960-team.png",
+    "width": 960,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 960,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/team",
+      "title": "按钮工厂 · 团队 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-960-tasks.png",
+    "width": 960,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 960,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/tasks",
+      "title": "按钮工厂 · 任务 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-900-chat.png",
+    "width": 900,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 900,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/chat",
+      "title": "按钮工厂 · 对话 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-900-team.png",
+    "width": 900,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 900,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/team",
+      "title": "按钮工厂 · 团队 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-900-tasks.png",
+    "width": 900,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 900,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/tasks",
+      "title": "按钮工厂 · 任务 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-760-chat.png",
+    "width": 760,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 760,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/chat",
+      "title": "按钮工厂 · 对话 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-760-team.png",
+    "width": 760,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 760,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/team",
+      "title": "按钮工厂 · 团队 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-760-tasks.png",
+    "width": 760,
+    "height": 700,
+    "dpr": 1,
+    "ok": true,
+    "metrics": {
+      "w": 760,
+      "h": 700,
+      "dpr": 1,
+      "hash": "#/tasks",
+      "title": "按钮工厂 · 任务 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-zoom200-chat.png",
+    "width": 720,
+    "height": 450,
+    "dpr": 2,
+    "ok": true,
+    "metrics": {
+      "w": 720,
+      "h": 450,
+      "dpr": 2,
+      "hash": "#/chat",
+      "title": "按钮工厂 · 对话 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-zoom200-team.png",
+    "width": 720,
+    "height": 450,
+    "dpr": 2,
+    "ok": true,
+    "metrics": {
+      "w": 720,
+      "h": 450,
+      "dpr": 2,
+      "hash": "#/team",
+      "title": "按钮工厂 · 团队 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t212-electron-zoom200-tasks.png",
+    "width": 720,
+    "height": 450,
+    "dpr": 2,
+    "ok": true,
+    "metrics": {
+      "w": 720,
+      "h": 450,
+      "dpr": 2,
+      "hash": "#/tasks",
+      "title": "按钮工厂 · 任务 — DeerSuperGroup",
+      "sidebar": "sidebar collapsed",
+      "overflowX": false
+    }
+  }
+]

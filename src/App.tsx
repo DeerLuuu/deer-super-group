@@ -116,6 +116,15 @@ import {
   routeTabFromPanel,
   type PanelKey,
 } from "./shell/dock/panelRegistry";
+import {
+  SIDEBAR_AUTO_COLLAPSE_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  commitSidebarWidth,
+  displayedSidebarWidth,
+  resizeSidebarWidth,
+  shouldAutoCollapseSidebar,
+  sidebarWidthStateForWindow,
+} from "./shell/dock/narrowWindow";
 
 type Tab = RouteTab;
 
@@ -340,6 +349,12 @@ export default function App() {
     const saved = Number(localStorage.getItem("deer.sidebarWidth"));
     return Number.isFinite(saved) && saved >= 180 && saved <= 480 ? saved : 250;
   });
+  // t212：displayed 是窄窗拖拽的会话内显示值；不写入 preferred/localStorage，
+  // 回到宽窗必须恢复 preferred（类似浏览器「临时缩放」与「默认值」分离）。
+  const [sidebarDisplayWidth, setSidebarDisplayWidth] = useState<number | null>(null);
+  // t194 P0-1：viewport 宽度同时驱动 Dock single 判定、侧栏自动折叠与可读宽度钳制。
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const viewportWidthRef = useRef(viewportWidth);
   // C06：任务列表状态过滤提升到 App，供顶栏失败计数一键跳转。
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatusFilter>("all");
   // C14：跨页返回来源（从哪个 tab 进入任务会话）。
@@ -423,10 +438,14 @@ export default function App() {
   const refreshTimer = useRef<number | null>(null);
   const handoffFetchedRef = useRef<Set<string>>(new Set());
   const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarDisplayWidthRef = useRef<number | null>(sidebarDisplayWidth);
   const resizingRef = useRef(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    () => localStorage.getItem("deer.sidebarCollapsed") === "1",
+    () =>
+      localStorage.getItem("deer.sidebarCollapsed") === "1" ||
+      window.innerWidth <= SIDEBAR_AUTO_COLLAPSE_WIDTH,
   );
+  const prevViewportWidthRef = useRef<number | null>(null);
 
   // t64：问题队列派生值（按 created_at 升序；同一时间只显示一个 Modal）。
   const questionsByKey = useMemo(() => {
@@ -522,6 +541,10 @@ export default function App() {
     sidebarWidthRef.current = sidebarWidth;
   }, [sidebarWidth]);
 
+  useEffect(() => {
+    sidebarDisplayWidthRef.current = sidebarDisplayWidth;
+  }, [sidebarDisplayWidth]);
+
   // C12：状态 → hash。tab 变更换历史记录（可前进/后退），选中变化原地替换。
   const appliedInitialRouteRef = useRef(false);
   const lastWrittenHashRef = useRef<string>(window.location.hash);
@@ -603,24 +626,39 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [taskReviewFocus, selectedTaskId]);
 
-  // C09：窄窗自动折叠侧栏；Ctrl/⌘+B 手动切换。
+  // C09 + t194：窄窗自动折叠侧栏；Ctrl/⌘+B 手动切换。
+  // 只在「宽→窄」边沿自动折叠，窄窗内手动展开后继续 resize 不覆盖用户选择。
+  // t212：离开窄窗时清掉 display override，恢复 preferred。
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 1100px)");    let wasNarrow = query.matches;
-    if (query.matches) {
-      setSidebarCollapsed(true);
-      localStorage.setItem("deer.sidebarCollapsed", "1");
+    viewportWidthRef.current = viewportWidth;
+    const next = sidebarWidthStateForWindow(
+      {
+        preferred: sidebarWidthRef.current,
+        displayed: sidebarDisplayWidthRef.current,
+      },
+      viewportWidth,
+    );
+    if (next.displayed !== sidebarDisplayWidthRef.current) {
+      sidebarDisplayWidthRef.current = next.displayed;
+      setSidebarDisplayWidth(next.displayed);
     }
-    function onChange(event: MediaQueryListEvent) {
-      const enteringNarrow = event.matches && !wasNarrow;
-      wasNarrow = event.matches;
-      if (enteringNarrow) {
-        setSidebarCollapsed(true);
-        localStorage.setItem("deer.sidebarCollapsed", "1");
-      }
+  }, [viewportWidth]);
+
+  useEffect(() => {
+    function onResize() {
+      setViewportWidth(window.innerWidth);
     }
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => {
+    const prev = prevViewportWidthRef.current;
+    prevViewportWidthRef.current = viewportWidth;
+    if (!shouldAutoCollapseSidebar(prev, viewportWidth)) return;
+    setSidebarCollapsed(true);
+    localStorage.setItem("deer.sidebarCollapsed", "1");
+  }, [viewportWidth]);
 
   // C09/C11：全局快捷键——Ctrl/⌘+B 折叠侧栏、Ctrl/⌘+K 命令面板、Alt+1–6 切换页面。
   useEffect(() => {
@@ -662,16 +700,38 @@ export default function App() {
   useEffect(() => {
     function onMove(event: MouseEvent) {
       if (!resizingRef.current) return;
-      const next = Math.min(480, Math.max(180, event.clientX));
-      sidebarWidthRef.current = next;
-      setSidebarWidth(next);
+      // t194/t212：窄窗拖拽只改 displayed（不写 preferred/localStorage）；
+      // 宽窗拖拽改 preferred。宽度预算含 6px sidebar resizer。
+      const next = resizeSidebarWidth(
+        {
+          preferred: sidebarWidthRef.current,
+          displayed: sidebarDisplayWidthRef.current,
+        },
+        viewportWidthRef.current,
+        event.clientX,
+      );
+      sidebarWidthRef.current = next.preferred;
+      sidebarDisplayWidthRef.current = next.displayed;
+      setSidebarWidth(next.preferred);
+      setSidebarDisplayWidth(next.displayed);
     }
     function onUp() {
       if (!resizingRef.current) return;
       resizingRef.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      localStorage.setItem("deer.sidebarWidth", String(sidebarWidthRef.current));
+      const committed = commitSidebarWidth(
+        {
+          preferred: sidebarWidthRef.current,
+          displayed: sidebarDisplayWidthRef.current,
+        },
+        viewportWidthRef.current,
+      );
+      sidebarDisplayWidthRef.current = committed.displayed;
+      setSidebarDisplayWidth(committed.displayed);
+      if (committed.persist) {
+        localStorage.setItem("deer.sidebarWidth", String(committed.preferred));
+      }
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -689,9 +749,12 @@ export default function App() {
   }
 
   function resetSidebarWidth() {
-    sidebarWidthRef.current = 250;
-    setSidebarWidth(250);
-    localStorage.setItem("deer.sidebarWidth", "250");
+    // 显式重置是唯一允许在窄窗写 preferred 的路径。
+    sidebarWidthRef.current = SIDEBAR_DEFAULT_WIDTH;
+    sidebarDisplayWidthRef.current = null;
+    setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+    setSidebarDisplayWidth(null);
+    localStorage.setItem("deer.sidebarWidth", String(SIDEBAR_DEFAULT_WIDTH));
   }
 
   const loadTrace = useCallback(async (taskId: string) => {
@@ -2344,12 +2407,17 @@ export default function App() {
   const selectedTask = snapshot.tasks.find((task) => task.id === selectedTaskId) ?? null;
   const workers = snapshot.agents.filter((agent) => !agent.isRouter);
   const failedCount = snapshot.tasks.filter((task) => task.status === "failed").length;
+  // t194：显示宽度而不是改写保存宽度；回到宽屏后恢复用户原始 250/480。
+  const effectiveSidebarWidth = displayedSidebarWidth(
+    { preferred: sidebarWidth, displayed: sidebarDisplayWidth },
+    viewportWidth,
+  );
 
   return (
     <div className="app">
       <aside
         className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
-        style={sidebarCollapsed ? undefined : { width: `${sidebarWidth}px` }}
+        style={sidebarCollapsed ? undefined : { width: `${effectiveSidebarWidth}px` }}
       >
         <div className="brand">
           <div className="brand-mark small">DG</div>
@@ -2616,6 +2684,7 @@ export default function App() {
             ref={dockRef}
             workspaceId={snapshot.workspace.id}
             dockWidth={dockWidth}
+            windowWidth={viewportWidth}
             initialPanelKey={bootPanel}
             onActivePanelChange={handleDockActivePanel}
             onNotify={(message) => pushToast({ kind: "success", message })}

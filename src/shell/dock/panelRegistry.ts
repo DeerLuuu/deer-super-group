@@ -2,6 +2,7 @@
  * t50 Dock 布局：面板注册表 + 默认布局 spec + 持久化（依据 docs/team/dock-layout-design.md §4/§8）。
  * 稳定 spec 只在本文件维护；dockview 的 toJSON 快照作为不透明负载存入 localStorage。
  */
+import { MIN_SPLIT_DOCK_WIDTH, NARROW_WINDOW_MAX } from "./narrowWindow";
 
 export type RouteTabString =
   | "tasks"
@@ -178,12 +179,41 @@ export const VARIANT_WEIGHTS: Record<
   single: { main: 100, team: 0 },
 };
 
-/** §4.4：变体选择（自上而下匹配第一个满足的档位）。 */
-export function selectVariant(dockWidth: number): DockVariant {
+/**
+ * §4.4 + t194：变体选择。
+ *
+ * - 窗口 ≤960（960/900/760 及 Electron 最小窗）一律 single：即使侧栏折叠后 Dock 变宽，
+ *   也不回到 narrow/medium 的 right split（否则 Tasks 560 + Team 360 会互相挤压）。
+ * - 非 single 需同时容纳 Tasks 主组（≥560）与 Team 右组（≥360），Dock <920 直接 single；
+ *   因此旧 narrow（760–900）在「Task 始终存在」前提下不再产生，保留类型只为兼容旧布局存档。
+ * - 1440（Dock≈1190）→ wide；1100 默认侧栏折叠（Dock≈1036）→ medium，保持既有行为。
+ */
+export function selectVariant(
+  dockWidth: number,
+  windowWidth: number = Number.POSITIVE_INFINITY,
+): DockVariant {
+  if (windowWidth <= NARROW_WINDOW_MAX) return "single";
+  // 兼容既有纯 Dock 宽度调用（旧布局存档/单测）：不传 windowWidth 时保留 760/900/1100 档位。
+  if (!Number.isFinite(windowWidth)) {
+    if (dockWidth >= 1100) return "wide";
+    if (dockWidth >= 900) return "medium";
+    if (dockWidth >= 760) return "narrow";
+    return "single";
+  }
+  if (dockWidth < MIN_SPLIT_DOCK_WIDTH) return "single";
   if (dockWidth >= 1100) return "wide";
-  if (dockWidth >= 900) return "medium";
-  if (dockWidth >= 760) return "narrow";
-  return "single";
+  return "medium";
+}
+
+/**
+ * 面板插入位置：single 变体一律 within（tab），非 single 时 Team 保持右侧分栏。
+ * Team 在 single 下不再强制 right split（t194/P0-1）。
+ */
+export function panelInsertDirection(
+  variant: DockVariant,
+  key: PanelKey,
+): "right" | "within" {
+  return variant !== "single" && key === "team" ? "right" : "within";
 }
 
 // ---------- 持久化（§8） ----------
