@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import type {
   Agent,
   BoardEntry,
@@ -137,6 +145,12 @@ type ChatToolTrace = {
   status: "running" | "ok" | "error";
   value?: unknown;
   error?: string;
+  step?: number;
+};
+
+type ChatReasoningSegment = {
+  step: number;
+  text: string;
 };
 
 const CHAT_TRAJECTORY_KIND_LABEL: Record<ChatTrajectoryEntry["kind"], string> = {
@@ -228,6 +242,7 @@ export default function App() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatContextBusy, setChatContextBusy] = useState(false);
   const [chatTools, setChatTools] = useState<ChatToolTrace[]>([]);
+  const [chatReasoningSegments, setChatReasoningSegments] = useState<ChatReasoningSegment[]>([]);
   const [chatView, setChatView] = useState<"chat" | "trajectory">("chat");
   const [chatTrajectory, setChatTrajectory] = useState<ChatTrajectoryEntry[]>([]);
   const [chatTrajectoryLoading, setChatTrajectoryLoading] = useState(false);
@@ -1067,6 +1082,12 @@ export default function App() {
         setChatStream((prev) => prev + event.text);
       } else if (event.type === "reasoning") {
         setChatReasoning((prev) => prev + event.text);
+      } else if (event.type === "reasoning_segment") {
+        setChatReasoningSegments((prev) => [
+          ...prev,
+          { step: event.step, text: event.text },
+        ]);
+        setChatReasoning("");
       } else if (event.type === "tool_call") {
         setChatTools((prev) => {
           const next: ChatToolTrace = {
@@ -1074,6 +1095,7 @@ export default function App() {
             name: event.name,
             arguments: event.arguments,
             status: "running",
+            step: event.step,
           };
           return prev.some((item) => item.callId === event.callId)
             ? prev.map((item) => (item.callId === event.callId ? next : item))
@@ -1088,6 +1110,7 @@ export default function App() {
             status: event.ok ? "ok" : "error",
             value: event.value,
             error: event.error,
+            step: event.step,
           };
           return prev.some((item) => item.callId === event.callId)
             ? prev.map((item) => (item.callId === event.callId ? next : item))
@@ -1132,6 +1155,7 @@ export default function App() {
     setChatStream("");
     setChatReasoning("");
     setChatTools([]);
+    setChatReasoningSegments([]);
     setChatView("chat");
     setChatTrajectory([]);
     setChatBusy(false);
@@ -1555,6 +1579,7 @@ export default function App() {
     setChatStream("");
     setChatReasoning("");
     setChatTools([]);
+    setChatReasoningSegments([]);
     setError(null);
     setChatMessages((prev) => [
       ...prev,
@@ -1618,6 +1643,7 @@ export default function App() {
     }
     setChatContextBusy(true);
     setChatTools([]);
+    setChatReasoningSegments([]);
     setError(null);
     try {
       const result = await window.deer.clearChatContext(current.workspace.id);
@@ -1641,6 +1667,7 @@ export default function App() {
     if (!current || chatBusy || chatContextBusy) return;
     setChatContextBusy(true);
     setChatTools([]);
+    setChatReasoningSegments([]);
     setError(null);
     try {
       const result = await window.deer.compactChatContext(current.workspace.id);
@@ -2543,6 +2570,7 @@ export default function App() {
                     <ChatView
                       messages={chatMessages}
                       tools={chatTools}
+                      reasoningSegments={chatReasoningSegments}
                       view={chatView}
                       onViewChange={setChatView}
                       trajectory={chatTrajectory}
@@ -4349,6 +4377,7 @@ function formatToolPayload(value: unknown): string {
 function ChatView({
   messages,
   tools,
+  reasoningSegments,
   view,
   onViewChange,
   trajectory,
@@ -4385,6 +4414,7 @@ function ChatView({
 }: {
   messages: ChatMessage[];
   tools: ChatToolTrace[];
+  reasoningSegments: ChatReasoningSegment[];
   view: "chat" | "trajectory";
   onViewChange: (view: "chat" | "trajectory") => void;
   trajectory: ChatTrajectoryEntry[];
@@ -4428,7 +4458,23 @@ function ChatView({
   useEffect(() => {
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [messages, stream, tools]);
+  }, [messages, stream, tools, reasoningSegments]);
+
+  const lastMessage = messages[messages.length - 1] ?? null;
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  const hasProcess =
+    tools.length > 0 || reasoningSegments.length > 0 || Boolean(reasoning.trim());
+  const processNode = hasProcess ? (
+    <ChatTurnProcess
+      reasoningSegments={reasoningSegments}
+      tools={tools}
+      liveReasoning={reasoning}
+    />
+  ) : null;
+  const attachProcess =
+    Boolean(processNode) &&
+    Boolean(lastAssistant) &&
+    lastMessage?.id === lastAssistant?.id;
 
   return (
     <div className="chat-layout">
@@ -4560,39 +4606,33 @@ function ChatView({
               ]}
             />
           )}
-          {messages.map((message) => (
-            <ChatBubble
-              key={message.id}
-              messageId={message.id}
-              role={message.role}
-              content={message.content}
-              reasoning={message.reasoning}
-              createdAt={message.createdAt}
-              questions={questions}
-              questionsLoaded={questionsLoaded}
-              onAnswerQuestion={onAnswerQuestion}
-              onToast={onToast}
-            />
-          ))}
-          {tools.length > 0 && (
-            <div className="chat-tool-trace" role="region" aria-label="工具调用过程">
-              <div className="chat-tool-trace-head">
-                <span className="section-label">工具调用</span>
-                <span className="muted tiny">
-                  {tools.length} 次
-                  {tools.some((tool) => tool.status === "running") ? " · 运行中" : ""}
-                </span>
-              </div>
-              {tools.map((tool) => (
-                <ChatToolItem key={tool.callId} tool={tool} />
-              ))}
-            </div>
-          )}
-          {(reasoning || stream) && (
+          {messages.map((message) => {
+            const withProcess =
+              message.role === "assistant" &&
+              attachProcess &&
+              message.id === lastAssistant?.id;
+            return (
+              <ChatBubble
+                key={message.id}
+                messageId={message.id}
+                role={message.role}
+                content={message.content}
+                reasoning={withProcess ? "" : message.reasoning}
+                process={withProcess ? processNode : undefined}
+                createdAt={message.createdAt}
+                questions={questions}
+                questionsLoaded={questionsLoaded}
+                onAnswerQuestion={onAnswerQuestion}
+                onToast={onToast}
+              />
+            );
+          })}
+          {(reasoning || stream || (busy && hasProcess)) && (
             <ChatBubble
               role="assistant"
               content={stream}
-              reasoning={reasoning}
+              reasoning=""
+              process={processNode}
               streaming
               questions={questions}
               questionsLoaded={questionsLoaded}
@@ -4848,11 +4888,83 @@ function ChatToolItem({ tool }: { tool: ChatToolTrace }) {
   );
 }
 
+function ChatTurnProcess({
+  reasoningSegments,
+  tools,
+  liveReasoning,
+}: {
+  reasoningSegments: ChatReasoningSegment[];
+  tools: ChatToolTrace[];
+  liveReasoning: string;
+}) {
+  const [open, setOpen] = useState(true);
+  const steps = new Map<
+    number,
+    { step: number; reasoning: string[]; tools: ChatToolTrace[] }
+  >();
+  const getStep = (step: number) => {
+    const existing = steps.get(step);
+    if (existing) return existing;
+    const created = { step, reasoning: [], tools: [] };
+    steps.set(step, created);
+    return created;
+  };
+  for (const segment of reasoningSegments) {
+    if (segment.text.trim()) getStep(segment.step).reasoning.push(segment.text);
+  }
+  for (const tool of tools) {
+    getStep(tool.step ?? 0).tools.push(tool);
+  }
+  const ordered = [...steps.values()].sort((left, right) => left.step - right.step);
+  return (
+    <details
+      className="chat-turn-process"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span>执行过程</span>
+        <span className="muted tiny">
+          {ordered.length} 步 · {tools.length} 次工具
+        </span>
+      </summary>
+      <div className="chat-turn-process-body">
+        {ordered.map((step) => (
+          <div className="chat-turn-step" key={step.step}>
+            <div className="chat-turn-step-head">
+              <span className="chat-turn-step-label">step {step.step}</span>
+              {step.tools.some((tool) => tool.status === "running") && (
+                <span className="chat-turn-step-live">运行中</span>
+              )}
+            </div>
+            {step.reasoning.map((text, index) => (
+              <div className="chat-turn-reasoning" key={`${step.step}-${index}`}>
+                <div className="chat-turn-reasoning-label">思考</div>
+                <pre>{text}</pre>
+              </div>
+            ))}
+            {step.tools.map((tool) => (
+              <ChatToolItem key={tool.callId} tool={tool} />
+            ))}
+          </div>
+        ))}
+        {liveReasoning.trim() && (
+          <div className="chat-turn-live">
+            <div className="chat-turn-reasoning-label">思考中…</div>
+            <pre>{liveReasoning}</pre>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function ChatBubble({
   messageId,
   role,
   content,
   reasoning,
+  process,
   createdAt,
   streaming,
   questions,
@@ -4864,6 +4976,8 @@ function ChatBubble({
   role: ChatMessage["role"];
   content: string;
   reasoning?: string;
+  /** t177：思考段 + 工具调用，和最终回复放在同一个 bubble 内。 */
+  process?: ReactNode;
   createdAt?: string;
   streaming?: boolean;
   questions?: ReadonlyMap<string, ChatQuestionRecord>;
@@ -4889,6 +5003,7 @@ function ChatBubble({
             <pre>{reasoning}</pre>
           </details>
         )}
+        {process}
         {content && (
           <div className="chat-content">
             <ChatContent
