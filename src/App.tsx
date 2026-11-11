@@ -163,6 +163,35 @@ const CHAT_TRAJECTORY_KIND_LABEL: Record<ChatTrajectoryEntry["kind"], string> = 
   context: "上下文",
 };
 
+const TOOL_LABELS: Record<string, string> = {
+  "fs.list": "列出文件",
+  "fs.read": "读取文件",
+  "fs.write": "写入文件",
+  "fs.search": "搜索文件",
+  "shell.run": "执行命令",
+  "git.status": "查看 Git 状态",
+  "git.diff": "查看 Git 差异",
+  "task.list": "列出任务",
+  "task.get": "查看任务",
+  "task.complete": "完成任务",
+  "mailbox.list": "列出消息",
+  "mailbox.read": "读取消息",
+  "mailbox.send": "发送消息",
+  "board.list": "查看黑板",
+  "board.post": "发布黑板",
+  "memo.search": "搜索备忘录",
+  "memo.write": "写入备忘录",
+  "memory.search": "检索记忆",
+  "memory.context": "读取记忆上下文",
+  "memory.board.list": "查看记忆黑板",
+  "memory.board.post": "发布记忆",
+  "memory.memo.write": "写入记忆备忘录",
+};
+
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name;
+}
+
 /** t69：需要二次确认的内核操作（重试/取消/暂停/评审拒绝等有副作用的动作）。 */
 type ConfirmIntent =
   | { kind: "retry"; task: Task }
@@ -4469,6 +4498,7 @@ function ChatView({
       reasoningSegments={reasoningSegments}
       tools={tools}
       liveReasoning={reasoning}
+      busy={busy}
     />
   ) : null;
   const attachProcess =
@@ -4828,7 +4858,17 @@ function ChatTrajectoryPanel({
                     <span className="chat-trajectory-kind">
                       {CHAT_TRAJECTORY_KIND_LABEL[entry.kind]}
                     </span>
-                    <strong>{entry.title}</strong>
+                    <strong
+                      title={
+                        entry.kind === "tool_call" || entry.kind === "tool_result"
+                          ? entry.title
+                          : undefined
+                      }
+                    >
+                      {entry.kind === "tool_call" || entry.kind === "tool_result"
+                        ? toolLabel(entry.title)
+                        : entry.title}
+                    </strong>
                     {entry.step ? (
                       <span className="chat-trajectory-step">step {entry.step}</span>
                     ) : null}
@@ -4854,16 +4894,21 @@ function ChatTrajectoryPanel({
 }
 
 function ChatToolItem({ tool }: { tool: ChatToolTrace }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(tool.status === "running");
+  useEffect(() => {
+    // t178：运行中展开，调用完成后自动折叠；用户之后仍可手动展开。
+    if (tool.status !== "running") setOpen(false);
+  }, [tool.status]);
   return (
     <details
       className={`chat-tool-item is-${tool.status}`}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>
+      <summary title={tool.name}>
         <span className="chat-tool-dot" aria-hidden="true" />
-        <span className="mono chat-tool-name">{tool.name}</span>
+        <span className="chat-tool-label">{toolLabel(tool.name)}</span>
+        <span className="mono chat-tool-raw">{tool.name}</span>
         <span className={`chat-tool-status is-${tool.status}`}>
           {tool.status === "running" ? "运行中" : tool.status === "ok" ? "完成" : "失败"}
         </span>
@@ -4892,10 +4937,12 @@ function ChatTurnProcess({
   reasoningSegments,
   tools,
   liveReasoning,
+  busy,
 }: {
   reasoningSegments: ChatReasoningSegment[];
   tools: ChatToolTrace[];
   liveReasoning: string;
+  busy: boolean;
 }) {
   const [open, setOpen] = useState(true);
   const steps = new Map<
@@ -4929,25 +4976,18 @@ function ChatTurnProcess({
         </span>
       </summary>
       <div className="chat-turn-process-body">
-        {ordered.map((step) => (
-          <div className="chat-turn-step" key={step.step}>
-            <div className="chat-turn-step-head">
-              <span className="chat-turn-step-label">step {step.step}</span>
-              {step.tools.some((tool) => tool.status === "running") && (
-                <span className="chat-turn-step-live">运行中</span>
-              )}
-            </div>
-            {step.reasoning.map((text, index) => (
-              <div className="chat-turn-reasoning" key={`${step.step}-${index}`}>
-                <div className="chat-turn-reasoning-label">思考</div>
-                <pre>{text}</pre>
-              </div>
-            ))}
-            {step.tools.map((tool) => (
-              <ChatToolItem key={tool.callId} tool={tool} />
-            ))}
-          </div>
-        ))}
+        {ordered.map((step, index) => {
+          const isLast = index === ordered.length - 1;
+          const running =
+            step.tools.some((tool) => tool.status === "running") || (busy && isLast);
+          return (
+            <ChatTurnStep
+              key={step.step}
+              step={step}
+              running={running}
+            />
+          );
+        })}
         {liveReasoning.trim() && (
           <div className="chat-turn-live">
             <div className="chat-turn-reasoning-label">思考中…</div>
@@ -4956,6 +4996,49 @@ function ChatTurnProcess({
         )}
       </div>
     </details>
+  );
+}
+
+function ChatTurnStep({
+  step,
+  running,
+}: {
+  step: { step: number; reasoning: string[]; tools: ChatToolTrace[] };
+  running: boolean;
+}) {
+  const [open, setOpen] = useState(running);
+  useEffect(() => {
+    // t178：step 结束后思考自动折叠；用户之后仍可手动展开。
+    if (!running) setOpen(false);
+  }, [running]);
+  return (
+    <div className="chat-turn-step">
+      <div className="chat-turn-step-head">
+        <span className="chat-turn-step-label">step {step.step}</span>
+        {running ? (
+          <span className="chat-turn-step-live">运行中</span>
+        ) : (
+          <span className="chat-turn-step-done">完成</span>
+        )}
+      </div>
+      {step.reasoning.map((text, index) => (
+        <details
+          className="chat-turn-reasoning"
+          key={`${step.step}-${index}`}
+          open={open}
+          onToggle={(event) => setOpen(event.currentTarget.open)}
+        >
+          <summary>
+            <span>思考</span>
+            <span className="muted tiny"> · {text.length} 字</span>
+          </summary>
+          <pre>{text}</pre>
+        </details>
+      ))}
+      {step.tools.map((tool) => (
+        <ChatToolItem key={tool.callId} tool={tool} />
+      ))}
+    </div>
   );
 }
 
