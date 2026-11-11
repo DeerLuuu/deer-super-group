@@ -79,6 +79,14 @@ import CommandPalette, {
   type CreateIntent,
   type PanelAction,
 } from "./CommandPalette";
+import WorkflowRail from "./shell/WorkflowRail";
+import {
+  deriveNeedsMe,
+  deriveWorkflow,
+  type NeedsMeItem,
+  type WorkflowStage,
+} from "./shell/workflowData";
+import type { MergeQueueItem } from "./git/types";
 import { ToastHost, useToasts, type ToastItem } from "./Toast";
 import {
   BOARD_CONFIDENCE_LABEL,
@@ -388,6 +396,8 @@ export default function App() {
   const [schedulerLoading, setSchedulerLoading] = useState(true);
   const [schedulerError, setSchedulerError] = useState<string | null>(null);
   const [taskRuns, setTaskRuns] = useState<Run[]>([]);
+  // P0-3：待合并只读现有 MergeQueue API；空数组是“已知无待合并”，失败/未加载不伪造。
+  const [mergeQueueItems, setMergeQueueItems] = useState<MergeQueueItem[]>([]);
   // t157：watchdog/预算/交接 UI 数据（面板、顶部预算条、任务告警、RunHistory）。
   const [watchdogSnapshot, setWatchdogSnapshot] = useState<WatchdogSnapshot | null>(null);
   const [watchdogCosts, setWatchdogCosts] = useState<CostSnapshot | null>(null);
@@ -966,6 +976,27 @@ export default function App() {
     const workspaceId = snapshotRef.current?.workspace.id;
     if (workspaceId) await loadWatchdog(workspaceId);
   }, [loadWatchdog]);
+
+  // P0-3：读取现有 MergeQueue 快照，只为 NeedsMe/交付阶段投影；不写回、不新增事实源。
+  useEffect(() => {
+    const workspaceId = snapshot?.workspace.id;
+    if (!workspaceId || typeof window.deer.mergeQueue !== "function") {
+      setMergeQueueItems([]);
+      return;
+    }
+    let active = true;
+    void window.deer
+      .mergeQueue(workspaceId)
+      .then((queue) => {
+        if (active) setMergeQueueItems(queue.items);
+      })
+      .catch(() => {
+        if (active) setMergeQueueItems([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [snapshot?.workspace.id, snapshot?.tasks]);
 
   const holdReasonForAlert = useCallback(
     (alert: WatchdogAlert): WatchdogHoldReason => {
@@ -2249,6 +2280,46 @@ export default function App() {
     setTaskReviewFocus(true);
   }
 
+  /** P0-3：阶段入口只复用现有面板/任务/队列入口，不新增事实或状态机。 */
+  function handleWorkflowStage(stage: WorkflowStage, taskId: string | null) {
+    switch (stage) {
+      case "discuss":
+        openPanel("chat");
+        return;
+      case "plan":
+      case "run":
+        if (taskId) handleOpenTaskPage(taskId);
+        else openPanel("tasks");
+        return;
+      case "review":
+        handleOpenTaskReview(taskId);
+        return;
+      case "deliver":
+        handleOpenMergeQueue();
+        return;
+      case "remember":
+        openPanel("board");
+        return;
+    }
+  }
+
+  function handleNeedsMeItem(item: NeedsMeItem) {
+    if (item.kind === "alert" || item.kind === "budget") {
+      openPanel("watchdog");
+      return;
+    }
+    if (item.kind === "merge") {
+      handleOpenMergeQueue();
+      return;
+    }
+    if (item.taskId) {
+      if (item.kind === "review") handleOpenTaskReview(item.taskId);
+      else handleOpenTaskPage(item.taskId);
+      return;
+    }
+    openPanel("tasks");
+  }
+
   // t50：命令面板「面板」组动作 → DockHandle。
   function handlePanelAction(action: PanelAction) {
     if (action === "open-merge-queue") {
@@ -2462,6 +2533,18 @@ export default function App() {
   );
   // P0-2：一级入口 active 只从现有 Dock 激活面板/route tab 派生，不新增第二套面板状态。
   const activeRailKey = railKeyForActive(activePanelKey, tab);
+  // P0-3：阶段与 NeedsMe 都是现有 tasks/runs/scheduler/merge/watchdog 的纯投影。
+  const workflowProjection = deriveWorkflow({
+    tasks: snapshot.tasks,
+    runs: taskRuns,
+    scheduler,
+    mergeQueue: mergeQueueItems,
+  });
+  const needsMe = deriveNeedsMe({
+    tasks: snapshot.tasks,
+    mergeQueue: mergeQueueItems,
+    watchdog: watchdogSnapshot,
+  });
 
   return (
     <div className="app">
@@ -2689,6 +2772,12 @@ export default function App() {
       />
 
       <main className="main">
+        <WorkflowRail
+          projection={workflowProjection}
+          needs={needsMe}
+          onStage={handleWorkflowStage}
+          onNeedsMe={handleNeedsMeItem}
+        />
         {error && (
           <div className="error banner" role="alert">
             {/* C26/t190：格式化 + 共享脱敏后的错误文案；复制详情同样脱敏。 */}
