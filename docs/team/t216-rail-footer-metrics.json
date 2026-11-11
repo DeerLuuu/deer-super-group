@@ -1,0 +1,37 @@
+{
+  "state": {
+    "innerWidth": 960,
+    "innerHeight": 700,
+    "sidebarClass": "sidebar ",
+    "sidebarRect": {
+      "top": 0,
+      "bottom": 700,
+      "height": 700
+    },
+    "sidebarScroll": {
+      "scrollHeight": 700,
+      "clientHeight": 700
+    },
+    "footer": {
+      "text": "Key: DEEPSEEK_API_KEY\n0 位成员",
+      "display": "flex",
+      "top": 654,
+      "bottom": 700,
+      "height": 46,
+      "visible": true
+    },
+    "rail": {
+      "height": 179,
+      "labels": "block"
+    },
+    "actions": {
+      "height": 245
+    }
+  },
+  "afterCmdK": {
+    "tag": "INPUT",
+    "cls": "palette-input",
+    "panel": null,
+    "palette": false
+  }
+}

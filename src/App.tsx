@@ -126,7 +126,7 @@ import {
   shouldAutoCollapseSidebar,
   sidebarWidthStateForWindow,
 } from "./shell/dock/narrowWindow";
-import PrimaryRail from "./shell/PrimaryRail";
+import PrimaryRail, { usePrimaryRailFocus } from "./shell/PrimaryRail";
 import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
@@ -400,7 +400,6 @@ export default function App() {
   const [reviewNotes, setReviewNotes] = useState("");
   const [kernelAnnouncement, setKernelAnnouncement] = useState<string | null>(null);
   const [activePanelKey, setActivePanelKey] = useState<PanelKey | null>(bootPanel);
-  const [railFocusRequest, setRailFocusRequest] = useState<{ key: PrimaryRailKey; nonce: number } | null>(null);
   const schedulerRequestRef = useRef(0);
   const runsRequestRef = useRef(0);
   // DESIGN §15.4：满血模式（会话级，不持久化、不随启动恢复）。
@@ -499,64 +498,50 @@ export default function App() {
     [settingsDirty, settingsOpen, tab],
   );
 
+  function focusPanelNow(key: PrimaryRailKey): boolean {
+    if (activePanelKey !== key) return false;
+    const panel = document.querySelector<HTMLElement>(
+      `.dock-panel-body[data-panel="${key}"]`,
+    );
+    if (!panel || panel.closest("[inert]")) return false;
+    if (panel.getClientRects().length === 0) return false;
+    const style = window.getComputedStyle(panel);
+    if (style.visibility === "hidden" || style.display === "none") return false;
+    if (key === "chat") {
+      const composer =
+        panel.querySelector<HTMLElement>('textarea:not([disabled]), [contenteditable="true"]') ??
+        panel.querySelector<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+      if (composer) {
+        composer.focus({ preventScroll: true });
+        return (
+          composer === document.activeElement ||
+          composer.contains(document.activeElement)
+        );
+      }
+      return false;
+    }
+    // 面板容器（tabIndex=-1）比首个按钮稳定：事件刷新/面板重渲染不会替换容器，
+    // 键盘下一次 Tab 仍会进入面板首个控件。
+    panel.focus({ preventScroll: true });
+    return panel === document.activeElement;
+  }
+
+  const { requestFocus: requestRailFocus } = usePrimaryRailFocus(
+    activePanelKey,
+    focusPanelNow,
+  );
+
   const openPrimaryPanel = useCallback(
     (key: PrimaryRailKey) => {
       // 复用唯一面板入口：面板已关闭时 DockShell 会 ensurePanel 重开。
       openPanel(key);
-      // 打开后把焦点交给面板（chat 优先 composer）。用 state/effect 等 React 提交后再聚焦，
-      // 避免 rAF 在 Electron 窗口被遮挡时被节流；具体定位/重试由 focusPanelWhenReady 完成。
-      setRailFocusRequest({ key, nonce: Date.now() });
+      // generation/timer 由 hook 管理：旧请求在 pointerdown/keydown/active 变化时失效。
+      requestRailFocus(key);
     },
-    [openPanel],
+    [openPanel, requestRailFocus],
   );
-
-  useEffect(() => {
-    if (!railFocusRequest) return;
-    const key = railFocusRequest.key;
-    // 立即聚焦；再补一次稍后的聚焦，压过 Dockview/浏览器的默认 tab/focus 行为，
-    // 同时覆盖点击后事件刷新导致的焦点回落。不在这里 set null，避免 cleanup 取消补焦。
-    focusPanelWhenReady(key);
-    const timers = [
-      window.setTimeout(() => focusPanelWhenReady(key), 120),
-      window.setTimeout(() => focusPanelWhenReady(key), 450),
-      window.setTimeout(() => focusPanelWhenReady(key), 1200),
-      window.setTimeout(() => focusPanelWhenReady(key), 2500),
-    ];
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [railFocusRequest]);
-
-  function focusPanelWhenReady(key: PrimaryRailKey, attempts = 20) {
-    const panel = document.querySelector<HTMLElement>(
-      `.dock-panel-body[data-panel="${key}"]`,
-    );
-    if (panel && !panel.closest("[inert]")) {
-      if (key === "chat") {
-        const composer =
-          panel.querySelector<HTMLElement>('textarea:not([disabled]), [contenteditable="true"]') ??
-          panel.querySelector<HTMLElement>(
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-          );
-        if (composer) {
-          composer.focus({ preventScroll: true });
-          if (
-            composer === document.activeElement ||
-            composer.contains(document.activeElement)
-          ) {
-            return;
-          }
-        }
-      } else {
-        // 面板容器（tabIndex=-1）比首个按钮稳定：事件刷新/面板重渲染不会替换容器，
-        // 键盘下一次 Tab 仍会进入面板首个控件。
-        panel.focus({ preventScroll: true });
-        if (panel === document.activeElement) return;
-      }
-    }
-    if (attempts > 0) {
-      window.setTimeout(() => focusPanelWhenReady(key, attempts - 1), 80);
-    }
-  }
 
   function togglePanelMenu() {
     if (!panelMenuOpen) {

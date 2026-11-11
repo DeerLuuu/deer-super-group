@@ -15,7 +15,7 @@ bb-97 的措辞是「侧栏 rail」。本实现没有新增独立宽度列，而
 | 状态 | 表现 |
 |---|---|
 | Sidebar 展开（1440） | rail 宽约 249px，每项「图标 + 短标签」，顶部「工作台」 |
-| Sidebar 折叠（≤960 自动，或 Ctrl/⌘+B / 品牌按钮） | rail 宽约 55px，只留 40px 图标按钮；label 仅 CSS 隐藏，仍在 DOM/无障碍树中 |
+| Sidebar 折叠（≤960 自动，或 Ctrl/⌘+B / 品牌按钮） | rail 宽约 55px，只留 40px 图标按钮；label 仅 CSS 隐藏，按钮显式 `aria-label` 保留读屏名 |
 
 这样做的原因：
 
@@ -54,11 +54,14 @@ PRIMARY_RAIL_ENTRIES = [
   - `Enter` / `Space` 打开当前项；方向键不打开；
 - 关闭面板重开：`openPanel` 仍调用 `dockRef.current?.openPanel(key)`；DockShell 对不存在面板执行 `ensurePanel`（t194 既有行为），rail 不复制面板状态。
 
-聚焦：
+聚焦（t220 repair 后）：
 
 - Dock 面板容器 `DockPanelBody` 增加 `tabIndex={-1}`；
 - rail 打开后在 React 提交后聚焦面板容器；chat 优先 composer `textarea/[contenteditable]`；
-- 用短延迟/重试兜底（面板挂载、Dockview 激活/焦点默认行为），不依赖 rAF（Electron 窗口被遮挡时 rAF 会节流）。
+- 使用 **generation/token**（ref 自增，无 Date.now nonce）：每次 request 递增 token 并取消旧 timer/递归 timer；
+- `pointerdown` / `keydown`（含 ⌘K/Ctrl K、Alt 快捷键）以及 `activePanelKey` 变化时 invalidate，旧 timer 不再抢焦；
+- 聚焦前校验：`activePanelKey` 必须仍是目标面板、元素非 inert、有 layout rect、visibility/display 可见；只对当前面板聚焦；
+- hook 在组件卸载时清 timer；递归重试上限 40×80ms，成功后立即停止并清空。
 
 实测（真实 Electron，CDP 焦点仿真开启）：
 
@@ -67,6 +70,8 @@ PRIMARY_RAIL_ENTRIES = [
 | 1440 点击「团队」 | 团队 | `team` |
 | 960 点击「记忆」 | 记忆 | `board` |
 | 960 键盘 ArrowDown → Enter（从对话到任务） | 任务 | `tasks` |
+| rail→立即 Tasks→等待 >2.5s | 任务 | `tasks`（旧 timer 已取消） |
+| rail→⌘K/Alt | 对应面板/命令面板 | 不被旧面板抢焦 |
 
 ## 4. 保留项
 
@@ -75,24 +80,30 @@ PRIMARY_RAIL_ENTRIES = [
 - 窄窗 ≤960 仍由 sidebar 自动折叠 + Dock single；rail 无宽度列，不破坏 P0-1；
 - Settings 仍为全高 Modal/独立入口，rail 不替换；
 - Sidebar 矮窗口（`max-height: 960px`）隐藏「导航提示」文本，防止 rail 增加高度后 sidebar `overflow:hidden` 截断 footer；操作、rail、Key/成员状态优先保留。
+- t220：960×700 手动展开 Sidebar 时 footer 可见（实测 `footer.top=654 / bottom=700 / height=46`，sidebar scrollHeight=clientHeight=700）；短视口 rail 收紧为 179px，仍保留图标+短标签（默认 960 仍自动折叠图标栏；若产品要求 960 默认也显示标签，需单独评审侧栏宽度/布局）。
 
 ## 5. 测试与验证
 
-新增 `src/shell/primaryRail.test.tsx`（5 例）：
+新增 `src/shell/primaryRail.test.tsx`（t220 后 **10 例**）：
 
 1. 五入口 key/label/icon 顺序；
 2. active 从现有 panel/tab 派生（chat/board/runs→tasks/context→chat/settings→null）；
 3. Arrow/Home/End 索引与 wrap；
 4. 服务端渲染含 `aria-label="一级入口"`、五项 label、`aria-current="page"`、`is-active`；
-5. 折叠仍保留五项按钮/title，点击与 Arrow/Enter 触发正确 onOpen。
+5. 折叠仍保留五项按钮/title/`aria-label`，点击、ArrowLeft/Right、Enter/Space 触发正确 onOpen；
+6. 折叠态 SSE 含五项显式 `aria-label`（读屏名），label 文本仍在 DOM；
+7. hook：旧 rail timer 在立即切 Tasks 后取消，>2.5s 焦点仍 Tasks；
+8. hook：⌘K/Ctrl K、Alt 输入 invalidate，不再补焦旧面板；
+9. hook：pointerdown / activePanelKey 变化 invalidate；
+10. hook：聚焦成功后停止递归重试。
 
 全量验证（worktree，最终代码）：
 
 | 命令 | 结果 |
 |---|---|
 | `pnpm typecheck` | **0** |
-| `pnpm build` | **0**：js **1,236.12 kB / gzip 339.74**；css 247.63 / gzip 29.95 |
-| `pnpm test` | **0**：**64 文件 / 645 用例**（新增 5 例；含既有 deeplink、窄窗、Dock、权限/审批/内核/评审套件） |
+| `pnpm build` | **0**：js **1,237.45 kB / gzip 340.13**；css 247.63 / gzip 29.95 |
+| `pnpm test` | **0**：**64 文件 / 650 用例**（rail 10 例；含既有 deeplink、窄窗、Dock、权限/审批/内核/评审套件） |
 
 > 全量测试曾命中既有 watchdog 5s timing flake（5018ms）；独立/重跑通过，非 rail 改动。
 
@@ -104,7 +115,7 @@ PRIMARY_RAIL_ENTRIES = [
 |---|---|
 | `docs/team/t216-rail-1440-team.png` | `docs/team/t216-rail-960-board.png` |
 
-另：`t216-rail-960-tasks.png` 为 960 下键盘 Arrow+Enter 切换任务后的状态；`t216-rail-1440-team-reopened.png` 为团队面板关闭后从 rail 重开的截图。
+另：`t216-rail-960-tasks.png` 为 960 下键盘 Arrow+Enter 切换任务后的状态；`t216-rail-1440-team-reopened.png` 为团队面板关闭后从 rail 重开的截图；`t216-rail-960-footer.png` 为 960×700 手动展开 Sidebar 时 footer（Key/成员）完整可见的截图；`t216-rail-footer-metrics.json` 记录 footer top=654/bottom=700、sidebar scrollHeight=clientHeight=700、rail=179、⌘K 后焦点在 palette input。
 
 `t216-rail-metrics.json` 记录三组交互的 title/hash、sidebar/rail 宽度与 class、五入口 label/display、active 与 focus panel；1440 labelDisplay=`block` 且 rail≈249，960 labelDisplay=`none`、rail≈55。
 
@@ -117,13 +128,14 @@ PRIMARY_RAIL_ENTRIES = [
 ## 8. 改动文件
 
 ```text
-src/shell/PrimaryRail.tsx        五入口 rail 组件（aria-current、Arrow/Home/End、Enter/Space）
+src/shell/PrimaryRail.tsx        五入口 rail + usePrimaryRailFocus（generation/token、取消 timer、aria-label）
 src/shell/primaryRailData.ts     entry 常量、active 派生、焦点索引纯函数
-src/shell/primaryRail.test.tsx   5 例 rail 单测
+src/shell/primaryRail.test.tsx   10 例 rail/焦点取消单测
 src/shell/dock/DockShell.tsx     面板容器 tabIndex=-1（供 rail 打开后聚焦）
-src/App.tsx                      挂载 rail、active 派生、rail 打开/重开/聚焦
+src/App.tsx                      挂载 rail、active 派生、tryFocus 可见性/active 校验、open/reopen
 src/styles.css                   rail 展开/折叠样式、矮窗口提示隐藏
 docs/team/primary-rail.md
-docs/team/t216-rail-{1440-team,1440-team-reopened,960-board,960-tasks}.png
+docs/team/t216-rail-{1440-team,1440-team-reopened,960-board,960-tasks,960-footer}.png
 docs/team/t216-rail-metrics.json
+docs/team/t216-rail-footer-metrics.json
 ```
