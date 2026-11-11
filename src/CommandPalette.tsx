@@ -46,7 +46,7 @@ type PaletteAction = {
 
 export const CREATE_LABELS: Record<CreateIntent, string> = {
   task: "新建任务",
-  plan: "规划任务草案（先编辑再确认）",
+  plan: "规划任务（Router 拆解目标）",
   mail: "发邮件",
   board: "发布记忆条目",
   member: "新建成员",

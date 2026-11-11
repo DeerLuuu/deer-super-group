@@ -143,6 +143,7 @@ export default function PlanDraftPanel({
               value={source.goal}
               onChange={(event) => onGoalChange(event.target.value)}
               placeholder="例如：给当前项目增加健康检查接口并补测试"
+              style={{ width: "100%", boxSizing: "border-box" }}
             />
           </label>
           <div className="plan-draft-source" aria-label="规划来源">

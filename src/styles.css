@@ -8029,18 +8029,6 @@ body li {
   border-bottom: 1px solid var(--border);
 }
 
-.plan-draft-goal {
-  display: grid;
-  gap: 3px;
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.plan-draft-goal textarea {
-  width: 100%;
-  box-sizing: border-box;
-}
-
 .plan-draft-source {
   display: flex;
   flex-wrap: wrap;

@@ -75,7 +75,7 @@ function makeSnapshot(): Snapshot {
 describe("t200 CommandPalette inert-root boundary", () => {
   it("t235 plan create routes through Tasks shell (which opens Plan Draft)", () => {
     expect(CREATE_TARGET_TAB.plan).toBe("tasks");
-    expect(CREATE_LABELS.plan).toContain("草案");
+    expect(CREATE_LABELS.plan).toContain("规划任务");
   });
 
   it("portals to body while #root is inert; input/Esc/Tab/focus work and close restores trigger", async () => {
