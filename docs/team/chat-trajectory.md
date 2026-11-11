@@ -74,6 +74,17 @@
 - 设置持久化在 `settings.translation.settings`；保存后下一条思考生效；
 - 隐私：Bing 源发送到 Bing；模型源发送到对应 provider。
 
+### 历史消息思考翻译（t183）
+
+之前的机翻只处理实时 step 的 `reasoning_segment`；刷新/重开后，`chat_messages.reasoning` 仍显示原文，容易误判 Bing 失效。
+
+现在历史 assistant 消息也使用同一个思考块：
+
+- 展开历史思考时才懒请求翻译，避免启动时批量请求；
+- 默认译文，右侧 `原文 / 译文` 可切换；
+- 失败显示「机翻失败」并保留原文；
+- 与实时 step 思考共用 Bing/模型翻译设置。
+
 ## 轨迹账本
 
 每条记录包含时间、类型、标题、状态和正文：

@@ -5125,6 +5125,45 @@ function ChatReasoningBlock({
   );
 }
 
+function ChatMessageReasoning({
+  text,
+  streaming,
+}: {
+  text: string;
+  streaming: boolean;
+}) {
+  const [open, setOpen] = useState(streaming);
+  const [segment, setSegment] = useState<ChatReasoningSegment>(() => ({
+    id: `history-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    step: 0,
+    text,
+    status: "loading",
+  }));
+  const requested = useRef(false);
+
+  // t183：历史消息的 reasoning 只在展开时懒翻译，避免启动时批量打 Bing。
+  useEffect(() => {
+    if (!open || requested.current || !text.trim()) return;
+    requested.current = true;
+    void window.deer
+      .translateText(text)
+      .then((translation) => {
+        setSegment((prev) => ({ ...prev, status: "done", translation }));
+      })
+      .catch(() => {
+        setSegment((prev) => ({ ...prev, status: "error" }));
+      });
+  }, [open, text]);
+
+  return (
+    <ChatReasoningBlock
+      segment={segment}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+    />
+  );
+}
+
 function ChatBubble({
   messageId,
   role,
@@ -5161,13 +5200,7 @@ function ChatBubble({
           {streaming ? " · 生成中" : ""}
         </div>
         {reasoning && (
-          <details className="chat-reasoning" open={streaming}>
-            <summary>
-              {streaming ? "深度思考中…" : "深度思考"}
-              <span className="muted tiny"> · {reasoning.length} 字</span>
-            </summary>
-            <pre>{reasoning}</pre>
-          </details>
+          <ChatMessageReasoning text={reasoning} streaming={Boolean(streaming)} />
         )}
         {process}
         {content && (
