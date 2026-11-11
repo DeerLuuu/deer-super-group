@@ -12,6 +12,8 @@ import type {
   ChatMessage,
   ChatQuestionRecord,
   ChatTrajectoryEntry,
+  ChatTurnHistoryOptions,
+  ChatTurnHistoryPage,
   ClearChatContextResult,
   CompactChatContextResult,
   ContextSection,
@@ -64,6 +66,11 @@ import {
 import { runAgentLoop } from "./loop.js";
 import { BingTranslator, splitTranslationChunks } from "./translate.js";
 import { Store } from "./store.js";
+import {
+  buildChatTurns,
+  CHAT_TURNS_EVENT_LIMIT,
+  CHAT_TURNS_MESSAGE_LIMIT,
+} from "./chatTurnProjection.js";
 import { fullThrottleBudget, withFullThrottle } from "./permission.js";
 import { RISK_APPROVAL_TIMEOUT_MS } from "../shared/approval.js";
 import {
@@ -687,6 +694,61 @@ export class AppService {
         (left.seq ?? 0) - (right.seq ?? 0) ||
         left.id.localeCompare(right.id),
     );
+  }
+
+  /**
+   * t168：历史对话轮次只读投影。消息为骨架，事件按 agent + 时间窗口归属；
+   * 不写入任何事件/表，也不进入 snapshot。
+   */
+  getChatTurns(
+    workspaceId: string,
+    agentId?: string,
+    options: ChatTurnHistoryOptions = {},
+  ): ChatTurnHistoryPage {
+    const workspace = this.store.getWorkspace(workspaceId);
+    if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
+    const router = this.ensureRouter(workspaceId);
+    const resolvedAgent = agentId ? this.store.getAgent(agentId) : router;
+    if (!resolvedAgent || resolvedAgent.workspaceId !== workspaceId) {
+      throw new Error(`agent not found in workspace: ${agentId ?? "unknown"}`);
+    }
+
+    let before: { createdAt: string; id: string } | null = null;
+    if (options.before) {
+      let decoded = "";
+      try {
+        decoded = Buffer.from(options.before, "base64url").toString("utf8");
+      } catch {
+        decoded = "";
+      }
+      const separator = decoded.indexOf("|");
+      if (separator <= 0 || separator === decoded.length - 1) {
+        throw new Error("invalid chat turn cursor");
+      }
+      before = {
+        createdAt: decoded.slice(0, separator),
+        id: decoded.slice(separator + 1),
+      };
+      if (Number.isNaN(Date.parse(before.createdAt))) {
+        throw new Error("invalid chat turn cursor");
+      }
+    }
+
+    const messages = this.store.listChatMessagesPage(
+      workspaceId,
+      resolvedAgent.id,
+      CHAT_TURNS_MESSAGE_LIMIT,
+      before,
+    );
+    const events = this.store.listRecentChatEvents(workspaceId, CHAT_TURNS_EVENT_LIMIT);
+    return buildChatTurns(messages, events, {
+      workspaceId,
+      agentId: resolvedAgent.id,
+      limit: options.limit,
+      includeTools: options.includeTools,
+      includeReasoning: options.includeReasoning,
+      hasEarlierMessages: messages.length >= CHAT_TURNS_MESSAGE_LIMIT,
+    });
   }
 
   /** t170：清空当前 Router 对话上下文；运行中先停止。 */

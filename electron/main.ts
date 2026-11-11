@@ -5,6 +5,7 @@ import { AppService } from "../src/kernel/service.js";
 import type {
   AnswerChatQuestionInput,
   CancelChatQuestionInput,
+  ChatTurnHistoryOptions,
   CreateAgentInput,
   CreateTaskInput,
   KernelErrorCode,
@@ -222,6 +223,11 @@ app.whenReady().then(() => {
   );
   handle("chat:trajectory", (workspaceId: string, agentId?: string) =>
     getService().getChatTrajectory(workspaceId, agentId),
+  );
+  handle(
+    "chat:turns",
+    (workspaceId: string, agentId?: string, options?: ChatTurnHistoryOptions) =>
+      getService().getChatTurns(workspaceId, agentId, options),
   );
   handle("chat:translate", (text: string) => getService().translateText(text));
   handle("translation:get", () => getService().getTranslationSettings());

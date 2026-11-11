@@ -10,9 +10,13 @@ import {
 import type {
   Agent,
   BoardEntry,
+  ChatAssistantTurn,
   ChatMessage,
   ChatQuestionRecord,
   ChatTrajectoryEntry,
+  ChatTurnHistoryPage,
+  ChatTurnReasoning,
+  ChatTurnTool,
   ContextSnapshot,
   EventRecord,
   KernelResult,
@@ -138,7 +142,7 @@ type ChatToolTrace = {
   callId: string;
   name: string;
   arguments: string;
-  status: "running" | "ok" | "error";
+  status: "running" | "ok" | "error" | "unknown";
   value?: unknown;
   error?: string;
   step?: number;
@@ -189,6 +193,16 @@ const TOOL_LABELS: Record<string, string> = {
 
 function toolLabel(name: string): string {
   return TOOL_LABELS[name] ?? name;
+}
+
+/** t168：实时→历史翻译复用键；只依赖文本，不跨段共享展示状态。 */
+function textHash(text: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 /** t69：需要二次确认的内核操作（重试/取消/暂停/评审拒绝等有副作用的动作）。 */
@@ -270,7 +284,21 @@ export default function App() {
   const [chatContextBusy, setChatContextBusy] = useState(false);
   const [chatTools, setChatTools] = useState<ChatToolTrace[]>([]);
   const [chatReasoningSegments, setChatReasoningSegments] = useState<ChatReasoningSegment[]>([]);
+  const [chatTurns, setChatTurns] = useState<ChatTurnHistoryPage | null>(null);
   const translationRequests = useRef(new Set<string>());
+  const translationTextCache = useRef(new Map<string, string>());
+  const translationPending = useRef(new Map<string, Promise<string>>());
+  const chatTurnsRequestRef = useRef(0);
+  const chatTurnsToastRef = useRef(false);
+  const chatTurnsByAssistant = useMemo(
+    () =>
+      new Map<string, ChatAssistantTurn>(
+        chatTurns?.turns.flatMap((turn) =>
+          turn.assistants.map((assistant) => [assistant.messageId, assistant] as const),
+        ) ?? [],
+      ),
+    [chatTurns],
+  );
   const [chatView, setChatView] = useState<"chat" | "trajectory">("chat");
   const [chatTrajectory, setChatTrajectory] = useState<ChatTrajectoryEntry[]>([]);
   const [chatTrajectoryLoading, setChatTrajectoryLoading] = useState(false);
@@ -682,16 +710,34 @@ export default function App() {
     if (!current) return;
     const router = current.agents.find((agent) => agent.isRouter);
     if (!router) return;
-    const [messages, contextSnapshot] = await Promise.all([
+    const requestId = ++chatTurnsRequestRef.current;
+    const turnsPromise = window.deer
+      .getChatTurns(current.workspace.id, router.id, { limit: 20 })
+      .catch((error) => {
+        if (!chatTurnsToastRef.current) {
+          chatTurnsToastRef.current = true;
+          pushToast({
+            kind: "error",
+            message: `历史执行过程加载失败：${formatError(error)}`,
+          });
+        }
+        return null;
+      });
+    const [messages, contextSnapshot, turns] = await Promise.all([
       window.deer.listChat(current.workspace.id, router.id),
       window.deer.getContext(
         current.workspace.id,
         contextTaskId ? undefined : router.id,
         contextTaskId ?? undefined,
       ),
+      turnsPromise,
     ]);
     setChatMessages(messages);
     setContext(contextSnapshot);
+    if (requestId === chatTurnsRequestRef.current) {
+      setChatTurns(turns);
+      if (turns) chatTurnsToastRef.current = false;
+    }
     // t64 §4.9：问题状态单独加载；失败不阻断消息渲染（画布/文本仍可用）。
     try {
       const questions = await window.deer.listChatQuestions(current.workspace.id, router.id);
@@ -1152,16 +1198,22 @@ export default function App() {
       } else if (event.type === "done") {
         setChatStream("");
         setChatReasoning("");
+        setChatTools([]);
+        setChatReasoningSegments([]);
         setChatBusy(false);
         void loadChat().catch((error) => setError(errorText(error)));
       } else if (event.type === "cancelled") {
         setChatStream("");
         setChatReasoning("");
+        setChatTools([]);
+        setChatReasoningSegments([]);
         setChatBusy(false);
         void loadChat().catch(() => {});
       } else if (event.type === "error") {
         setChatStream("");
         setChatReasoning("");
+        setChatTools([]);
+        setChatReasoningSegments([]);
         setChatBusy(false);
         setError(event.error);
         void loadChat().catch(() => {});
@@ -1183,6 +1235,7 @@ export default function App() {
       void window.deer
         .translateText(segment.text)
         .then((translation) => {
+          translationTextCache.current.set(textHash(segment.text), translation);
           setChatReasoningSegments((prev) =>
             prev.map((item) =>
               item.id === segment.id ? { ...item, status: "done", translation } : item,
@@ -1196,6 +1249,28 @@ export default function App() {
         });
     }
   }, [chatReasoningSegments]);
+
+  // t168：历史思考只在展开时翻译；文本缓存复用实时译文并合并并发请求。
+  const translateHistoryText = useCallback(async (text: string): Promise<string> => {
+    const key = textHash(text);
+    const cached = translationTextCache.current.get(key);
+    if (cached !== undefined) return cached;
+    const pending = translationPending.current.get(key);
+    if (pending) return pending;
+    const promise = window.deer
+      .translateText(text)
+      .then((translation) => {
+        translationTextCache.current.set(key, translation);
+        translationPending.current.delete(key);
+        return translation;
+      })
+      .catch((error: unknown) => {
+        translationPending.current.delete(key);
+        throw error;
+      });
+    translationPending.current.set(key, promise);
+    return promise;
+  }, []);
 
   function resetForWorkspace() {
     setSelectedTaskId(null);
@@ -1216,6 +1291,12 @@ export default function App() {
     setChatReasoning("");
     setChatTools([]);
     setChatReasoningSegments([]);
+    setChatTurns(null);
+    chatTurnsRequestRef.current += 1;
+    chatTurnsToastRef.current = false;
+    translationTextCache.current.clear();
+    translationPending.current.clear();
+    translationRequests.current.clear();
     setChatView("chat");
     setChatTrajectory([]);
     setChatBusy(false);
@@ -2631,6 +2712,8 @@ export default function App() {
                       messages={chatMessages}
                       tools={chatTools}
                       reasoningSegments={chatReasoningSegments}
+                      turnByAssistant={chatTurnsByAssistant}
+                      translateHistoryText={translateHistoryText}
                       view={chatView}
                       onViewChange={setChatView}
                       trajectory={chatTrajectory}
@@ -4423,6 +4506,8 @@ function ChatView({
   messages,
   tools,
   reasoningSegments,
+  turnByAssistant,
+  translateHistoryText,
   view,
   onViewChange,
   trajectory,
@@ -4460,6 +4545,8 @@ function ChatView({
   messages: ChatMessage[];
   tools: ChatToolTrace[];
   reasoningSegments: ChatReasoningSegment[];
+  turnByAssistant: ReadonlyMap<string, ChatAssistantTurn>;
+  translateHistoryText: (text: string) => Promise<string>;
   view: "chat" | "trajectory";
   onViewChange: (view: "chat" | "trajectory") => void;
   trajectory: ChatTrajectoryEntry[];
@@ -4505,11 +4592,9 @@ function ChatView({
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, stream, tools, reasoningSegments]);
 
-  const lastMessage = messages[messages.length - 1] ?? null;
-  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-  const hasProcess =
+  const hasLiveProcess =
     tools.length > 0 || reasoningSegments.length > 0 || Boolean(reasoning.trim());
-  const processNode = hasProcess ? (
+  const liveProcess = hasLiveProcess ? (
     <ChatTurnProcess
       reasoningSegments={reasoningSegments}
       tools={tools}
@@ -4517,10 +4602,8 @@ function ChatView({
       busy={busy}
     />
   ) : null;
-  const attachProcess =
-    Boolean(processNode) &&
-    Boolean(lastAssistant) &&
-    lastMessage?.id === lastAssistant?.id;
+  const showLiveBubble =
+    Boolean(stream.trim() || reasoning.trim()) || (busy && Boolean(liveProcess));
 
   return (
     <div className="chat-layout">
@@ -4653,18 +4736,23 @@ function ChatView({
             />
           )}
           {messages.map((message) => {
-            const withProcess =
-              message.role === "assistant" &&
-              attachProcess &&
-              message.id === lastAssistant?.id;
+            const historical =
+              message.role === "assistant" ? turnByAssistant.get(message.id) : undefined;
             return (
               <ChatBubble
                 key={message.id}
                 messageId={message.id}
                 role={message.role}
                 content={message.content}
-                reasoning={withProcess ? "" : message.reasoning}
-                process={withProcess ? processNode : undefined}
+                reasoning={historical ? "" : message.reasoning}
+                process={
+                  historical && historical.steps.length > 0 ? (
+                    <ChatTurnHistoryProcess
+                      assistant={historical}
+                      translate={translateHistoryText}
+                    />
+                  ) : undefined
+                }
                 createdAt={message.createdAt}
                 questions={questions}
                 questionsLoaded={questionsLoaded}
@@ -4673,12 +4761,12 @@ function ChatView({
               />
             );
           })}
-          {(reasoning || stream || (busy && hasProcess)) && (
+          {showLiveBubble && (
             <ChatBubble
               role="assistant"
               content={stream}
               reasoning=""
-              process={processNode}
+              process={liveProcess}
               streaming
               questions={questions}
               questionsLoaded={questionsLoaded}
@@ -4926,7 +5014,13 @@ function ChatToolItem({ tool }: { tool: ChatToolTrace }) {
         <span className="chat-tool-label">{toolLabel(tool.name)}</span>
         <span className="mono chat-tool-raw">{tool.name}</span>
         <span className={`chat-tool-status is-${tool.status}`}>
-          {tool.status === "running" ? "运行中" : tool.status === "ok" ? "完成" : "失败"}
+          {tool.status === "running"
+            ? "运行中"
+            : tool.status === "ok"
+              ? "完成"
+              : tool.status === "unknown"
+                ? "未知"
+                : "失败"}
         </span>
       </summary>
       <div className="chat-tool-detail">
@@ -4936,17 +5030,149 @@ function ChatToolItem({ tool }: { tool: ChatToolTrace }) {
         </div>
         {tool.status !== "running" && (
           <div>
-            <div className="section-label">{tool.status === "ok" ? "结果" : "错误"}</div>
+            <div className="section-label">
+              {tool.status === "ok" ? "结果" : tool.status === "unknown" ? "结果（旧数据）" : "错误"}
+            </div>
             <pre>
               {tool.status === "ok"
                 ? formatToolPayload(tool.value) || "（无返回值）"
-                : tool.error || "工具执行失败"}
+                : tool.status === "unknown"
+                  ? "历史数据缺少工具结果"
+                  : tool.error || "工具执行失败"}
             </pre>
           </div>
         )}
       </div>
     </details>
   );
+}
+
+function ChatTurnHistoryProcess({
+  assistant,
+  translate,
+}: {
+  assistant: ChatAssistantTurn;
+  translate: (text: string) => Promise<string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const toolCount = assistant.steps.reduce((count, step) => count + step.tools.length, 0);
+  return (
+    <details
+      className="chat-turn-process is-history"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span>执行过程</span>
+        <span className="muted tiny">
+          {assistant.steps.length} 步 · {toolCount} 次工具 · 历史记录
+          {assistant.legacy.reasoningFromMessage ? " · 含旧数据" : ""}
+          {assistant.truncated ? " · 已截断" : ""}
+        </span>
+      </summary>
+      {open && (
+        <div className="chat-turn-process-body">
+          {assistant.steps.map((step) => (
+            <ChatTurnHistoryStep key={step.step} step={step} translate={translate} />
+          ))}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function ChatTurnHistoryStep({
+  step,
+  translate,
+}: {
+  step: ChatAssistantTurn["steps"][number];
+  translate: (text: string) => Promise<string>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="chat-turn-step is-history">
+      <button
+        type="button"
+        className="chat-turn-step-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="chat-turn-reasoning-chevron" aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+        <span className="chat-turn-step-label">step {step.step}</span>
+        <span className="muted tiny">
+          {step.reasoning.length} 段思考 · {step.tools.length} 次工具
+        </span>
+        <span className="chat-turn-step-done">完成</span>
+      </button>
+      {open && (
+        <div className="chat-turn-step-body">
+          {step.reasoning.map((reasoning) => (
+            <ChatTurnHistoryReasoning
+              key={reasoning.id}
+              reasoning={reasoning}
+              translate={translate}
+            />
+          ))}
+          {step.tools.map((tool) => (
+            <ChatToolItem key={tool.callId} tool={historyToolTrace(tool)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatTurnHistoryReasoning({
+  reasoning,
+  translate,
+}: {
+  reasoning: ChatTurnReasoning;
+  translate: (text: string) => Promise<string>;
+}) {
+  const [open, setOpen] = useState(true);
+  const [segment, setSegment] = useState<ChatReasoningSegment>(() => ({
+    id: reasoning.id,
+    step: reasoning.step,
+    text: reasoning.text,
+    status: "done",
+  }));
+  const requested = useRef(false);
+
+  useEffect(() => {
+    if (!open || requested.current || !reasoning.text.trim()) return;
+    requested.current = true;
+    setSegment((prev) => ({ ...prev, status: "loading" }));
+    void translate(reasoning.text)
+      .then((translation) => {
+        setSegment((prev) => ({ ...prev, status: "done", translation }));
+      })
+      .catch(() => {
+        setSegment((prev) => ({ ...prev, status: "error" }));
+      });
+  }, [open, reasoning.text, translate]);
+
+  return (
+    <ChatReasoningBlock
+      segment={segment}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      legacy={reasoning.source === "message"}
+    />
+  );
+}
+
+function historyToolTrace(tool: ChatTurnTool): ChatToolTrace {
+  return {
+    callId: tool.callId,
+    name: tool.name,
+    arguments: tool.arguments,
+    status: tool.status,
+    value: tool.value,
+    error: tool.error,
+    step: tool.step,
+  };
 }
 
 function ChatTurnProcess({
@@ -5056,10 +5282,13 @@ function ChatReasoningBlock({
   segment,
   open,
   onToggle,
+  legacy,
 }: {
   segment: ChatReasoningSegment;
   open: boolean;
   onToggle: () => void;
+  /** t168：message.reasoning 降级的旧数据标记。 */
+  legacy?: boolean;
 }) {
   const [view, setView] = useState<"original" | "translation">("translation");
   const hasTranslation =
@@ -5080,6 +5309,7 @@ function ChatReasoningBlock({
             {open ? "▾" : "▸"}
           </span>
           <span>思考</span>
+          {legacy && <span className="chat-turn-legacy-badge">旧数据</span>}
           <span className="muted tiny"> · {segment.text.length} 字</span>
         </button>
         {open && hasTranslation && (
@@ -5107,7 +5337,7 @@ function ChatReasoningBlock({
         <div className="chat-turn-reasoning-body">
           {showTranslation ? (
             <div className="chat-turn-translation">
-              <div className="chat-turn-translation-label">机翻 · Bing</div>
+              <div className="chat-turn-translation-label">机翻</div>
               <pre>{segment.translation}</pre>
             </div>
           ) : (

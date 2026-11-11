@@ -1698,6 +1698,48 @@ export class Store {
     return rows.map(toChatMessage).reverse();
   }
 
+  /**
+   * t168：历史 turn 投影的分页读取。before 是 `(createdAt,id)` 游标，
+   * 返回位于游标之前的最近 limit 条消息（按时间升序）。
+   */
+  listChatMessagesPage(
+    workspaceId: string,
+    agentId: string | undefined,
+    limit = 200,
+    before?: { createdAt: string; id: string } | null,
+  ): ChatMessage[] {
+    const clauses = ["workspace_id = ?"];
+    const params: Array<string | number> = [workspaceId];
+    if (agentId) {
+      clauses.push("agent_id = ?");
+      params.push(agentId);
+    }
+    if (before) {
+      clauses.push("(created_at < ? OR (created_at = ? AND id < ?))");
+      params.push(before.createdAt, before.createdAt, before.id);
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM chat_messages
+         WHERE ${clauses.join(" AND ")}
+         ORDER BY created_at DESC, id DESC LIMIT ?`,
+      )
+      .all(...params, Math.max(1, limit)) as Row[];
+    return rows.map(toChatMessage).reverse();
+  }
+
+  /** t168：最近 2000 条 chat 事件（升序返回，供 turn 投影按时间窗口归属）。 */
+  listRecentChatEvents(workspaceId: string, limit = 2000): EventRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events
+         WHERE aggregate_type = 'chat' AND aggregate_id = ?
+         ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(workspaceId, Math.max(1, Math.min(limit, 2000))) as Row[];
+    return rows.map((row) => this.toEventRecord(row)).reverse();
+  }
+
   /** t170：清空当前对话、画布索引与提问；事件日志保留。 */
   clearChatContext(
     workspaceId: string,

@@ -2155,6 +2155,87 @@ label.check input {
   margin-top: 3px;
 }
 
+/* t168：历史 turn process 默认折叠；step/工具按钮化，保持键盘可达。 */
+.chat-turn-process.is-history {
+  background: color-mix(in srgb, var(--bg-2) 58%, transparent);
+}
+
+.chat-turn-process.is-history > summary {
+  color: var(--text);
+}
+
+.chat-turn-step.is-history {
+  gap: 6px;
+}
+
+.chat-turn-step-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-turn-step-toggle:hover {
+  color: var(--text);
+}
+
+.chat-turn-step-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.chat-turn-step-toggle .chat-turn-step-done {
+  margin-left: auto;
+}
+
+.chat-turn-step-body {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.chat-turn-legacy-badge {
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.chat-tool-item.is-unknown .chat-tool-dot {
+  background: var(--muted);
+}
+
+.chat-tool-status.is-unknown {
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .chat-turn-process-body,
+  .chat-turn-step-body {
+    min-width: 0;
+  }
+
+  .chat-turn-step-toggle {
+    flex-wrap: wrap;
+  }
+
+  .chat-turn-step-toggle .chat-turn-step-done {
+    margin-left: 0;
+  }
+}
+
 /* ---------- t173 chat tool trace ---------- */
 
 .chat-tool-trace {
