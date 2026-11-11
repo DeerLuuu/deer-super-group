@@ -82,6 +82,11 @@ import CommandPalette, {
 import WorkflowRail from "./shell/WorkflowRail";
 import { useMergeQueue } from "./shell/useMergeQueue";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
+import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
+import {
+  taskWorkspaceNext,
+  type TaskWorkspaceTab,
+} from "./shell/taskWorkspaceData";
 import {
   isPlanDraftDirty,
   isPlanDraftSourceChanged,
@@ -134,7 +139,6 @@ import {
   statusCounts,
   taskActionState,
   taskAttemptRatioText,
-  taskNextStep,
   unwrapKernel,
 } from "./shared/kernelUi";
 import DockShell, { type DockHandle } from "./shell/dock/DockShell";
@@ -370,6 +374,7 @@ export default function App() {
   const [taskVcsFocus, setTaskVcsFocus] = useState(false);
   const [taskReviewFocus, setTaskReviewFocus] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskWorkspaceSource, setTaskWorkspaceSource] = useState<"tasks" | "team">("tasks");
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   // P0-4：Plan Draft 仅 session 内存；确认前不创建任务/事件。
@@ -1199,6 +1204,7 @@ export default function App() {
         dockRef.current?.openPanel(route.tab);
       }
       if (route.task) {
+        setTaskWorkspaceSource("tasks");
         setSelectedTaskId(route.task);
         void loadTrace(route.task);
       } else if (route.tab === "tasks" || route.tab === "team") {
@@ -1544,6 +1550,7 @@ export default function App() {
     setPlanBusy(false);
     planConfirmKeyRef.current = "";
     setSelectedTaskId(null);
+    setTaskWorkspaceSource("tasks");
     setSelectedRunId(null);
     setTrace([]);
     setTaskRuns([]);
@@ -2446,12 +2453,17 @@ export default function App() {
     openPanel("runs");
   }
 
-  function handleOpenTaskPage(taskId: string) {
+  function handleOpenTaskWorkspace(taskId: string, source: "tasks" | "team" = "tasks") {
+    setTaskWorkspaceSource(source);
     setSelectedTaskId(taskId);
     setSelectedRunId(null);
     void loadTrace(taskId);
     void loadRuns(taskId);
     openPanel("tasks");
+  }
+
+  function handleOpenTaskPage(taskId: string) {
+    handleOpenTaskWorkspace(taskId, "tasks");
   }
 
   // C06：顶栏失败计数一键跳到任务页并过滤 failed。
@@ -3118,6 +3130,7 @@ export default function App() {
                       }
                       onAutoOpenHandled={() => setCreateIntent(null)}
                       onSelect={(task) => {
+                        setTaskWorkspaceSource("tasks");
                         setSelectedTaskId(task.id);
                         setSelectedRunId(null);
                         void loadTrace(task.id);
@@ -3169,6 +3182,8 @@ export default function App() {
                       onResolveWatchdogAlert={handleResolveWatchdogAlert}
                       onReleaseWatchdogHold={handleReleaseWatchdogHold}
                       watchdogHandoffs={watchdogHandoffs}
+                      workspaceSource={taskWorkspaceSource}
+                      onReturnSource={() => openPanel("team")}
                     />
                   );
                 case "team":
@@ -3176,18 +3191,9 @@ export default function App() {
                     <TeamDashboard
                       snapshot={snapshot}
                       busy={busy}
-                      selectedTaskId={selectedTaskId}
+                      selectedTaskId={null}
                       onSelectTask={(taskId) => {
-                        setSelectedTaskId(taskId);
-                        setSelectedRunId(null);
-                        const current = snapshotRef.current;
-                        if (taskId && current) {
-                          const task = current.tasks.find((entry) => entry.id === taskId);
-                          if (task) {
-                            void loadTrace(task.id);
-                            void loadRuns(task.id);
-                          }
-                        }
+                        if (taskId) handleOpenTaskWorkspace(taskId, "team");
                       }}
                       starmapFocus={starmapFocus}
                       autoOpenMemberDialog={createIntent === "member"}
@@ -3196,7 +3202,7 @@ export default function App() {
                       onUpdate={handleUpdateAgent}
                       onDelete={handleDeleteAgent}
                       onOpenTask={(taskId) => handleShowTaskContext(taskId, "team")}
-                      onOpenTaskPage={handleOpenTaskPage}
+                      onOpenTaskPage={(taskId) => handleOpenTaskWorkspace(taskId, "team")}
                       scheduler={scheduler}
                       onOpenRuns={(taskId) =>
                         openRunsPanel(taskId ?? selectedTaskId, null)
@@ -3766,6 +3772,8 @@ function TasksView({
   onResolveWatchdogAlert,
   onReleaseWatchdogHold,
   watchdogHandoffs,
+  workspaceSource,
+  onReturnSource,
 }: {
   snapshot: Snapshot;
   selectedTask: Task | null;
@@ -3809,9 +3817,12 @@ function TasksView({
   onResolveWatchdogAlert?: (alert: WatchdogAlert) => void;
   onReleaseWatchdogHold?: (alert: WatchdogAlert) => void;
   watchdogHandoffs?: Record<string, RunHandoff>;
+  workspaceSource: "tasks" | "team";
+  onReturnSource: () => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [taskTab, setTaskTab] = useState<TaskWorkspaceTab>("overview");
 
   // C11：从顶栏/命令面板进入时自动打开对应弹窗（一次性）。
   useEffect(() => {
@@ -3893,15 +3904,60 @@ function TasksView({
   const actionState = selectedTask
     ? taskActionState(selectedTask, taskById, hasWorker)
     : null;
-  const nextStep = selectedTask
-    ? taskNextStep(selectedTask, taskById, hasWorker)
-    : null;
   const selectedTaskDeps = selectedTask
     ? selectedTask.dependsOn
         .map((id) => taskById.get(id))
         .filter((item): item is Task => Boolean(item))
     : [];
   const unfilledDeps = selectedTaskDeps.filter((task) => task.status !== "done");
+  const selectedOwner = selectedTask?.ownerId ? agents.get(selectedTask.ownerId) ?? null : null;
+  const currentRun =
+    runs.find((run) => run.id === selectedRunId) ??
+    runs.find((run) => run.status === "running") ??
+    runs[0] ??
+    null;
+  const workspaceNext =
+    selectedTask && actionState
+      ? taskWorkspaceNext({
+          task: selectedTask,
+          startEnabled: actionState.start.enabled,
+          startReason: actionState.start.reason,
+          retryEnabled: actionState.retry.enabled,
+          retryReason: actionState.retry.reason,
+          unfilledDeps: unfilledDeps.length,
+        })
+      : null;
+
+  useEffect(() => {
+    setTaskTab("overview");
+  }, [selectedTask?.id]);
+
+  function openTaskTab(tab: TaskWorkspaceTab, focus = true) {
+    setTaskTab(tab);
+    if (focus) {
+      window.setTimeout(() => {
+        document.getElementById(`task-panel-${tab}`)?.focus();
+      }, 0);
+    }
+  }
+
+  function runWorkspacePrimary() {
+    if (!selectedTask || !workspaceNext) return;
+    if (workspaceNext.key === "run") {
+      onStartTask(selectedTask);
+      return;
+    }
+    if (workspaceNext.key === "retry") {
+      onRetryTask(selectedTask);
+      return;
+    }
+    if (workspaceNext.key === "upstream") {
+      const dependency = unfilledDeps[0];
+      if (dependency) onSelect(dependency);
+      return;
+    }
+    if (workspaceNext.tab) openTaskTab(workspaceNext.tab);
+  }
 
   function countFor(filter: TaskStatusFilter): number {
     return filter === "all" ? counts.all : counts[filter];
@@ -4148,117 +4204,111 @@ function TasksView({
                   onRelease={onReleaseWatchdogHold}
                 />
               ))}
-            <div className="task-detail-headrow">
-              <div className="row gap wrap">
-                <StatusBadge status={selectedTask.status} />
-                <span className="muted tiny mono">{selectedTask.id}</span>
+            <div className="task-workspace-head">
+              <div className="task-workspace-title-row">
+                <div className="task-workspace-identity">
+                  <div className="row gap wrap">
+                    <strong>{selectedTask.title}</strong>
+                    <StatusBadge status={selectedTask.status} />
+                    <span className="muted tiny mono">{selectedTask.id}</span>
+                  </div>
+                  <div className="muted tiny task-workspace-meta">
+                    <span>负责人：{selectedOwner?.name ?? "未分配"}</span>
+                    <span>优先级：{selectedTask.priority ?? 50}</span>
+                    <span>当前 Run：{currentRun ? currentRun.id.slice(0, 10) : "无"}</span>
+                  </div>
+                </div>
+                <div className="row gap wrap task-workspace-actions">
+                  {workspaceSource === "team" ? (
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={onReturnSource}
+                      title="返回团队"
+                    >
+                      ← 返回团队
+                    </button>
+                  ) : null}
+                  <details className="task-workspace-more">
+                    <summary className="ghost small">更多</summary>
+                    <div className="task-workspace-more-menu" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ghost small"
+                        onClick={() => onLocate(selectedTask.id)}
+                        title="在团队页星图中定位该任务"
+                      >
+                        在星图中定位
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ghost small"
+                        onClick={() => onContext(selectedTask.id)}
+                        title="在对话页查看这次任务的上下文"
+                      >
+                        查看上下文
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ghost small"
+                        onClick={() => onStartPoll(selectedTask)}
+                        title="从该任务发起团队投票"
+                      >
+                        发起投票
+                      </button>
+                    </div>
+                  </details>
+                  <button
+                    className="ghost small run-danger"
+                    disabled={
+                      !actionState?.cancel.enabled ||
+                      actionBusy === `task:cancel:${selectedTask.id}`
+                    }
+                    onClick={() => onCancelTask(selectedTask)}
+                    title={actionState?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
+                    aria-describedby={
+                      actionState?.cancel.enabled ? undefined : "task-action-hint"
+                    }
+                  >
+                    {actionBusy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
+                  </button>
+                  {workspaceNext ? (
+                    <button
+                      className="primary small task-workspace-primary"
+                      disabled={
+                        workspaceNext.disabled ||
+                        actionBusy === `task:${workspaceNext.key}:${selectedTask.id}`
+                      }
+                      onClick={runWorkspacePrimary}
+                      title={workspaceNext.reason || workspaceNext.detail}
+                      aria-describedby={
+                        workspaceNext.disabled ? "task-workspace-primary-hint" : undefined
+                      }
+                    >
+                      {workspaceNext.label}
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <div className="row gap wrap">
-                <button
-                  className="ghost small"
-                  onClick={() => onLocate(selectedTask.id)}
-                  title="在团队页星图中定位该任务"
-                >
-                  在星图中定位
-                </button>
-                <button
-                  className="ghost small"
-                  onClick={() => onContext(selectedTask.id)}
-                  title="在对话页查看这次任务的上下文"
-                >
-                  查看上下文
-                </button>
-                <button
-                  className="ghost small"
-                  onClick={() => onOpenRuns(selectedTask.id, selectedRunId)}
-                  title="打开运行面板：队列、Run 历史与时间线"
-                >
-                  运行详情
-                </button>
-                <button
-                  className="ghost small"
-                  onClick={() => onStartPoll(selectedTask)}
-                  title="从该任务发起团队投票"
-                >
-                  发起投票
-                </button>
-                {/* t107 F3：主要操作常驻渲染，不可用时 disabled + title/aria-describedby 原因（与 RunPanel 一致）。 */}
-                <button
-                  className="primary small"
-                  disabled={
-                    !actionState?.start.enabled ||
-                    actionBusy === `task:start:${selectedTask.id}`
-                  }
-                  onClick={() => onStartTask(selectedTask)}
-                  title={actionState?.start.reason || "入队运行（默认手动入队）"}
-                  aria-describedby={
-                    actionState?.start.enabled ? undefined : "task-action-hint"
-                  }
-                >
-                  {actionBusy === `task:start:${selectedTask.id}` ? "入队中…" : "运行任务"}
-                </button>
-                <button
-                  className="primary small"
-                  disabled={
-                    !actionState?.retry.enabled ||
-                    actionBusy === `task:retry:${selectedTask.id}`
-                  }
-                  onClick={() => onRetryTask(selectedTask)}
-                  title={actionState?.retry.reason || "重新入队：会新建一次 attempt"}
-                  aria-describedby={
-                    actionState?.retry.enabled ? undefined : "task-action-hint"
-                  }
-                >
-                  {actionBusy === `task:retry:${selectedTask.id}` ? "重试中…" : "重试任务"}
-                </button>
-                <button
-                  className="primary small"
-                  disabled={
-                    !actionState?.review.enabled ||
-                    actionBusy === `task:review:${selectedTask.id}`
-                  }
-                  onClick={() => onReviewTask(selectedTask, "approve")}
-                  title={actionState?.review.reason || "批准：任务标记为已交付"}
-                  aria-describedby={
-                    actionState?.review.enabled ? undefined : "task-action-hint"
-                  }
-                >
-                  批准
-                </button>
-                <button
-                  className="ghost small run-danger"
-                  disabled={
-                    !actionState?.review.enabled ||
-                    actionBusy === `task:review:${selectedTask.id}`
-                  }
-                  onClick={() => onReviewTask(selectedTask, "reject")}
-                  title={actionState?.review.reason || "拒绝：任务标记失败（REVIEW_REJECTED）"}
-                  aria-describedby={
-                    actionState?.review.enabled ? undefined : "task-action-hint"
-                  }
-                >
-                  拒绝
-                </button>
-                <button
-                  className="ghost small run-danger"
-                  disabled={
-                    !actionState?.cancel.enabled ||
-                    actionBusy === `task:cancel:${selectedTask.id}`
-                  }
-                  onClick={() => onCancelTask(selectedTask)}
-                  title={actionState?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
-                  aria-describedby={
-                    actionState?.cancel.enabled ? undefined : "task-action-hint"
-                  }
-                >
-                  {actionBusy === `task:cancel:${selectedTask.id}` ? "取消中…" : "取消任务"}
-                </button>
-              </div>
+              {workspaceNext ? (
+                <div className={`task-workspace-next tone-${workspaceNext.key}`} role="status">
+                  <strong>{workspaceNext.label}</strong>
+                  <span>{workspaceNext.detail}</span>
+                  {workspaceNext.disabled && workspaceNext.reason ? (
+                    <span id="task-workspace-primary-hint" className="muted tiny">
+                      {workspaceNext.reason}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
-            {/* t107 F3：不可用操作的原因（可见 inline 说明，供 aria-describedby 引用）。 */}
+            {/* t107 F3：不可用操作的原因（供 aria-describedby 引用；视觉上由 primary next 承载）。 */}
             {actionState && (
-              <div id="task-action-hint" className="muted tiny task-action-hint">
+              <div id="task-action-hint" className="sr-only">
                 {[
                   actionState.start,
                   actionState.retry,
@@ -4277,17 +4327,31 @@ function TasksView({
               </div>
             )}
 
-            {!hasWorker && (
-              <div className="notice">还没有可用成员。请先到「团队」创建成员或把成员设为非离线，再运行任务。</div>
-            )}
+            <TaskWorkspaceTabs
+              tab={taskTab}
+              onChange={(tab) => openTaskTab(tab, false)}
+              counts={{
+                runs: runs.length,
+                review: selectedTask.status === "review" ? 1 : undefined,
+              }}
+            />
 
-            {nextStep && nextStep.kind !== "none" && (
-              <div className={`task-next-step tone-${nextStep.kind}`}>
-                <strong>{nextStep.label}</strong>
-                <span>{nextStep.detail}</span>
-                {unfilledDeps.length > 0 && (
-                  <span className="muted tiny">
-                    上游：{" "}
+            {taskTab === "overview" && (
+              <div
+                className="task-workspace-panel"
+                id="task-panel-overview"
+                role="tabpanel"
+                aria-labelledby="task-tab-overview"
+                tabIndex={0}
+              >
+                {!hasWorker ? (
+                  <div className="notice">
+                    还没有可用成员。请先到「团队」创建成员或把成员设为非离线，再运行任务。
+                  </div>
+                ) : null}
+                {unfilledDeps.length > 0 ? (
+                  <div className="task-workspace-upstream muted tiny">
+                    上游依赖：
                     {unfilledDeps.map((dep) => (
                       <button
                         key={dep.id}
@@ -4298,12 +4362,9 @@ function TasksView({
                         {dep.title}（{TASK_STATUS_LABEL[dep.status]}）
                       </button>
                     ))}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className="task-runtime-grid">
+                  </div>
+                ) : null}
+                <div className="task-runtime-grid">
               <div>
                 <div className="section-label">尝试</div>
                 <div>{taskAttemptRatioText(selectedTask)}（共 {selectedTask.attemptCount ?? 0} 次）</div>
@@ -4366,49 +4427,156 @@ function TasksView({
                 <div className="section-label">摘要</div>
                 <p className="detail-text">{selectedTask.summary || "（尚未完成）"}</p>
               </div>
-            </div>
+                <div>
+                  <div className="section-label">执行契约 / 来源</div>
+                  <div className="muted tiny task-workspace-contract">
+                    <span>负责人：{selectedOwner?.name ?? "未分配"}</span>
+                    <span>模型：{selectedOwner?.model ?? "默认模型"}</span>
+                    <span>权限：{selectedOwner?.permission ?? "—"}</span>
+                    <span>优先级：{selectedTask.priority ?? 50}</span>
+                    <span>来源：任务列表 / {workspaceSource === "team" ? "团队" : "任务页"}</span>
+                  </div>
+                </div>
+              </div>
+              </div>
+            )}
 
-            <div
-              className="task-git-section"
-              id="task-git-section"
-              tabIndex={-1}
-            >
-              <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} />
-            </div>
+            {taskTab === "runs" && (
+              <div
+                className="task-workspace-panel"
+                id="task-panel-runs"
+                role="tabpanel"
+                aria-labelledby="task-tab-runs"
+                tabIndex={0}
+              >
+                <RunHistory
+                  task={selectedTask}
+                  runs={runs}
+                  agents={snapshot.agents}
+                  events={trace}
+                  loading={runsLoading}
+                  error={runsError}
+                  selectedRunId={selectedRunId}
+                  busy={actionBusy}
+                  onRetryLoad={onReloadRuns}
+                  onSelectRun={(runId) => onSelectRun(runId)}
+                  onCancelRun={onCancelRun}
+                  onOpenRunPanel={(runId) =>
+                    onOpenRuns(selectedTask.id, runId ?? selectedRunId)
+                  }
+                  onRetryTask={() => onRetryTask(selectedTask)}
+                  handoffs={watchdogHandoffs}
+                />
+              </div>
+            )}
 
-            <div id="task-review-section" className="task-review-section" tabIndex={-1}>
-              <ReviewSection key={`review-${selectedTask.id}`} taskId={selectedTask.id} />
-            </div>
+            {taskTab === "git" && (
+              <div
+                className="task-workspace-panel"
+                id="task-panel-git"
+                role="tabpanel"
+                aria-labelledby="task-tab-git"
+                tabIndex={0}
+              >
+                <div className="task-git-section" id="task-git-section">
+                  <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} />
+                </div>
+                <div className="row gap task-workspace-git-actions">
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => onOpenRuns(selectedTask.id, selectedRunId)}
+                  >
+                    打开运行面板
+                  </button>
+                </div>
+              </div>
+            )}
 
-            <RunHistory
-              task={selectedTask}
-              runs={runs}
-              agents={snapshot.agents}
-              events={trace}
-              loading={runsLoading}
-              error={runsError}
-              selectedRunId={selectedRunId}
-              busy={actionBusy}
-              onRetryLoad={onReloadRuns}
-              onSelectRun={(runId) => onSelectRun(runId)}
-              onCancelRun={onCancelRun}
-              onOpenRunPanel={(runId) =>
-                onOpenRuns(selectedTask.id, runId ?? selectedRunId)
-              }
-              onRetryTask={() => onRetryTask(selectedTask)}
-              handoffs={watchdogHandoffs}
-            />
+            {taskTab === "review" && (
+              <div
+                className="task-workspace-panel"
+                id="task-panel-review"
+                role="tabpanel"
+                aria-labelledby="task-tab-review"
+                tabIndex={0}
+              >
+                <div className="task-workspace-gate-actions">
+                  <button
+                    className="primary small"
+                    disabled={
+                      !actionState?.review.enabled ||
+                      actionBusy === `task:review:${selectedTask.id}`
+                    }
+                    onClick={() => onReviewTask(selectedTask, "approve")}
+                    title={actionState?.review.reason || "批准任务交付"}
+                  >
+                    批准任务交付
+                  </button>
+                  <button
+                    className="ghost small run-danger"
+                    disabled={
+                      !actionState?.review.enabled ||
+                      actionBusy === `task:review:${selectedTask.id}`
+                    }
+                    onClick={() => onReviewTask(selectedTask, "reject")}
+                    title={actionState?.review.reason || "拒绝任务交付（REVIEW_REJECTED）"}
+                  >
+                    拒绝任务交付
+                  </button>
+                  <span className="muted tiny">
+                    代码评审通过不等于任务交付批准；未通过 review 不能 merge。
+                  </span>
+                </div>
+                <div id="task-review-section" className="task-review-section">
+                  <ReviewSection key={`review-${selectedTask.id}`} taskId={selectedTask.id} />
+                </div>
+              </div>
+            )}
 
-            <div className="trace-head">
-              <div className="section-label">执行 trace</div>
-              <span className="muted tiny">{trace.length} 条事件</span>
+            {taskTab === "history" && (
+              <div
+                className="task-workspace-panel"
+                id="task-panel-history"
+                role="tabpanel"
+                aria-labelledby="task-tab-history"
+                tabIndex={0}
+              >
+                <div className="task-history-runs">
+                  <div className="section-label">最近 Run（{runs.length}）</div>
+                  {runs.length === 0 ? (
+                    <div className="empty small">还没有 Run。</div>
+                  ) : (
+                    <ul className="task-history-run-list">
+                      {runs.slice(0, 8).map((run) => (
+                        <li key={run.id}>
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => onSelectRun(run.id)}
+                          >
+                            {run.id.slice(0, 10)} · {run.status}
+                            {run.startedAt ? ` · ${formatRelative(run.startedAt)}` : ""}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="trace-head">
+              <div className="section-label">执行 trace（最近）</div>
+              <span className="muted tiny">
+                {trace.length > 100 ? `最近 100 / 共 ${trace.length} 条` : `${trace.length} 条事件`}
+              </span>
             </div>
             <div className="trace">
               {trace.length === 0 && <div className="empty small">还没有执行记录。</div>}
-              {trace.map((event) => (
+              {trace.slice(-100).map((event) => (
                 <TraceItem key={event.seq} event={event} />
               ))}
             </div>
+              </div>
+            )}
           </>
         )}
       </section>

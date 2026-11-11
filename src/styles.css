@@ -8010,6 +8010,211 @@ body li {
   }
 }
 
+/* P0-5 Task Workspace：5 tabs + sticky 动作头 */
+.task-detail-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.task-workspace-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.task-workspace-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.task-workspace-identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.task-workspace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.task-workspace-actions {
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.task-workspace-more {
+  position: relative;
+}
+
+.task-workspace-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.task-workspace-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-workspace-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 8;
+  display: grid;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.task-workspace-more-menu button {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.task-workspace-primary {
+  min-width: 112px;
+}
+
+.task-workspace-tabs {
+  flex: 0 0 auto;
+  min-height: 31px;
+  box-sizing: border-box;
+}
+
+.task-workspace-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 9px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-2);
+  font-size: 11px;
+}
+
+.task-workspace-next.tone-retry,
+.task-workspace-next.tone-git-tab {
+  border-left-color: var(--status-failed);
+}
+
+.task-workspace-next.tone-review-tab {
+  border-left-color: var(--status-queued);
+}
+
+.task-workspace-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 0 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.task-workspace-tab {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.task-workspace-tab:hover {
+  color: var(--text);
+  background: var(--bg-2);
+}
+
+.task-workspace-tab.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.task-workspace-tab:focus-visible,
+.task-workspace-panel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.task-tab-count {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.task-workspace-panel {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+  min-width: 0;
+}
+
+.task-workspace-contract {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.task-workspace-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-workspace-git-actions {
+  justify-content: flex-end;
+}
+
+.task-history-run-list {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 960px) {
+  .task-workspace-title-row {
+    align-items: stretch;
+  }
+
+  .task-workspace-actions {
+    justify-content: flex-start;
+  }
+
+  .task-workspace-tabs {
+    background: var(--panel);
+  }
+}
+
+/* Team 不再保留任务详情副本；点击任务直接进入 Task Workspace。 */
+.team-task-detail {
+  display: none;
+}
+
 /* P0-4 Plan Draft */
 .plan-draft-panel {
   display: grid;
