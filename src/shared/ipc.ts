@@ -131,6 +131,8 @@ export interface DeerApi {
   compactChatContext(workspaceId: string): Promise<CompactChatContextResult>;
   /** t175：Chat 轨迹账本（消息 + 工具事件 + 上下文操作）。 */
   getChatTrajectory(workspaceId: string, agentId?: string): Promise<ChatTrajectoryEntry[]>;
+  /** t179：思考文本机翻（默认 Bing，目标简体中文）。 */
+  translateText(text: string): Promise<string>;
   getContext(workspaceId: string, agentId?: string, taskId?: string): Promise<ContextSnapshot>;
   /** DESIGN §15.4：满血模式开关（会话级提示/预算覆盖，不碰权限）。 */
   setFullThrottle(workspaceId: string, agentId: string, enabled: boolean): Promise<void>;

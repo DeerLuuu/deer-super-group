@@ -223,6 +223,7 @@ app.whenReady().then(() => {
   handle("chat:trajectory", (workspaceId: string, agentId?: string) =>
     getService().getChatTrajectory(workspaceId, agentId),
   );
+  handle("chat:translate", (text: string) => getService().translateText(text));
   handle("chat:send", (workspaceId: string, message: string) =>
     getService().sendChat(workspaceId, message),
   );
