@@ -30,7 +30,12 @@ import {
   type DockVariant,
   type PanelKey,
 } from "./panelRegistry";
-import { TASKS_MIN_WIDTH, TEAM_MIN_WIDTH } from "./narrowWindow";
+import {
+  DOCK_SASH_WIDTH,
+  TASKS_MIN_WIDTH,
+  TEAM_MIN_WIDTH,
+  effectivePanelMinWidth,
+} from "./narrowWindow";
 
 /**
  * t50 VSCode 风格 Dock 容器（dockview-react 8.9.0，按 docs/team/dock-layout-design.md）。
@@ -55,6 +60,37 @@ export type DockHandle = {
 };
 
 type MoveDirection = "left" | "right" | "above" | "below";
+
+type ReconcilePanel = {
+  id?: string;
+  group: { id?: string } | undefined;
+  api: { close: () => void; setActive?: () => void };
+};
+
+type ReconcileApi = {
+  getPanel: (id: string) => ReconcilePanel | undefined;
+  activePanel: { id?: string } | null | undefined;
+};
+
+/**
+ * t194/t212：旧 single 存档可能把 Team 存在右侧独立组（历史 ensurePanel 行为）。
+ * 恢复时把 Team 收敛为主组 tab，并保持 active 状态。
+ * 抽成导出函数以便 fake dockview API 做回归测试（无需真实渲染 dockview）。
+ */
+export function reconcileSingleLayout(
+  api: ReconcileApi,
+  variant: DockVariant,
+  addTeamToMain: () => void,
+): void {
+  if (variant !== "single") return;
+  const chat = api.getPanel("chat");
+  const team = api.getPanel("team");
+  if (!chat || !team || team.group === chat.group) return;
+  const teamWasActive = api.activePanel?.id === "team";
+  team.api.close();
+  addTeamToMain();
+  if (teamWasActive) api.getPanel("team")?.api.setActive?.();
+}
 
 const PanelContentContext = createContext<(key: PanelKey) => ReactNode>(
   () => null,
@@ -98,11 +134,13 @@ export default forwardRef<DockHandle, {
   ref,
 ) {
   const apiRef = useRef<DockviewApi | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const variantRef = useRef<DockVariant>(selectVariant(dockWidth, windowWidth));
   const workspaceIdRef = useRef(workspaceId);
   const initialKeyRef = useRef<PanelKey | null>(initialPanelKey);
   const activeKeyRef = useRef<PanelKey | null>(initialPanelKey);
   const saveTimerRef = useRef<number | null>(null);
+  const variantFrameRef = useRef<number | null>(null);
   const suppressSaveUntilRef = useRef(0);
   const [panelCount, setPanelCount] = useState(0);
 
@@ -120,12 +158,19 @@ export default forwardRef<DockHandle, {
     direction: "within" | "left" | "right" | "above" | "below";
   }) {
     const def = PANEL_DEFS[key];
+    // t212：single 下若 Dock 本身 <560（如 960 窗口 200% zoom 的 480 CSS viewport），
+    // 不能再强制 panel minWidth=560 造成横向裁切；改由 ≤640/≤620 容器查询单列降级。
+    const minimumWidth = effectivePanelMinWidth(
+      def.minWidth,
+      variantRef.current === "single",
+      measureDockWidth(),
+    );
     return {
       id: key,
       component: def.component,
       title: def.title,
       renderer: def.renderer,
-      minimumWidth: def.minWidth,
+      minimumWidth,
       minimumHeight: def.minHeight,
       ...(position ? { position } : {}),
     };
@@ -141,10 +186,13 @@ export default forwardRef<DockHandle, {
     const direction = panelInsertDirection(variantRef.current, key);
     api.addPanel(defOptions(key, { referencePanel: "chat", direction }));
     if (direction === "right") {
-      // 保证 Team 右组不把 Tasks 主组压到 560 以下。
-      const width = dockWidthRef.current;
+      // 保证 Team 右组 + sash 不把 Tasks 主组压到 560 以下。
+      const width = measureDockWidth();
       const desired = Math.max(TEAM_MIN_WIDTH, Math.round(width * 0.44));
-      const teamWidth = Math.max(TEAM_MIN_WIDTH, Math.min(desired, width - TASKS_MIN_WIDTH));
+      const teamWidth = Math.max(
+        TEAM_MIN_WIDTH,
+        Math.min(desired, width - TASKS_MIN_WIDTH - DOCK_SASH_WIDTH),
+      );
       const groupApi = api.getPanel(key)?.group?.api as
         | { setSize?: (event: { width?: number }) => void }
         | undefined;
@@ -172,11 +220,11 @@ export default forwardRef<DockHandle, {
       const groupApi = teamPanel?.group?.api as
         | { setSize?: (event: { width?: number }) => void }
         | undefined;
-      // t194：Team 右组最大宽度不能挤掉 Tasks 主组 560 可读宽度。
+      // t194/t212：Team 右组 + sash 最大宽度不能挤掉 Tasks 主组 560 可读宽度。
       const desired = Math.max(TEAM_MIN_WIDTH, Math.round((width * weight) / 100));
       const teamWidth = Math.max(
         TEAM_MIN_WIDTH,
-        Math.min(desired, width - TASKS_MIN_WIDTH),
+        Math.min(desired, width - TASKS_MIN_WIDTH - DOCK_SASH_WIDTH),
       );
       groupApi?.setSize?.({ width: teamWidth });
     }
@@ -192,21 +240,6 @@ export default forwardRef<DockHandle, {
           ? "chat"
           : (Object.keys(PANEL_DEFS) as PanelKey[]).find((key) => api.getPanel(key)) ?? null;
     if (target) api.getPanel(target)?.api.setActive();
-  }
-
-  /**
-   * t194：旧 single 存档可能把 Team 存在右侧独立组（历史 ensurePanel 行为）。
-   * 恢复时把 Team 收敛为主组 tab，避免 ≤960 窗口仍被 right split 裁切。
-   */
-  function reconcileSingleLayout(api: DockviewApi, variant: DockVariant) {
-    if (variant !== "single") return;
-    const chat = api.getPanel("chat");
-    const team = api.getPanel("team");
-    if (!chat || !team || team.group === chat.group) return;
-    const teamWasActive = api.activePanel?.id === "team";
-    team.api.close();
-    ensurePanel(api, "team");
-    if (teamWasActive) api.getPanel("team")?.api.setActive();
   }
 
   function rebuild(variant: DockVariant, activateKey: PanelKey | null) {
@@ -232,7 +265,7 @@ export default forwardRef<DockHandle, {
         // 且旧存档中的 right split 会被收敛回主组（t194）。
         ensurePanel(api, "chat");
         if (variant !== "single") ensurePanel(api, "team");
-        reconcileSingleLayout(api, variant);
+        reconcileSingleLayout(api, variant, () => ensurePanel(api, "team"));
         if (activateKey && !api.getPanel(activateKey)) {
           // 集成修复 IF-03（t52）：首帧深链指向的面板若在用户保存布局中被关闭，
           // 按设计 §9「关闭的面板在 hash 命中时自动重开」补开，避免深链被静默改写。
@@ -250,7 +283,7 @@ export default forwardRef<DockHandle, {
       }
     }
     if (!restored) {
-      buildDefaultLayout(api, variant, activateKey, dockWidthRef.current);
+      buildDefaultLayout(api, variant, activateKey, measureDockWidth());
     }
     setPanelCount(api.panels.length);
   }
@@ -259,6 +292,15 @@ export default forwardRef<DockHandle, {
   dockWidthRef.current = dockWidth;
   const windowWidthRef = useRef(windowWidth);
   windowWidthRef.current = windowWidth;
+
+  /**
+   * t212：优先用 Dock host 的实际测量宽度（刚 resize 时 prop 可能滞后）；仅在尚未布局
+   * （0）时退回 prop，避免用旧的 window-width 计算结果给 Team 分宽度。
+   */
+  function measureDockWidth(): number {
+    const measured = hostRef.current?.getBoundingClientRect().width ?? 0;
+    return measured > 0 ? measured : dockWidthRef.current;
+  }
 
   function flushSave() {
     const api = apiRef.current;
@@ -312,14 +354,30 @@ export default forwardRef<DockHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 变体切换（§11 + t194）：flush 旧变体 → 按新变体缓存/默认重建，保持激活面板。
+  // 变体切换（§11 + t194/t212）：flush 旧变体 → 按新变体缓存/默认重建，保持激活面板。
   // windowWidth 参与判定：≤960 即使 Dock 变宽也固定 single，避免窄窗 Team right split。
+  // t212：窗口 resize 时 dockWidth prop 与本帧实际宽度可能短暂不一致；延后到下一帧，
+  // 用 host 实测宽度计算变体/Team 宽度，避免用 1440 的 Dock 宽去建 1100/960 布局。
   useEffect(() => {
-    const next = selectVariant(dockWidth, windowWidth);
-    if (next === variantRef.current) return;
-    flushSave();
-    variantRef.current = next;
-    rebuild(next, activeKeyRef.current);
+    if (variantFrameRef.current !== null) {
+      cancelAnimationFrame(variantFrameRef.current);
+      variantFrameRef.current = null;
+    }
+    variantFrameRef.current = requestAnimationFrame(() => {
+      variantFrameRef.current = null;
+      const measured = measureDockWidth();
+      const next = selectVariant(measured, windowWidthRef.current);
+      if (next === variantRef.current) return;
+      flushSave();
+      variantRef.current = next;
+      rebuild(next, activeKeyRef.current);
+    });
+    return () => {
+      if (variantFrameRef.current !== null) {
+        cancelAnimationFrame(variantFrameRef.current);
+        variantFrameRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dockWidth, windowWidth]);
 
@@ -328,7 +386,7 @@ export default forwardRef<DockHandle, {
     if (workspaceIdRef.current === workspaceId) return;
     flushSave();
     workspaceIdRef.current = workspaceId;
-    variantRef.current = selectVariant(dockWidthRef.current, windowWidthRef.current);
+    variantRef.current = selectVariant(measureDockWidth(), windowWidthRef.current);
     rebuild(variantRef.current, activeKeyRef.current ?? initialKeyRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
@@ -479,7 +537,7 @@ export default forwardRef<DockHandle, {
   }, []);
 
   return (
-    <div className="dock-shell">
+    <div className="dock-shell" ref={hostRef}>
       <PanelContentContext.Provider value={renderPanel}>
         <DockviewReact
           components={PANEL_COMPONENTS}

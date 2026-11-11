@@ -119,8 +119,11 @@ import {
 import {
   SIDEBAR_AUTO_COLLAPSE_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
-  clampSidebarWidth,
+  commitSidebarWidth,
+  displayedSidebarWidth,
+  resizeSidebarWidth,
   shouldAutoCollapseSidebar,
+  sidebarWidthStateForWindow,
 } from "./shell/dock/narrowWindow";
 
 type Tab = RouteTab;
@@ -346,6 +349,9 @@ export default function App() {
     const saved = Number(localStorage.getItem("deer.sidebarWidth"));
     return Number.isFinite(saved) && saved >= 180 && saved <= 480 ? saved : 250;
   });
+  // t212：displayed 是窄窗拖拽的会话内显示值；不写入 preferred/localStorage，
+  // 回到宽窗必须恢复 preferred（类似浏览器「临时缩放」与「默认值」分离）。
+  const [sidebarDisplayWidth, setSidebarDisplayWidth] = useState<number | null>(null);
   // t194 P0-1：viewport 宽度同时驱动 Dock single 判定、侧栏自动折叠与可读宽度钳制。
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const viewportWidthRef = useRef(viewportWidth);
@@ -432,6 +438,7 @@ export default function App() {
   const refreshTimer = useRef<number | null>(null);
   const handoffFetchedRef = useRef<Set<string>>(new Set());
   const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarDisplayWidthRef = useRef<number | null>(sidebarDisplayWidth);
   const resizingRef = useRef(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () =>
@@ -534,6 +541,10 @@ export default function App() {
     sidebarWidthRef.current = sidebarWidth;
   }, [sidebarWidth]);
 
+  useEffect(() => {
+    sidebarDisplayWidthRef.current = sidebarDisplayWidth;
+  }, [sidebarDisplayWidth]);
+
   // C12：状态 → hash。tab 变更换历史记录（可前进/后退），选中变化原地替换。
   const appliedInitialRouteRef = useRef(false);
   const lastWrittenHashRef = useRef<string>(window.location.hash);
@@ -617,8 +628,20 @@ export default function App() {
 
   // C09 + t194：窄窗自动折叠侧栏；Ctrl/⌘+B 手动切换。
   // 只在「宽→窄」边沿自动折叠，窄窗内手动展开后继续 resize 不覆盖用户选择。
+  // t212：离开窄窗时清掉 display override，恢复 preferred。
   useEffect(() => {
     viewportWidthRef.current = viewportWidth;
+    const next = sidebarWidthStateForWindow(
+      {
+        preferred: sidebarWidthRef.current,
+        displayed: sidebarDisplayWidthRef.current,
+      },
+      viewportWidth,
+    );
+    if (next.displayed !== sidebarDisplayWidthRef.current) {
+      sidebarDisplayWidthRef.current = next.displayed;
+      setSidebarDisplayWidth(next.displayed);
+    }
   }, [viewportWidth]);
 
   useEffect(() => {
@@ -677,17 +700,38 @@ export default function App() {
   useEffect(() => {
     function onMove(event: MouseEvent) {
       if (!resizingRef.current) return;
-      // t194：窄窗下钳制侧栏，保证 Dock ≥ tasks 560 可读宽度；宽窗仍可拖到 480。
-      const next = clampSidebarWidth(event.clientX, viewportWidthRef.current);
-      sidebarWidthRef.current = next;
-      setSidebarWidth(next);
+      // t194/t212：窄窗拖拽只改 displayed（不写 preferred/localStorage）；
+      // 宽窗拖拽改 preferred。宽度预算含 6px sidebar resizer。
+      const next = resizeSidebarWidth(
+        {
+          preferred: sidebarWidthRef.current,
+          displayed: sidebarDisplayWidthRef.current,
+        },
+        viewportWidthRef.current,
+        event.clientX,
+      );
+      sidebarWidthRef.current = next.preferred;
+      sidebarDisplayWidthRef.current = next.displayed;
+      setSidebarWidth(next.preferred);
+      setSidebarDisplayWidth(next.displayed);
     }
     function onUp() {
       if (!resizingRef.current) return;
       resizingRef.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      localStorage.setItem("deer.sidebarWidth", String(sidebarWidthRef.current));
+      const committed = commitSidebarWidth(
+        {
+          preferred: sidebarWidthRef.current,
+          displayed: sidebarDisplayWidthRef.current,
+        },
+        viewportWidthRef.current,
+      );
+      sidebarDisplayWidthRef.current = committed.displayed;
+      setSidebarDisplayWidth(committed.displayed);
+      if (committed.persist) {
+        localStorage.setItem("deer.sidebarWidth", String(committed.preferred));
+      }
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -705,8 +749,11 @@ export default function App() {
   }
 
   function resetSidebarWidth() {
+    // 显式重置是唯一允许在窄窗写 preferred 的路径。
     sidebarWidthRef.current = SIDEBAR_DEFAULT_WIDTH;
+    sidebarDisplayWidthRef.current = null;
     setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+    setSidebarDisplayWidth(null);
     localStorage.setItem("deer.sidebarWidth", String(SIDEBAR_DEFAULT_WIDTH));
   }
 
@@ -2361,7 +2408,10 @@ export default function App() {
   const workers = snapshot.agents.filter((agent) => !agent.isRouter);
   const failedCount = snapshot.tasks.filter((task) => task.status === "failed").length;
   // t194：显示宽度而不是改写保存宽度；回到宽屏后恢复用户原始 250/480。
-  const effectiveSidebarWidth = clampSidebarWidth(sidebarWidth, viewportWidth);
+  const effectiveSidebarWidth = displayedSidebarWidth(
+    { preferred: sidebarWidth, displayed: sidebarDisplayWidth },
+    viewportWidth,
+  );
 
   return (
     <div className="app">
