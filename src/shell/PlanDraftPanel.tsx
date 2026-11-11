@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Agent } from "../shared/types";
 import {
   hasHighRiskTask,
@@ -30,6 +30,7 @@ export default function PlanDraftPanel({
   error,
   confirming,
   onDraftChange,
+  onGoalChange,
   onConfirm,
   onCancel,
   onRetry,
@@ -42,16 +43,22 @@ export default function PlanDraftPanel({
   error: string | null;
   confirming: boolean;
   onDraftChange: (draft: PlanDraft) => void;
+  onGoalChange: (goal: string) => void;
   onConfirm: (ackHighRisk: boolean) => void;
   onCancel: () => void;
   onRetry: () => void;
 }) {
   const [ack, setAck] = useState(false);
+  const firstTitleRef = useRef<HTMLInputElement | null>(null);
   const tasks = draft?.tasks ?? [];
   const errors = issues.filter((issue) => issue.severity === "error");
   const highRisk = hasHighRiskTask(tasks);
   const canConfirm =
     Boolean(draft) && !busy && !confirming && errors.length === 0 && (!highRisk || ack);
+
+  useEffect(() => {
+    if (!busy && draft?.tasks.length) firstTitleRef.current?.focus();
+  }, [busy, draft?.source.digest, draft?.tasks.length]);
 
   function patchTask(taskId: string, patch: Partial<PlanDraftTask>) {
     if (!draft) return;
@@ -75,13 +82,16 @@ export default function PlanDraftPanel({
 
   function addTask() {
     if (!draft) return;
+    let nextId = 1;
+    const used = new Set(draft.tasks.map((task) => task.id));
+    while (used.has(`draft-${nextId}`)) nextId += 1;
     const index = draft.tasks.length + 1;
     onDraftChange({
       ...draft,
       tasks: [
         ...draft.tasks,
         {
-          id: `draft-${Date.now().toString(36)}-${index}`,
+          id: `draft-${nextId}`,
           title: `新任务 ${index}`,
           description: "",
           acceptance: [],
@@ -124,14 +134,30 @@ export default function PlanDraftPanel({
       </header>
 
       {source ? (
-        <div className="plan-draft-source" aria-label="规划来源">
-          <span>来源：当前对话</span>
-          <span>{source.messages.length} 条消息</span>
-          <span>{source.characterCount} 字符</span>
-          <span className="mono">digest {source.digest.slice(0, 8)}</span>
-          {source.summary ? <span>含压缩摘要</span> : null}
-        </div>
+        <>
+          <label className="plan-draft-goal">
+            目标（可编辑）
+            <textarea
+              rows={2}
+              aria-label="计划目标"
+              value={source.goal}
+              onChange={(event) => onGoalChange(event.target.value)}
+              placeholder="例如：给当前项目增加健康检查接口并补测试"
+            />
+          </label>
+          <div className="plan-draft-source" aria-label="规划来源">
+            <span>来源：当前对话</span>
+            <span>{source.messages.length} 条消息</span>
+            <span>{source.characterCount} 字符</span>
+            <span className="mono">digest {source.digest.slice(0, 8)}</span>
+            {source.summary ? <span>含压缩摘要</span> : null}
+          </div>
+        </>
       ) : null}
+
+      <div className="sr-only" role="status" aria-live="polite">
+        {busy ? "正在生成计划草案" : draft ? `草案已就绪，共 ${tasks.length} 个任务` : ""}
+      </div>
 
       {busy ? <div className="plan-draft-status" role="status">正在生成草案…</div> : null}
       {error ? (
@@ -154,6 +180,7 @@ export default function PlanDraftPanel({
                   <div className="plan-draft-task-head">
                     <span className="plan-draft-index">{index + 1}</span>
                     <input
+                      ref={index === 0 ? firstTitleRef : undefined}
                       aria-label={`任务 ${index + 1} 标题`}
                       value={task.title}
                       aria-invalid={Boolean(issueFor(issues, task.id, "TASK_TITLE_EMPTY"))}

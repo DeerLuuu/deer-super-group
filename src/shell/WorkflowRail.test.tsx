@@ -57,6 +57,12 @@ describe("t222 WorkflowRail", () => {
       (current[0]!.props.onClick as () => void)();
     });
     expect(onStage).toHaveBeenCalledWith("review", "r1");
+    const planButton = buttons.find((button) => textOf(button.children).includes("计划"));
+    expect(planButton).toBeTruthy();
+    await act(() => {
+      (planButton!.props.onClick as () => void)();
+    });
+    expect(onStage).toHaveBeenCalledWith("plan", null);
 
     const needsButton = buttons.find((button) => textOf(button.children).includes("需要我处理"));
     expect(needsButton).toBeTruthy();

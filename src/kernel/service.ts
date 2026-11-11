@@ -1942,6 +1942,15 @@ export class AppService {
     const workspace = this.store.getWorkspace(input.workspaceId);
     if (!workspace) throw new Error(`workspace not found: ${input.workspaceId}`);
     if (!input.idempotencyKey.trim()) throw new Error("idempotencyKey is required");
+    const sourceErrors = planSourceIssues(input.source).filter(
+      (issue) => issue.severity === "error",
+    );
+    if (sourceErrors.length > 0) {
+      throw new Error(`PLAN_SOURCE_INVALID: ${sourceErrors.map((issue) => issue.code).join(",")}`);
+    }
+    if (input.source.digest !== input.sourceDigest) {
+      throw new Error("PLAN_SOURCE_CHANGED");
+    }
     if (!Array.isArray(input.tasks) || input.tasks.length === 0) {
       throw new Error("PLAN_INVALID: empty plan");
     }

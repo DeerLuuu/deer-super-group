@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { workflowStageNavigation } from "../App.js";
+import { tasksAutoOpenAction, workflowStageNavigation } from "../App.js";
 import { deriveWorkflow } from "./workflowData.js";
 import type { Task } from "../shared/types.js";
 
@@ -45,7 +45,11 @@ describe("t228 App-level workflow stage navigation", () => {
       review: true,
     });
     expect(workflowStageNavigation("discuss", null)).toEqual({ panel: "chat" });
+    expect(workflowStageNavigation("plan", "t1")).toEqual({ panel: "planDraft" });
     expect(workflowStageNavigation("deliver", "t1")).toEqual({ panel: "merge" });
+    expect(tasksAutoOpenAction("plan")).toBe("planDraft");
+    expect(tasksAutoOpenAction("task")).toBe("compose");
+    expect(tasksAutoOpenAction(null)).toBeNull();
     expect(workflowStageNavigation("remember", "t1")).toEqual({ panel: "board" });
   });
 });

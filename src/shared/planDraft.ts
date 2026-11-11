@@ -64,6 +64,7 @@ export interface PreviewPlanResult {
 
 export interface ConfirmPlanRequest {
   workspaceId: string;
+  source: PlanSource;
   sourceDigest: string;
   idempotencyKey: string;
   tasks: PlanDraftTask[];

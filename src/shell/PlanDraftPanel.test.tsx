@@ -72,6 +72,7 @@ describe("t231 PlanDraftPanel", () => {
           error={null}
           confirming={false}
           onDraftChange={onDraftChange}
+          onGoalChange={() => {}}
           onConfirm={onConfirm}
           onCancel={onCancel}
           onRetry={() => {}}
@@ -86,6 +87,10 @@ describe("t231 PlanDraftPanel", () => {
     });
     expect(onDraftChange).toHaveBeenCalled();
     expect((onDraftChange.mock.calls[0]![0] as PlanDraft).tasks).toHaveLength(3);
+    expect((onDraftChange.mock.calls[0]![0] as PlanDraft).tasks[2]!.id).toMatch(/^draft-\d+$/);
+    expect(
+      renderer!.root.findAllByProps({ "aria-live": "polite" }).length,
+    ).toBeGreaterThan(0);
 
     const confirm = renderer!.root.findAllByType("button").find((button) => textOf(button.children).includes("确认创建"));
     await act(() => {
@@ -121,6 +126,7 @@ describe("t231 PlanDraftPanel", () => {
           error={null}
           confirming={false}
           onDraftChange={() => {}}
+          onGoalChange={() => {}}
           onConfirm={onConfirm}
           onCancel={() => {}}
           onRetry={() => {}}

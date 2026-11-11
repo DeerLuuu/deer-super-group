@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
@@ -37,6 +37,18 @@ function draftTask(id: string, title: string, extra: Partial<PlanDraftTask> = {}
     risks: [],
     unknowns: [],
     ...extra,
+  };
+}
+
+function planSource(digest = "source-digest") {
+  return {
+    goal: "goal",
+    goalSource: "composer" as const,
+    messages: [],
+    summary: "",
+    overview: "",
+    characterCount: 4,
+    digest,
   };
 }
 
@@ -160,6 +172,7 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     ];
     const first = service.confirmPlan({
       workspaceId: workspace.id,
+      source: planSource(),
       sourceDigest: "source-digest",
       idempotencyKey: "key-1",
       tasks,
@@ -174,6 +187,7 @@ describe("t231 confirmPlan atomic/idempotent", () => {
 
     const second = service.confirmPlan({
       workspaceId: workspace.id,
+      source: planSource(),
       sourceDigest: "source-digest",
       idempotencyKey: "key-1",
       tasks,
@@ -184,6 +198,86 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     expect(service.getSnapshot(workspace.id).tasks).toHaveLength(2);
   });
 
+  it("rejects source over 12k or digest mismatch before writing", async () => {
+    const service = setup();
+    const workspace = await ws(service);
+    const before = service.getSnapshot(workspace.id).tasks.length;
+    const tasks = [draftTask("a", "A")];
+    expect(() =>
+      service.confirmPlan({
+        workspaceId: workspace.id,
+        source: { ...planSource(), characterCount: 12_001 },
+        sourceDigest: "source-digest",
+        idempotencyKey: "too-large",
+        tasks,
+        ackHighRisk: false,
+      }),
+    ).toThrow(/PLAN_SOURCE_INVALID/);
+    expect(() =>
+      service.confirmPlan({
+        workspaceId: workspace.id,
+        source: planSource("digest-a"),
+        sourceDigest: "digest-b",
+        idempotencyKey: "digest-mismatch",
+        tasks,
+        ackHighRisk: false,
+      }),
+    ).toThrow(/PLAN_SOURCE_CHANGED/);
+    expect(service.getSnapshot(workspace.id).tasks).toHaveLength(before);
+  });
+
+  it("rolls back all tasks when createTask fails midway", async () => {
+    const service = setup();
+    const workspace = await ws(service);
+    const before = service.getSnapshot(workspace.id).tasks.length;
+    const original = service.store.createTask.bind(service.store);
+    let calls = 0;
+    const spy = vi.spyOn(service.store, "createTask").mockImplementation((input) => {
+      calls += 1;
+      if (calls === 2) throw new Error("injected createTask failure");
+      return original(input);
+    });
+    expect(() =>
+      service.confirmPlan({
+        workspaceId: workspace.id,
+        source: planSource(),
+        sourceDigest: "source-digest",
+        idempotencyKey: "create-fail",
+        tasks: [draftTask("a", "A"), draftTask("b", "B")],
+        ackHighRisk: false,
+      }),
+    ).toThrow(/injected createTask failure/);
+    spy.mockRestore();
+    expect(service.getSnapshot(workspace.id).tasks).toHaveLength(before);
+  });
+
+  it("rolls back all tasks when the idempotency append fails", async () => {
+    const service = setup();
+    const workspace = await ws(service);
+    const before = service.getSnapshot(workspace.id).tasks.length;
+    const original = service.store.appendEventIdempotent.bind(service.store);
+    const spy = vi
+      .spyOn(service.store, "appendEventIdempotent")
+      .mockImplementation((input) => {
+        if (input.idempotencyKey?.startsWith("plan.confirm:")) {
+          throw new Error("injected append failure");
+        }
+        return original(input);
+      });
+    expect(() =>
+      service.confirmPlan({
+        workspaceId: workspace.id,
+        source: planSource(),
+        sourceDigest: "source-digest",
+        idempotencyKey: "append-fail",
+        tasks: [draftTask("a", "A"), draftTask("b", "B")],
+        ackHighRisk: false,
+      }),
+    ).toThrow(/injected append failure/);
+    spy.mockRestore();
+    expect(service.getSnapshot(workspace.id).tasks).toHaveLength(before);
+  });
+
   it("rejects cycle/invalid drafts without writing, and requires high-risk ack", async () => {
     const service = setup();
     const workspace = await ws(service);
@@ -191,6 +285,7 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
+        source: planSource("d"),
         sourceDigest: "d",
         idempotencyKey: "cycle",
         tasks: [
@@ -205,6 +300,7 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     expect(() =>
       service.confirmPlan({
         workspaceId: workspace.id,
+        source: planSource("d"),
         sourceDigest: "d",
         idempotencyKey: "risk",
         tasks: [draftTask("a", "Delete migration secret", { description: "delete data" })],
