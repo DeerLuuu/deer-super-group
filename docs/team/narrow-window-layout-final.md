@@ -156,6 +156,7 @@ t215 观察到 t214 960/900 expanded 截图的侧栏“视觉约 196px”与 met
 - PR #33 **已 squash merge** 到 main，merge commit `f1f3f9a`。
 - `branches/t194-narrow-window-layout` worktree 已删除。
 - local branch `feature/t194-narrow-window-layout` 已删除（`pnpm branch:remove`）。
+- remote branch `origin/feature/t194-narrow-window-layout` 已删除（PR squash merge 后清理）。
 - 最终 main：`f1f3f9a` + 本文件提交；`git worktree list` 仅主 worktree。
 - 交付报告：本文件 `docs/team/narrow-window-layout-final.md`。
 
