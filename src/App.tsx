@@ -126,6 +126,8 @@ import {
   shouldAutoCollapseSidebar,
   sidebarWidthStateForWindow,
 } from "./shell/dock/narrowWindow";
+import PrimaryRail from "./shell/PrimaryRail";
+import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
 
@@ -398,6 +400,7 @@ export default function App() {
   const [reviewNotes, setReviewNotes] = useState("");
   const [kernelAnnouncement, setKernelAnnouncement] = useState<string | null>(null);
   const [activePanelKey, setActivePanelKey] = useState<PanelKey | null>(bootPanel);
+  const [railFocusRequest, setRailFocusRequest] = useState<{ key: PrimaryRailKey; nonce: number } | null>(null);
   const schedulerRequestRef = useRef(0);
   const runsRequestRef = useRef(0);
   // DESIGN §15.4：满血模式（会话级，不持久化、不随启动恢复）。
@@ -495,6 +498,65 @@ export default function App() {
     },
     [settingsDirty, settingsOpen, tab],
   );
+
+  const openPrimaryPanel = useCallback(
+    (key: PrimaryRailKey) => {
+      // 复用唯一面板入口：面板已关闭时 DockShell 会 ensurePanel 重开。
+      openPanel(key);
+      // 打开后把焦点交给面板（chat 优先 composer）。用 state/effect 等 React 提交后再聚焦，
+      // 避免 rAF 在 Electron 窗口被遮挡时被节流；具体定位/重试由 focusPanelWhenReady 完成。
+      setRailFocusRequest({ key, nonce: Date.now() });
+    },
+    [openPanel],
+  );
+
+  useEffect(() => {
+    if (!railFocusRequest) return;
+    const key = railFocusRequest.key;
+    // 立即聚焦；再补一次稍后的聚焦，压过 Dockview/浏览器的默认 tab/focus 行为，
+    // 同时覆盖点击后事件刷新导致的焦点回落。不在这里 set null，避免 cleanup 取消补焦。
+    focusPanelWhenReady(key);
+    const timers = [
+      window.setTimeout(() => focusPanelWhenReady(key), 120),
+      window.setTimeout(() => focusPanelWhenReady(key), 450),
+      window.setTimeout(() => focusPanelWhenReady(key), 1200),
+      window.setTimeout(() => focusPanelWhenReady(key), 2500),
+    ];
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railFocusRequest]);
+
+  function focusPanelWhenReady(key: PrimaryRailKey, attempts = 20) {
+    const panel = document.querySelector<HTMLElement>(
+      `.dock-panel-body[data-panel="${key}"]`,
+    );
+    if (panel && !panel.closest("[inert]")) {
+      if (key === "chat") {
+        const composer =
+          panel.querySelector<HTMLElement>('textarea:not([disabled]), [contenteditable="true"]') ??
+          panel.querySelector<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          );
+        if (composer) {
+          composer.focus({ preventScroll: true });
+          if (
+            composer === document.activeElement ||
+            composer.contains(document.activeElement)
+          ) {
+            return;
+          }
+        }
+      } else {
+        // 面板容器（tabIndex=-1）比首个按钮稳定：事件刷新/面板重渲染不会替换容器，
+        // 键盘下一次 Tab 仍会进入面板首个控件。
+        panel.focus({ preventScroll: true });
+        if (panel === document.activeElement) return;
+      }
+    }
+    if (attempts > 0) {
+      window.setTimeout(() => focusPanelWhenReady(key, attempts - 1), 80);
+    }
+  }
 
   function togglePanelMenu() {
     if (!panelMenuOpen) {
@@ -2413,6 +2475,8 @@ export default function App() {
     { preferred: sidebarWidth, displayed: sidebarDisplayWidth },
     viewportWidth,
   );
+  // P0-2：一级入口 active 只从现有 Dock 激活面板/route tab 派生，不新增第二套面板状态。
+  const activeRailKey = railKeyForActive(activePanelKey, tab);
 
   return (
     <div className="app">
@@ -2463,6 +2527,12 @@ export default function App() {
             </button>
           </div>
         )}
+
+        <PrimaryRail
+          activeKey={activeRailKey}
+          collapsed={sidebarCollapsed}
+          onOpen={openPrimaryPanel}
+        />
 
         <div className="sidebar-actions">
           {!sidebarCollapsed && <div className="section-label">操作</div>}
