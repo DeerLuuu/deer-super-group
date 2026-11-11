@@ -7152,3 +7152,308 @@ label.check input {
     flex: 0 0 auto;
   }
 }
+
+/* === t184 readability typography ===================================== */
+/* Keep the desktop UI readable: body 14px, controls 13px, code 12.5px. */
+
+body {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+button,
+input,
+select,
+textarea {
+  font-size: 13px;
+}
+
+pre,
+code,
+kbd,
+samp {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.muted {
+  font-size: 12.5px;
+}
+
+.tiny,
+.muted.tiny {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.section-label {
+  font-size: 12px;
+}
+
+.panel-title {
+  font-size: 14px;
+}
+
+.badge,
+.pill,
+.chip {
+  font-size: 12px;
+}
+
+/* Chat / reasoning / tools */
+.chat-bubble,
+.chat-content {
+  font-size: 14px;
+}
+
+.chat-meta {
+  font-size: 11.5px;
+}
+
+.chat-avatar {
+  font-size: 12px;
+}
+
+.overview {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.chat-view-tabs button {
+  font-size: 13px;
+}
+
+.chat-turn-reasoning-collapse {
+  font-size: 12px;
+}
+
+.chat-turn-reasoning-chevron {
+  font-size: 11px;
+}
+
+.chat-turn-reasoning pre,
+.chat-turn-translation pre,
+.chat-turn-live pre {
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 300px;
+}
+
+.chat-turn-step-label,
+.chat-turn-step-live,
+.chat-turn-step-done {
+  font-size: 11.5px;
+}
+
+.chat-turn-reasoning-label,
+.chat-turn-translation-label,
+.chat-turn-translation-status {
+  font-size: 11.5px;
+}
+
+.chat-turn-view-toggle button {
+  font-size: 11.5px;
+  padding: 3px 8px;
+}
+
+.chat-tool-label {
+  font-size: 12.5px;
+}
+
+.chat-tool-raw,
+.chat-tool-status {
+  font-size: 11.5px;
+}
+
+.chat-tool-detail pre {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.chat-trajectory-head strong {
+  font-size: 12.5px;
+}
+
+.chat-trajectory-time,
+.chat-trajectory-kind,
+.chat-trajectory-step,
+.chat-trajectory-status {
+  font-size: 11.5px;
+}
+
+.chat-trajectory-body pre {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* Settings */
+.settings-nav-item > span:first-child {
+  font-size: 13px;
+}
+
+.settings-nav-item .muted.tiny {
+  font-size: 11.5px;
+}
+
+.settings-page-head .panel-title {
+  font-size: 15px;
+}
+
+.settings-block label,
+.settings-block input,
+.settings-block select,
+.settings-block textarea {
+  font-size: 12.5px;
+}
+
+.settings-git-tab .git-settings h3 {
+  font-size: 14px;
+}
+
+/* Dense data surfaces */
+.task-card,
+.mailbox-item,
+.run-row,
+.question-card,
+.question-field {
+  font-size: 13px;
+}
+
+.task-card .muted,
+.mailbox-item .muted,
+.run-row .muted {
+  font-size: 12px;
+}
+
+/* Second pass: component rules above use many 10–11px one-offs. Enforce a
+   readable floor for real text while keeping icon-only glyphs as-is. */
+button,
+input,
+select,
+textarea,
+label {
+  font-size: 12.5px !important;
+}
+
+pre,
+code,
+kbd,
+samp {
+  font-size: 12.5px !important;
+  line-height: 1.6 !important;
+}
+
+.muted {
+  font-size: 12.5px !important;
+}
+
+.tiny {
+  font-size: 12px !important;
+}
+
+.chat-meta {
+  font-size: 12px !important;
+}
+
+.chat-turn-reasoning-chevron {
+  font-size: 11.5px !important;
+}
+
+.chat-turn-reasoning-collapse {
+  font-size: 12.5px !important;
+}
+
+.chat-turn-reasoning pre,
+.chat-turn-translation pre,
+.chat-turn-live pre {
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+}
+
+.chat-turn-view-toggle button {
+  font-size: 12px !important;
+}
+
+.chat-control,
+.chat-control select,
+.chat-control input {
+  font-size: 12.5px !important;
+}
+
+.watchdog-budget-text {
+  font-size: 12px !important;
+}
+
+.question-card,
+.question-card * {
+  font-size: 12.5px;
+}
+
+.question-card .muted.tiny,
+.question-card .tiny {
+  font-size: 12px;
+}
+
+.chat-composer textarea {
+  font-size: 13.5px !important;
+}
+
+.settings-nav-item > span:first-child {
+  font-size: 13px !important;
+}
+
+.settings-nav-item .muted.tiny {
+  font-size: 12px !important;
+}
+
+.question-card,
+.question-card *,
+.question-fields,
+.question-fields * {
+  font-size: 12.5px;
+}
+
+.question-card .muted.tiny,
+.question-card .tiny {
+  font-size: 12px;
+}
+
+.team-progress-legend,
+.team-progress-legend * {
+  font-size: 12px;
+}
+
+.team-member-avatar {
+  font-size: 12px;
+}
+
+.team-member-count {
+  font-size: 11.5px;
+}
+
+.star-zoom,
+.star-hint {
+  font-size: 12px !important;
+}
+
+.star-legend,
+.star-legend * {
+  font-size: 12px !important;
+}
+
+.chat-turn-translation-label,
+.chat-turn-translation-status,
+.chat-turn-step-label,
+.chat-turn-step-live,
+.chat-turn-step-done {
+  font-size: 12px !important;
+}
+
+.team-member-count {
+  font-size: 12px !important;
+}
+
+/* Generic lists (question cards, review lists, options) */
+body li {
+  font-size: 12.5px !important;
+}
