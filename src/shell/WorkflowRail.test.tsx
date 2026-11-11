@@ -83,6 +83,32 @@ describe("t222 WorkflowRail", () => {
     expect(onNeedsMe).toHaveBeenCalledWith(needs[0]);
   });
 
+  it("failed CTA is explicit navigation and carries the task id", async () => {
+    const onStage = vi.fn();
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <WorkflowRail
+          projection={{
+            stage: "run",
+            cta: { stage: "run", label: "查看失败任务" },
+            focusTaskId: "f1",
+          }}
+          needs={[]}
+          onStage={onStage}
+          onNeedsMe={() => {}}
+        />,
+      );
+    });
+    const current = renderer!.root.findAllByProps({ "aria-current": "step" })[0];
+    expect(current).toBeTruthy();
+    expect(textOf(current!.children)).toContain("查看失败任务");
+    await act(() => {
+      (current!.props.onClick as () => void)();
+    });
+    expect(onStage).toHaveBeenCalledWith("run", "f1");
+  });
+
   it("unknown shows no fake CTA and empty NeedsMe adds no control", async () => {
     let renderer: ReturnType<typeof create> | null = null;
     await act(async () => {

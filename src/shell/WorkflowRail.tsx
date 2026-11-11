@@ -41,6 +41,7 @@ export default function WorkflowRail({
     const onPointer = (event: PointerEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
         setOpen(false);
+        needsButtonRef.current?.focus();
       }
     };
     document.addEventListener("keydown", onKey);

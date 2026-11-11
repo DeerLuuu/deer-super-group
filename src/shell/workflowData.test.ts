@@ -119,7 +119,7 @@ describe("t222 WorkflowRail projection", () => {
     ).toMatchObject({ stage: "run", focusTaskId: "t1" });
     expect(deriveWorkflow({ tasks: [task("f1", "failed")] })).toMatchObject({
       stage: "run",
-      cta: { stage: "run", label: "重试失败任务" },
+      cta: { stage: "run", label: "查看失败任务" },
       focusTaskId: "f1",
     });
     const reviewBlocked = {
@@ -167,7 +167,7 @@ describe("t222 WorkflowRail projection", () => {
     // failed 任务仍明确归 run。
     expect(deriveWorkflow({ tasks: [task("f1", "failed")] })).toMatchObject({
       stage: "run",
-      cta: { stage: "run", label: "重试失败任务" },
+      cta: { stage: "run", label: "查看失败任务" },
     });
   });
 

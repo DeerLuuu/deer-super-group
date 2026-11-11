@@ -118,7 +118,7 @@ export function deriveWorkflow(input: WorkflowInput): WorkflowProjection {
   if (failedTask) {
     return {
       stage: "run",
-      cta: { stage: "run", label: "重试失败任务" },
+      cta: { stage: "run", label: "查看失败任务" },
       focusTaskId: failedTask.id,
     };
   }

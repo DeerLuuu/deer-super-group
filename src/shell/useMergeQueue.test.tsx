@@ -121,4 +121,70 @@ describe("t226 useMergeQueue unknown/empty/refresh", () => {
     });
     expect(mergeQueue.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("background refresh picks up an enqueue while queue is closed", async () => {
+    let background: (() => void) | null = null;
+    const mergeQueue = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [] as MergeQueueItem[], activeMerge: null })
+      .mockResolvedValueOnce({ items: [queueItem()], activeMerge: null });
+    (globalThis as { window?: unknown }).window = {
+      deer: { mergeQueue },
+      setInterval: (callback: () => void) => {
+        background = callback;
+        return 1;
+      },
+      clearInterval: () => {},
+    };
+    let items: MergeQueueItem[] | null = null;
+    await act(async () => {
+      create(harness(false, (next) => (items = next)));
+      await Promise.resolve();
+    });
+    expect(items).toEqual([]);
+    expect(background).not.toBeNull();
+    await act(async () => {
+      background?.();
+      await Promise.resolve();
+    });
+    expect(
+      (items as unknown as MergeQueueItem[]).some((item) => item.state === "ready"),
+    ).toBe(true);
+  });
+
+  it("ignores a stale response after a newer request", async () => {
+    let resolveFirst!: (value: { items: MergeQueueItem[]; activeMerge: null }) => void;
+    let resolveSecond!: (value: { items: MergeQueueItem[]; activeMerge: null }) => void;
+    const mergeQueue = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [] as MergeQueueItem[], activeMerge: null })
+      .mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveSecond = resolve)));
+    (globalThis as { window?: unknown }).window = {
+      deer: { mergeQueue },
+      setInterval: () => 1,
+      clearInterval: () => {},
+    };
+    let items: MergeQueueItem[] | null = null;
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(harness(false, (next) => (items = next)));
+      await Promise.resolve();
+    });
+    const reload = renderer!.root.findAllByType("button")[0];
+    await act(async () => {
+      (reload.props.onClick as () => void)();
+      (reload.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveSecond({ items: [queueItem()], activeMerge: null });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveFirst({ items: [], activeMerge: null });
+      await Promise.resolve();
+    });
+    expect((items as unknown as MergeQueueItem[])[0]?.state).toBe("ready");
+  });
 });

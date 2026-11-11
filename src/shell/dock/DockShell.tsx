@@ -68,7 +68,7 @@ type MoveDirection = "left" | "right" | "above" | "below";
 
 type ReconcilePanel = {
   id?: string;
-  group: { id?: string } | undefined;
+  group: { id?: string; api?: { setSize?: (event: { width?: number }) => void } } | undefined;
   api: { close: () => void; setActive?: () => void };
 };
 
@@ -86,15 +86,24 @@ export function reconcileSingleLayout(
   api: ReconcileApi,
   variant: DockVariant,
   addTeamToMain: () => void,
+  dockWidth?: number,
 ): void {
   if (variant !== "single") return;
   const chat = api.getPanel("chat");
+  if (!chat) return;
   const team = api.getPanel("team");
-  if (!chat || !team || team.group === chat.group) return;
-  const teamWasActive = api.activePanel?.id === "team";
-  team.api.close();
-  addTeamToMain();
-  if (teamWasActive) api.getPanel("team")?.api.setActive?.();
+  if (team && team.group !== chat.group) {
+    const teamWasActive = api.activePanel?.id === "team";
+    team.api.close();
+    addTeamToMain();
+    if (teamWasActive) api.getPanel("team")?.api.setActive?.();
+  }
+  // t228：从 1440 存档切 single 时主组仍保留旧宽度，右侧会留空。
+  // 收敛后把主组设为实测 Dock 宽；宽度未知时不做假设。
+  if (dockWidth && dockWidth > 0) {
+    const main = api.getPanel("chat");
+    main?.group?.api?.setSize?.({ width: dockWidth });
+  }
 }
 
 const PanelContentContext = createContext<(key: PanelKey) => ReactNode>(
@@ -282,7 +291,7 @@ export default forwardRef<DockHandle, {
         // 且旧存档中的 right split 会被收敛回主组（t194）。
         ensurePanel(api, "chat");
         if (variant !== "single") ensurePanel(api, "team");
-        reconcileSingleLayout(api, variant, () => ensurePanel(api, "team"));
+        reconcileSingleLayout(api, variant, () => ensurePanel(api, "team"), measureDockWidth());
         if (activateKey && !api.getPanel(activateKey)) {
           // 集成修复 IF-03（t52）：首帧深链指向的面板若在用户保存布局中被关闭，
           // 按设计 §9「关闭的面板在 hash 命中时自动重开」补开，避免深链被静默改写。
