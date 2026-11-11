@@ -40,6 +40,7 @@ import DangerConfirmModal from "./DangerConfirmModal";
 import SchedulerBar from "./SchedulerBar";
 import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
+import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
 import {
   BudgetBar,
   WatchdogAlertBanner,
@@ -195,15 +196,6 @@ function toolLabel(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
-/** t168：实时→历史翻译复用键；只依赖文本，不跨段共享展示状态。 */
-function textHash(text: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
 
 /** t69：需要二次确认的内核操作（重试/取消/暂停/评审拒绝等有副作用的动作）。 */
 type ConfirmIntent =
@@ -286,8 +278,10 @@ export default function App() {
   const [chatReasoningSegments, setChatReasoningSegments] = useState<ChatReasoningSegment[]>([]);
   const [chatTurns, setChatTurns] = useState<ChatTurnHistoryPage | null>(null);
   const translationRequests = useRef(new Set<string>());
-  const translationTextCache = useRef(new Map<string, string>());
-  const translationPending = useRef(new Map<string, Promise<string>>());
+  const historyTranslationMemo = useMemo(
+    () => createChatTranslationMemo((text) => window.deer.translateText(text)),
+    [],
+  );
   const chatTurnsRequestRef = useRef(0);
   const chatTurnsToastRef = useRef(false);
   const chatTurnsByAssistant = useMemo(
@@ -1235,7 +1229,7 @@ export default function App() {
       void window.deer
         .translateText(segment.text)
         .then((translation) => {
-          translationTextCache.current.set(textHash(segment.text), translation);
+          historyTranslationMemo.prime(segment.text, translation);
           setChatReasoningSegments((prev) =>
             prev.map((item) =>
               item.id === segment.id ? { ...item, status: "done", translation } : item,
@@ -1248,29 +1242,13 @@ export default function App() {
           );
         });
     }
-  }, [chatReasoningSegments]);
+  }, [chatReasoningSegments, historyTranslationMemo]);
 
   // t168：历史思考只在展开时翻译；文本缓存复用实时译文并合并并发请求。
-  const translateHistoryText = useCallback(async (text: string): Promise<string> => {
-    const key = textHash(text);
-    const cached = translationTextCache.current.get(key);
-    if (cached !== undefined) return cached;
-    const pending = translationPending.current.get(key);
-    if (pending) return pending;
-    const promise = window.deer
-      .translateText(text)
-      .then((translation) => {
-        translationTextCache.current.set(key, translation);
-        translationPending.current.delete(key);
-        return translation;
-      })
-      .catch((error: unknown) => {
-        translationPending.current.delete(key);
-        throw error;
-      });
-    translationPending.current.set(key, promise);
-    return promise;
-  }, []);
+  const translateHistoryText = useCallback(
+    (text: string): Promise<string> => historyTranslationMemo.translate(text),
+    [historyTranslationMemo],
+  );
 
   function resetForWorkspace() {
     setSelectedTaskId(null);
@@ -1294,8 +1272,7 @@ export default function App() {
     setChatTurns(null);
     chatTurnsRequestRef.current += 1;
     chatTurnsToastRef.current = false;
-    translationTextCache.current.clear();
-    translationPending.current.clear();
+    historyTranslationMemo.clear();
     translationRequests.current.clear();
     setChatView("chat");
     setChatTrajectory([]);
