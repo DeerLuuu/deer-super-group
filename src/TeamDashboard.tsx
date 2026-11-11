@@ -130,14 +130,8 @@ export default function TeamDashboard({
   const visibleTasks = memberFilter
     ? snapshot.tasks.filter((task) => task.ownerId === memberFilter)
     : snapshot.tasks;
-  const selectedTask =
-    snapshot.tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const selectedOwner = selectedTask?.ownerId
-    ? members.find((member) => member.id === selectedTask.ownerId) ?? null
-    : null;
 
-  useEffect(() => {
-    if (!selectedTaskId) return;
+  useEffect(() => {    if (!selectedTaskId) return;
     const selected = snapshot.tasks.find((task) => task.id === selectedTaskId);
     if (!selected) {
       onSelectTask(null);
@@ -283,88 +277,6 @@ export default function TeamDashboard({
           />
         </section>
       </div>
-
-      <section className="panel team-task-detail">
-        {selectedTask ? (
-          <>
-            <div className="team-detail-head">
-              <div className="team-detail-title">
-                <span className={`status status-${selectedTask.status}`}>
-                  {TASK_STATUS_LABEL[selectedTask.status]}
-                </span>
-                <strong>{selectedTask.title}</strong>
-                <span className="muted tiny mono">{selectedTask.id}</span>
-              </div>
-              <div className="team-detail-head-actions">
-                <button
-                  type="button"
-                  className="ghost small"
-                  onClick={() => onOpenTaskGit(selectedTask.id)}
-                  title="在任务页查看该任务的分支、PR、检查与合并状态"
-                >
-                  Git 状态
-                </button>
-                <button
-                  type="button"
-                  className="ghost small"
-                  onClick={() => onOpenRuns(selectedTask.id)}
-                  title="在运行面板查看该任务的 Run 历史与时间线"
-                >
-                  运行详情
-                </button>
-                <button
-                  type="button"
-                  className="primary small"
-                  onClick={() => onOpenTask(selectedTask.id)}
-                >
-                  打开任务会话
-                </button>
-              </div>
-            </div>
-            <div className="team-detail-body">
-              <div className="team-detail-description">
-                <div className="section-label">任务描述</div>
-                <p>{selectedTask.description || "（无描述）"}</p>
-                {selectedTask.summary && (
-                  <p className="muted tiny">摘要：{selectedTask.summary}</p>
-                )}
-              </div>
-              <div className="team-detail-meta">
-                <div>
-                  <div className="section-label">负责人</div>
-                  <div>{selectedOwner ? selectedOwner.name : "未分配"}</div>
-                </div>
-                <div>
-                  <div className="section-label">依赖</div>
-                  <div>
-                    {selectedTask.dependsOn.length === 0
-                      ? "无"
-                      : selectedTask.dependsOn
-                          .map((id) => taskById.get(id)?.title ?? id)
-                          .join("、")}
-                  </div>
-                </div>
-                <div>
-                  <div className="section-label">验收标准</div>
-                  <div>
-                    {selectedTask.acceptance.length === 0
-                      ? "无"
-                      : selectedTask.acceptance.join("；")}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        ) : (
-          // C24：空状态统一组件。
-          <EmptyState
-            compact
-            icon="✦"
-            title="在星图中选择任务"
-            description="单击节点查看描述；双击节点或点「↗」直接打开任务会话。"
-          />
-        )}
-      </section>
 
       {dialog && (
         <AgentDialog

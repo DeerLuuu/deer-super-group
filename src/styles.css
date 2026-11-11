@@ -8210,10 +8210,7 @@ body li {
   }
 }
 
-/* Team 不再保留任务详情副本；点击任务直接进入 Task Workspace。 */
-.team-task-detail {
-  display: none;
-}
+/* Team 统一进入 Task Workspace；不再渲染任务详情副本。 */
 
 /* P0-4 Plan Draft */
 .plan-draft-panel {

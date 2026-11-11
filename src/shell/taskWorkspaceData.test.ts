@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  TASK_WORKSPACE_INITIAL_TAB,
   TASK_WORKSPACE_TABS,
   taskWorkspaceNext,
   taskWorkspaceTabForKey,
+  resolveTaskWorkspaceSource,
 } from "./taskWorkspaceData.js";
 
 function next(
@@ -21,6 +24,7 @@ function next(
 
 describe("t241 Task Workspace data", () => {
   it("defines five tabs and wraps keyboard navigation", () => {
+    expect(TASK_WORKSPACE_INITIAL_TAB).toBe("overview");
     expect(TASK_WORKSPACE_TABS.map((tab) => tab.label)).toEqual([
       "概览",
       "运行",
@@ -60,5 +64,31 @@ describe("t241 Task Workspace data", () => {
     });
     expect(result.key).toBe("upstream");
     expect(result.detail).toContain("上游依赖");
+  });
+
+  it("maps review_rejected to the review tab and preserves run-entry source", () => {
+    const rejected = taskWorkspaceNext({
+      task: { status: "blocked", blockedReason: "review_rejected", failureKind: null },
+      startEnabled: false,
+      startReason: "",
+      retryEnabled: false,
+      retryReason: "",
+      unfilledDeps: 0,
+    });
+    expect(rejected).toMatchObject({ key: "review-tab", tab: "review" });
+    expect(rejected.label).toContain("评审");
+    expect(resolveTaskWorkspaceSource("team", "tasks")).toBe("team");
+    expect(resolveTaskWorkspaceSource("tasks", "team")).toBe("tasks");
+    expect(resolveTaskWorkspaceSource("runs", "team")).toBe("team");
+  });
+
+  it("has a single Team detail source (old copy removed from TeamDashboard)", () => {
+    const teamSource = readFileSync(new URL("../TeamDashboard.tsx", import.meta.url), "utf8");
+    const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+    expect(teamSource).not.toContain("team-task-detail");
+    expect(teamSource).not.toContain("team-detail-body");
+    expect(appSource).toContain("resolveTaskWorkspaceSource");
+    expect(appSource).toContain("TASK_WORKSPACE_INITIAL_TAB");
+    expect(appSource).toContain("openTaskTab(workspaceNext.tab)");
   });
 });

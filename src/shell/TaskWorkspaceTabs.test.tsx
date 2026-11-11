@@ -1,8 +1,10 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import TaskWorkspaceTabs from "./TaskWorkspaceTabs.js";
 import type { TaskWorkspaceTab } from "./taskWorkspaceData.js";
+import { taskWorkspacePanelId } from "./taskWorkspaceData.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -42,6 +44,7 @@ describe("t241 TaskWorkspaceTabs", () => {
     expect(tabs[0]!.props.tabIndex).toBe(0);
     expect(tabs[1]!.props.tabIndex).toBe(-1);
     expect(tabs[1]!.props["aria-controls"]).toBe("task-panel-runs");
+    expect(taskWorkspacePanelId("runs")).toBe("task-panel-runs");
 
     await act(() => {
       (tabs[1]!.props.onClick as () => void)();
@@ -56,5 +59,38 @@ describe("t241 TaskWorkspaceTabs", () => {
       });
     });
     expect(onChange).toHaveBeenCalledWith("history");
+  });
+
+  it("moves active tab with Arrow/Home/End and keeps aria-controls on the active panel", async () => {
+    function Harness() {
+      const [tab, setTab] = useState<TaskWorkspaceTab>("overview");
+      return <TaskWorkspaceTabs tab={tab} onChange={setTab} />;
+    }
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<Harness />);
+    });
+    const tablist = () =>
+      renderer!.root.findAllByProps({ role: "tablist" })[0]!;
+    const activeTab = () =>
+      renderer!.root.findAllByProps({ role: "tab" }).find((tab) => tab.props["aria-selected"]);
+    const press = async (key: string) => {
+      await act(() => {
+        (tablist().props.onKeyDown as (event: unknown) => void)({
+          key,
+          preventDefault: vi.fn(),
+          currentTarget: { querySelector: () => null },
+        });
+      });
+    };
+
+    await press("ArrowRight");
+    expect(activeTab()!.props["aria-controls"]).toBe("task-panel-runs");
+    await press("End");
+    expect(activeTab()!.props["aria-controls"]).toBe("task-panel-history");
+    await press("Home");
+    expect(activeTab()!.props["aria-controls"]).toBe("task-panel-overview");
+    await press("ArrowLeft");
+    expect(activeTab()!.props["aria-controls"]).toBe("task-panel-history");
   });
 });

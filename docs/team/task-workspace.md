@@ -4,7 +4,8 @@
 
 ## 1. 行为变化
 
-- 任务选中后默认进入 **概览**；tab 状态在当前选中任务内保持，切换任务重置为概览；深链 `#/tasks?task=...` 选中同一任务时保持任务页默认概览。
+- 任务选中后默认进入 **概览**；tab 状态在当前选中任务内保持，切换任务重置为概览。
+- **深链不支持 tab**：`#/tasks` / `?task=` 只恢复选中任务，不携带 tab；刷新、重新进入或从 Runs/Team 打开都回概览（`TASK_WORKSPACE_INITIAL_TAB`，测试断言）。
 - **仅一个 primary**：
   - review → 「去评审」（切到评审 tab）；
   - failed → 「重试任务」（新建 attempt，gate 不变）；
@@ -14,7 +15,7 @@
   - blocked + 未完成依赖 → 「查看上游依赖」（定位首个未完成依赖）；
   - ready → 「运行任务」；cancelled → 「查看历史」。
 - Sticky 头展示标题、状态、owner、priority、当前 Run；secondary 收敛为「更多」（定位/上下文/投票）＋必要「取消任务」。
-- **Tasks 与 Team 统一**：Team 的任务详情副本隐藏；点击团队任务直接进入同一个 Task Workspace，头部提供「← 返回团队」。
+- **Tasks 与 Team 统一**：Team 任务详情副本已从 TeamDashboard 删除（不是 display:none）；点击团队任务直接进入同一个 Task Workspace，头部提供「← 返回团队」。RunPanel 打开任务继承入口来源（Team→Runs→Task 返回团队；Tasks→Runs→Task 返回任务）。
 - 5 tabs：
   - 概览：运行元数据 + 描述/验收/摘要 + 执行契约/来源；
   - 运行：RunHistory（Run 列表、当前 Run、停止/重试）；

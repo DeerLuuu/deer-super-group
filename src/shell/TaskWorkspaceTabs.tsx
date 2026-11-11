@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from "react";
 import {
   TASK_WORKSPACE_TABS,
+  taskWorkspacePanelId,
   taskWorkspaceTabForKey,
   type TaskWorkspaceTab,
 } from "./taskWorkspaceData.js";
@@ -42,7 +43,7 @@ export default function TaskWorkspaceTabs({
             id={`task-tab-${item.id}`}
             data-task-tab={item.id}
             aria-selected={tab === item.id}
-            aria-controls={`task-panel-${item.id}`}
+            aria-controls={taskWorkspacePanelId(item.id)}
             tabIndex={tab === item.id ? 0 : -1}
             className={`task-workspace-tab ${tab === item.id ? "is-active" : ""}`}
             onClick={() => onChange(item.id)}

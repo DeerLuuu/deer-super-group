@@ -84,7 +84,11 @@ import { useMergeQueue } from "./shell/useMergeQueue";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
 import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
 import {
+  resolveTaskWorkspaceSource,
+  TASK_WORKSPACE_INITIAL_TAB,
   taskWorkspaceNext,
+  taskWorkspacePanelId,
+  type TaskWorkspaceSource,
   type TaskWorkspaceTab,
 } from "./shell/taskWorkspaceData";
 import {
@@ -374,7 +378,7 @@ export default function App() {
   const [taskVcsFocus, setTaskVcsFocus] = useState(false);
   const [taskReviewFocus, setTaskReviewFocus] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [taskWorkspaceSource, setTaskWorkspaceSource] = useState<"tasks" | "team">("tasks");
+  const [taskWorkspaceSource, setTaskWorkspaceSource] = useState<TaskWorkspaceSource>("tasks");
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   // P0-4：Plan Draft 仅 session 内存；确认前不创建任务/事件。
@@ -2443,7 +2447,14 @@ export default function App() {
   }
 
   /** t69：打开 Runs 面板（可带任务/Run 深链选择）。 */
-  function openRunsPanel(taskId?: string | null, runId?: string | null) {
+  function openRunsPanel(
+    taskId?: string | null,
+    runId?: string | null,
+    source?: "tasks" | "team" | "runs",
+  ) {
+    setTaskWorkspaceSource(
+      resolveTaskWorkspaceSource(source ?? "runs", taskWorkspaceSource),
+    );
     if (taskId) {
       setSelectedTaskId(taskId);
       void loadTrace(taskId);
@@ -3168,7 +3179,9 @@ export default function App() {
                         if (selectedTaskId) void loadRuns(selectedTaskId);
                       }}
                       onSelectRun={setSelectedRunId}
-                      onOpenRuns={openRunsPanel}
+                      onOpenRuns={(taskId, runId) =>
+                        openRunsPanel(taskId, runId, "tasks")
+                      }
                       onStartTask={handleStartTask}
                       onRetryTask={handleRequestRetry}
                       onCancelTask={handleRequestCancelTask}
@@ -3205,7 +3218,7 @@ export default function App() {
                       onOpenTaskPage={(taskId) => handleOpenTaskWorkspace(taskId, "team")}
                       scheduler={scheduler}
                       onOpenRuns={(taskId) =>
-                        openRunsPanel(taskId ?? selectedTaskId, null)
+                        openRunsPanel(taskId ?? selectedTaskId, null, "team")
                       }
                       onOpenMergeQueue={handleOpenMergeQueue}
                       onOpenMemory={() => openPanel("board")}
@@ -3239,8 +3252,12 @@ export default function App() {
                         void loadTrace(taskId);
                         void loadRuns(taskId);
                       }}
-                      onOpenTaskPage={handleOpenTaskPage}
-                      onOpenTaskChat={(taskId) => handleShowTaskContext(taskId, "team")}
+                      onOpenTaskPage={(taskId) =>
+                        handleOpenTaskWorkspace(taskId, taskWorkspaceSource)
+                      }
+                      onOpenTaskChat={(taskId) =>
+                        handleShowTaskContext(taskId, taskWorkspaceSource)
+                      }
                       onStartTask={handleStartTask}
                       onRetryTask={handleRequestRetry}
                       onCancelTask={handleRequestCancelTask}
@@ -3822,7 +3839,7 @@ function TasksView({
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [taskTab, setTaskTab] = useState<TaskWorkspaceTab>("overview");
+  const [taskTab, setTaskTab] = useState<TaskWorkspaceTab>(TASK_WORKSPACE_INITIAL_TAB);
 
   // C11：从顶栏/命令面板进入时自动打开对应弹窗（一次性）。
   useEffect(() => {
@@ -3929,14 +3946,14 @@ function TasksView({
       : null;
 
   useEffect(() => {
-    setTaskTab("overview");
+    setTaskTab(TASK_WORKSPACE_INITIAL_TAB);
   }, [selectedTask?.id]);
 
   function openTaskTab(tab: TaskWorkspaceTab, focus = true) {
     setTaskTab(tab);
     if (focus) {
       window.setTimeout(() => {
-        document.getElementById(`task-panel-${tab}`)?.focus();
+        document.getElementById(taskWorkspacePanelId(tab))?.focus();
       }, 0);
     }
   }
@@ -4339,7 +4356,7 @@ function TasksView({
             {taskTab === "overview" && (
               <div
                 className="task-workspace-panel"
-                id="task-panel-overview"
+                id={taskWorkspacePanelId("overview")}
                 role="tabpanel"
                 aria-labelledby="task-tab-overview"
                 tabIndex={0}
@@ -4444,7 +4461,7 @@ function TasksView({
             {taskTab === "runs" && (
               <div
                 className="task-workspace-panel"
-                id="task-panel-runs"
+                id={taskWorkspacePanelId("runs")}
                 role="tabpanel"
                 aria-labelledby="task-tab-runs"
                 tabIndex={0}
@@ -4473,7 +4490,7 @@ function TasksView({
             {taskTab === "git" && (
               <div
                 className="task-workspace-panel"
-                id="task-panel-git"
+                id={taskWorkspacePanelId("git")}
                 role="tabpanel"
                 aria-labelledby="task-tab-git"
                 tabIndex={0}
@@ -4496,7 +4513,7 @@ function TasksView({
             {taskTab === "review" && (
               <div
                 className="task-workspace-panel"
-                id="task-panel-review"
+                id={taskWorkspacePanelId("review")}
                 role="tabpanel"
                 aria-labelledby="task-tab-review"
                 tabIndex={0}
@@ -4537,7 +4554,7 @@ function TasksView({
             {taskTab === "history" && (
               <div
                 className="task-workspace-panel"
-                id="task-panel-history"
+                id={taskWorkspacePanelId("history")}
                 role="tabpanel"
                 aria-labelledby="task-tab-history"
                 tabIndex={0}

@@ -1,6 +1,9 @@
 import type { Task } from "../shared/types.js";
 
 export type TaskWorkspaceTab = "overview" | "runs" | "review" | "git" | "history";
+export type TaskWorkspaceSource = "tasks" | "team";
+
+export const TASK_WORKSPACE_INITIAL_TAB: TaskWorkspaceTab = "overview";
 
 export const TASK_WORKSPACE_TABS: ReadonlyArray<{ id: TaskWorkspaceTab; label: string }> = [
   { id: "overview", label: "概览" },
@@ -9,6 +12,20 @@ export const TASK_WORKSPACE_TABS: ReadonlyArray<{ id: TaskWorkspaceTab; label: s
   { id: "git", label: "Git" },
   { id: "history", label: "历史" },
 ];
+
+export function taskWorkspacePanelId(tab: TaskWorkspaceTab): string {
+  return `task-panel-${tab}`;
+}
+
+/** RunPanel 入口来源决定 Task Workspace 返回 target；直接打开 Runs 时沿用当前来源。 */
+export function resolveTaskWorkspaceSource(
+  entry: "tasks" | "team" | "runs",
+  current: TaskWorkspaceSource,
+): TaskWorkspaceSource {
+  if (entry === "tasks") return "tasks";
+  if (entry === "team") return "team";
+  return current;
+}
 
 export function taskWorkspaceTabForKey(
   tab: TaskWorkspaceTab,
@@ -98,6 +115,17 @@ export function taskWorkspaceNext(input: {
       label: "查看历史",
       detail: "任务已取消：保留 trace 与 Run 历史供审计。",
       tab: "history",
+    };
+  }
+  if (
+    task.status === "blocked" &&
+    /review_rejected|review rejected|review|评审/i.test(task.blockedReason ?? "")
+  ) {
+    return {
+      key: "review-tab",
+      label: "去评审 / 处理评审拒绝",
+      detail: "评审拒绝阻塞了交付：查看评审 diff 与拒绝原因，处理后重新评审。",
+      tab: "review",
     };
   }
   if (task.status === "blocked" && /conflict|冲突|merge/i.test(task.blockedReason ?? "")) {
