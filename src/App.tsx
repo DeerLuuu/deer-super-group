@@ -79,6 +79,14 @@ import CommandPalette, {
   type CreateIntent,
   type PanelAction,
 } from "./CommandPalette";
+import WorkflowRail from "./shell/WorkflowRail";
+import { useMergeQueue } from "./shell/useMergeQueue";
+import {
+  deriveNeedsMe,
+  deriveWorkflow,
+  type NeedsMeItem,
+  type WorkflowStage,
+} from "./shell/workflowData";
 import { ToastHost, useToasts, type ToastItem } from "./Toast";
 import {
   BOARD_CONFIDENCE_LABEL,
@@ -252,6 +260,26 @@ function errorText(error: unknown): string {
   return formatError(error);
 }
 
+export type WorkflowStageNavigation = {
+  panel: "chat" | "tasks" | "board" | "merge";
+  taskId?: string;
+  review?: boolean;
+};
+
+/** P0-3：阶段 CTA 的目标仅由阶段/task 决定；App 与测试共用，避免文案与行为漂移。 */
+export function workflowStageNavigation(
+  stage: WorkflowStage,
+  taskId: string | null,
+): WorkflowStageNavigation {
+  if (stage === "discuss") return { panel: "chat" };
+  if (stage === "deliver") return { panel: "merge" };
+  if (stage === "remember") return { panel: "board" };
+  if (stage === "review") {
+    return { panel: "tasks", ...(taskId ? { taskId } : {}), review: true };
+  }
+  return { panel: "tasks", ...(taskId ? { taskId } : {}) };
+}
+
 function payloadText(payload: unknown): string {
   if (typeof payload === "string") return payload;
   try {
@@ -388,6 +416,13 @@ export default function App() {
   const [schedulerLoading, setSchedulerLoading] = useState(true);
   const [schedulerError, setSchedulerError] = useState<string | null>(null);
   const [taskRuns, setTaskRuns] = useState<Run[]>([]);
+  const mergeQueueRefreshKey =
+    snapshot?.tasks.map((task) => `${task.id}:${task.status}`).join("|") ?? "";
+  const { items: mergeQueueItems, reload: loadMergeQueue } = useMergeQueue(
+    snapshot?.workspace.id,
+    mergeQueueOpen,
+    mergeQueueRefreshKey,
+  );
   // t157：watchdog/预算/交接 UI 数据（面板、顶部预算条、任务告警、RunHistory）。
   const [watchdogSnapshot, setWatchdogSnapshot] = useState<WatchdogSnapshot | null>(null);
   const [watchdogCosts, setWatchdogCosts] = useState<CostSnapshot | null>(null);
@@ -954,12 +989,13 @@ export default function App() {
       // t69：事件刷新同时更新调度快照与当前任务 Run（静默，不闪骨架）。
       void loadScheduler(workspaceId, true);
       void loadWatchdog(workspaceId);
+      void loadMergeQueue();
       if (selectedTaskRef.current) {
         await loadTrace(selectedTaskRef.current);
         void loadRuns(selectedTaskRef.current, true);
       }
     },
-    [loadTrace, loadScheduler, loadRuns, loadWatchdog],
+    [loadTrace, loadScheduler, loadRuns, loadWatchdog, loadMergeQueue],
   );
 
   const refreshWatchdog = useCallback(async () => {
@@ -2216,6 +2252,7 @@ export default function App() {
       dockRef.current?.openPanel("tasks");
     }
     setMergeQueueOpen(true);
+    void loadMergeQueue();
   }
 
   function handleOpenGitSettings() {
@@ -2247,6 +2284,46 @@ export default function App() {
     void loadTrace(targetId);
     openPanel("tasks");
     setTaskReviewFocus(true);
+  }
+
+  /** P0-3：阶段入口只复用现有面板/任务/队列入口，不新增事实或状态机。 */
+  function handleWorkflowStage(stage: WorkflowStage, taskId: string | null) {
+    const target = workflowStageNavigation(stage, taskId);
+    if (target.panel === "merge") {
+      handleOpenMergeQueue();
+      return;
+    }
+    if (target.panel === "chat") {
+      openPanel("chat");
+      return;
+    }
+    if (target.panel === "board") {
+      openPanel("board");
+      return;
+    }
+    if (target.review) {
+      handleOpenTaskReview(target.taskId ?? null);
+      return;
+    }
+    if (target.taskId) handleOpenTaskPage(target.taskId);
+    else openPanel("tasks");
+  }
+
+  function handleNeedsMeItem(item: NeedsMeItem) {
+    if (item.kind === "alert" || item.kind === "budget") {
+      openPanel("watchdog");
+      return;
+    }
+    if (item.kind === "merge") {
+      handleOpenMergeQueue();
+      return;
+    }
+    if (item.taskId) {
+      if (item.kind === "review") handleOpenTaskReview(item.taskId);
+      else handleOpenTaskPage(item.taskId);
+      return;
+    }
+    openPanel("tasks");
   }
 
   // t50：命令面板「面板」组动作 → DockHandle。
@@ -2462,6 +2539,18 @@ export default function App() {
   );
   // P0-2：一级入口 active 只从现有 Dock 激活面板/route tab 派生，不新增第二套面板状态。
   const activeRailKey = railKeyForActive(activePanelKey, tab);
+  // P0-3：阶段与 NeedsMe 都是现有 tasks/runs/scheduler/merge/watchdog 的纯投影。
+  const workflowProjection = deriveWorkflow({
+    tasks: snapshot.tasks,
+    runs: taskRuns,
+    scheduler,
+    mergeQueue: mergeQueueItems,
+  });
+  const needsMe = deriveNeedsMe({
+    tasks: snapshot.tasks,
+    mergeQueue: mergeQueueItems,
+    watchdog: watchdogSnapshot,
+  });
 
   return (
     <div className="app">
@@ -2689,6 +2778,12 @@ export default function App() {
       />
 
       <main className="main">
+        <WorkflowRail
+          projection={workflowProjection}
+          needs={needsMe}
+          onStage={handleWorkflowStage}
+          onNeedsMe={handleNeedsMeItem}
+        />
         {error && (
           <div className="error banner" role="alert">
             {/* C26/t190：格式化 + 共享脱敏后的错误文案；复制详情同样脱敏。 */}
@@ -3086,7 +3181,10 @@ export default function App() {
         <MergeQueueModal
           workspaceId={snapshot.workspace.id}
           open={mergeQueueOpen}
-          onClose={() => setMergeQueueOpen(false)}
+          onClose={() => {
+            setMergeQueueOpen(false);
+            void loadMergeQueue();
+          }}
         />
       )}
 

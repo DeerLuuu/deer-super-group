@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { reconcileSingleLayout } from "./DockShell";
 
 type FakePanel = {
-  group: { id: string };
+  group: { id: string; api?: { setSize?: (event: { width?: number }) => void } };
   api: { close: () => void; setActive?: () => void };
 };
 
@@ -73,5 +73,17 @@ describe("t212 reconcile legacy single dock layout", () => {
       throw new Error("must not move team on wide");
     });
     expect(team.group).toBe(rightGroup);
+  });
+
+  it("resizes the main group to the measured dock width on single", () => {
+    const setSize = vi.fn();
+    const mainGroup = { id: "main", api: { setSize } };
+    const chat: FakePanel = { group: mainGroup, api: { close: () => {} } };
+    const api = {
+      activePanel: { id: "chat" },
+      getPanel: (id: string) => (id === "chat" ? chat : undefined),
+    };
+    reconcileSingleLayout(api as never, "single", () => {}, 898);
+    expect(setSize).toHaveBeenCalledWith({ width: 898 });
   });
 });
