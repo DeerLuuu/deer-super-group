@@ -160,6 +160,7 @@ dist-electron/main.cjs 1.5mb; preload.cjs 11.7kb
 - 打开 Settings → 触发风险审批 Modal（或任意第二个 Modal）：Esc 只关顶层；背景控件不可 Tab 聚焦；关闭后焦点回到触发控件。
 - Modal 打开时按 Alt+1–6 / Ctrl+K：页面不切换、命令面板不打开。
 - Modal 打开时 toast 仍显示在 body 层并可关闭；`aria-live` 仍播报任务/Run 状态。
+- **t206 stacking**：`AppLiveRegions` 的 `.app-toast-layer` 固定 `z-index:1200`（modal-backdrop 1000、palette 150 之上），层本身 `pointer-events:none`，`.toast` 保持 `pointer-events:auto`；toast 的关闭/action 不被 backdrop 截获。
 - 先关闭非 top Modal，再关闭 top：body scroll 保持锁定直到最后一个 Modal 关闭。
 
 ---

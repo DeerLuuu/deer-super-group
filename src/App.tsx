@@ -3111,7 +3111,20 @@ export function AppLiveRegions({
         actionMessage={actionMessage}
         contextKey={contextKey}
       />
-      <ToastHost toasts={toasts} onDismiss={onDismiss} />
+      {/* t206：toast 必须在 modal-backdrop(1000)/palette(150) 之上；
+          用独立 fixed 层提升 z-index，且 pointer-events:none 不挡背景，
+          .toast 自身 pointer-events:auto 保持关闭/action 可点击。 */}
+      <div
+        className="app-toast-layer"
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1200,
+          pointerEvents: "none",
+        }}
+      >
+        <ToastHost toasts={toasts} onDismiss={onDismiss} />
+      </div>
     </>
   );
   return typeof document !== "undefined" ? createPortal(content, document.body) : content;

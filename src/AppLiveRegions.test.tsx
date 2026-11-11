@@ -67,20 +67,24 @@ describe("t204 live regions outside inert root", () => {
     expect(root.inert).toBe(true);
 
     const dismiss = vi.fn();
+    const backdropClick = vi.fn();
     const toasts: ToastItem[] = [
       { id: 7, kind: "error", message: "后台任务失败", detail: "可重试" },
     ];
     let renderer: AppLiveRenderer | null = null;
     await act(async () => {
       renderer = create(
-        <AppLiveRegions
-          tasks={[]}
-          scheduler={null}
-          runs={[]}
-          actionMessage="后台任务失败"
-          toasts={toasts}
-          onDismiss={dismiss}
-        />,
+        <>
+          <div className="modal-backdrop" onMouseDown={backdropClick} />
+          <AppLiveRegions
+            tasks={[]}
+            scheduler={null}
+            runs={[]}
+            actionMessage="后台任务失败"
+            toasts={toasts}
+            onDismiss={dismiss}
+          />
+        </>,
       );
       await Promise.resolve();
     });
@@ -88,6 +92,13 @@ describe("t204 live regions outside inert root", () => {
     expect(portalTargets[0]).toBe(body);
     expect(hasOpenModal()).toBe(true);
     expect(root.inert).toBe(true);
+
+    const toastLayer = renderer!.root.findAllByProps({ className: "app-toast-layer" })[0];
+    expect(toastLayer).toBeTruthy();
+    const layerStyle = toastLayer.props.style as { zIndex: number; pointerEvents: string };
+    expect(layerStyle.zIndex).toBeGreaterThan(1000); // modal-backdrop
+    expect(layerStyle.zIndex).toBeGreaterThan(150); // palette-backdrop
+    expect(layerStyle.pointerEvents).toBe("none");
 
     const bodyContent = renderer!.root.findAllByProps({ className: "toast-host" })[0];
     expect(bodyContent).toBeTruthy();
@@ -99,6 +110,7 @@ describe("t204 live regions outside inert root", () => {
       (close.props.onClick as () => void)();
     });
     expect(dismiss).toHaveBeenCalledWith(7);
+    expect(backdropClick).not.toHaveBeenCalled();
 
     await act(async () => {
       renderer!.unmount();
