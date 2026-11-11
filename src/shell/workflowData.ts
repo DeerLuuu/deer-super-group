@@ -70,33 +70,65 @@ function firstTask(tasks: readonly Task[], status: Task["status"]): Task | null 
   return tasks.find((task) => task.status === status) ?? null;
 }
 
+function isReviewBlocked(task: Task): boolean {
+  return (
+    task.status === "blocked" &&
+    (task.failureKind === "review_rejected" ||
+      /review|评审/i.test(task.blockedReason ?? ""))
+  );
+}
+
 /**
  * 从现有 facts 推导当前阶段。优先级是“用户现在最可能需要看的阶段”：
- * run > review > deliver > plan > remember > discuss > unknown。
- * 无任务/未知状态不伪造下一步；unknown 不返回 CTA。
+ * 运行中 > 失败/阻塞 > 评审 > 交付 > 计划 > 记忆 > 讨论 > unknown。
+ * 无任务/未知状态不伪造下一步；MergeQueue 未加载时，done 任务也不安全地
+ * 推断成“记忆”（可能还有 pending merge 被漏掉）。
  */
 export function deriveWorkflow(input: WorkflowInput): WorkflowProjection {
   const { tasks, mergeQueue } = input;
   const activeRuns = input.runs?.some(
     (run) => run.status === "queued" || run.status === "running",
   );
-  const attentionTask = tasks.find(
-    (task) =>
-      task.status === "running" ||
-      task.status === "queued" ||
-      task.status === "failed" ||
-      task.status === "blocked",
+  const activeTask = tasks.find(
+    (task) => task.status === "running" || task.status === "queued",
   );
   const running =
     activeRuns ||
     (input.scheduler?.activeRuns.length ?? 0) > 0 ||
     (input.scheduler?.queue.length ?? 0) > 0 ||
-    Boolean(attentionTask);
+    Boolean(activeTask);
   if (running) {
     return {
       stage: "run",
       cta: { stage: "run", label: CTA_LABEL.run },
-      focusTaskId: attentionTask?.id ?? null,
+      focusTaskId: activeTask?.id ?? null,
+    };
+  }
+
+  const reviewBlockedTask = tasks.find(isReviewBlocked) ?? null;
+  if (reviewBlockedTask) {
+    return {
+      stage: "review",
+      cta: { stage: "review", label: CTA_LABEL.review },
+      focusTaskId: reviewBlockedTask.id,
+    };
+  }
+
+  const failedTask = firstTask(tasks, "failed");
+  if (failedTask) {
+    return {
+      stage: "run",
+      cta: { stage: "run", label: "重试失败任务" },
+      focusTaskId: failedTask.id,
+    };
+  }
+
+  const blockedTask = firstTask(tasks, "blocked");
+  if (blockedTask) {
+    return {
+      stage: "run",
+      cta: { stage: "run", label: "处理阻塞" },
+      focusTaskId: blockedTask.id,
     };
   }
 
@@ -129,6 +161,10 @@ export function deriveWorkflow(input: WorkflowInput): WorkflowProjection {
 
   const doneTask = firstTask(tasks, "done");
   if (doneTask) {
+    // 未知队列不能断言“已交付/只需记忆”；等现有 MergeQueue 快照到达再判断。
+    if (mergeQueue == null) {
+      return { stage: "unknown", cta: null, focusTaskId: null };
+    }
     return {
       stage: "remember",
       cta: { stage: "remember", label: CTA_LABEL.remember },
@@ -151,6 +187,20 @@ export interface NeedsMeInput {
   tasks: readonly Task[];
   mergeQueue?: readonly MergeQueueItem[] | null;
   watchdog?: WatchdogSnapshot | null;
+}
+
+/** NeedsMe listbox 的 Arrow/Home/End 导航；返回 null 表示不处理。 */
+export function needsListNavigation(
+  current: number,
+  key: string,
+  length: number,
+): number | null {
+  if (length <= 0) return null;
+  if (key === "ArrowDown" || key === "ArrowRight") return (current + 1) % length;
+  if (key === "ArrowUp" || key === "ArrowLeft") return (current - 1 + length) % length;
+  if (key === "Home") return 0;
+  if (key === "End") return length - 1;
+  return null;
 }
 
 function taskItem(task: Task, kind: "failed" | "blocked" | "review"): NeedsMeItem {
@@ -184,6 +234,7 @@ export function deriveNeedsMe(input: NeedsMeInput): NeedsMeItem[] {
 
   for (const task of input.tasks) {
     if (task.status === "failed") add(taskItem(task, "failed"));
+    else if (isReviewBlocked(task)) add(taskItem(task, "review"));
     else if (task.status === "blocked") add(taskItem(task, "blocked"));
     else if (task.status === "review") add(taskItem(task, "review"));
   }

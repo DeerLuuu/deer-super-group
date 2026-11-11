@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   WORKFLOW_STAGES,
+  needsListNavigation,
   type NeedsMeItem,
   type WorkflowProjection,
   type WorkflowStage,
@@ -23,12 +24,19 @@ export default function WorkflowRail({
   onNeedsMe: (item: NeedsMeItem) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const needsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const needsItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const NEEDS_LIST_ID = "workflow-needs-list";
 
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        needsButtonRef.current?.focus();
+      }
     };
     const onPointer = (event: PointerEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
@@ -42,6 +50,38 @@ export default function WorkflowRail({
       document.removeEventListener("pointerdown", onPointer);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (activeIndex >= needs.length) setActiveIndex(0);
+    needsItemRefs.current[Math.min(activeIndex, Math.max(0, needs.length - 1))]?.focus();
+  }, [activeIndex, needs.length, open]);
+
+  function focusNeedsItem(index: number) {
+    setActiveIndex(index);
+    needsItemRefs.current[index]?.focus();
+  }
+
+  function onNeedsButtonKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    setOpen(true);
+    const index = event.key === "ArrowUp" ? Math.max(0, needs.length - 1) : 0;
+    setActiveIndex(index);
+  }
+
+  function onNeedsListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      needsButtonRef.current?.focus();
+      return;
+    }
+    const next = needsListNavigation(activeIndex, event.key, needs.length);
+    if (next === null) return;
+    event.preventDefault();
+    focusNeedsItem(next);
+  }
 
   return (
     <section className="workflow-rail" aria-label="工作流阶段">
@@ -74,23 +114,39 @@ export default function WorkflowRail({
       {needs.length > 0 ? (
         <div className="workflow-needs-wrap" ref={wrapRef}>
           <button
+            ref={needsButtonRef}
             type="button"
             className="workflow-needs"
             aria-expanded={open}
             aria-haspopup="listbox"
-            onClick={() => setOpen((value) => !value)}
+            aria-controls={open ? NEEDS_LIST_ID : undefined}
+            onClick={() => {
+              setActiveIndex(0);
+              setOpen((value) => !value);
+            }}
+            onKeyDown={onNeedsButtonKeyDown}
           >
             需要我处理
             <span className="workflow-needs-badge">{needs.length}</span>
           </button>
           {open ? (
-            <div className="workflow-needs-popover" role="listbox" aria-label="需要我处理">
-              {needs.map((item) => (
+            <div
+              id={NEEDS_LIST_ID}
+              className="workflow-needs-popover"
+              role="listbox"
+              aria-label="需要我处理"
+              onKeyDown={onNeedsListKeyDown}
+            >
+              {needs.map((item, index) => (
                 <button
                   key={item.id}
+                  ref={(element) => {
+                    needsItemRefs.current[index] = element;
+                  }}
                   type="button"
                   role="option"
-                  aria-selected="false"
+                  tabIndex={-1}
+                  aria-selected={index === activeIndex}
                   className={`workflow-needs-item is-${item.kind}`}
                   onClick={() => {
                     setOpen(false);

@@ -80,13 +80,13 @@ import CommandPalette, {
   type PanelAction,
 } from "./CommandPalette";
 import WorkflowRail from "./shell/WorkflowRail";
+import { useMergeQueue } from "./shell/useMergeQueue";
 import {
   deriveNeedsMe,
   deriveWorkflow,
   type NeedsMeItem,
   type WorkflowStage,
 } from "./shell/workflowData";
-import type { MergeQueueItem } from "./git/types";
 import { ToastHost, useToasts, type ToastItem } from "./Toast";
 import {
   BOARD_CONFIDENCE_LABEL,
@@ -396,8 +396,13 @@ export default function App() {
   const [schedulerLoading, setSchedulerLoading] = useState(true);
   const [schedulerError, setSchedulerError] = useState<string | null>(null);
   const [taskRuns, setTaskRuns] = useState<Run[]>([]);
-  // P0-3：待合并只读现有 MergeQueue API；空数组是“已知无待合并”，失败/未加载不伪造。
-  const [mergeQueueItems, setMergeQueueItems] = useState<MergeQueueItem[]>([]);
+  const mergeQueueRefreshKey =
+    snapshot?.tasks.map((task) => `${task.id}:${task.status}`).join("|") ?? "";
+  const { items: mergeQueueItems, reload: loadMergeQueue } = useMergeQueue(
+    snapshot?.workspace.id,
+    mergeQueueOpen,
+    mergeQueueRefreshKey,
+  );
   // t157：watchdog/预算/交接 UI 数据（面板、顶部预算条、任务告警、RunHistory）。
   const [watchdogSnapshot, setWatchdogSnapshot] = useState<WatchdogSnapshot | null>(null);
   const [watchdogCosts, setWatchdogCosts] = useState<CostSnapshot | null>(null);
@@ -964,39 +969,19 @@ export default function App() {
       // t69：事件刷新同时更新调度快照与当前任务 Run（静默，不闪骨架）。
       void loadScheduler(workspaceId, true);
       void loadWatchdog(workspaceId);
+      void loadMergeQueue();
       if (selectedTaskRef.current) {
         await loadTrace(selectedTaskRef.current);
         void loadRuns(selectedTaskRef.current, true);
       }
     },
-    [loadTrace, loadScheduler, loadRuns, loadWatchdog],
+    [loadTrace, loadScheduler, loadRuns, loadWatchdog, loadMergeQueue],
   );
 
   const refreshWatchdog = useCallback(async () => {
     const workspaceId = snapshotRef.current?.workspace.id;
     if (workspaceId) await loadWatchdog(workspaceId);
   }, [loadWatchdog]);
-
-  // P0-3：读取现有 MergeQueue 快照，只为 NeedsMe/交付阶段投影；不写回、不新增事实源。
-  useEffect(() => {
-    const workspaceId = snapshot?.workspace.id;
-    if (!workspaceId || typeof window.deer.mergeQueue !== "function") {
-      setMergeQueueItems([]);
-      return;
-    }
-    let active = true;
-    void window.deer
-      .mergeQueue(workspaceId)
-      .then((queue) => {
-        if (active) setMergeQueueItems(queue.items);
-      })
-      .catch(() => {
-        if (active) setMergeQueueItems([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [snapshot?.workspace.id, snapshot?.tasks]);
 
   const holdReasonForAlert = useCallback(
     (alert: WatchdogAlert): WatchdogHoldReason => {
@@ -2247,6 +2232,7 @@ export default function App() {
       dockRef.current?.openPanel("tasks");
     }
     setMergeQueueOpen(true);
+    void loadMergeQueue();
   }
 
   function handleOpenGitSettings() {
@@ -3175,7 +3161,10 @@ export default function App() {
         <MergeQueueModal
           workspaceId={snapshot.workspace.id}
           open={mergeQueueOpen}
-          onClose={() => setMergeQueueOpen(false)}
+          onClose={() => {
+            setMergeQueueOpen(false);
+            void loadMergeQueue();
+          }}
         />
       )}
 

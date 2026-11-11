@@ -63,8 +63,20 @@ describe("t222 WorkflowRail", () => {
     await act(() => {
       (needsButton!.props.onClick as () => void)();
     });
+    expect(needsButton!.props["aria-expanded"]).toBe(true);
+    expect(needsButton!.props["aria-controls"]).toBe("workflow-needs-list");
+    const listbox = renderer!.root.findAllByProps({ role: "listbox" })[0];
+    expect(listbox).toBeTruthy();
+    expect(listbox!.props.id).toBe("workflow-needs-list");
+    await act(() => {
+      (listbox!.props.onKeyDown as (event: unknown) => void)({
+        key: "ArrowDown",
+        preventDefault: vi.fn(),
+      });
+    });
     const items = renderer!.root.findAllByProps({ role: "option" });
     expect(items).toHaveLength(2);
+    expect(items[1]!.props["aria-selected"]).toBe(true);
     await act(() => {
       (items[0]!.props.onClick as () => void)();
     });
