@@ -36,6 +36,7 @@ import type {
   UpdateAgentInput,
   Workspace,
 } from "./shared/types";
+import { DEFAULT_MAX_DOCK_GROUPS } from "./shared/types";
 import SettingsView from "./SettingsView";
 import Modal from "./Modal";
 import TeamDashboard from "./TeamDashboard";
@@ -2685,6 +2686,7 @@ export default function App() {
             workspaceId={snapshot.workspace.id}
             dockWidth={dockWidth}
             windowWidth={viewportWidth}
+            maxGroups={snapshot.settings.layout?.maxDockGroups ?? DEFAULT_MAX_DOCK_GROUPS}
             initialPanelKey={bootPanel}
             onActivePanelChange={handleDockActivePanel}
             onNotify={(message) => pushToast({ kind: "success", message })}
@@ -3009,7 +3011,7 @@ export default function App() {
       {settingsOpen && snapshot && (
         <Modal
           title="设置"
-          description="模型、翻译、Git、插件、MCP、Skills 与团队"
+          description="模型、界面、翻译、Git、插件、MCP、Skills 与团队"
           onClose={closeSettings}
           confirmClose={settingsDirty}
           className="settings-modal"

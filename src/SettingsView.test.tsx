@@ -160,4 +160,38 @@ describe("t190 Settings draft/save safety", () => {
     handler?.(event);
     expect(event.preventDefault).toHaveBeenCalled();
   });
+
+  it("edits max dock groups from the Interface section and saves the layout payload", async () => {
+    const onSave = vi.fn(async (_next: LlmSettings) => ({ ok: true as const }));
+    const { renderer, onDirtyChange } = await renderSettings(onSave);
+    const nav = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("界面"));
+    expect(nav).toBeTruthy();
+    await act(() => {
+      (nav!.props.onClick as () => void)();
+    });
+    const select = renderer.root
+      .findAllByType("select")
+      .find((item) => item.props["aria-label"] === "最大分栏数");
+    expect(select).toBeTruthy();
+    expect(select!.props.value).toBe(6);
+    await act(() => {
+      (select!.props.onChange as (event: unknown) => void)({ target: { value: "8" } });
+    });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    const saveButton = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("保存界面设置"));
+    expect(saveButton).toBeTruthy();
+    await act(async () => {
+      await (saveButton!.props.onClick as () => Promise<void>)();
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(
+      (onSave.mock.calls[0][0] as LlmSettings).layout?.maxDockGroups,
+    ).toBe(8);
+    expect(textOf(renderer.toJSON())).toContain("已保存");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
 });
