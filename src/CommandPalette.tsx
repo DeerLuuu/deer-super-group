@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Snapshot } from "./shared/types";
 import type { RouteTab } from "./shared/deeplink";
 import { TASK_STATUS_LABEL } from "./shared/copy";
@@ -245,6 +246,7 @@ export default function CommandPalette({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (!isTopModal(tokenRef.current)) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActive((current) => (current + 1) % Math.max(1, results.length));
@@ -265,6 +267,7 @@ export default function CommandPalette({
   }
 
   function onDialogKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!isTopModal(tokenRef.current)) return;
     if (event.key === "Escape") {
       event.preventDefault();
       requestClose();
@@ -295,7 +298,7 @@ export default function CommandPalette({
 
   let lastGroup = "";
 
-  return (
+  const content = (
     <div className="palette-backdrop" onMouseDown={requestClose}>
       <div
         ref={dialogRef}
@@ -349,4 +352,8 @@ export default function CommandPalette({
       </div>
     </div>
   );
+
+  // t200：必须 portal 到 body；否则 modalStack 把 #root 设为 inert 时，
+  // 位于 #root 内的 palette 输入/Esc/Tab 会被祖先 inert 冻结。
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
