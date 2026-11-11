@@ -1,10 +1,10 @@
-# 窄窗 Dock 自适应 · t212 修复与验证（repair-round-2）
+# 窄窗 Dock 自适应 · t214 修复与验证（repair-round-3）
 
-- **任务**：t212 `[repair]` 窄窗 Dock 自适应 repair-round-2（基于 t194 / PR #33）
+- **任务**：t214 `[repair]` 窄窗 Dock 自适应 repair-round-3（基于 t212 / PR #33）
 - **分支**：`feature/t194-narrow-window-layout`（同一 PR #33）
-- **基线**：t194 HEAD `3602cfe`（main `3596f17`）
-- **范围**：`src/App.tsx`、`src/shell/dock/narrowWindow.ts`、`src/shell/dock/DockShell.tsx`、本文档；测试/截图为验收证据
-- **结论**：t212 的 5 项 acceptance 均已落实；typecheck/build/test 全绿；真实 Electron workspace 三档 + 200% 截图已产出。
+- **基线**：t212 HEAD `208e7d3`（main `3596f17`）
+- **范围**：`src/shell/dock/narrowWindow.ts`、`docs/team/narrow-window-verification.md`；App/DockShell 的消费逻辑沿用 t212
+- **结论**：t214 的 4 项 acceptance 均已落实；typecheck/build/test 全绿；真实 Electron expanded 序列截图已产出。
 
 ---
 
@@ -36,13 +36,14 @@
 **修复**（`narrowWindow.ts` / `DockShell.tsx`）：
 
 - 新增常量：`SIDEBAR_RESIZER_WIDTH = 6`、`DOCK_SASH_WIDTH = 4`；
-- `sidebarMaxWidth(≤960) = window − TASKS_MIN_WIDTH − SIDEBAR_RESIZER_WIDTH`（再与 180/480 夹取）；
+- `sidebarMaxWidth` **所有宽度**统一 `min(480, window − TASKS_MIN_WIDTH − SIDEBAR_RESIZER_WIDTH)`（1440→480、1000→434、960→394、900→334、760→194）；
 - `MIN_SPLIT_DOCK_WIDTH = 560 + 4 + 360 = 924`；`selectVariant` 在 `window>960` 且 Dock<924 时强制 single；
 - Team 右组宽度：`min(weightWidth, dockWidth − 560 − 4)`，下限 360；`ensurePanel` 新建右组同样处理；
 - `defOptions` 的 single 面板最小宽：Dock≥560 时保持声明值（Tasks 560）；Dock<560 的极端场景（960 窗口 200% zoom → 480 CSS viewport，Dock≈418）才降到实际 Dock 宽，由容器查询单列降级（`effectivePanelMinWidth`）。
 
 **测试**：
-- 760/900/960 侧栏上限分别为 **194 / 334 / 394**，`window − clamp − 6` 均 ≥560；
+- 所有宽度 `sidebarMaxWidth = min(480, window−566)`：760/900/960 → 194/334/394，1000→434，1100/1440→480；1000 拖拽 clamp 到 434；960→1000 清 display 后 preferred clamp 到 434；
+- `displayedSidebarWidth` 对 displayed 再 clamp：960(394)→900(334)→760(194)，外部传入 999 也按当前窗口 clamp；
 - `MIN_SPLIT_DOCK_WIDTH=924`；`selectVariant(923,1200)=single`、`(924,1200)=medium`；`(920/1000)` 边界；
 - 200% 481 CSS：Dock=418，`effectivePanelMinWidth(560,true,418)=418`；
 - 全量单测见 §4。
@@ -95,7 +96,7 @@
 | 760 chat/team/tasks（single） | `t212-electron-760-{chat,team,tasks}.png` |
 | 200%（720×450 CSS @2x） chat/team/tasks | `t212-electron-zoom200-{chat,team,tasks}.png` |
 
-> 说明：200% zoom 的 960 窗口等价 480 CSS viewport 低于 Tasks 560 物理最小宽；该场景有 `effectivePanelMinWidth` 降级 + 容器查询，单测覆盖，但截图采用默认 1440 窗口的 200%（720 CSS）作为可读性验收；若产品要求 960@200% 也保持 560，需要另立「200% 字号/布局」任务（与 P1-4 a11y 一起）。
+> 说明（t214 口径）：200% 截图**以默认 1440×900 窗口为准**，等价 720×450 CSS @DPR2；不是 headless mock。960 窗口@200%（480 CSS）低于 Tasks 560 物理最小宽，只保留 `effectivePanelMinWidth` 降级 + 容器查询并单测覆盖，**不作为 200% visual pass**；若要求 960@200% 仍 560，纳入 P1-4 a11y/字号任务处理。
 
 ## 2. 变体/侧栏/宽度矩阵（修复后）
 
@@ -106,10 +107,22 @@
 | 960 | auto collapsed 56 | 898 | single | within tab | 960-* |
 | 900 | auto collapsed 56 | 838 | single | within tab | 900-* |
 | 760 | auto collapsed 56 | 698 | single | within tab | 760-* |
-| 760 + manual expand | 194（clamp） | **560** | single | within tab | 单测 |
-| 900 + manual expand | 334（clamp） | **560** | single | within tab | 单测 |
-| 960 + manual expand | 394（clamp） | **560** | single | within tab | 单测 |
-| 1440 @200% | collapsed 56 | 658 | single | within tab | zoom200-* |
+| 760 + manual expand | 194（clamp） | **560** | single | within tab | t214-760-expanded-tasks |
+| 900 + manual expand | 334（clamp） | **560** | single | within tab | t214-900-expanded-tasks |
+| 960 + manual expand | 394（clamp） | **560** | single | within tab | t214-960-expanded-tasks |
+| 1440 @200% | collapsed 56 | 658 | single | within tab | zoom200-*（默认窗口口径） |
+
+### 2.1 t214 真实 Electron expanded 序列（acceptance-1/3）
+
+在真实 Electron + `按钮工厂` workspace 上，将 preferred 设为 480，960 窗口手动展开后连续缩到 900→760；侧栏实时钳制为 **394→334→194**，Dock 始终 **560**，任务页无横向滚动：
+
+| 请求窗口 | 实测 sidebar | 实测 Dock | 截图 |
+|---|---|---|---|
+| 960 | 394 | 560 | `t214-electron-960-expanded-tasks.png` |
+| 900 | 334 | 560 | `t214-electron-900-expanded-tasks.png` |
+| 760 | 194 | 560 | `t214-electron-760-expanded-tasks.png` |
+
+`t214-electron-metrics.json` 记录每次 `innerWidth`、`sidebarWidth`、`dockWidth`、`sidebarClass`、`overflowX:false`。该序列证明：**narrow 下 displayed 会按新 window 的 sidebarMaxWidth 再 clamp**（不会保留上一档的 394），且手动展开在窄内 resize 不被自动折叠覆盖。
 
 - 侧栏自动折叠仍只在初始窄窗/宽→窄边沿；手动展开后窄内 resize 不覆盖；保存的 preferred 在窄窗不被改写。
 - `narrow-window-layout.md`（t194）中的 760→200 是旧值；本文件修正为 194（含 6px resizer）。
@@ -120,11 +133,13 @@
 src/App.tsx                         preferred/displayed 分离；resize 清 override；拖拽/提交/重置路径
 src/shell/dock/narrowWindow.ts      SIDEBAR_RESIZER_WIDTH/DOCK_SASH_WIDTH/MIN_SPLIT=924；sidebar 状态纯函数；effectivePanelMinWidth
 src/shell/dock/DockShell.tsx        host 实测宽度；rAF 延迟 rebuild；Team sash 预算；导出 reconcile + 调用；single minWidth 降级
-src/shell/dock/narrowWindow.test.ts 25 例（新增 preferred/display、resizer/sash、边界、200% fallback）
+src/shell/dock/narrowWindow.test.ts 28 例（preferred/display、所有宽度 sidebarMaxWidth、1000 拖拽、960→900→760、960→1000、200% fallback）
 src/shell/dock/DockShell.test.ts    3 例（旧 single 恢复、已 within、wide 不移动）
 docs/team/narrow-window-verification.md 本文档
-docs/team/t212-electron-*.png       15 张真实 Electron 截图
-docs/team/t212-electron-metrics.json 真实 viewport/DPR/标题/sidebar/overflow 记录
+docs/team/t212-electron-*.png       15 张真实 Electron 三档/200% 截图（t212）
+docs/team/t212-electron-metrics.json 对应 viewport/DPR/title/sidebar/overflow 记录
+docs/team/t214-electron-960/900/760-expanded-tasks.png  t214 expanded 序列（3 张）
+docs/team/t214-electron-metrics.json t214 序列的 innerWidth/sidebarWidth/dockWidth
 ```
 
 ## 4. 验证
@@ -134,10 +149,10 @@ docs/team/t212-electron-metrics.json 真实 viewport/DPR/标题/sidebar/overflow
 | 命令 | 结果 |
 |---|---|
 | `pnpm typecheck` | **0** |
-| `pnpm build` | **0**：js **1,231.45 kB / gzip 338.29**；css 246.17 / gzip 29.72；electron main 1.5MB、preload 11.7kB |
-| `pnpm test` | **0**：**61 文件 / 628 用例**全绿（narrowWindow 25 + DockShell 3；既有 permission/approval/kernel/git/review/watchdog/memory/canvas/deeplink 全绿） |
+| `pnpm build` | **0**：js **1,231.56 kB / gzip 338.31**；css 246.17 / gzip 29.72；electron main 1.5MB、preload 11.7kB |
+| `pnpm test` | **0**：**61 文件 / 631 用例**全绿（narrowWindow 28 + DockShell 3；既有 permission/approval/kernel/git/review/watchdog/memory/canvas/deeplink 全绿） |
 
-> 测试期间曾因同时运行额外 Electron 实例导致 git/kernel/watchdog 5s timeout 批量失败；关闭额外 Electron 后独立全量复跑 61/628 全绿，非代码回归。
+> 测试期间曾因同时运行额外 Electron 实例导致 git/kernel/watchdog 5s timeout 批量失败；关闭额外 Electron 后独立全量复跑 61/631 全绿，非代码回归。
 
 ## 5. 边界与遗留
 

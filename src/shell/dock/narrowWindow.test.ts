@@ -91,16 +91,20 @@ describe("t194/t212 narrow-window dock layout", () => {
   });
 
   describe("sidebar width budget", () => {
-    it("subtracts the 6px sidebar resizer from the narrow max width", () => {
+    it("uses min(480, window-560-6) for every width", () => {
       expect(SIDEBAR_RESIZER_WIDTH).toBe(6);
-      expect(sidebarMaxWidth(760)).toBe(760 - TASKS_MIN_WIDTH - 6);
-      expect(sidebarMaxWidth(900)).toBe(900 - TASKS_MIN_WIDTH - 6);
-      expect(sidebarMaxWidth(960)).toBe(960 - TASKS_MIN_WIDTH - 6);
+      for (const windowWidth of [760, 900, 960, 1000, 1100, 1440]) {
+        expect(sidebarMaxWidth(windowWidth)).toBe(
+          Math.min(SIDEBAR_MAX_WIDTH, windowWidth - TASKS_MIN_WIDTH - 6),
+        );
+      }
+      expect(sidebarMaxWidth(1000)).toBe(434);
+      expect(sidebarMaxWidth(1100)).toBe(SIDEBAR_MAX_WIDTH);
       expect(sidebarMaxWidth(1440)).toBe(SIDEBAR_MAX_WIDTH);
     });
 
-    it("keeps the actual single dock >= 560 at 760/900/960 expanded", () => {
-      for (const windowWidth of [760, 900, 960]) {
+    it("keeps the actual dock >= 560 for all supported window widths", () => {
+      for (const windowWidth of [760, 900, 960, 1000, 1100, 1440]) {
         const displayed = clampSidebarWidth(SIDEBAR_MAX_WIDTH, windowWidth);
         expect(singleDockWidth(windowWidth, displayed)).toBeGreaterThanOrEqual(TASKS_MIN_WIDTH);
         expect(displayed).toBeLessThanOrEqual(sidebarMaxWidth(windowWidth));
@@ -115,6 +119,16 @@ describe("t194/t212 narrow-window dock layout", () => {
       expect(clampSidebarWidth(480, 1440)).toBe(480);
       expect(clampSidebarWidth(100, 760)).toBe(180);
       expect(clampSidebarWidth(250, 700)).toBe(180);
+      // 1000 不是 narrow，但仍必须守住 Tasks 560。
+      expect(clampSidebarWidth(480, 1000)).toBe(434);
+    });
+
+    it("clamps a 1000 drag to 434 and keeps 1440 at 480", () => {
+      const at1000 = resizeSidebarWidth({ preferred: 250, displayed: null }, 1000, 480);
+      expect(at1000).toEqual({ preferred: 434, displayed: null });
+      expect(commitSidebarWidth(at1000, 1000).persist).toBe(true);
+      const at1440 = resizeSidebarWidth({ preferred: 250, displayed: null }, 1440, 480);
+      expect(at1440).toEqual({ preferred: 480, displayed: null });
     });
 
     it("keeps wide windows at the normal 480 max", () => {
@@ -164,6 +178,28 @@ describe("t194/t212 narrow-window dock layout", () => {
       expect(displayedSidebarWidth(narrow, 900)).toBe(194);
       expect(displayedSidebarWidth(narrow, 1440)).toBe(250);
       expect(displayedSidebarWidth({ preferred: 250, displayed: 194 }, 1440)).toBe(250);
+    });
+
+    it("clamps displayed through 960(394) → 900(334) → 760(194)", () => {
+      const at960 = { preferred: 480, displayed: 394 };
+      expect(displayedSidebarWidth(at960, 960)).toBe(394);
+      const at900 = sidebarWidthStateForWindow(at960, 900);
+      expect(at900).toEqual({ preferred: 480, displayed: 334 });
+      expect(displayedSidebarWidth(at900, 900)).toBe(334);
+      const at760 = sidebarWidthStateForWindow(at900, 760);
+      expect(at760).toEqual({ preferred: 480, displayed: 194 });
+      expect(displayedSidebarWidth(at760, 760)).toBe(194);
+      // 防御：即使外部传入未 clamp 的 displayed，也要按当前 window 再 clamp。
+      expect(displayedSidebarWidth({ preferred: 480, displayed: 999 }, 900)).toBe(334);
+      expect(displayedSidebarWidth({ preferred: 480, displayed: 999 }, 760)).toBe(194);
+    });
+
+    it("960 → 1000 clears display and clamps preferred to 434", () => {
+      const at960 = { preferred: 480, displayed: 394 };
+      const at1000 = sidebarWidthStateForWindow(at960, 1000);
+      expect(at1000).toEqual({ preferred: 480, displayed: null });
+      expect(displayedSidebarWidth(at1000, 1000)).toBe(434);
+      expect(displayedSidebarWidth(at960, 1000)).toBe(434);
     });
 
     it("wide mouseup persists preferred; narrow mouseup does not", () => {

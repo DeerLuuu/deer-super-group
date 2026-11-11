@@ -67,12 +67,12 @@ export function effectivePanelMinWidth(
 }
 
 /**
- * 侧栏宽度上限：普通宽度仍为 480；窄窗时最多把 Dock 压到 tasks 的 560 可读宽度
- * （需扣除侧栏 resizer 的 6px）。
- * 注意：只限制「显示/拖拽」宽度，不改写 localStorage 中用户保存的宽度——回到宽屏后可恢复。
+ * 侧栏宽度上限：所有窗口统一 `min(480, window - 560 - 6)`（tasks 560 + sidebar resizer 6）。
+ * - 1440：min(480, 874)=480（保留宽窗 480）
+ * - 1000：min(480, 434)=434（非 narrow 也守住 tasks 560，避免 1000 宽 handoff 时被挤）
+ * 注意：只限制「显示/拖拽」宽度，不改写 localStorage 中用户保存的 preferred——回到宽屏后可恢复。
  */
 export function sidebarMaxWidth(windowWidth: number): number {
-  if (!isNarrowWindow(windowWidth)) return SIDEBAR_MAX_WIDTH;
   return Math.max(
     SIDEBAR_MIN_WIDTH,
     Math.min(
@@ -116,10 +116,10 @@ export function displayedSidebarWidth(
   state: SidebarWidthState,
   windowWidth: number,
 ): number {
-  if (!isNarrowWindow(windowWidth)) {
-    return clampSidebarWidth(state.preferred, windowWidth);
-  }
-  return state.displayed ?? clampSidebarWidth(state.preferred, windowWidth);
+  // t214：窄窗时 displayed 也必须按「新 window 的 sidebarMaxWidth」再 clamp 一次；
+  // 宽窗忽略 displayed，直接 clamp preferred（回到 1440 恢复原值/或 480 上限）。
+  const raw = isNarrowWindow(windowWidth) ? (state.displayed ?? state.preferred) : state.preferred;
+  return clampSidebarWidth(raw, windowWidth);
 }
 
 /**
@@ -141,10 +141,14 @@ export function sidebarWidthStateForWindow(
   state: SidebarWidthState,
   windowWidth: number,
 ): SidebarWidthState {
-  if (!isNarrowWindow(windowWidth) && state.displayed !== null) {
-    return { preferred: state.preferred, displayed: null };
+  if (!isNarrowWindow(windowWidth)) {
+    return state.displayed === null ? state : { preferred: state.preferred, displayed: null };
   }
-  return state;
+  if (state.displayed === null) return state;
+  const clamped = clampSidebarWidth(state.displayed, windowWidth);
+  return clamped === state.displayed
+    ? state
+    : { preferred: state.preferred, displayed: clamped };
 }
 
 /**

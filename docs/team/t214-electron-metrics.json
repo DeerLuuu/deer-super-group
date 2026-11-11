@@ -1,0 +1,62 @@
+[
+  {
+    "file": "t214-electron-960-expanded-tasks.png",
+    "requestedWidth": 960,
+    "state": {
+      "w": 960,
+      "sidebarWidth": 56,
+      "collapsed": true
+    },
+    "metrics": {
+      "innerWidth": 960,
+      "innerHeight": 700,
+      "dpr": 1,
+      "title": "按钮工厂 · 任务 — DeerSuperGroup",
+      "hash": "#/tasks",
+      "sidebarClass": "sidebar ",
+      "sidebarWidth": 394,
+      "dockWidth": 560,
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t214-electron-900-expanded-tasks.png",
+    "requestedWidth": 900,
+    "state": {
+      "w": 900,
+      "sidebarWidth": 334,
+      "collapsed": false
+    },
+    "metrics": {
+      "innerWidth": 900,
+      "innerHeight": 700,
+      "dpr": 1,
+      "title": "按钮工厂 · 任务 — DeerSuperGroup",
+      "hash": "#/tasks",
+      "sidebarClass": "sidebar ",
+      "sidebarWidth": 334,
+      "dockWidth": 560,
+      "overflowX": false
+    }
+  },
+  {
+    "file": "t214-electron-760-expanded-tasks.png",
+    "requestedWidth": 760,
+    "state": {
+      "w": 760,
+      "sidebarWidth": 194,
+      "collapsed": false
+    },
+    "metrics": {
+      "innerWidth": 760,
+      "innerHeight": 700,
+      "dpr": 1,
+      "title": "按钮工厂 · 任务 — DeerSuperGroup",
+      "hash": "#/tasks",
+      "sidebarClass": "sidebar ",
+      "sidebarWidth": 194,
+      "dockWidth": 560,
+      "overflowX": false
+    }
+  }
+]
