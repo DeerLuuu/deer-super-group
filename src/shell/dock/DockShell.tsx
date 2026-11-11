@@ -22,6 +22,7 @@ import {
   PANEL_DEFS,
   clearStore,
   loadStore,
+  panelInsertDirection,
   routeTabFromPanel,
   saveStore,
   selectVariant,
@@ -29,6 +30,7 @@ import {
   type DockVariant,
   type PanelKey,
 } from "./panelRegistry";
+import { TASKS_MIN_WIDTH, TEAM_MIN_WIDTH } from "./narrowWindow";
 
 /**
  * t50 VSCode 风格 Dock 容器（dockview-react 8.9.0，按 docs/team/dock-layout-design.md）。
@@ -86,16 +88,17 @@ const MAX_GROUPS = 4;
 export default forwardRef<DockHandle, {
   workspaceId: string;
   dockWidth: number;
+  windowWidth: number;
   initialPanelKey: PanelKey | null;
   renderPanel: (key: PanelKey) => ReactNode;
   onActivePanelChange: (key: PanelKey) => void;
   onNotify?: (message: string) => void;
 }>(function DockShell(
-  { workspaceId, dockWidth, initialPanelKey, renderPanel, onActivePanelChange, onNotify },
+  { workspaceId, dockWidth, windowWidth, initialPanelKey, renderPanel, onActivePanelChange, onNotify },
   ref,
 ) {
   const apiRef = useRef<DockviewApi | null>(null);
-  const variantRef = useRef<DockVariant>(selectVariant(dockWidth));
+  const variantRef = useRef<DockVariant>(selectVariant(dockWidth, windowWidth));
   const workspaceIdRef = useRef(workspaceId);
   const initialKeyRef = useRef<PanelKey | null>(initialPanelKey);
   const activeKeyRef = useRef<PanelKey | null>(initialPanelKey);
@@ -130,12 +133,22 @@ export default forwardRef<DockHandle, {
 
   function ensurePanel(api: DockviewApi, key: PanelKey) {
     if (api.getPanel(key)) return;
-    if (key === "team" && api.getPanel("chat")) {
-      api.addPanel(defOptions(key, { referencePanel: "chat", direction: "right" }));
-    } else if (api.getPanel("chat")) {
-      api.addPanel(defOptions(key, { referencePanel: "chat", direction: "within" }));
-    } else {
+    if (!api.getPanel("chat")) {
       api.addPanel(defOptions(key));
+      return;
+    }
+    // t194：single 变体下 Team 不再 right split，所有面板都作为主组 tab（within）。
+    const direction = panelInsertDirection(variantRef.current, key);
+    api.addPanel(defOptions(key, { referencePanel: "chat", direction }));
+    if (direction === "right") {
+      // 保证 Team 右组不把 Tasks 主组压到 560 以下。
+      const width = dockWidthRef.current;
+      const desired = Math.max(TEAM_MIN_WIDTH, Math.round(width * 0.44));
+      const teamWidth = Math.max(TEAM_MIN_WIDTH, Math.min(desired, width - TASKS_MIN_WIDTH));
+      const groupApi = api.getPanel(key)?.group?.api as
+        | { setSize?: (event: { width?: number }) => void }
+        | undefined;
+      groupApi?.setSize?.({ width: teamWidth });
     }
   }
 
@@ -155,11 +168,17 @@ export default forwardRef<DockHandle, {
     if (variant !== "single") {
       api.addPanel(defOptions("team", { referencePanel: "chat", direction: "right" }));
       const teamPanel = api.getPanel("team");
-      const weight = variant === "wide" ? 42 : variant === "medium" ? 44 : 48;
+      const weight = variant === "wide" ? 42 : 44;
       const groupApi = teamPanel?.group?.api as
         | { setSize?: (event: { width?: number }) => void }
         | undefined;
-      groupApi?.setSize?.({ width: Math.max(360, Math.round((width * weight) / 100)) });
+      // t194：Team 右组最大宽度不能挤掉 Tasks 主组 560 可读宽度。
+      const desired = Math.max(TEAM_MIN_WIDTH, Math.round((width * weight) / 100));
+      const teamWidth = Math.max(
+        TEAM_MIN_WIDTH,
+        Math.min(desired, width - TASKS_MIN_WIDTH),
+      );
+      groupApi?.setSize?.({ width: teamWidth });
     }
     // t69：默认布局不含 runs（defaultClosed）；深链 #/tasks?...&r= 指向 Runs 时补开，
     // 与 saved layout 分支的 IF-03 行为保持一致。
@@ -173,6 +192,21 @@ export default forwardRef<DockHandle, {
           ? "chat"
           : (Object.keys(PANEL_DEFS) as PanelKey[]).find((key) => api.getPanel(key)) ?? null;
     if (target) api.getPanel(target)?.api.setActive();
+  }
+
+  /**
+   * t194：旧 single 存档可能把 Team 存在右侧独立组（历史 ensurePanel 行为）。
+   * 恢复时把 Team 收敛为主组 tab，避免 ≤960 窗口仍被 right split 裁切。
+   */
+  function reconcileSingleLayout(api: DockviewApi, variant: DockVariant) {
+    if (variant !== "single") return;
+    const chat = api.getPanel("chat");
+    const team = api.getPanel("team");
+    if (!chat || !team || team.group === chat.group) return;
+    const teamWasActive = api.activePanel?.id === "team";
+    team.api.close();
+    ensurePanel(api, "team");
+    if (teamWasActive) api.getPanel("team")?.api.setActive();
   }
 
   function rebuild(variant: DockVariant, activateKey: PanelKey | null) {
@@ -194,9 +228,11 @@ export default forwardRef<DockHandle, {
         } catch {
           /* 旧布局可能没有 settings 或已随分组关闭 */
         }
-        // reconcile：必保 chat/team；未知面板由 fromJSON 丢弃（组件缺失会抛错走 catch）
+        // reconcile：必保 chat；非 single 必保 team。single 下 Team 只在需要时作为 tab 打开，
+        // 且旧存档中的 right split 会被收敛回主组（t194）。
         ensurePanel(api, "chat");
-        ensurePanel(api, "team");
+        if (variant !== "single") ensurePanel(api, "team");
+        reconcileSingleLayout(api, variant);
         if (activateKey && !api.getPanel(activateKey)) {
           // 集成修复 IF-03（t52）：首帧深链指向的面板若在用户保存布局中被关闭，
           // 按设计 §9「关闭的面板在 hash 命中时自动重开」补开，避免深链被静默改写。
@@ -221,6 +257,8 @@ export default forwardRef<DockHandle, {
 
   const dockWidthRef = useRef(dockWidth);
   dockWidthRef.current = dockWidth;
+  const windowWidthRef = useRef(windowWidth);
+  windowWidthRef.current = windowWidth;
 
   function flushSave() {
     const api = apiRef.current;
@@ -274,22 +312,23 @@ export default forwardRef<DockHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 变体切换（§11）：flush 旧变体 → 按新变体缓存/默认重建，保持激活面板。
+  // 变体切换（§11 + t194）：flush 旧变体 → 按新变体缓存/默认重建，保持激活面板。
+  // windowWidth 参与判定：≤960 即使 Dock 变宽也固定 single，避免窄窗 Team right split。
   useEffect(() => {
-    const next = selectVariant(dockWidth);
+    const next = selectVariant(dockWidth, windowWidth);
     if (next === variantRef.current) return;
     flushSave();
     variantRef.current = next;
     rebuild(next, activeKeyRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dockWidth]);
+  }, [dockWidth, windowWidth]);
 
   // 工作区切换：flush 旧存档，按新工作区重建（首用 = 默认布局）。
   useEffect(() => {
     if (workspaceIdRef.current === workspaceId) return;
     flushSave();
     workspaceIdRef.current = workspaceId;
-    variantRef.current = selectVariant(dockWidthRef.current);
+    variantRef.current = selectVariant(dockWidthRef.current, windowWidthRef.current);
     rebuild(variantRef.current, activeKeyRef.current ?? initialKeyRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);

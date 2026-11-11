@@ -7637,3 +7637,61 @@ samp {
 body li {
   font-size: 12.5px !important;
 }
+
+/* === t194 P0-1 窄窗自适应 ============================================ */
+/* Tasks 面板在 single 变体可能只有 560px：容器宽度而不是窗口宽度触发单列，
+   任务列表压到顶部限高，详情占剩余高度，避免 resize/工具栏把内容挤出横向。 */
+.dock-panel-body[data-panel="tasks"] {
+  container-type: inline-size;
+  container-name: tasks-panel;
+}
+
+@container tasks-panel (max-width: 640px) {
+  .tasks-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(150px, 230px) minmax(0, 1fr);
+  }
+  .tasks-layout > .scheduler-bar {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .tasks-layout > .task-list-panel {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+  }
+  .tasks-layout > .task-resizer {
+    display: none;
+  }
+  .tasks-layout > .task-detail-panel {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .tasks-layout.collapsed {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .tasks-layout.collapsed > .task-detail-panel {
+    grid-row: 2;
+  }
+}
+
+/* Team 在 single 窄容器下从「成员列 + 星图」改为纵向：成员横排限高、星图全宽、
+   任务摘要不再限 190px，避免 560px 主区出现横向裁切。 */
+@container team (max-width: 620px) {
+  .team-middle {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .team-members {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 200px;
+  }
+  .team-map-panel {
+    flex: 0 0 auto;
+    min-height: 320px;
+  }
+  .team-task-detail {
+    max-height: none;
+  }
+}
