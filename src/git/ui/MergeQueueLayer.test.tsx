@@ -1,5 +1,6 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The repository has no jsdom/RTL; make Modal's portal render in-place for this
@@ -135,5 +136,68 @@ describe("t198 MergeQueue is a first-class modal layer", () => {
     });
     expect(root.inert).toBe(false);
     expect(trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases inert and restores trigger focus when the queue is closed", async () => {
+    const keyHandlers: Array<(event: KeyboardEvent) => void> = [];
+    const root = new FakeElement();
+    const trigger = new FakeElement();
+    (globalThis as { HTMLElement?: unknown }).HTMLElement = FakeElement;
+    (globalThis as { document?: unknown }).document = {
+      activeElement: trigger,
+      body: { style: {} },
+      getElementById: (id: string) => (id === "root" ? root : null),
+      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
+        if (type === "keydown") keyHandlers.push(handler);
+      },
+      removeEventListener: () => {},
+    };
+    (globalThis as { window?: unknown }).window = {
+      confirm: () => true,
+      setInterval: () => 0,
+      clearInterval: () => {},
+      deer: {
+        mergeQueue: async () => ({ items: [], activeMerge: null }),
+      },
+    };
+
+    function QueueHarness({ onClosed }: { onClosed: () => void }) {
+      const [open, setOpen] = useState(true);
+      return (
+        <MergeQueueModal
+          workspaceId="w1"
+          open={open}
+          onClose={() => {
+            onClosed();
+            setOpen(false);
+          }}
+        />
+      );
+    }
+
+    const onClosed = vi.fn();
+    let renderer: { unmount: () => void } | null = null;
+    await act(async () => {
+      renderer = create(<QueueHarness onClosed={onClosed} />);
+      await Promise.resolve();
+    });
+    expect(root.inert).toBe(true);
+    expect(hasOpenModal()).toBe(true);
+    const event = {
+      key: "Escape",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    await act(async () => {
+      for (const handler of keyHandlers) handler(event);
+      await Promise.resolve();
+    });
+    expect(onClosed).toHaveBeenCalledTimes(1);
+    expect(root.inert).toBe(false);
+    expect(hasOpenModal()).toBe(false);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      renderer?.unmount();
+    });
   });
 });
