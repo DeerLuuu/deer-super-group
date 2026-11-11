@@ -3,6 +3,7 @@ import type { Agent } from "../shared/types";
 import {
   hasHighRiskTask,
   planContractForTask,
+  planDraftFingerprint,
   type PlanDraft,
   type PlanDraftTask,
   type PlanIssue,
@@ -24,6 +25,7 @@ function issueFor(issues: PlanIssue[], taskId: string, code: string): PlanIssue 
 export default function PlanDraftPanel({
   draft,
   source,
+  sourceChanged,
   issues,
   agents,
   busy,
@@ -37,6 +39,7 @@ export default function PlanDraftPanel({
 }: {
   draft: PlanDraft | null;
   source: PlanSource | null;
+  sourceChanged: boolean;
   issues: PlanIssue[];
   agents: readonly Agent[];
   busy: boolean;
@@ -49,28 +52,62 @@ export default function PlanDraftPanel({
   onRetry: () => void;
 }) {
   const [ack, setAck] = useState(false);
+  const [ackNotice, setAckNotice] = useState("");
   const firstTitleRef = useRef<HTMLInputElement | null>(null);
   const taskTitleRefs = useRef(new Map<string, HTMLInputElement | null>());
   const pendingFocusRef = useRef<string | null>(null);
+  const previousDraftRef = useRef<PlanDraft | null>(null);
+  const draftFingerprintRef = useRef("");
   const tasks = draft?.tasks ?? [];
   const errors = issues.filter((issue) => issue.severity === "error");
   const highRisk = hasHighRiskTask(tasks);
   const canConfirm =
-    Boolean(draft) && !busy && !confirming && errors.length === 0 && (!highRisk || ack);
+    Boolean(draft) &&
+    !sourceChanged &&
+    !busy &&
+    !confirming &&
+    errors.length === 0 &&
+    (!highRisk || ack);
+  const confirmBlockReason = sourceChanged
+    ? "目标已修改，请重新生成草案后再确认"
+    : !draft
+      ? "尚无草案"
+      : errors.length > 0
+        ? `当前有 ${errors.length} 个校验错误`
+        : highRisk && !ack
+          ? "请勾选高风险确认"
+          : busy
+            ? "正在生成草案"
+            : confirming
+              ? "正在创建任务"
+              : "";
 
   useEffect(() => {
+    const fingerprint = `${source?.digest ?? ""}:${draft ? planDraftFingerprint(draft) : ""}`;
+    if (fingerprint === draftFingerprintRef.current) return;
+    if (draftFingerprintRef.current && ack) {
+      setAckNotice("草案已修改，请重新确认高风险项。");
+    }
+    draftFingerprintRef.current = fingerprint;
     setAck(false);
-  }, [draft?.source.digest, draft?.tasks]);
+  }, [draft, source, ack]);
 
   useEffect(() => {
+    const previous = previousDraftRef.current;
+    previousDraftRef.current = draft;
+    if (!draft) return;
+    const firstArrival = !previous || previous.source.digest !== draft.source.digest;
+    if (firstArrival) {
+      pendingFocusRef.current = null;
+      firstTitleRef.current?.focus();
+      return;
+    }
     const pending = pendingFocusRef.current;
     if (pending) {
       pendingFocusRef.current = null;
       taskTitleRefs.current.get(pending)?.focus();
-      return;
     }
-    if (!busy && draft?.tasks.length) firstTitleRef.current?.focus();
-  }, [busy, draft?.source.digest, draft?.tasks]);
+  }, [draft]);
 
   function patchTask(taskId: string, patch: Partial<PlanDraftTask>) {
     if (!draft) return;
@@ -171,6 +208,11 @@ export default function PlanDraftPanel({
             <span className="mono">digest {source.digest.slice(0, 8)}</span>
             {source.summary ? <span>含压缩摘要</span> : null}
           </div>
+          {sourceChanged ? (
+            <div className="notice small plan-draft-source-changed" role="status">
+              目标已修改；当前草案仍保留，但确认已禁用。请重新生成草案，或把目标改回原值。
+            </div>
+          ) : null}
         </>
       ) : null}
 
@@ -250,19 +292,12 @@ export default function PlanDraftPanel({
                         }
                       >
                         <option value="">未分配</option>
-                        {agents
-                          .filter((agent) => !agent.isRouter)
-                          .map((agent) => (
-                            <option key={agent.id} value={agent.id}>
-                              {agent.name}
-                            </option>
-                          ))}
-                        {task.ownerId &&
-                        agents.find((agent) => agent.id === task.ownerId)?.isRouter ? (
-                          <option value={task.ownerId}>
-                            {agents.find((agent) => agent.id === task.ownerId)?.name}（Router，不建议）
+                        {agents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name}
+                            {agent.isRouter ? "（Router，不建议分配）" : ""}
                           </option>
-                        ) : null}
+                        ))}
                       </select>
                     </label>
                     <label>
@@ -373,19 +408,35 @@ export default function PlanDraftPanel({
 
           {highRisk ? (
             <label className="plan-draft-risk-ack">
-              <input type="checkbox" checked={ack} onChange={(event) => setAck(event.target.checked)} />
+              <input
+                type="checkbox"
+                checked={ack}
+                onChange={(event) => {
+                  setAck(event.target.checked);
+                  setAckNotice("");
+                }}
+              />
               我已确认草案包含删除/迁移/权限/密钥等高风险操作
             </label>
+          ) : null}
+          {ackNotice ? (
+            <div className="plan-draft-ack-note muted tiny" role="status">
+              {ackNotice}
+            </div>
           ) : null}
 
           <footer className="plan-draft-foot">
             <span className="muted tiny">
               {tasks.length} 个任务 · {errors.length} 个错误 · 确认后一次创建 DAG，不自动运行
             </span>
+            <span id="plan-draft-confirm-summary" className="muted tiny" role="status">
+              {confirmBlockReason}
+            </span>
             <button
               type="button"
               className="primary"
               disabled={!canConfirm}
+              aria-describedby={canConfirm ? undefined : "plan-draft-confirm-summary"}
               onClick={() => onConfirm(ack)}
             >
               {confirming ? "创建中…" : "确认创建"}

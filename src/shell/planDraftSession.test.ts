@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolvePlanGoal } from "../App.js";
 import {
   isPlanDraftDirty,
+  isPlanDraftSourceChanged,
   PlanPreviewGate,
   planDraftLeaveDisposition,
   planDraftLeaveMessage,
@@ -40,5 +41,10 @@ describe("t237 plan draft session", () => {
     expect(planDraftLeaveMessage("workspace")).toContain("切换工作区");
     expect(planDraftLeaveMessage("replace")).toContain("重新规划");
     expect(planDraftLeaveMessage("close")).toContain("保留");
+    const draft = { source, tasks: [] };
+    expect(isPlanDraftSourceChanged(draft, source)).toBe(false);
+    expect(
+      isPlanDraftSourceChanged(draft, buildPlanSource({ goal: "changed", messages: [] })),
+    ).toBe(true);
   });
 });

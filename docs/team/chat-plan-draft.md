@@ -70,15 +70,15 @@ Chat 输入目标（或已有最近 user message）
 新增测试：
 - `src/shared/planDraft.test.ts`（4）：source digest/空/12k、parse/坏 JSON、环/缺失/自依赖/owner/验收 warning、fingerprint 稳定性。
 - `src/kernel/planDraft.test.ts`（7）：preview 零副作用；source 超限/伪造 count/digest；confirm DAG/幂等；create/append 故障回滚；cycle/高风险 ack。
-- `src/shell/PlanDraftPanel.test.tsx`（4）：来源/契约/添加/确认/取消；高风险/错误禁用；ack 重置；aria-describedby。
-- `src/shell/planDraftSession.test.ts`（3）：preview gate、undefined vs 空串、dirty/close preserve。
-- `src/shell/planEntryApp.test.ts`（2）：Tasks/WorkflowRail/CommandPalette 路由与旧 UI 守卫。
+- `src/shell/PlanDraftPanel.test.tsx`（8）：来源/契约/添加/确认/取消；高风险/错误禁用；ack 重置+提示；aria-describedby/live；首标题/pending focus；goal sourceChanged 保留 draft；Router option。
+- `src/shell/planDraftSession.test.ts`（3）：preview gate、undefined vs 空串、dirty/close preserve、sourceChanged。
+- `src/shell/planEntryApp.test.ts`（3）：Tasks/WorkflowRail/CommandPalette 路由、旧 UI 守卫、goal 修改保留 draft。
 - `src/kernel/chatTurnUi.test.tsx` 新增 Chat 规划入口点击测试。
 
 ```text
 pnpm typecheck   # exit 0
-pnpm build       # exit 0（419 modules；css 253.49 kB/gzip 30.93；js 1,260.95 kB/gzip 347.56）
-pnpm test        # exit 0（73 files / 690 tests）
+pnpm build       # exit 0（419 modules；css 253.49 kB/gzip 30.93；js 1,261.98 kB/gzip 347.94）
+pnpm test        # exit 0（73 files / 694 tests）
 ```
 
 ## 5. 1440 / 960 截图
@@ -99,7 +99,15 @@ pnpm test        # exit 0（73 files / 690 tests）
 - **owner/孤儿**：Router owner 给 `TASK_OWNER_ROUTER` warning；多任务中无依赖且无后继给 `TASK_ORPHAN` warning；UI 对 Router owner 显示不可分配提示。
 - **a11y/ack**：source/draft 变化重置高风险 ack；issues 加 `aria-live`/`aria-describedby`；增删移动后聚焦新增/受影响任务。
 
-## 7. 限制 / 后续
+## 7. t239 repair-round-3（焦点/目标保留/a11y）
+
+- **focus 拆分**：首标题只在 draft 首次到达或重新生成时聚焦；增删/移动只在 `pendingFocusRef` 存在时聚焦新增/受影响任务；普通 `patchTask` 不移动焦点。
+- **goal 修改不丢 draft**：目标编辑保留当前草案，但 `sourceChanged` 禁用确认并显示“目标已修改，请重新生成”；App confirm 也会二次拒绝；取消目标编辑可通过改回原 digest 恢复。
+- **owner select**：Router 作为可见选项显示“（Router，不建议分配）”；validator 对应 `TASK_OWNER_ROUTER` warning，与 UI 一致。
+- **confirm a11y**：disabled 时 `aria-describedby=plan-draft-confirm-summary`，摘要包含当前 error/高风险/sourceChanged 原因。
+- **ack 可见重置**：draft fingerprint 变化时重置 ack，并显示“草案已修改，请重新确认高风险项”；同版本普通编辑不重复解释。
+
+## 8. 限制 / 后续
 
 - 逐任务 model/permission/FT override 按裁决留 P1-5；当前 chip 只读来源契约。
 - Source digest 由 UI 捕获；服务端请求只带 digest（无聊天正文）用于事件/幂等标识，完整 source 不落库。

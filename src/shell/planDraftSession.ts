@@ -35,6 +35,14 @@ export function isPlanDraftDirty(
   return Boolean(source.goal.trim() || source.messages.length);
 }
 
+/** Goal edits keep the old draft visible but block confirm until regenerated. */
+export function isPlanDraftSourceChanged(
+  draft: PlanDraft | null,
+  source: PlanSource | null,
+): boolean {
+  return Boolean(draft && source && draft.source.digest !== source.digest);
+}
+
 export function planDraftLeaveMessage(reason: PlanDraftLeaveReason): string {
   switch (reason) {
     case "cancel":

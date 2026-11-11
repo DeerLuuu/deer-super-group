@@ -84,6 +84,7 @@ import { useMergeQueue } from "./shell/useMergeQueue";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
 import {
   isPlanDraftDirty,
+  isPlanDraftSourceChanged,
   PlanPreviewGate,
   planDraftLeaveDisposition,
   planDraftLeaveMessage,
@@ -2064,17 +2065,20 @@ export default function App() {
   function handlePlanGoalChange(goal: string) {
     const next = planSourceFromChat(goal);
     setPlanSource(next);
-    setPlanDraft(null);
-    setPlanIssues(planSourceIssues(next));
+    setPlanIssues([
+      ...planSourceIssues(next),
+      ...(planDraft
+        ? validatePlanDraft(planDraft.tasks, { agents: snapshot?.agents ?? [] })
+        : []),
+    ]);
     setPlanError(null);
     invalidatePlanPreview();
   }
 
   function handlePlanDraftChange(next: PlanDraft) {
     setPlanDraft(next);
-    setPlanSource(next.source);
     setPlanIssues([
-      ...planSourceIssues(next.source),
+      ...planSourceIssues(planSource ?? next.source),
       ...validatePlanDraft(next.tasks, { agents: snapshot?.agents ?? [] }),
     ]);
     planConfirmKeyRef.current = planDraftFingerprint(next);
@@ -2083,6 +2087,10 @@ export default function App() {
   async function handleConfirmPlan(ackHighRisk: boolean) {
     const current = snapshotRef.current;
     if (!current || !planDraft || planBusy || planConfirming) return;
+    if (isPlanDraftSourceChanged(planDraft, planSource)) {
+      setPlanError("目标已修改，当前草案对应的目标已过期；请重新生成后再确认。");
+      return;
+    }
     setPlanConfirming(true);
     setPlanError(null);
     try {
@@ -3081,6 +3089,7 @@ export default function App() {
                     <PlanDraftPanel
                       draft={planDraft}
                       source={planSource}
+                      sourceChanged={isPlanDraftSourceChanged(planDraft, planSource)}
                       issues={planIssues}
                       agents={snapshot.agents}
                       busy={planBusy}

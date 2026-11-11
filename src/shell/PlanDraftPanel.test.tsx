@@ -1,5 +1,6 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { PlanDraft, PlanDraftTask, PlanSource } from "../shared/planDraft.js";
 import PlanDraftPanel from "./PlanDraftPanel.js";
@@ -70,6 +71,7 @@ describe("t231 PlanDraftPanel", () => {
         <PlanDraftPanel
           draft={draft([task("a", "First"), task("b", "Second", { dependsOn: ["a"] })])}
           source={source()}
+          sourceChanged={false}
           issues={[]}
           agents={[]}
           busy={false}
@@ -117,6 +119,7 @@ describe("t231 PlanDraftPanel", () => {
         <PlanDraftPanel
           draft={draftValue}
           source={source()}
+          sourceChanged={false}
           issues={[
             {
               code: "TASK_TITLE_EMPTY",
@@ -139,6 +142,7 @@ describe("t231 PlanDraftPanel", () => {
     });
     const confirm = renderer!.root.findAllByType("button").find((button) => textOf(button.children).includes("确认创建"));
     expect(confirm!.props.disabled).toBe(true);
+    expect(confirm!.props["aria-describedby"]).toBe("plan-draft-confirm-summary");
     expect(textOf(renderer!.toJSON())).toContain("任务标题不能为空");
     const ack = renderer!.root.findAllByType("input").find((input) => input.props.type === "checkbox");
     expect(ack).toBeTruthy();
@@ -154,6 +158,7 @@ describe("t231 PlanDraftPanel", () => {
     const high = draft([task("a", "Delete migration secret", { description: "delete data" })]);
     const props = {
       source: source(),
+      sourceChanged: false,
       issues: [],
       agents: [],
       busy: false,
@@ -188,6 +193,7 @@ describe("t231 PlanDraftPanel", () => {
     });
     expect((ack()!.props.checked as boolean)).toBe(false);
     expect(confirm()!.props.disabled).toBe(true);
+    expect(textOf(renderer!.toJSON())).toContain("草案已修改");
   });
 
   it("links validation issues to the task title with aria-describedby", async () => {
@@ -197,6 +203,7 @@ describe("t231 PlanDraftPanel", () => {
         <PlanDraftPanel
           draft={draft([task("a", "")])}
           source={source()}
+          sourceChanged={false}
           issues={[
             { code: "TASK_TITLE_EMPTY", severity: "error", message: "任务标题不能为空", taskId: "a" },
           ]}
@@ -220,11 +227,13 @@ describe("t231 PlanDraftPanel", () => {
 
   it("focuses the first task title when a draft arrives", async () => {
     const focus = vi.fn();
+    let renderer: ReturnType<typeof create> | null = null;
     await act(async () => {
-      create(
+      renderer = create(
         <PlanDraftPanel
           draft={draft([task("a", "First")])}
           source={source()}
+          sourceChanged={false}
           issues={[]}
           agents={[]}
           busy={false}
@@ -242,6 +251,138 @@ describe("t231 PlanDraftPanel", () => {
         },
       );
     });
-    expect(focus).toHaveBeenCalled();
+    expect(focus).toHaveBeenCalledTimes(1);
+    await act(() => {
+      renderer!.update(
+        <PlanDraftPanel
+          draft={draft([task("a", "First edited")])}
+          source={source()}
+          sourceChanged={false}
+          issues={[]}
+          agents={[]}
+          busy={false}
+          error={null}
+          confirming={false}
+          onDraftChange={() => {}}
+          onGoalChange={() => {}}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+          onRetry={() => {}}
+        />,
+      );
+    });
+    // A normal patch must not steal focus back to the title.
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the draft visible but disables confirm when the goal source changed", async () => {
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <PlanDraftPanel
+          draft={draft([task("a", "Existing task")])}
+          source={source()}
+          sourceChanged
+          issues={[]}
+          agents={[]}
+          busy={false}
+          error={null}
+          confirming={false}
+          onDraftChange={() => {}}
+          onGoalChange={() => {}}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+          onRetry={() => {}}
+        />,
+      );
+    });
+    const title = renderer!.root.findAllByType("input")[0];
+    expect(title!.props.value).toBe("Existing task");
+    expect(textOf(renderer!.toJSON())).toContain("目标已修改");
+    const confirm = renderer!.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("确认创建"));
+    expect(confirm!.props.disabled).toBe(true);
+    expect(confirm!.props["aria-describedby"]).toBe("plan-draft-confirm-summary");
+    expect(textOf(renderer!.toJSON())).toContain("目标已修改，请重新生成草案后再确认");
+  });
+
+  it("shows Router as a visible owner option with a warning", async () => {
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <PlanDraftPanel
+          draft={draft([task("a", "Task")])}
+          source={source()}
+          sourceChanged={false}
+          issues={[
+            {
+              code: "TASK_OWNER_ROUTER",
+              severity: "warning",
+              message: "Router 是协调者，不建议作为任务负责人；确认后请改派成员",
+              taskId: "a",
+            },
+          ]}
+          agents={[
+            {
+              id: "router",
+              name: "Router",
+              isRouter: true,
+              model: null,
+              permission: "auto_risk",
+            } as never,
+          ]}
+          busy={false}
+          error={null}
+          confirming={false}
+          onDraftChange={() => {}}
+          onGoalChange={() => {}}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+          onRetry={() => {}}
+        />,
+      );
+    });
+    expect(textOf(renderer!.toJSON())).toContain("（Router，不建议分配）");
+    expect(textOf(renderer!.toJSON())).toContain("不建议作为任务负责人");
+  });
+
+  it("focuses a newly added task without moving focus on normal edits", async () => {
+    let focusCalls = 0;
+    function Harness() {
+      const [draftValue, setDraftValue] = useState(draft([task("a", "First")]));
+      return (
+        <PlanDraftPanel
+          draft={draftValue}
+          source={source()}
+          sourceChanged={false}
+          issues={[]}
+          agents={[]}
+          busy={false}
+          error={null}
+          confirming={false}
+          onDraftChange={setDraftValue}
+          onGoalChange={() => {}}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+          onRetry={() => {}}
+        />
+      );
+    }
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<Harness />, {
+        createNodeMock: (element) =>
+          element.type === "input" ? { focus: () => (focusCalls += 1) } : undefined,
+      });
+    });
+    const initial = focusCalls;
+    const add = renderer!.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("添加任务"));
+    await act(() => {
+      (add!.props.onClick as () => void)();
+    });
+    expect(focusCalls).toBeGreaterThan(initial);
   });
 });

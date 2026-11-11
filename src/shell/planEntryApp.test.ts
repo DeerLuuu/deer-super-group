@@ -20,4 +20,13 @@ describe("t235 App plan entry contract", () => {
     expect(appSource).not.toContain("setPlanOpen(true)");
     expect(appSource).toContain("onPlanDraft");
   });
+
+  it("keeps the draft when the goal changes and blocks stale confirmation", () => {
+    const start = appSource.indexOf("function handlePlanGoalChange");
+    const end = appSource.indexOf("function handlePlanDraftChange");
+    const goalBlock = appSource.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(goalBlock).not.toContain("setPlanDraft(null)");
+    expect(appSource).toContain("isPlanDraftSourceChanged(planDraft, planSource)");
+  });
 });
