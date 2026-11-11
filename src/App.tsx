@@ -260,6 +260,26 @@ function errorText(error: unknown): string {
   return formatError(error);
 }
 
+export type WorkflowStageNavigation = {
+  panel: "chat" | "tasks" | "board" | "merge";
+  taskId?: string;
+  review?: boolean;
+};
+
+/** P0-3：阶段 CTA 的目标仅由阶段/task 决定；App 与测试共用，避免文案与行为漂移。 */
+export function workflowStageNavigation(
+  stage: WorkflowStage,
+  taskId: string | null,
+): WorkflowStageNavigation {
+  if (stage === "discuss") return { panel: "chat" };
+  if (stage === "deliver") return { panel: "merge" };
+  if (stage === "remember") return { panel: "board" };
+  if (stage === "review") {
+    return { panel: "tasks", ...(taskId ? { taskId } : {}), review: true };
+  }
+  return { panel: "tasks", ...(taskId ? { taskId } : {}) };
+}
+
 function payloadText(payload: unknown): string {
   if (typeof payload === "string") return payload;
   try {
@@ -2268,25 +2288,25 @@ export default function App() {
 
   /** P0-3：阶段入口只复用现有面板/任务/队列入口，不新增事实或状态机。 */
   function handleWorkflowStage(stage: WorkflowStage, taskId: string | null) {
-    switch (stage) {
-      case "discuss":
-        openPanel("chat");
-        return;
-      case "plan":
-      case "run":
-        if (taskId) handleOpenTaskPage(taskId);
-        else openPanel("tasks");
-        return;
-      case "review":
-        handleOpenTaskReview(taskId);
-        return;
-      case "deliver":
-        handleOpenMergeQueue();
-        return;
-      case "remember":
-        openPanel("board");
-        return;
+    const target = workflowStageNavigation(stage, taskId);
+    if (target.panel === "merge") {
+      handleOpenMergeQueue();
+      return;
     }
+    if (target.panel === "chat") {
+      openPanel("chat");
+      return;
+    }
+    if (target.panel === "board") {
+      openPanel("board");
+      return;
+    }
+    if (target.review) {
+      handleOpenTaskReview(target.taskId ?? null);
+      return;
+    }
+    if (target.taskId) handleOpenTaskPage(target.taskId);
+    else openPanel("tasks");
   }
 
   function handleNeedsMeItem(item: NeedsMeItem) {
