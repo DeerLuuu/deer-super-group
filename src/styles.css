@@ -2045,31 +2045,61 @@ label.check input {
   letter-spacing: 0.02em;
 }
 
-.chat-turn-reasoning > summary {
+.chat-turn-reasoning-head {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-turn-reasoning-collapse {
+  display: inline-flex;
   align-items: baseline;
   gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #c084fc;
+  font: inherit;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
-  list-style: none;
 }
 
-.chat-turn-reasoning > summary::-webkit-details-marker {
-  display: none;
-}
-
-.chat-turn-reasoning > summary::before {
-  content: "▸";
-  margin-right: 3px;
+.chat-turn-reasoning-chevron {
   color: var(--muted);
   font-size: 9px;
 }
 
-.chat-turn-reasoning[open] > summary::before {
-  content: "▾";
+.chat-turn-view-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.chat-turn-view-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+
+.chat-turn-view-toggle button.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--text);
+}
+
+.chat-turn-reasoning-body {
+  display: grid;
+  gap: 3px;
 }
 
 .chat-turn-reasoning pre,

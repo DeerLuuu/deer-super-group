@@ -5058,36 +5058,89 @@ function ChatTurnStep({
         )}
       </div>
       {step.reasoning.map((segment) => (
-        <details
-          className="chat-turn-reasoning"
+        <ChatReasoningBlock
           key={segment.id}
+          segment={segment}
           open={open}
-          onToggle={(event) => setOpen(event.currentTarget.open)}
+          onToggle={() => setOpen((value) => !value)}
+        />
+      ))}
+      {step.tools.map((tool) => (
+        <ChatToolItem key={tool.callId} tool={tool} />
+      ))}
+    </div>
+  );
+}
+
+function ChatReasoningBlock({
+  segment,
+  open,
+  onToggle,
+}: {
+  segment: ChatReasoningSegment;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const [view, setView] = useState<"original" | "translation">("translation");
+  const hasTranslation =
+    segment.status === "done" &&
+    Boolean(segment.translation?.trim()) &&
+    segment.translation?.trim() !== segment.text.trim();
+  const showTranslation = view === "translation" && hasTranslation;
+  return (
+    <div className="chat-turn-reasoning">
+      <div className="chat-turn-reasoning-head">
+        <button
+          type="button"
+          className="chat-turn-reasoning-collapse"
+          aria-expanded={open}
+          onClick={onToggle}
         >
-          <summary>
-            <span>思考</span>
-            <span className="muted tiny"> · {segment.text.length} 字</span>
-          </summary>
-          <pre>{segment.text}</pre>
+          <span className="chat-turn-reasoning-chevron" aria-hidden="true">
+            {open ? "▾" : "▸"}
+          </span>
+          <span>思考</span>
+          <span className="muted tiny"> · {segment.text.length} 字</span>
+        </button>
+        {open && hasTranslation && (
+          <div className="chat-turn-view-toggle" role="group" aria-label="思考显示方式">
+            <button
+              type="button"
+              className={view === "original" ? "active" : ""}
+              aria-pressed={view === "original"}
+              onClick={() => setView("original")}
+            >
+              原文
+            </button>
+            <button
+              type="button"
+              className={view === "translation" ? "active" : ""}
+              aria-pressed={view === "translation"}
+              onClick={() => setView("translation")}
+            >
+              译文
+            </button>
+          </div>
+        )}
+      </div>
+      {open && (
+        <div className="chat-turn-reasoning-body">
+          {showTranslation ? (
+            <div className="chat-turn-translation">
+              <div className="chat-turn-translation-label">机翻 · Bing</div>
+              <pre>{segment.translation}</pre>
+            </div>
+          ) : (
+            <pre>{segment.text}</pre>
+          )}
           {segment.status === "loading" && (
             <div className="chat-turn-translation-status">机翻中…</div>
           )}
           {segment.status === "error" && (
             <div className="chat-turn-translation-status is-error">机翻失败</div>
           )}
-          {segment.status === "done" &&
-            segment.translation &&
-            segment.translation.trim() !== segment.text.trim() && (
-              <div className="chat-turn-translation">
-                <div className="chat-turn-translation-label">机翻 · Bing</div>
-                <pre>{segment.translation}</pre>
-              </div>
-            )}
-        </details>
-      ))}
-      {step.tools.map((tool) => (
-        <ChatToolItem key={tool.callId} tool={tool} />
-      ))}
+        </div>
+      )}
     </div>
   );
 }
