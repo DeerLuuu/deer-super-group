@@ -127,7 +127,11 @@ pnpm test        # exit 0（49 files / 546 tests）
 - `src/kernel/chatTurnService.test.ts`：3 个服务用例（类型/agent 校验、before/hasMore/工具归属、非法游标）。
 - 全量 49 files / 546 tests 通过；原有 Chat trajectory/context/translate 测试不回归。
 
-## 7. 已知限制 / 后续
+## 7. UI 证据
+
+`docs/team/t168-chat-history.png`（Electron fixture，2026-11-11）：刷新后历史 assistant 在同一气泡内显示「执行过程（2 步 · 3 次工具 · 历史记录）」；展开 step 后可见思考分段、`fs.read` / `git.status` 中文名与参数/结果，最终回复在 process 之后。
+
+## 8. 已知限制 / 后续
 
 - P1：事件没有 schema 级 `turnId`，多 assistant + 晚到事件仍依赖时间窗口；后续可选 additive payload，不改变本期。
 - P1：事件读取窗口 2000 条；极端长会话更早页可能只有消息降级（不伪造过程）。
