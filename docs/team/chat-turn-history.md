@@ -119,8 +119,8 @@ getChatTurns(
 
 ```text
 pnpm typecheck   # exit 0
-pnpm build       # exit 0（405 modules；css 243.95 kB / gzip 29.33；js 1,220.30 kB / gzip 334.15；main 1.5mb、preload 11.7kb）
-pnpm test        # exit 0（49 files / 550 tests）
+pnpm build       # exit 0（406 modules；css 243.95 kB / gzip 29.33；js 1,220.34 kB / gzip 334.14；main 1.5mb、preload 11.7kb）
+pnpm test        # exit 0（50 files / 550 tests）
 ```
 
 专项：
@@ -128,7 +128,7 @@ pnpm test        # exit 0（49 files / 550 tests）
 - `src/kernel/chatTurnProjection.test.ts`：10 个投影用例（单轮/多 step、多 assistant、无 step、callId synthetic、孤立 result、orphan、message.reasoning 降级/去重、分页、容量截断、include 开关、UI step 映射）。
 - `src/kernel/chatTranslationMemo.test.ts`：4 个翻译缓存用例（并发/重复去重、实时 prime 复用、失败不缓存/clear、容量上限）。
 - `src/kernel/chatTurnService.test.ts`：3 个服务用例（类型/agent 校验、before/hasMore/工具归属、非法游标）。
-- 全量 49 files / 550 tests 通过；原有 Chat trajectory/context/translate 测试不回归。
+- 全量 50 files / 550 tests 通过；原有 Chat trajectory/context/translate 测试不回归。
 
 ## 7. UI 证据
 
