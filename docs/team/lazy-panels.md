@@ -96,7 +96,7 @@ dist/assets/vendor-dockview-DxqvY0f4.css   136.04 kB │ gzip: 10.89 kB
   - [t327-1440-fallback.png](t327-1440-fallback.png)
   - [t327-960-fallback.png](t327-960-fallback.png)
   - [t327-480-fallback.png](t327-480-fallback.png)
-- 全量：`pnpm test -- --testTimeout=20000 --maxWorkers=2` → **114 文件 / 838 用例** 全绿（待最终复跑确认）。
+- 全量：`pnpm test -- --testTimeout=20000 --maxWorkers=2` → **114 文件 / 838 用例** 全绿。
 
 ---
 
