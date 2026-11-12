@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -39,6 +40,26 @@ import type {
   Workspace,
 } from "./shared/types";
 import { DEFAULT_MAX_DOCK_GROUPS } from "./shared/types";
+import {
+  MAILBOX_MAX_INDENT,
+  deriveMailboxThreads,
+  filterMailboxThreads,
+  mailboxParticipants,
+  mailboxReadStorageKey,
+  parseMailboxReadIds,
+  pruneMailboxReadIds,
+  serializeMailboxReadIds,
+  totalMailboxUnread,
+  type MailboxThread,
+} from "./shared/mailboxThreads";
+import {
+  captureMailboxScrollState,
+  parseMailboxScrollState,
+  restoreMailboxScrollTop,
+  serializeMailboxScrollState,
+  type MailboxScrollItem,
+  type MailboxScrollState,
+} from "./shell/mailboxScroll";
 import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
 import EmptyState from "./EmptyState";
@@ -543,6 +564,8 @@ export default function App() {
   } | null>(null);
   // C12：邮箱 / 黑板选中项提升到 App，进入 hash 深链。
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  // t356：read state 是 UI-only（localStorage），不新增数据源/DB 字段。
+  const [mailboxReadIds, setMailboxReadIds] = useState<Set<string>>(() => new Set());
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
   // t69：调度与 Run 可观测状态（调度器快照 + 当前任务 Run 历史）。
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -1539,6 +1562,36 @@ export default function App() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    const workspaceId = snapshot?.workspace.id;
+    if (!workspaceId) return;
+    try {
+      setMailboxReadIds(
+        parseMailboxReadIds(localStorage.getItem(mailboxReadStorageKey(workspaceId))),
+      );
+    } catch {
+      setMailboxReadIds(new Set());
+    }
+  }, [snapshot?.workspace.id]);
+
+  useEffect(() => {
+    const workspaceId = snapshot?.workspace.id;
+    if (!workspaceId || !snapshot || snapshot.messages.length === 0) return;
+    setMailboxReadIds((previous) => {
+      const next = pruneMailboxReadIds(
+        previous,
+        snapshot.messages.map((message) => message.id),
+      );
+      if (next.size === previous.size) return previous;
+      try {
+        localStorage.setItem(mailboxReadStorageKey(workspaceId), serializeMailboxReadIds(next));
+      } catch {
+        // localStorage 不可用时仍保留会话内已读状态。
+      }
+      return next;
+    });
+  }, [snapshot?.workspace.id, snapshot?.messages]);
 
   useEffect(() => {
     const coordinator = new RefreshCoordinator({
@@ -2967,11 +3020,28 @@ export default function App() {
     openPanel("board");
   }
 
+  function markMailboxRead(ids: string[]) {
+    const workspaceId = snapshotRef.current?.workspace.id;
+    if (!workspaceId || ids.length === 0) return;
+    setMailboxReadIds((previous) => {
+      const next = new Set(previous);
+      for (const id of ids) next.add(id);
+      try {
+        localStorage.setItem(mailboxReadStorageKey(workspaceId), serializeMailboxReadIds(next));
+      } catch {
+        // localStorage 不可用时仍保留会话内已读状态。
+      }
+      return next;
+    });
+  }
+
   async function handleSendMessage(input: {
     to: string[];
     subject: string;
     body: string;
     kind: MailboxMessage["kind"];
+    threadId?: string;
+    parentId?: string;
   }): Promise<boolean> {
     const current = snapshotRef.current;
     if (!current) return false;
@@ -3467,6 +3537,8 @@ export default function App() {
                       autoOpenCompose={createIntent === "mail"}
                       onAutoOpenHandled={() => setCreateIntent(null)}
                       onSend={handleSendMessage}
+                      readIds={mailboxReadIds}
+                      onMarkRead={markMailboxRead}
                     />
                   );
                 case "board":
@@ -5347,7 +5419,43 @@ function TraceItem({ event }: { event: EventRecord }) {
 
 // C10：旧 RouterView 已移除；t235 旧 RouterPlanModal 也删除，所有规划入口统一到 Plan Draft。
 
-function MailboxView({
+function mailboxScrollItems(
+  container: HTMLElement | null,
+  attribute: "data-thread-id" | "data-message-id",
+): MailboxScrollItem[] {
+  if (!container) return [];
+  const containerRect = container.getBoundingClientRect();
+  return Array.from(container.querySelectorAll<HTMLElement>(`[${attribute}]`)).map((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      id: element.getAttribute(attribute) ?? "",
+      // offsetTop 相对 offsetParent（可能含 panel header），这里换成相对滚动容器的 content offset。
+      offsetTop: rect.top - containerRect.top + container.scrollTop,
+      offsetHeight: rect.height,
+    };
+  });
+}
+
+function readMailboxScrollState(storageKey: string): MailboxScrollState {
+  try {
+    if (typeof sessionStorage === "undefined") return parseMailboxScrollState(null);
+    return parseMailboxScrollState(sessionStorage.getItem(storageKey));
+  } catch {
+    return parseMailboxScrollState(null);
+  }
+}
+
+function writeMailboxScrollState(storageKey: string, state: MailboxScrollState): void {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(storageKey, serializeMailboxScrollState(state));
+    }
+  } catch {
+    // sessionStorage 不可用时只保留当前会话内存锚点。
+  }
+}
+
+export function MailboxView({
   snapshot,
   busy,
   selectedMessageId,
@@ -5355,6 +5463,8 @@ function MailboxView({
   autoOpenCompose,
   onAutoOpenHandled,
   onSend,
+  readIds,
+  onMarkRead,
 }: {
   snapshot: Snapshot;
   busy: boolean;
@@ -5369,64 +5479,256 @@ function MailboxView({
     subject: string;
     body: string;
     kind: MailboxMessage["kind"];
+    threadId?: string;
+    parentId?: string;
   }) => Promise<boolean>;
+  readIds: ReadonlySet<string>;
+  onMarkRead: (ids: string[]) => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
+  const [composeThread, setComposeThread] = useState<MailboxThread | null>(null);
+  const [composeParentId, setComposeParentId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [member, setMember] = useState("");
+  const threadRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const chainRef = useRef<HTMLDivElement | null>(null);
+  const scrollStorageKey = `deer.mailbox.scroll.${snapshot.workspace.id}`;
+  const scrollStateRef = useRef<MailboxScrollState>(readMailboxScrollState(scrollStorageKey));
 
   useEffect(() => {
     if (!autoOpenCompose) return;
+    setComposeThread(null);
+    setComposeParentId(null);
     setComposeOpen(true);
     onAutoOpenHandled();
   }, [autoOpenCompose, onAutoOpenHandled]);
 
-  const selected =
-    snapshot.messages.find((message) => message.id === selectedMessageId) ??
-    snapshot.messages[0] ??
-    null;
+  const threads = useMemo(
+    () => deriveMailboxThreads(snapshot.messages, readIds),
+    [snapshot.messages, readIds],
+  );
+  const participants = useMemo(() => mailboxParticipants(threads), [threads]);
+  const visibleThreads = useMemo(
+    () => filterMailboxThreads(threads, query, member || null),
+    [threads, query, member],
+  );
+  const selectedThreadMatch =
+    selectedMessageId === null
+      ? null
+      : threads.find((thread) =>
+          thread.messages.some((entry) => entry.message.id === selectedMessageId),
+        ) ?? null;
+  const selectedHidden = Boolean(
+    selectedThreadMatch &&
+      !visibleThreads.some((thread) => thread.threadId === selectedThreadMatch.threadId),
+  );
+  const selectedThread = selectedHidden
+    ? null
+    : selectedMessageId === null
+      ? visibleThreads[0] ?? null
+      : visibleThreads.find((thread) =>
+          thread.messages.some((entry) => entry.message.id === selectedMessageId),
+        ) ?? null;
+  const unreadTotal = useMemo(() => totalMailboxUnread(threads), [threads]);
+  const rovingThreadId = selectedThread?.threadId ?? visibleThreads[0]?.threadId ?? null;
+
+  function rememberScroll() {
+    const list = listRef.current;
+    if (!list) return;
+    const chain = chainRef.current;
+    const next = captureMailboxScrollState(
+      mailboxScrollItems(list, "data-thread-id"),
+      list.scrollTop,
+      mailboxScrollItems(chain, "data-message-id"),
+      chain?.scrollTop ?? 0,
+    );
+    scrollStateRef.current = next;
+    writeMailboxScrollState(scrollStorageKey, next);
+  }
+
+  useEffect(() => {
+    scrollStateRef.current = readMailboxScrollState(scrollStorageKey);
+  }, [scrollStorageKey]);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const threadTop = restoreMailboxScrollTop(
+      mailboxScrollItems(list, "data-thread-id"),
+      scrollStateRef.current.thread,
+    );
+    if (threadTop !== null) list.scrollTop = threadTop;
+    const chain = chainRef.current;
+    if (chain) {
+      const messageTop = restoreMailboxScrollTop(
+        mailboxScrollItems(chain, "data-message-id"),
+        scrollStateRef.current.message,
+      );
+      chain.scrollTop = messageTop ?? 0;
+    }
+    if (!scrollStateRef.current.thread.id) rememberScroll();
+  }, [visibleThreads, selectedThread?.threadId]);
+
+  useEffect(() => () => rememberScroll(), [scrollStorageKey]);
+
+  function selectThread(thread: MailboxThread) {
+    onMarkRead(thread.messages.map((entry) => entry.message.id));
+    onSelectMessage(thread.threadId);
+  }
+
+  function openCompose(thread: MailboxThread | null, parentId: string | null = null) {
+    setComposeThread(thread);
+    setComposeParentId(parentId);
+    setComposeOpen(true);
+  }
+
+  function markAllRead() {
+    onMarkRead(threads.flatMap((thread) => thread.messages.map((entry) => entry.message.id)));
+  }
+
+  function onThreadKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") {
+      return;
+    }
+    event.preventDefault();
+    const count = visibleThreads.length;
+    if (count === 0) return;
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? count - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+    threadRefs.current[next]?.focus();
+    selectThread(visibleThreads[next]);
+  }
 
   return (
     <div className="mailbox-layout">
       <section className="panel mailbox-list-panel">
-        <div className="panel-head">
+        <div className="panel-head mailbox-thread-head">
           <div>
             <div className="panel-title">邮箱</div>
-            <div className="muted tiny">{snapshot.messages.length} 封内部消息</div>
+            <div className="muted tiny">
+              {threads.length} 个线程 · {snapshot.messages.length} 封内部消息
+            </div>
           </div>
-          <button
-            type="button"
-            className="primary small"
-            onClick={() => setComposeOpen(true)}
-            disabled={busy}
-          >
-            发邮件
-          </button>
+          <div className="row gap mailbox-thread-head-actions">
+            <span
+              className="mailbox-unread-total"
+              role="status"
+              aria-live="polite"
+              aria-label={`${unreadTotal} 封未读邮件`}
+            >
+              {unreadTotal > 0 ? `${unreadTotal} 未读` : "全部已读"}
+            </span>
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={markAllRead}
+              disabled={unreadTotal === 0}
+            >
+              全部标为已读
+            </button>
+            <button
+              type="button"
+              className="primary small"
+              onClick={() => openCompose(null)}
+              disabled={busy}
+            >
+              发邮件
+            </button>
+          </div>
         </div>
-        <div className="message-list">
+
+        <div className="mailbox-thread-filters">
+          <input
+            aria-label="搜索邮件线程"
+            placeholder="搜索主题 / 摘要 / 成员"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <select
+            aria-label="按成员过滤"
+            value={member}
+            onChange={(event) => setMember(event.target.value)}
+          >
+            <option value="">全部成员</option>
+            {participants.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div
+          ref={listRef}
+          className="message-list mailbox-thread-list"
+          role="listbox"
+          aria-label="邮件线程"
+          onScroll={rememberScroll}
+        >
           {snapshot.messages.length === 0 && (
-            // C24：空状态带行动引导。
             <EmptyState
               icon="✉"
               title="还没有邮件"
               description="给成员或 Router 发第一封内部邮件。"
-              actions={[{ label: "发邮件", onClick: () => setComposeOpen(true), primary: true }]}
+              actions={[{ label: "发邮件", onClick: () => openCompose(null), primary: true }]}
             />
           )}
-          {snapshot.messages.map((message) => (
+          {snapshot.messages.length > 0 && visibleThreads.length === 0 && (
+            <EmptyState
+              icon="⌕"
+              title="没有匹配的线程"
+              description="清除搜索或成员过滤，查看全部邮件线程。"
+              actions={[
+                {
+                  label: "清除筛选",
+                  onClick: () => {
+                    setQuery("");
+                    setMember("");
+                  },
+                  primary: true,
+                },
+              ]}
+            />
+          )}
+          {visibleThreads.map((thread, index) => (
             <button
-              key={message.id}
-              className={`message-row ${selected?.id === message.id ? "selected" : ""}`}
-              onClick={() => onSelectMessage(message.id)}
+              key={thread.threadId}
+              ref={(element) => {
+                threadRefs.current[index] = element;
+              }}
+              type="button"
+              role="option"
+              tabIndex={rovingThreadId === thread.threadId ? 0 : -1}
+              data-thread-id={thread.threadId}
+              data-expanded={selectedThread?.threadId === thread.threadId}
+              aria-selected={selectedThread?.threadId === thread.threadId}
+              aria-label={`线程：${thread.subject}，${thread.unreadCount} 封未读，${thread.messages.length} 封`}
+              className={`message-row mailbox-thread-row ${
+                selectedThread?.threadId === thread.threadId ? "selected" : ""
+              }`}
+              onClick={() => selectThread(thread)}
+              onKeyDown={(event) => onThreadKeyDown(event, index)}
             >
               <div className="row between">
-                <span className="ellipsis message-subject">{message.subject}</span>
-                <span className="muted tiny">{time(message.createdAt)}</span>
+                <span className="ellipsis message-subject">{thread.subject}</span>
+                <span className="muted tiny">{time(thread.lastActivity)}</span>
               </div>
               <div className="muted tiny ellipsis">
-                {message.from} → {message.to.join(", ")}
+                {thread.participants.join(" · ")}
               </div>
+              <div className="mailbox-thread-summary">{thread.summary || "(无正文)"}</div>
               <div className="row between">
-                <span className="badge">{MESSAGE_KIND_LABEL[message.kind] ?? message.kind}</span>
-                <span className="muted tiny">{message.to.length} 位收件人</span>
+                <span className="badge">{thread.messages.length} 封</span>
+                {thread.unreadCount > 0 ? (
+                  <span className="badge mailbox-unread-badge">{thread.unreadCount} 未读</span>
+                ) : (
+                  <span className="muted tiny">已读</span>
+                )}
               </div>
             </button>
           ))}
@@ -5434,29 +5736,105 @@ function MailboxView({
       </section>
 
       <section className="panel mailbox-detail-panel">
-        {selected ? (
+        {selectedThread ? (
           <>
             <div className="mailbox-detail-head">
-              <div className="row gap">
-                <span className="badge">{MESSAGE_KIND_LABEL[selected.kind] ?? selected.kind}</span>
-                <span className="muted tiny">{time(selected.createdAt)}</span>
+              <div className="row between">
+                <div className="row gap">
+                  <span className="badge">
+                    {MESSAGE_KIND_LABEL[selectedThread.root.kind] ?? selectedThread.root.kind}
+                  </span>
+                  <span className="muted tiny">
+                    {selectedThread.messages.length} 封 · 最近 {time(selectedThread.lastActivity)}
+                  </span>
+                  {selectedThread.unreadCount > 0 && (
+                    <span className="badge mailbox-unread-badge">
+                      {selectedThread.unreadCount} 未读
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="primary small"
+                  onClick={() =>
+                    openCompose(
+                      selectedThread,
+                      selectedMessageId &&
+                        selectedThread.messages.some(
+                          (entry) => entry.message.id === selectedMessageId,
+                        )
+                        ? selectedMessageId
+                        : selectedThread.lastMessage.id,
+                    )
+                  }
+                  disabled={busy}
+                >
+                  回复线程
+                </button>
               </div>
-              <div className="panel-title mailbox-detail-subject">{selected.subject}</div>
-              <div className="muted tiny">
-                {selected.from} → {selected.to.join(", ")}
-              </div>
+              <div className="panel-title mailbox-detail-subject">{selectedThread.subject}</div>
+              <div className="muted tiny">{selectedThread.participants.join(" · ")}</div>
             </div>
-            <pre className="mailbox-body">{selected.body}</pre>
+            <div
+              ref={chainRef}
+              className="mailbox-thread-chain"
+              role="list"
+              aria-label="回复链"
+              onScroll={rememberScroll}
+            >
+              {selectedThread.messages.map((entry) => (
+                <article
+                  key={entry.message.id}
+                  role="listitem"
+                  data-message-id={entry.message.id}
+                  className={`mailbox-thread-message ${
+                    selectedMessageId === entry.message.id ? "selected" : ""
+                  }`}
+                  aria-label={`${entry.message.from} 发给 ${entry.message.to.join(", ")}，${
+                    entry.unread ? "未读" : "已读"
+                  }`}
+                  data-depth={entry.depth}
+                  style={{ marginLeft: `${Math.min(entry.depth, MAILBOX_MAX_INDENT) * 14}px` }}
+                >
+                  <div className="mailbox-thread-message-head">
+                    <strong>{entry.message.from}</strong>
+                    <span className="muted tiny">→ {entry.message.to.join(", ")}</span>
+                    <span className="muted tiny">{time(entry.message.createdAt)}</span>
+                    {entry.unread && <span className="badge mailbox-unread-badge">未读</span>}
+                  </div>
+                  {entry.message.id === selectedThread.root.id && (
+                    <div className="mailbox-thread-message-subject">{entry.message.subject}</div>
+                  )}
+                  <pre className="mailbox-thread-body">{entry.message.body}</pre>
+                </article>
+              ))}
+            </div>
           </>
+        ) : selectedHidden ? (
+          <EmptyState
+            icon="⌕"
+            title="当前选中线程被筛选隐藏"
+            description="搜索或成员过滤不包含当前展开/链接的线程；清除筛选即可回到原线程。"
+            actions={[
+              {
+                label: "清除筛选",
+                onClick: () => {
+                  setQuery("");
+                  setMember("");
+                },
+                primary: true,
+              },
+            ]}
+          />
         ) : (
           <EmptyState
             icon="✉"
-            title="选择一封邮件"
-            description="在左侧选择邮件查看内容，或发送新消息。"
+            title="选择一个邮件线程"
+            description="在线程列表选择会话，查看完整回复链并回复。"
             actions={
               snapshot.messages.length === 0
                 ? undefined
-                : [{ label: "发邮件", onClick: () => setComposeOpen(true), primary: true }]
+                : [{ label: "发邮件", onClick: () => openCompose(null), primary: true }]
             }
           />
         )}
@@ -5464,8 +5842,11 @@ function MailboxView({
 
       {composeOpen && (
         <MailboxComposeModal
+          key={`${composeThread?.threadId ?? "new-mail"}:${composeParentId ?? "root"}`}
           snapshot={snapshot}
           busy={busy}
+          thread={composeThread}
+          parentId={composeParentId}
           onClose={() => setComposeOpen(false)}
           onSend={onSend}
         />
@@ -5479,21 +5860,35 @@ export function MailboxComposeModal({
   busy,
   onClose,
   onSend,
+  thread = null,
+  parentId = null,
 }: {
   snapshot: Snapshot;
   busy: boolean;
   onClose: () => void;
+  thread?: MailboxThread | null;
+  parentId?: string | null;
   onSend: (input: {
     to: string[];
     subject: string;
     body: string;
     kind: MailboxMessage["kind"];
+    threadId?: string;
+    parentId?: string;
   }) => Promise<boolean>;
 }) {
-  const [to, setTo] = useState("Router");
-  const [subject, setSubject] = useState("");
+  const initialRecipients =
+    thread?.participants.filter((participant) => participant !== "user").join(", ") || "Router";
+  const initialSubject = thread
+    ? /^re:\s*/i.test(thread.subject)
+      ? thread.subject
+      : `Re: ${thread.subject}`
+    : "";
+  const initialKind = thread?.root.kind ?? "request";
+  const [to, setTo] = useState(initialRecipients);
+  const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState("");
-  const [kind, setKind] = useState<MailboxMessage["kind"]>("request");
+  const [kind, setKind] = useState<MailboxMessage["kind"]>(initialKind);
   const recipients = snapshot.agents.map((agent) => agent.name);
   const selectedRecipients = to
     .split(",")
@@ -5508,100 +5903,114 @@ export function MailboxComposeModal({
   }
 
   const dirty = Boolean(
-    (to.trim() !== "Router" && to.trim() !== "") || subject.trim() || body.trim(),
+    to.trim() !== initialRecipients ||
+      subject.trim() !== initialSubject ||
+      body.trim() ||
+      kind !== initialKind,
   );
 
   return (
     <Modal
-      title="发邮件"
-      description="团队内部邮箱，不会发送到外部地址"
+      title={thread ? "回复邮件" : "发送邮件"}
+      description={
+        thread
+          ? `回复线程：${thread.subject}（沿用现有 thread_id，不新增数据源）`
+          : "团队内部邮箱，不会发送到外部地址"
+      }
       onClose={onClose}
       confirmClose={dirty}
       className="mailbox-compose-modal"
     >
       <form
-          className="form modal-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (!selectedRecipients.length || !subject.trim() || !body.trim()) return;
-            const sent = await onSend({
-              to: selectedRecipients,
-              subject: subject.trim(),
-              body: body.trim(),
-              kind,
-            });
-            if (sent) onClose();
-          }}
-        >
-          <label>
-            收件人（逗号分隔，也可以点选成员）
-            <input
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-              placeholder="Router, Builder"
-            />
-          </label>
-          <div className="mailbox-recipient-chips">
-            {recipients.map((name) => (
-              <button
-                key={name}
-                type="button"
-                className={`chip ${selectedRecipients.includes(name) ? "active" : ""}`}
-                onClick={() => toggleRecipient(name)}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-          <div className="provider-grid">
-            <label>
-              主题
-              <input
-                value={subject}
-                onChange={(event) => setSubject(event.target.value)}
-                placeholder="例如：请检查登录接口"
-              />
-            </label>
-            <label>
-              类型
-              <select
-                value={kind}
-                onChange={(event) =>
-                  setKind(event.target.value as MailboxMessage["kind"])
-                }
-              >
-                <option value="request">请求</option>
-                <option value="report">汇报</option>
-                <option value="question">提问</option>
-                <option value="decision">决策</option>
-                <option value="artifact">产物</option>
-                <option value="review">评审</option>
-              </select>
-            </label>
-          </div>
-          <label>
-            正文
-            <textarea
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              rows={8}
-              placeholder="写下需要对方处理或了解的内容…"
-            />
-          </label>
-          <div className="modal-foot">
-            <button type="button" className="ghost" onClick={onClose}>
-              取消
-            </button>
+        className="form modal-form"
+        aria-label={thread ? "回复邮件表单" : "发送邮件表单"}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!selectedRecipients.length || !subject.trim() || !body.trim()) return;
+          const sent = await onSend({
+            to: selectedRecipients,
+            subject: subject.trim(),
+            body: body.trim(),
+            kind,
+            ...(thread ? { threadId: thread.threadKey } : {}),
+            ...(parentId ? { parentId } : {}),
+          });
+          if (sent) onClose();
+        }}
+      >
+        <label>
+          收件人（逗号分隔，也可以点选成员）
+          <input
+            aria-label="收件人"
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+            placeholder="Router, Builder"
+          />
+        </label>
+        <div className="mailbox-recipient-chips">
+          {recipients.map((name) => (
             <button
-              className="primary"
-              disabled={
-                busy || !selectedRecipients.length || !subject.trim() || !body.trim()
+              key={name}
+              type="button"
+              className={`chip ${selectedRecipients.includes(name) ? "active" : ""}`}
+              onClick={() => toggleRecipient(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+        <div className="provider-grid">
+          <label>
+            主题
+            <input
+              aria-label="邮件主题"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              placeholder="例如：请检查登录接口"
+            />
+          </label>
+          <label>
+            类型
+            <select
+              aria-label="邮件类型"
+              value={kind}
+              onChange={(event) =>
+                setKind(event.target.value as MailboxMessage["kind"])
               }
             >
-              发送邮件
-            </button>
-          </div>
-        </form>
+              <option value="request">请求</option>
+              <option value="report">汇报</option>
+              <option value="question">提问</option>
+              <option value="decision">决策</option>
+              <option value="artifact">产物</option>
+              <option value="review">评审</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          正文
+          <textarea
+            aria-label="邮件正文"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            rows={8}
+            placeholder="写下需要对方处理或了解的内容…"
+          />
+        </label>
+        <div className="modal-foot">
+          <button type="button" className="ghost" onClick={onClose}>
+            取消
+          </button>
+          <button
+            className="primary"
+            disabled={
+              busy || !selectedRecipients.length || !subject.trim() || !body.trim()
+            }
+          >
+            {thread ? "发送回复" : "发送邮件"}
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }

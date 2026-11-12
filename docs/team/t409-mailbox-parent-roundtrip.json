@@ -1,0 +1,13 @@
+{
+  "task": "t409",
+  "source": "real Electron UI reply -> node:sqlite read",
+  "selectedThread": "线程：深层回复链，0 封未读，20 封",
+  "row": {
+    "id": "msg_mwdvrcru_9322047e0b",
+    "parent_id": "msg_mwduirpw_296b2c4799",
+    "thread_id": "thread-deep",
+    "subject": "Re: 深层回复链",
+    "body": "T409 parentId UI round-trip"
+  },
+  "observedAt": "2026-11-13T02:27:55+08:00"
+}

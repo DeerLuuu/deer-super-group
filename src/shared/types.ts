@@ -164,6 +164,8 @@ export interface MailboxMessage {
   id: Id;
   workspaceId: Id;
   threadId: Id;
+  /** 投影层可用的父消息；当前 DB 无 parent_id 列，存量消息可缺省。 */
+  parentId?: Id;
   from: string;
   to: string[];
   kind: MessageKind;
@@ -824,6 +826,10 @@ export interface SendMessageInput {
   subject: string;
   body: string;
   kind: MessageKind;
+  /** 线程存储键（复用 messages.thread_id）。 */
+  threadId?: Id;
+  /** 被回复消息 id（messages.parent_id；顶层消息省略）。 */
+  parentId?: Id;
 }
 
 export interface PostBoardInput {
