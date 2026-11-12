@@ -1,8 +1,13 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { GitDiffViewer, buildSideBySide } from "./GitDiffViewer.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  GitDiffViewer,
+  buildSideBySide,
+  canUseSideBySide,
+  observeDiffWidth,
+} from "./GitDiffViewer.js";
 import type { GitDiffPage } from "../readTypes.js";
 
 const diff: GitDiffPage = {
@@ -118,5 +123,170 @@ describe("t401 GitDiffViewer", () => {
     expect(renderToStaticMarkup(<GitDiffViewer diff={null} />)).toContain(
       "选择文件或提交查看 diff",
     );
+  });
+
+  it("states submodule and errors and exposes row aria", () => {
+    expect(
+      renderToStaticMarkup(<GitDiffViewer diff={diff} error="diff 读取失败" />),
+    ).toContain("diff 读取失败");
+    expect(
+      renderToStaticMarkup(
+        <GitDiffViewer diff={{ ...diff, submodule: true }} />,
+      ),
+    ).toContain("子模块变更不展开");
+    const html = renderToStaticMarkup(<GitDiffViewer diff={diff} />);
+    expect(html).toContain('role="row"');
+    expect(html).toContain("旧行 11");
+    expect(html).toContain("新行 11");
+    expect(html).toContain('tabindex="0"');
+  });
+
+  it("moves focus between rows with ArrowUp/ArrowDown", async () => {
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={diff} />);
+    });
+    const root = renderer.root.findAll(
+      (node: any) => node.props.className === "git-diff-viewer",
+    )[0];
+    const rows = [
+      { classList: { contains: (name: string) => name === "git-diff-row" }, focus: vi.fn() },
+      { classList: { contains: (name: string) => name === "git-diff-row" }, focus: vi.fn() },
+    ];
+    const preventDefault = vi.fn();
+    root.props.onKeyDown({
+      key: "ArrowDown",
+      target: rows[0],
+      currentTarget: { querySelectorAll: () => rows },
+      preventDefault,
+    });
+    expect(rows[1].focus).toHaveBeenCalledTimes(1);
+    expect(preventDefault).toHaveBeenCalled();
+    renderer.unmount();
+  });
+
+  it("copies path and toggles wrap", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    try {
+      const { act, create } = TestRenderer as any;
+      let renderer: any;
+      await act(async () => {
+        renderer = create(<GitDiffViewer diff={diff} />);
+      });
+      const copy = renderer.root
+        .findAllByType("button")
+        .find((node: any) => String(node.props["aria-label"]).startsWith("复制路径"));
+      await act(async () => {
+        copy.props.onClick();
+      });
+      expect(writeText).toHaveBeenCalledWith("src/app.ts");
+      expect(JSON.stringify(renderer.toJSON())).toContain("已复制");
+      const wrapButton = renderer.root
+        .findAllByType("button")
+        .find((node: any) => String(node.props.children) === "换行");
+      await act(async () => {
+        wrapButton.props.onClick();
+      });
+      expect(
+        renderer.root.findAll(
+          (node: any) => String(node.props.className ?? "").includes("is-wrapped"),
+        ).length,
+      ).toBeGreaterThan(0);
+      renderer.unmount();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("switches wide mode through ResizeObserver at the 560px boundary", () => {
+    expect(canUseSideBySide(559)).toBe(false);
+    expect(canUseSideBySide(560)).toBe(true);
+    class FakeObserver {
+      static last: FakeObserver | null = null;
+      callback: () => void;
+      observe = vi.fn();
+      disconnect = vi.fn();
+      constructor(callback: () => void) {
+        this.callback = callback;
+        FakeObserver.last = this;
+      }
+    }
+    let width = 400;
+    const changes: boolean[] = [];
+    const cleanup = observeDiffWidth(
+      { getBoundingClientRect: () => ({ width }) as DOMRect },
+      (wide) => changes.push(wide),
+      FakeObserver as unknown as typeof ResizeObserver,
+    );
+    expect(changes).toEqual([false]);
+    expect(FakeObserver.last?.observe).toHaveBeenCalledTimes(1);
+    width = 700;
+    FakeObserver.last?.callback();
+    expect(changes).toEqual([false, true]);
+    cleanup();
+    expect(FakeObserver.last?.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a 1MB/20k-line diff collapsed within bounded time and nodes", async () => {
+    const text = "const generatedValue = 'abcdefghijklmnopqrstuvwxyz0123456789';";
+    const lines = Array.from({ length: 20_000 }, (_, index) => ({
+      kind: "+" as const,
+      text: `${text} // ${index}`,
+    }));
+    const bytes = lines.reduce((sum, line) => sum + line.text.length + 2, 0);
+    const big: GitDiffPage = {
+      bytes,
+      truncated: false,
+      binary: false,
+      submodule: false,
+      files: [
+        {
+          path: "generated/huge.ts",
+          status: "M",
+          binary: false,
+          submodule: false,
+          truncated: false,
+          hunks: [{ header: "@@ -0,0 +1,20000 @@", lines }],
+        },
+      ],
+    };
+    expect(bytes).toBeGreaterThan(1024 * 1024);
+    const beforeMemory = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    const html = renderToStaticMarkup(<GitDiffViewer diff={big} />);
+    const elapsed = performance.now() - started;
+    const memoryDelta = process.memoryUsage().heapUsed - beforeMemory;
+    expect(elapsed).toBeLessThan(2000);
+    expect(html).toContain("大 diff");
+    expect(html).toContain("@@ -0,0 +1,20000 @@");
+    expect((html.match(/git-diff-row/g) ?? []).length).toBe(0);
+    expect(html.length).toBeLessThan(100_000);
+    expect(memoryDelta).toBeLessThan(256 * 1024 * 1024);
+    console.info(
+      `[t407] 1MB/20k collapsed render=${elapsed.toFixed(1)}ms heapDelta=${(memoryDelta / 1024 / 1024).toFixed(1)}MB html=${html.length}B`,
+    );
+
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={big} />);
+    });
+    const hunk = renderer.root
+      .findAllByType("button")
+      .find((node: any) => node.props["aria-expanded"] === false);
+    expect(hunk).toBeTruthy();
+    await act(async () => {
+      hunk.props.onClick();
+    });
+    const rows = renderer.root.findAll(
+      (node: any) =>
+        Array.isArray(node.props.className)
+          ? false
+          : String(node.props.className ?? "").startsWith("git-diff-row"),
+    );
+    expect(rows.length).toBeLessThanOrEqual(400);
+    renderer.unmount();
   });
 });

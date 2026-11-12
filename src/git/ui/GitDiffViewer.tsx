@@ -26,6 +26,27 @@ function parseHunkHeader(header: string): { oldStart: number; newStart: number }
   return { oldStart: match ? Number(match[1]) : 1, newStart: match ? Number(match[2]) : 1 };
 }
 
+/** t407：并排视图宽度阈值（<560 自动 unified）。 */
+export function canUseSideBySide(width: number): boolean {
+  return width >= 560;
+}
+
+/** t407：监听 diff pane 宽度；拆成纯函数便于 ResizeObserver 单测。 */
+export function observeDiffWidth(
+  node: Pick<HTMLElement, "getBoundingClientRect">,
+  onChange: (wide: boolean) => void,
+  ObserverCtor: typeof ResizeObserver | undefined = typeof ResizeObserver === "undefined"
+    ? undefined
+    : ResizeObserver,
+): () => void {
+  const update = () => onChange(canUseSideBySide(node.getBoundingClientRect().width));
+  update();
+  if (!ObserverCtor) return () => {};
+  const observer = new ObserverCtor(update);
+  observer.observe(node as HTMLElement);
+  return () => observer.disconnect();
+}
+
 function numberHunk(file: GitDiffFile): HunkModel[] {
   return file.hunks.map((hunk) => {
     const { oldStart, newStart } = parseHunkHeader(hunk.header);
@@ -147,17 +168,19 @@ function HunkBlock({
             ) : group.kind === "context-restore" ? null : (
               <div
                 key={`${fileIndex}-${hunkIndex}-${groupIndex}`}
+                role="row"
                 className={`git-diff-row diff-${group.row.kind === "+" ? "add" : group.row.kind === "-" ? "del" : "context"}`}
                 tabIndex={0}
+                aria-label={`旧行 ${group.row.oldLine ?? "无"}，新行 ${group.row.newLine ?? "无"}，${group.row.kind === "+" ? "新增" : group.row.kind === "-" ? "删除" : "上下文"}：${group.row.text}`}
               >
-                <span className="git-diff-num" aria-label={`旧行 ${group.row.oldLine ?? "无"}`}>
+                <span className="git-diff-num" role="gridcell" aria-label={`旧行 ${group.row.oldLine ?? "无"}`}>
                   {group.row.oldLine ?? ""}
                 </span>
-                <span className="git-diff-num" aria-label={`新行 ${group.row.newLine ?? "无"}`}>
+                <span className="git-diff-num" role="gridcell" aria-label={`新行 ${group.row.newLine ?? "无"}`}>
                   {group.row.newLine ?? ""}
                 </span>
-                <span className="git-diff-sign">{group.row.kind === " " ? " " : group.row.kind}</span>
-                <span className="git-diff-text">{group.row.text || " "}</span>
+                <span className="git-diff-sign" role="gridcell">{group.row.kind === " " ? " " : group.row.kind}</span>
+                <span className="git-diff-text" role="gridcell">{group.row.text || " "}</span>
               </div>
             ),
           )}
@@ -225,8 +248,9 @@ function SideRowView({ row, index }: { row: SideRow; index: number }) {
   return (
     <div
       className="git-diff-side-row"
+      role="row"
       tabIndex={0}
-      aria-label={`旧行 ${row.oldLine ?? "无"} 新行 ${row.newLine ?? "无"}`}
+      aria-label={`旧行 ${row.oldLine ?? "无"}，新行 ${row.newLine ?? "无"}，${row.kind === "+" ? "新增" : row.kind === "-" ? "删除" : "修改"}`}
       data-row={index}
     >
       <span className="git-diff-num">{row.oldLine ?? ""}</span>
@@ -255,17 +279,27 @@ export function GitDiffViewer({
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const update = () => setWide(node.getBoundingClientRect().width >= 560);
-    update();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    return () => observer.disconnect();
+    return observeDiffWidth(node, setWide);
   }, []);
 
   useEffect(() => {
     if (!wide) setMode("unified");
   }, [wide]);
+
+  function onDiffKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains("git-diff-row") && !target.classList.contains("git-diff-side-row")) {
+      return;
+    }
+    const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".git-diff-row, .git-diff-side-row")];
+    const index = rows.indexOf(target);
+    if (index < 0) return;
+    const next = rows[Math.min(rows.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1)))];
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+  }
 
   if (loading) {
     return (
@@ -317,7 +351,7 @@ export function GitDiffViewer({
   const large = totalLines > 1200 || diff.bytes > 512 * 1024;
 
   return (
-    <div className="git-diff-viewer" ref={ref}>
+    <div className="git-diff-viewer" ref={ref} onKeyDown={onDiffKeyDown}>
       <div className="git-diff-toolbar">
         <span className="muted tiny">
           {diff.files.length} 文件 · {totalLines} 行{diff.bytes ? ` · ${Math.round(diff.bytes / 1024)}KB` : ""}

@@ -11,6 +11,15 @@ describe("t401 working diff CSS contract", () => {
     expect(css).toContain(".git-ws-resizer");
     expect(css).toContain("cursor: row-resize");
     expect(css).toContain(".git-ws-empty");
+    expect(css).toContain("position: sticky;");
+    expect(css).toContain("bottom: 0;");
+    expect(css).toContain(".git-ws-staged-count");
+  });
+
+  it("uses fixed compact row action columns", () => {
+    expect(css).toContain(".git-file-row .git-file-open");
+    expect(css).toContain("flex: 0 0 24px;");
+    expect(css).toContain("flex-wrap: nowrap;");
   });
 
   it("uses 44/56 workspace and 480 section tabs", () => {

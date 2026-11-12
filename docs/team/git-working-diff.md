@@ -72,5 +72,57 @@
 ## 验证
 
 - `pnpm typecheck` 0
-- `pnpm build` 0（451 modules）
-- `pnpm test -- --testTimeout=20000 --maxWorkers=2` 0（127 files / 902 tests；默认并行既有 5s flake 不归因）
+- `pnpm build` 0（452 modules）
+- `pnpm test -- --testTimeout=20000 --maxWorkers=2` 0（128 files / 911 tests；默认并行既有 5s flake 不归因）
+
+## t407 repair：大 diff 性能与交互证据
+
+### F1 1MB / 20k 行性能
+
+- **单测 fixture**：20,000 行纯新增、`bytes > 1MB`；折叠 hunk 默认渲染实测 **1.3 ms**，JS heap delta **1.9 MB**，HTML **1.4 KB**，DOM 行 **0**；点击 hunk 后严格 **400 行/批**上限。测试：`GitDiffViewer.test.tsx`（`[t407]` 日志）。
+- **真实 Electron（1.24MB / 4177 行 IPC 截断文件）**：首次可见 hunk **146 ms**（MutationObserver 从点击到 hunk 插入），页面节点 **963**，JS heap **20 MB**；hunk 展开 400 行 **386 ms**，节点 2965，滚动不冻结。文件头显示 `4177 行 · 1239KB` 且明确「diff 已截断」。
+- 大 diff 仍按 hunk 折叠 + 400 行分块；不新增 virtualization 依赖。
+
+### F2 独立滚动 / 分隔条
+
+- `data-git-section="staged|unstaged"` 两段独立 `overflow:auto`；真实 Electron 中未暂存 `scrollTop=200` 时已暂存保持 `0`，反向保持独立。
+- `role=separator` 支持 pointerdown/move/up；真实拖动 40px / 127px 容器使 **38→69**；键盘 Arrow ±5、Home 38，20/80 clamp 单测覆盖（`gitWorkingLayout.test.ts`），`attachSectionDrag` 测试保证 pointerup 移除监听。
+
+### F3 并排与状态
+
+- `observeDiffWidth` 使用 ResizeObserver，宽 `<560` 自动 unified；`GitDiffViewer.test` 覆盖 559/560 边界、observer 注册/回调/disconnect。
+- submodule、error、copy path、wrap、binary/truncated/empty/loading 均有断言。
+- 960 真实截图：并排按钮 disabled、统一视图；1440 并排可用。
+
+### F4 逐行 focus/aria
+
+- 行 `role="row"`、`tabIndex=0`、`aria-label="旧行…，新行…，新增/删除/上下文：文本"`；数字单元格 `role=gridcell`。
+- 真实 Electron：聚焦第一行后 `outline: 2px solid accent`，ArrowDown 移到下一行，aria-label 从新行 1→新行 2；Tab 可进入行，行可读。
+- 截图：`t407-diff-focus-1440.png`。
+
+### 布局复核修复（用户 1372×328 反馈）
+
+- **已暂存文件可见**：修复两段 flex 收缩（首段 `flex: 0 0 ratio` + 非空段 `min-height: 58px`），实测已暂存 1 文件段 58px、文件行 24px 完整可见；未暂存 31 文件段独立滚动。
+- **提交框 sticky footer**：`position: sticky; bottom: 0` + 背景/上边框；始终显示「已暂存 N 文件」，960/480 视口内可见。
+- **section bar 层级**：段头（checkbox + 标题/计数 + 全选/批量）独立于文件列表；文件行只保留 badge/path + 操作。
+- **行操作对齐**：`+`/`−`/`◫` 固定 24px 图标列，`title`/`aria-label` 完整；行 `flex-wrap: nowrap`，路径 flex 自适应，中间无空白。
+- **标签收敛**：移除「待定的文件」文案，顶部仅保留「筛选」；工作区标题只保留一处。
+- **无横向溢出**：1440/960/480 `scrollWidth` 分别等于视口宽。
+
+### 新增截图
+
+| 截图 | 分辨率 | 内容 |
+|---|---|---|
+| `docs/team/t407-big-diff-1440.png` | 1440×1000 | 1.24MB 截断大 diff 默认 hunk 折叠 |
+| `docs/team/t407-big-diff-expanded-1440.png` | 1440×1000 | hunk 展开 400 行 |
+| `docs/team/t407-diff-focus-1440.png` | 1440×1000 | 行 focus outline + aria |
+| `docs/team/t407-big-diff-960.png` | 960×1000 | 960 大 diff unified、并排禁用 |
+| `docs/team/t407-workarea-1440.png` | 1440×1000 | 双段同屏 + sticky footer |
+| `docs/team/t407-workarea-960.png` | 960×1000 | 960 双段同屏 + sticky footer |
+| `docs/team/t407-workarea-480.png` | 480×900 | 480 段 tabs + sticky footer |
+| `docs/team/t407-workarea-close-1440.png` | 490×299 近景 | 已暂存 file 可见、行操作对齐 |
+| `docs/team/t407-workarea-close-960.png` | 391×299 近景 | 960 双段/操作/提交框 |
+| `docs/team/t407-workarea-close-480.png` | 386×390 近景 | 480 段 tabs/提交框 |
+
+执行签名：2026-11-13 02:18 +08:00 / ren / Electron + CDP / 1440×1000、960×1000、480×900。
+

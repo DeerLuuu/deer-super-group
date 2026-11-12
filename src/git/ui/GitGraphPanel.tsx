@@ -3,6 +3,13 @@ import { layoutGraph } from "../graph.js";
 import "./gitGraph.css";
 import "./gitSourceTree.css";
 import { GitDiffViewer } from "./GitDiffViewer.js";
+import {
+  SECTION_RATIO_DEFAULT,
+  SECTION_RATIO_MAX,
+  SECTION_RATIO_MIN,
+  attachSectionDrag,
+  ratioAfterKey,
+} from "./gitWorkingLayout.js";
 import type {
   GitCommitDetail,
   GitDiffPage,
@@ -807,7 +814,7 @@ export default function GitGraphPanel({
         </section>
 
         <div className="git-st-filter" role="group" aria-label="文件筛选">
-          <span className="muted tiny">待定的文件 · 按状态排序</span>
+          <span className="muted tiny">筛选</span>
           <label className="git-st-field">
             <span className="sr-only">按状态排序</span>
             <select
@@ -1038,46 +1045,32 @@ function WorkingTree({
   const [commitTitle, setCommitTitle] = useState("");
   const [commitBody, setCommitBody] = useState("");
   const [commitBodyOpen, setCommitBodyOpen] = useState(false);
-  const [sectionRatio, setSectionRatio] = useState(38);
+  const [sectionRatio, setSectionRatio] = useState(SECTION_RATIO_DEFAULT);
   const [sectionTab, setSectionTab] = useState<"staged" | "unstaged">("unstaged");
   const sectionsRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{ startY: number; startRatio: number; height: number } | null>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
-  function clampSectionRatio(value: number): number {
-    return Math.min(80, Math.max(20, value));
-  }
+  useEffect(() => () => dragCleanupRef.current?.(), []);
 
-  function beginSectionResize(event: React.MouseEvent<HTMLDivElement>) {
+  function beginSectionResize(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const height = sectionsRef.current?.getBoundingClientRect().height ?? 0;
     if (height <= 0) return;
-    dragRef.current = { startY: event.clientY, startRatio: sectionRatio, height };
-    const onMove = (move: MouseEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      setSectionRatio(
-        clampSectionRatio(drag.startRatio + ((move.clientY - drag.startY) / drag.height) * 100),
-      );
-    };
-    const onUp = () => {
-      dragRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    dragCleanupRef.current?.();
+    dragCleanupRef.current = attachSectionDrag({
+      startY: event.clientY,
+      startRatio: sectionRatio,
+      height,
+      onRatio: setSectionRatio,
+      target: window,
+    });
   }
 
   function onSectionResizeKey(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      setSectionRatio((value) =>
-        clampSectionRatio(value + (event.key === "ArrowDown" ? 5 : -5)),
-      );
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      setSectionRatio(38);
-    }
+    const next = ratioAfterKey(sectionRatio, event.key);
+    if (next === null) return;
+    event.preventDefault();
+    setSectionRatio(next);
   }
 
   // 状态刷新后清掉已失效的勾选。
@@ -1215,7 +1208,7 @@ function WorkingTree({
           <div className="git-ws-sections" ref={sectionsRef}>
             <section
               className={`git-ws-section ${visibleStaged.length === 0 ? "is-empty" : ""} ${sectionTab === "staged" ? "" : "mobile-hidden"}`}
-              style={{ flexBasis: `${sectionRatio}%` }}
+              style={{ flexBasis: `${sectionRatio}%`, flexGrow: 0, flexShrink: 0 }}
               aria-label={`已暂存文件，共 ${visibleStaged.length} 个`}
             >
               <div className="git-ws-section-head">
@@ -1250,7 +1243,7 @@ function WorkingTree({
                   </button>
                 ) : null}
               </div>
-              <div className="git-ws-section-list">
+              <div className="git-ws-section-list" data-git-section="staged">
                 {visibleStaged.length === 0 ? (
                   <div className="git-ws-empty">没有已暂存文件。</div>
                 ) : (
@@ -1282,9 +1275,11 @@ function WorkingTree({
                         <button
                           type="button"
                           className="ghost tiny git-file-open"
+                          aria-label={`查看 ${file.path} 的 diff`}
+                          title="查看 diff"
                           onClick={() => onOpen(file)}
                         >
-                          diff
+                          ◫
                         </button>
                       </li>
                     ))}
@@ -1299,11 +1294,12 @@ function WorkingTree({
                 role="separator"
                 aria-orientation="horizontal"
                 aria-label="调整已暂存与未暂存列表高度"
-                aria-valuemin={20}
-                aria-valuemax={80}
+                aria-valuemin={SECTION_RATIO_MIN}
+                aria-valuemax={SECTION_RATIO_MAX}
                 aria-valuenow={Math.round(sectionRatio)}
+                data-testid="git-ws-resizer"
                 tabIndex={0}
-                onMouseDown={beginSectionResize}
+                onPointerDown={beginSectionResize}
                 onKeyDown={onSectionResizeKey}
                 title="拖拽调整高度；Home 恢复 38/62"
               />
@@ -1347,7 +1343,7 @@ function WorkingTree({
                   </button>
                 ) : null}
               </div>
-              <div className="git-ws-section-list">
+              <div className="git-ws-section-list" data-git-section="unstaged">
                 {visibleUnstaged.length === 0 ? (
                   <div className="git-ws-empty">没有未暂存或未跟踪文件。</div>
                 ) : (
@@ -1381,9 +1377,11 @@ function WorkingTree({
                         <button
                           type="button"
                           className="ghost tiny git-file-open"
+                          aria-label={`查看 ${file.path} 的 diff`}
+                          title="查看 diff"
                           onClick={() => onOpen(file)}
                         >
-                          diff
+                          ◫
                         </button>
                       </li>
                     ))}
@@ -1429,7 +1427,7 @@ function WorkingTree({
               {commitBodyOpen ? "收起正文" : "正文（可选）"}
             </button>
             <span className="muted tiny">
-              仅提交已暂存的 {stagedCount} 个文件；仅本地提交，无推送。
+              <strong className="git-ws-staged-count">已暂存 {stagedCount} 文件</strong> · 仅本地提交，无推送。
             </span>
           </div>
           {commitBodyOpen ? (

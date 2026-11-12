@@ -35,12 +35,17 @@
 .git-ws-section {
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
   min-height: 0;
   border-bottom: 1px solid var(--border);
 }
 
 .git-ws-section.is-empty {
   flex: 0 0 32px !important;
+}
+
+.git-ws-section:not(.is-empty) {
+  min-height: 58px;
 }
 
 .git-ws-section.is-empty .git-ws-section-list {
@@ -60,6 +65,8 @@
   min-height: 28px;
   padding: 3px 6px;
   background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -129,6 +136,43 @@
   padding: 4px 6px;
   display: grid;
   gap: 3px;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+}
+
+.git-ws-staged-count {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.git-file-row {
+  flex-wrap: nowrap;
+  min-height: 22px;
+}
+
+.git-file-row .git-check {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.git-file-row .git-check .ellipsis {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.git-file-row .git-file-open {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 18px;
+  white-space: nowrap;
 }
 
 .git-ws-toolbar h3 {
@@ -276,7 +320,9 @@
   white-space: pre;
 }
 
+.git-diff-row:focus,
 .git-diff-row:focus-visible,
+.git-diff-side-row:focus,
 .git-diff-side-row:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
