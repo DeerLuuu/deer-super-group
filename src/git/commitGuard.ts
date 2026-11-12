@@ -43,6 +43,30 @@ function isSensitive(relative: string): boolean {
 export class CommitGuard {
   constructor(private readonly git: GitExec) {}
 
+  /** 单个文件的守卫检查；返回 null 表示通过，否则为拒绝原因。 */
+  private checkPath(worktreePath: string, relative: string): string | null {
+    const normalized = relative.replace(/\\/g, "/");
+    if (isSensitive(normalized)) {
+      return `sensitive file: ${normalized}`;
+    }
+    try {
+      const filePath = path.join(worktreePath, normalized);
+      const stat = statSync(filePath);
+      if (stat.isFile() && stat.size > 5 * 1024 * 1024) {
+        return `file too large: ${normalized}`;
+      }
+      if (stat.isFile() && stat.size <= 512 * 1024 && !/\.(png|jpg|jpeg|gif|webp|zip|gz|pdf|woff2?)$/i.test(normalized)) {
+        const content = readFileSync(filePath, "utf8");
+        if (SECRET_PATTERNS.some((pattern) => pattern.test(content))) {
+          return `secret-looking content: ${normalized}`;
+        }
+      }
+    } catch {
+      // deleted files can fail stat; fine
+    }
+    return null;
+  }
+
   async scan(worktreePath: string): Promise<GuardResult> {
     const status = await this.git.run(["status", "--porcelain", "-z"], { cwd: worktreePath });
     if (status.code !== 0) {
@@ -53,26 +77,22 @@ export class CommitGuard {
     for (const entry of entries) {
       const relative = entry.length > 3 ? entry.slice(3) : "";
       if (!relative) continue;
-      const filePath = path.join(worktreePath, relative);
       files.push(relative);
-      if (isSensitive(relative)) {
-        return { ok: false, blocked: true, reason: `sensitive file: ${relative}`, files };
-      }
-      try {
-        const stat = statSync(filePath);
-        if (stat.isFile() && stat.size > 5 * 1024 * 1024) {
-          return { ok: false, blocked: true, reason: `file too large: ${relative}`, files };
-        }
-        if (stat.isFile() && stat.size <= 512 * 1024 && !/\.(png|jpg|jpeg|gif|webp|zip|gz|pdf|woff2?)$/i.test(relative)) {
-          const content = readFileSync(filePath, "utf8");
-          if (SECRET_PATTERNS.some((pattern) => pattern.test(content))) {
-            return { ok: false, blocked: true, reason: `secret-looking content: ${relative}`, files };
-          }
-        }
-      } catch {
-        // deleted files can fail stat; fine
-      }
+      const reason = this.checkPath(worktreePath, relative);
+      if (reason) return { ok: false, blocked: true, reason, files };
     }
     return { ok: true, blocked: false, files };
+  }
+
+  /**
+   * t352 G1：只扫描给定路径（用户已暂存的文件），不阻塞工作区里
+   * 未暂存的问题文件。返回 null 表示全部通过，否则为第一个拒绝原因。
+   */
+  checkPaths(worktreePath: string, paths: string[]): string | null {
+    for (const relative of paths) {
+      const reason = this.checkPath(worktreePath, relative);
+      if (reason) return reason;
+    }
+    return null;
   }
 }

@@ -205,3 +205,117 @@
   .git-init-modal .git-init-summary dt { margin-top: 6px; }
   .git-init-actions { flex-wrap: wrap; }
 }
+
+/* ---------- t352 G1：写闭环（暂存/提交/.gitignore） ---------- */
+
+.git-group-head {
+  margin: 10px 0 4px;
+}
+
+.git-group-head h4 {
+  margin: 0;
+}
+
+.git-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.git-check input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.git-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.git-file-row .git-check {
+  flex: 1;
+  min-width: 0;
+}
+
+.git-file-open {
+  flex: 0 0 auto;
+}
+
+.git-first-commit {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(88, 166, 255, 0.4);
+  border-radius: 8px;
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.git-first-commit strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.git-write-error {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(248, 81, 73, 0.45);
+  border-radius: 8px;
+  background: rgba(248, 81, 73, 0.1);
+  color: #ffb4ae;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.git-write-error .row {
+  margin-top: 6px;
+}
+
+.git-write-ok {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(63, 185, 80, 0.4);
+  border-radius: 8px;
+  background: rgba(63, 185, 80, 0.08);
+  color: #56d364;
+}
+
+.git-commit-box {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--border, #263041);
+  border-radius: 8px;
+  background: rgba(21, 27, 36, 0.6);
+}
+
+.git-ignore-preview {
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.git-ignore-diff,
+.git-ignore-existing {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border, #263041);
+  border-radius: 8px;
+  background: #0b0f14;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.git-ignore-diff {
+  color: #56d364;
+}

@@ -50,6 +50,10 @@ export const GIT_EVENT_TYPES = [
   "merge.conflict_task_created",
   "git.reconciled",
   "git.repo_initialized",
+  "git.staged",
+  "git.unstaged",
+  "git.committed",
+  "git.ignore_updated",
 ] as const;
 
 export type GitEventType = (typeof GIT_EVENT_TYPES)[number];
@@ -107,6 +111,11 @@ export const GIT_EVENT_SCHEMAS: Record<GitEventType, z.ZodTypeAny> = {
   "merge.conflict_task_created": z.object({ queueId: z.string(), conflictTaskId: z.string(), sourceTaskId: z.string() }).passthrough(),
   "git.reconciled": z.object({ worktrees: z.number(), queue: z.number(), repaired: z.number() }).passthrough(),
   "git.repo_initialized": z.object({ root: z.string(), branch: z.string(), headSha: z.null() }).passthrough(),
+  // t352 G1：Git Graph 写闭环（workspace 聚合，操作者为本地用户）。
+  "git.staged": z.object({ workspaceId: z.string(), paths: z.array(z.string()), count: z.number().int().min(1) }).passthrough(),
+  "git.unstaged": z.object({ workspaceId: z.string(), paths: z.array(z.string()), count: z.number().int().min(1) }).passthrough(),
+  "git.committed": z.object({ workspaceId: z.string(), sha: z.string(), branch: z.string().nullable(), files: z.array(z.string()), title: z.string() }).passthrough(),
+  "git.ignore_updated": z.object({ workspaceId: z.string(), path: z.string(), addedLines: z.array(z.string()) }).passthrough(),
 };
 
 export function validateGitEvent(type: string, payload: unknown): { ok: true } | { ok: false; error: string } {
@@ -125,7 +134,7 @@ export function assertGitEvent(type: string, payload: unknown): void {
 let gitEventsRegistered = false;
 
 /**
- * B2：把 34 个 Git 事件注册进 t68 eventRegistry（运行时扩展，不修改 kernel 文件）。
+ * B2：把 Git 事件注册进 t68 eventRegistry（运行时扩展，不修改 kernel 文件）。
  * 注册后 Store.appendEvent(schemaVersion=2) 会走 kernel 同一套 zod/大小/类型校验。
  */
 export function registerGitEventTypes(): void {

@@ -206,6 +206,16 @@ export interface DeerApi {
   gitStatus(workspaceId: string): Promise<GitResult<GitWorkingStatus>>;
   gitCommit(workspaceId: string, sha: string): Promise<GitResult<GitCommitDetail>>;
   gitDiff(workspaceId: string, params: GitDiffParams): Promise<GitResult<GitDiffPage>>;
+  /** t352 G1：版本图本地写闭环（stage/unstage/commit/.gitignore；无 push/remote）。 */
+  gitStage?(workspaceId: string, paths: string[]): Promise<GitResult<import("../git/writeTypes.js").GitWritePathsResult>>;
+  gitUnstage?(workspaceId: string, paths: string[]): Promise<GitResult<import("../git/writeTypes.js").GitWritePathsResult>>;
+  gitCreateCommit?(
+    workspaceId: string,
+    title: string,
+    body?: string,
+  ): Promise<GitResult<import("../git/writeTypes.js").GitCommitCreateResult>>;
+  gitIgnorePreview?(workspaceId: string): Promise<GitResult<import("../git/writeTypes.js").GitIgnorePreview>>;
+  gitIgnoreApply?(workspaceId: string): Promise<GitResult<import("../git/writeTypes.js").GitIgnoreApplyResult>>;
   // t154：行级评审与合并门禁
   getReviewSummary(taskId: string): Promise<ReviewSummary>;
   getReviewDiff(input: { taskId: string; file?: string; offset?: number; limit?: number }): Promise<ReviewDiffPage>;

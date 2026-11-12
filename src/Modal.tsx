@@ -65,6 +65,8 @@ export default function Modal({
   onCloseRef.current = onClose;
 
   useEffect(() => {
+    // 非 DOM 环境（node 测试渲染）没有 document/focus，跳过焦点管理。
+    if (typeof document === "undefined") return;
     const token = tokenRef.current;
     pushModal(token);
     registerModalElement(token, dialogRef.current);
@@ -87,6 +89,7 @@ export default function Modal({
   }, []);
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
     function requestClose() {
       if (!isTopModal(tokenRef.current)) return;
       if (confirmCloseRef.current) {
