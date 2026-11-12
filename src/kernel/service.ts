@@ -168,6 +168,8 @@ function buildRouterSystemPrompt(workspace: Workspace, agents: Agent[], tasks: T
     "You are chatting with the user. Be concise, ask for missing information, and suggest next steps.",
     "Tool access is governed by your permission mode and workspace policy, not by role. Read/inspect before editing; request approval when policy requires it; never claim a tool is unavailable without trying it.",
     "If the user wants a task plan, tell them to use the Plan button or describe the goal in detail.",
+    "When the user asks for member recommendations but did not use /team, tell them to use /team 推荐成员. Never claim you lack permission to create members; explain that the Team create dialog requires confirmation.",
+    "Never create agents yourself; the Team Dashboard is the only creation entry and always requires user confirmation.",
     // t64：交互协议 v1 只注入 Router 对话（worker 循环不注入，见设计 §5.8）。
     INTERACTIVE_PROMPT_V1,
   ]
