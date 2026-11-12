@@ -186,9 +186,13 @@ import {
   displayedSidebarWidth,
   resizeSidebarWidth,
   shouldAutoCollapseSidebar,
+  sidebarMaxWidth,
   sidebarWidthStateForWindow,
 } from "./shell/dock/narrowWindow";
 import PrimaryRail, { usePrimaryRailFocus } from "./shell/PrimaryRail";
+import SeparatorControl from "./shell/SeparatorControl";
+import SkipLink from "./shell/SkipLink";
+import { clampTaskListWidth, taskListMaxWidth } from "./shell/taskListWidth";
 import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
@@ -929,6 +933,26 @@ export default function App() {
     setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
     setSidebarDisplayWidth(null);
     localStorage.setItem("deer.sidebarWidth", String(SIDEBAR_DEFAULT_WIDTH));
+  }
+
+  function stepSidebarWidth(delta: number) {
+    const state = {
+      preferred: sidebarWidthRef.current,
+      displayed: sidebarDisplayWidthRef.current,
+    };
+    const current = displayedSidebarWidth(state, viewportWidthRef.current);
+    const next = resizeSidebarWidth(
+      state,
+      viewportWidthRef.current,
+      current + delta,
+    );
+    sidebarWidthRef.current = next.preferred;
+    sidebarDisplayWidthRef.current = next.displayed;
+    setSidebarWidth(next.preferred);
+    setSidebarDisplayWidth(next.displayed);
+    if (viewportWidthRef.current > 1100) {
+      localStorage.setItem("deer.sidebarWidth", String(next.preferred));
+    }
   }
 
   const loadTrace = useCallback(
@@ -3391,6 +3415,7 @@ export default function App() {
   });
   return (
     <div className="app">
+      <SkipLink />
       <ChatLiveBridge
         store={chatLiveStore}
         workspaceId={snapshot.workspace.id}
@@ -3398,6 +3423,7 @@ export default function App() {
       />
       <aside
         className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
+        aria-label="侧栏"
         style={sidebarCollapsed ? undefined : { width: `${effectiveSidebarWidth}px` }}
       >
         <div className="brand">
@@ -3480,6 +3506,7 @@ export default function App() {
               }}
               aria-expanded={createMenuOpen}
               aria-haspopup="menu"
+              aria-label="新建"
               title="新建"
             >
               <span className="sidebar-action-icon">＋</span>
@@ -3505,6 +3532,7 @@ export default function App() {
             type="button"
             className="ghost small sidebar-action"
             onClick={() => void handleManualRefresh()}
+            aria-label="刷新"
             title="刷新"
           >
             <span className="sidebar-action-icon">↻</span>
@@ -3517,6 +3545,7 @@ export default function App() {
               onClick={togglePanelMenu}
               aria-expanded={panelMenuOpen}
               aria-haspopup="menu"
+              aria-label="面板"
               title="面板：打开或聚焦面板"
             >
               <span className="sidebar-action-icon">▦</span>
@@ -3613,16 +3642,21 @@ export default function App() {
         )}
       </aside>
 
-      <div
-        className="resizer"
-        role="separator"
-        aria-orientation="vertical"
-        title="拖动调整侧栏宽度，双击恢复默认"
-        onMouseDown={startResize}
-        onDoubleClick={resetSidebarWidth}
-      />
+      {!sidebarCollapsed ? (
+        <SeparatorControl
+          className="resizer"
+          label="调整侧栏宽度"
+          value={effectiveSidebarWidth}
+          min={180}
+          max={sidebarMaxWidth(viewportWidth)}
+          onStep={stepSidebarWidth}
+          onReset={resetSidebarWidth}
+          onMouseDown={startResize}
+          onDoubleClick={resetSidebarWidth}
+        />
+      ) : null}
 
-      <main className="main">
+      <main className="main" id="main-content" aria-label="主内容" tabIndex={-1}>
         <WorkflowRail
           projection={workflowProjection}
           needs={needsMe}
@@ -4144,7 +4178,27 @@ function TasksView({
   );
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const listWidthRef = useRef(listWidth);
+  const listLayoutWidthRef = useRef(0);
   const resizingListRef = useRef(false);
+  const [listLayoutWidth, setListLayoutWidth] = useState(0);
+
+  useEffect(() => {
+    const node = layoutRef.current;
+    if (!node) {
+      setListLayoutWidth(0);
+      return;
+    }
+    const measure = () => {
+      const width = node.getBoundingClientRect().width;
+      listLayoutWidthRef.current = width;
+      setListLayoutWidth(width);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [listCollapsed]);
 
   useEffect(() => {
     listWidthRef.current = listWidth;
@@ -4174,6 +4228,9 @@ function TasksView({
     };
   }, []);
 
+  const taskListMax = taskListMaxWidth(listLayoutWidth);
+  const actualListWidth = clampTaskListWidth(listWidth, listLayoutWidth);
+
   function startListResize(event: { preventDefault: () => void }) {
     event.preventDefault();
     resizingListRef.current = true;
@@ -4185,6 +4242,14 @@ function TasksView({
     listWidthRef.current = 380;
     setListWidth(380);
     localStorage.setItem("deer.taskListWidth", "380");
+  }
+
+  function stepListWidth(delta: number) {
+    const actual = clampTaskListWidth(listWidthRef.current, listLayoutWidthRef.current);
+    const next = clampTaskListWidth(actual + delta, listLayoutWidthRef.current);
+    listWidthRef.current = next;
+    setListWidth(next);
+    localStorage.setItem("deer.taskListWidth", String(next));
   }
 
   function toggleListCollapsed() {
@@ -4420,16 +4485,19 @@ function TasksView({
         </section>
       )}
 
-      {!listCollapsed && (
-        <div
+      {!listCollapsed && listLayoutWidth > 640 ? (
+        <SeparatorControl
           className="task-resizer"
-          role="separator"
-          aria-orientation="vertical"
-          title="拖动调整任务列表宽度，双击恢复默认"
+          label="调整任务列表宽度"
+          value={actualListWidth}
+          min={280}
+          max={taskListMax}
+          onStep={stepListWidth}
+          onReset={resetListWidth}
           onMouseDown={startListResize}
           onDoubleClick={resetListWidth}
         />
-      )}
+      ) : null}
 
       <section className="panel task-detail-panel">
         <div className="panel-head">
@@ -5729,18 +5797,60 @@ export function ChatView({
           <button
             type="button"
             role="tab"
+            id="chat-tab-chat"
+            aria-controls="chat-panel-chat"
             aria-selected={view === "chat"}
+            tabIndex={view === "chat" ? 0 : -1}
             className={view === "chat" ? "active" : ""}
             onClick={() => onViewChange("chat")}
+            onKeyDown={(event) => {
+              if (event.key === "Home") {
+                event.preventDefault();
+                onViewChange("chat");
+                document.getElementById("chat-tab-chat")?.focus();
+                return;
+              }
+              if (event.key === "End") {
+                event.preventDefault();
+                onViewChange("trajectory");
+                document.getElementById("chat-tab-trajectory")?.focus();
+                return;
+              }
+              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+              event.preventDefault();
+              onViewChange("trajectory");
+              document.getElementById("chat-tab-trajectory")?.focus();
+            }}
           >
             对话
           </button>
           <button
             type="button"
             role="tab"
+            id="chat-tab-trajectory"
+            aria-controls="chat-panel-trajectory"
             aria-selected={view === "trajectory"}
+            tabIndex={view === "trajectory" ? 0 : -1}
             className={view === "trajectory" ? "active" : ""}
             onClick={() => onViewChange("trajectory")}
+            onKeyDown={(event) => {
+              if (event.key === "Home") {
+                event.preventDefault();
+                onViewChange("chat");
+                document.getElementById("chat-tab-chat")?.focus();
+                return;
+              }
+              if (event.key === "End") {
+                event.preventDefault();
+                onViewChange("trajectory");
+                document.getElementById("chat-tab-trajectory")?.focus();
+                return;
+              }
+              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+              event.preventDefault();
+              onViewChange("chat");
+              document.getElementById("chat-tab-chat")?.focus();
+            }}
           >
             轨迹
             {trajectory.length > 0 && <span className="chat-view-count">{trajectory.length}</span>}
@@ -5748,7 +5858,12 @@ export function ChatView({
         </div>
 
         {view === "chat" ? (
-          <>
+          <div
+            id="chat-panel-chat"
+            className="chat-tab-panel"
+            role="tabpanel"
+            aria-labelledby="chat-tab-chat"
+          >
         {/* C10：工作区概述并入对话页，可折叠卡片 */}
         {overview && (
           <details className="overview-card">
@@ -5864,6 +5979,8 @@ export function ChatView({
         <div className="chat-composer">
           <textarea
             ref={composerRef}
+            aria-label="给 Router 发消息"
+            aria-describedby="chat-composer-help"
             value={input}
             onChange={(event) => onInput(event.target.value)}
             onKeyDown={(event) => {
@@ -5876,10 +5993,10 @@ export function ChatView({
             placeholder="给 Router 发消息… Ctrl+Enter 发送 · /clear 清空 · /compact 压缩"
           />
           <div className="row between">
-            <span className="muted tiny">
+            <span className="muted tiny" id="chat-composer-help">
               {busy
                 ? "Router 正在回复…"
-                : "上下文与工具会随任务变化 · /clear 清空 · /compact 压缩"}
+                : "上下文与工具会随任务变化 · Ctrl+Enter 发送 · /clear 清空 · /compact 压缩"}
             </span>
             <div className="row gap">
               <button
@@ -5952,13 +6069,20 @@ export function ChatView({
             </label>
           </div>
         </div>
-          </>
+          </div>
         ) : (
-          <ChatTrajectoryPanel
-            entries={trajectory}
-            loading={trajectoryLoading}
-            onRefresh={onRefreshTrajectory}
-          />
+          <div
+            id="chat-panel-trajectory"
+            className="chat-tab-panel"
+            role="tabpanel"
+            aria-labelledby="chat-tab-trajectory"
+          >
+            <ChatTrajectoryPanel
+              entries={trajectory}
+              loading={trajectoryLoading}
+              onRefresh={onRefreshTrajectory}
+            />
+          </div>
         )}
       </section>
     </div>

@@ -1,14 +1,18 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
 import { useRef } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Agent, ChatMessage } from "../../shared/types.js";
 import { ChatView } from "../../App.js";
 import { ChatLiveStore } from "./chatLiveStore.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
-  create: (element: unknown) => { toJSON: () => unknown; unmount: () => void };
+  create: (element: unknown) => {
+    root: { findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }> };
+    toJSON: () => unknown;
+    unmount: () => void;
+  };
 };
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -27,7 +31,13 @@ const messages: ChatMessage[] = Array.from({ length: 150 }, (_, index) => ({
 
 let viewRenders = 0;
 
-function ChatViewProbe({ store }: { store: ChatLiveStore }) {
+function ChatViewProbe({
+  store,
+  onViewChange = () => {},
+}: {
+  store: ChatLiveStore;
+  onViewChange?: (view: "chat" | "trajectory") => void;
+}) {
   viewRenders += 1;
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   return (
@@ -40,7 +50,7 @@ function ChatViewProbe({ store }: { store: ChatLiveStore }) {
       composerRef={composerRef}
       translateHistoryText={async (text) => text}
       view="chat"
-      onViewChange={() => {}}
+      onViewChange={onViewChange}
       trajectory={[]}
       trajectoryLoading={false}
       onRefreshTrajectory={() => {}}
@@ -103,5 +113,37 @@ describe("t260 R1 actual ChatView isolation", () => {
     await act(async () => {
       renderer.unmount();
     });
+  });
+
+  it("supports Home/End on Chat tabs", async () => {
+    const onViewChange = vi.fn();
+    const store = new ChatLiveStore(WS);
+    const originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = {
+      getElementById: () => ({ focus: vi.fn() }),
+    };
+    const treeRef: { current?: ReturnType<typeof create> } = {};
+    await act(async () => {
+      treeRef.current = create(
+        <ChatViewProbe store={store} onViewChange={onViewChange} />,
+      );
+    });
+    const chatTab = treeRef.current!.root.findAllByProps({ role: "tab" })[0]!;
+    await act(() => {
+      (chatTab.props.onKeyDown as (event: unknown) => void)({
+        key: "End",
+        preventDefault: vi.fn(),
+      });
+    });
+    expect(onViewChange).toHaveBeenLastCalledWith("trajectory");
+    await act(() => {
+      (chatTab.props.onKeyDown as (event: unknown) => void)({
+        key: "Home",
+        preventDefault: vi.fn(),
+      });
+    });
+    expect(onViewChange).toHaveBeenLastCalledWith("chat");
+    if (originalDocument === undefined) delete (globalThis as { document?: unknown }).document;
+    else (globalThis as { document?: unknown }).document = originalDocument;
   });
 });
