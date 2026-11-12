@@ -6442,7 +6442,13 @@ export function ChatView({
   function chooseCommand(command: (typeof CHAT_COMMANDS)[number]) {
     onInput(command.insert);
     setCommandDismissed(true);
-    setTimeout(() => composerRef.current?.focus(), 0);
+    setTimeout(() => {
+      const composer = composerRef.current;
+      if (!composer) return;
+      composer.focus();
+      const end = command.insert.length;
+      composer.setSelectionRange(end, end);
+    }, 0);
   }
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const visibleMessages = messages.slice(-Math.max(0, visibleMessageCount));
