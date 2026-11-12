@@ -36,9 +36,9 @@
 
 ```text
 pnpm typecheck   # 0
-pnpm build       # 0；457 modules
+pnpm build       # 0；458 modules
 pnpm test -- --testTimeout=20000 --maxWorkers=1
-                 # 144 files / 981 tests passed
+                 # 145 files / 996 tests passed
 ```
 
 > 默认并行仍有既有 5s flake；serial 全绿。
@@ -54,6 +54,6 @@ pnpm test -- --testTimeout=20000 --maxWorkers=1
 
 ## 4. 验证/回滚
 
-- `pnpm typecheck` 0；`pnpm build` 0（457 modules）；serial test 144/981。
+- `pnpm typecheck` 0；`pnpm build` 0（458 modules）；serial test 145/996。
 - 回滚：恢复 App `.watchdog-topbar` JSX/`BudgetBar` 导入，删除 WorkflowRail `watchdog` prop/CSS；watchdog 数据/面板不变。
 - 已知非阻塞：480 顶部栏因控制项较多增高到约 71px（单栏内折行），仍无独立第二整行/横向溢出；真实数据预算未设置时显示“预算未设置”。
