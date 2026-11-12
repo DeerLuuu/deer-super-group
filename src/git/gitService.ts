@@ -1,5 +1,5 @@
 import path from "node:path";
-import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import type { Store } from "../kernel/store.js";
 import type { Task } from "../shared/types.js";
 import type { TaskVcs, GitSettings, MergeQueueItem, MergeQueueSnapshot, PrInfo, PrProvider, PrepareRunInput, PrepareRunResult, RepoDiagnostics, RepoInfo, FinalizeRunInput, TaskVcsSnapshot, GitResult } from "./types.js";
@@ -843,24 +843,60 @@ export class GitService {
   }
 
   /** 解析 porcelain 输出中「已暂存」的仓库相对路径（xy 首字符非空格且非 `??`）。 */
-  private parseStagedPaths(porcelain: string): string[] {
+  private parseStagedPaths(porcelain: string): Array<{ path: string; oldPath?: string }> {
     const parts = porcelain.split("\0");
-    const staged: string[] = [];
+    const staged: Array<{ path: string; oldPath?: string }> = [];
     for (let index = 0; index < parts.length; index += 1) {
       const part = parts[index];
       if (!part || part.length < 3) continue;
       const xy = part.slice(0, 2);
-      let filePath = part.slice(3);
+      const filePath = part.slice(3);
       if (xy[0] === "R" || xy[0] === "C") {
         const otherPath = parts[index + 1];
         if (otherPath) index += 1;
-        staged.push(filePath);
+        staged.push({ path: filePath, ...(otherPath ? { oldPath: otherPath } : {}) });
         continue;
       }
       if (xy === "??") continue;
-      if (xy[0] !== " ") staged.push(filePath);
+      if (xy[0] !== " ") staged.push({ path: filePath });
     }
     return staged;
+  }
+
+  /**
+   * t395 F2：.gitignore 必须是仓库根内普通文件；symlink/junction 直接拒绝，
+   * 非链接文件的 realpath 也必须在仓库根内。预览与应用写前都会调用。
+   */
+  private inspectIgnoreTarget(
+    root: string,
+  ): { path: string; exists: boolean; size: number } | { error: string } {
+    const ignorePath = path.join(root, ".gitignore");
+    let link;
+    try {
+      link = lstatSync(ignorePath);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
+        return { path: ignorePath, exists: false, size: 0 };
+      }
+      return { error: "无法检查 .gitignore" };
+    }
+    if (link.isSymbolicLink()) {
+      return { error: ".gitignore 不能是 symlink/junction" };
+    }
+    if (!link.isFile()) {
+      return { error: ".gitignore 不是普通文件" };
+    }
+    try {
+      const real = realpathSync(ignorePath);
+      const rootReal = realpathSync(root);
+      const relative = path.relative(rootReal, real);
+      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+        return { error: ".gitignore 真实路径不在仓库根内" };
+      }
+    } catch {
+      return { error: "无法解析 .gitignore 真实路径" };
+    }
+    return { path: ignorePath, exists: true, size: link.size };
   }
 
   private audit(event: {
@@ -948,11 +984,23 @@ export class GitService {
       if (status.code !== 0) {
         return writeFail("GIT_WRITE_INTERNAL", "无法读取 git status", true);
       }
-      const staged = this.parseStagedPaths(status.stdout);
-      if (staged.length === 0) {
+      const stagedEntries = this.parseStagedPaths(status.stdout);
+      if (stagedEntries.length === 0) {
         return writeFail("GIT_WRITE_NOTHING_STAGED", "没有已暂存的文件；请先勾选并暂存要提交的文件");
       }
-      const guardReason = new CommitGuard(context.git).checkPaths(context.root, staged);
+      // t395 F1：R/C 必须同时把旧路径与新路径交给 CommitGuard；否则
+      // `.env → app.txt`、`.ssh/id_rsa → safe.txt` 可绕过敏感路径检查。
+      const stagedPaths: string[] = [];
+      const renames: Array<{ oldPath: string; newPath: string }> = [];
+      for (const entry of stagedEntries) {
+        if (entry.oldPath && entry.oldPath !== entry.path) {
+          renames.push({ oldPath: entry.oldPath, newPath: entry.path });
+          stagedPaths.push(entry.oldPath);
+        }
+        stagedPaths.push(entry.path);
+      }
+      const uniqueStagedPaths = Array.from(new Set(stagedPaths));
+      const guardReason = new CommitGuard(context.git).checkPaths(context.root, uniqueStagedPaths);
       if (guardReason) {
         return writeFail("GIT_WRITE_GUARD_BLOCKED", `提交被安全守卫拒绝：${guardReason}`);
       }
@@ -973,10 +1021,26 @@ export class GitService {
         this.audit({
           aggregateId: workspaceId,
           type: "git.committed",
-          payload: { workspaceId, sha, branch, files: staged, title },
+          payload: {
+            workspaceId,
+            sha,
+            branch,
+            files: uniqueStagedPaths,
+            ...(renames.length ? { renames } : {}),
+            title,
+          },
         });
       }
-      return { ok: true, value: { sha, branch, files: staged, title } };
+      return {
+        ok: true,
+        value: {
+          sha,
+          branch,
+          files: uniqueStagedPaths,
+          ...(renames.length ? { renames } : {}),
+          title,
+        },
+      };
     });
   }
 
@@ -984,13 +1048,16 @@ export class GitService {
   async ignorePreview(workspaceId: string): Promise<import("./types.js").GitResult<GitIgnorePreview>> {
     const context = await this.graphWriteContext(workspaceId);
     if (!context.ok) return context.result;
-    const ignorePath = path.join(context.root, ".gitignore");
-    const exists = existsSync(ignorePath);
+    const target = this.inspectIgnoreTarget(context.root);
+    if ("error" in target) {
+      return writeFail("GIT_WRITE_BAD_PARAM", target.error);
+    }
+    const ignorePath = target.path;
+    const exists = target.exists;
     let existing = "";
     if (exists) {
       try {
-        const stat = statSync(ignorePath);
-        if (stat.size > 256 * 1024) {
+        if (target.size > 256 * 1024) {
           return writeFail("GIT_WRITE_BAD_PARAM", ".gitignore 过大（>256KB），请手动编辑");
         }
         existing = readFileSync(ignorePath, "utf8");
@@ -1031,7 +1098,15 @@ export class GitService {
       if (preview.value.additions.length === 0) {
         return { ok: true, value: { addedLines: [], created: false } };
       }
-      const ignorePath = path.join(context.root, ".gitignore");
+      // t395 F2：写前再次 lstat/realpath 校验，防止 preview 后路径被替换为 symlink/junction。
+      const target = this.inspectIgnoreTarget(context.root);
+      if ("error" in target) {
+        return writeFail("GIT_WRITE_BAD_PARAM", target.error);
+      }
+      if (preview.value.exists !== target.exists) {
+        return writeFail("GIT_WRITE_BAD_PARAM", ".gitignore 状态已变化，请重新预览", true);
+      }
+      const ignorePath = target.path;
       try {
         if (preview.value.exists && preview.value.existing && !preview.value.existing.endsWith("\n")) {
           appendFileSync(ignorePath, "\n", "utf8");

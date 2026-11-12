@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Store } from "../kernel/store.js";
@@ -220,6 +229,60 @@ describe("t352 G1 — commit", () => {
     }
   });
 
+  it("rejects rename bypass for sensitive old path (.env -> app.txt)", async () => {
+    const dir = initRepo();
+    writeFileSync(path.join(dir, ".env"), "SECRET=rename\n");
+    // 先让旧路径真实存在且被 HEAD 跟踪，再 rename；否则 git status 只会看到新增。
+    git(dir, ["add", "-f", ".env"]);
+    git(dir, ["commit", "-m", "track sensitive env"]);
+    git(dir, ["mv", ".env", "app.txt"]);
+    const headBefore = git(dir, ["rev-parse", "HEAD"]);
+    const { service, workspaceId, close } = seedService(dir);
+    try {
+      const result = await service.commitFiles(workspaceId, { title: "rename env" });
+      expect(result.ok).toBe(false);
+      expect(result.errorCode).toBe("GIT_WRITE_GUARD_BLOCKED");
+      expect(result.message).toContain(".env");
+      expect(git(dir, ["rev-parse", "HEAD"])).toBe(headBefore);
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects rename bypass for sensitive old path (.ssh/id_rsa -> safe.txt)", async () => {
+    const dir = initRepo();
+    mkdirSync(path.join(dir, ".ssh"));
+    writeFileSync(path.join(dir, ".ssh", "id_rsa"), "SECRET=rename\n");
+    git(dir, ["add", "-f", ".ssh/id_rsa"]);
+    git(dir, ["commit", "-m", "track sensitive key"]);
+    git(dir, ["mv", ".ssh/id_rsa", "safe.txt"]);
+    const headBefore = git(dir, ["rev-parse", "HEAD"]);
+    const { service, workspaceId, close } = seedService(dir);
+    try {
+      const result = await service.commitFiles(workspaceId, { title: "rename ssh key" });
+      expect(result.ok).toBe(false);
+      expect(result.errorCode).toBe("GIT_WRITE_GUARD_BLOCKED");
+      expect(result.message).toContain(".ssh/id_rsa");
+      expect(git(dir, ["rev-parse", "HEAD"])).toBe(headBefore);
+    } finally {
+      close();
+    }
+  });
+
+  it("returns both oldPath and newPath for a safe rename", async () => {
+    const dir = initRepo();
+    git(dir, ["mv", "README.md", "renamed.md"]);
+    const { service, workspaceId, close } = seedService(dir);
+    try {
+      const result = await service.commitFiles(workspaceId, { title: "rename readme" });
+      expect(result.ok).toBe(true);
+      expect(result.value?.files).toEqual(expect.arrayContaining(["README.md", "renamed.md"]));
+      expect(result.value?.renames).toEqual([{ oldPath: "README.md", newPath: "renamed.md" }]);
+    } finally {
+      close();
+    }
+  });
+
   it("validates commit title", async () => {
     const dir = initRepo();
     writeFileSync(path.join(dir, "x.txt"), "x\n");
@@ -309,6 +372,52 @@ describe("t352 G1 — .gitignore preview / apply", () => {
       // 「keep/」与追加内容之间必须换行，不得拼成同一行。
       expect(content.startsWith("keep/\n")).toBe(true);
       expect(content).toContain("node_modules/");
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects symlink/junction .gitignore in preview and apply without touching target", async () => {
+    const dir = initRepo();
+    const outside = tempDir("deer-write-outside-");
+    const marker = path.join(outside, "sentinel.txt");
+    writeFileSync(marker, "outside-sentinel\n");
+    const ignorePath = path.join(dir, ".gitignore");
+    symlinkSync(outside, ignorePath, process.platform === "win32" ? "junction" : "dir");
+    const { service, workspaceId, close } = seedService(dir);
+    try {
+      const preview = await service.ignorePreview(workspaceId);
+      expect(preview.ok).toBe(false);
+      expect(preview.errorCode).toBe("GIT_WRITE_BAD_PARAM");
+      expect(preview.message).toContain("symlink");
+      const applied = await service.ignoreApply(workspaceId);
+      expect(applied.ok).toBe(false);
+      expect(applied.errorCode).toBe("GIT_WRITE_BAD_PARAM");
+      expect(readFileSync(marker, "utf8")).toBe("outside-sentinel\n");
+      expect(lstatSync(ignorePath).isSymbolicLink()).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
+  it("rejects a dangling symlink/junction target in preview and apply", async () => {
+    const dir = initRepo();
+    const outside = tempDir("deer-write-outside-missing-");
+    const missing = path.join(outside, "missing-dir");
+    mkdirSync(missing);
+    const ignorePath = path.join(dir, ".gitignore");
+    symlinkSync(missing, ignorePath, process.platform === "win32" ? "junction" : "dir");
+    rmSync(missing, { recursive: true, force: true });
+    const marker = path.join(outside, "sentinel.txt");
+    writeFileSync(marker, "outside-sentinel\n");
+    const { service, workspaceId, close } = seedService(dir);
+    try {
+      const preview = await service.ignorePreview(workspaceId);
+      expect(preview.ok).toBe(false);
+      expect(preview.errorCode).toBe("GIT_WRITE_BAD_PARAM");
+      const applied = await service.ignoreApply(workspaceId);
+      expect(applied.ok).toBe(false);
+      expect(readFileSync(marker, "utf8")).toBe("outside-sentinel\n");
     } finally {
       close();
     }

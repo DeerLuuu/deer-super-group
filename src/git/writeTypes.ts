@@ -11,11 +11,18 @@ export interface GitWritePathsResult {
   paths: string[];
 }
 
+export interface GitCommitRename {
+  oldPath: string;
+  newPath: string;
+}
+
 export interface GitCommitCreateResult {
   sha: string;
   branch: string | null;
-  /** 本次提交包含的文件（仓库相对路径）。 */
+  /** 本次提交包含的文件（仓库相对路径）；R/C 同时含旧路径与新路径。 */
   files: string[];
+  /** R/C 记录：CommitGuard 必须同时检查旧路径与新路径。 */
+  renames?: GitCommitRename[];
   title: string;
 }
 
