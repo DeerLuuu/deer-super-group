@@ -6,6 +6,7 @@ import type {
   ChatEvent,
   CreateAgentInput,
   CreateTaskInput,
+  RecommendMembersRequest,
   BoardKind,
   EventRecord,
   RiskApprovalRequest,
@@ -39,6 +40,8 @@ const api: DeerApi = {
   openWorkspace: () => ipcRenderer.invoke("workspace:open"),
   getSnapshot: (workspaceId: string) => ipcRenderer.invoke("workspace:snapshot", workspaceId),
   createAgent: (input: CreateAgentInput) => ipcRenderer.invoke("agent:create", input),
+  recommendMembers: (input: RecommendMembersRequest) =>
+    ipcRenderer.invoke("agent:recommend", input),
   updateAgent: (input: UpdateAgentInput) => ipcRenderer.invoke("agent:update", input),
   deleteAgent: (agentId: string) => ipcRenderer.invoke("agent:delete", agentId),
   createTask: (input: CreateTaskInput) => ipcRenderer.invoke("task:create", input),

@@ -7,6 +7,7 @@ import type {
   CancelChatQuestionInput,
   ChatTurnHistoryOptions,
   CreateAgentInput,
+  RecommendMembersRequest,
   CreateTaskInput,
   KernelErrorCode,
   LlmSettings,
@@ -160,6 +161,9 @@ app.whenReady().then(() => {
 
   handle("workspace:snapshot", (workspaceId: string) => getService().getSnapshot(workspaceId));
   handle("agent:create", (input: CreateAgentInput) => getService().createAgent(input));
+  handle("agent:recommend", (input: RecommendMembersRequest) =>
+    getService().recommendMembers(input),
+  );
   handle("agent:update", (input: UpdateAgentInput) => getService().updateAgent(input));
   handle("agent:delete", (agentId: string) => getService().deleteAgent(agentId));
   handle("task:create", (input: CreateTaskInput) => getService().createTask(input));

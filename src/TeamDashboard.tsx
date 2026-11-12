@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
   Agent,
+  MemberCandidate,
   PermissionMode,
+  RecommendMembersRequest,
+  RecommendMembersResponse,
   SchedulerSnapshot,
   Snapshot,
   Task,
@@ -20,6 +23,7 @@ import TaskStarMap from "./TaskStarMap";
 import Modal from "./Modal";
 import EmptyState from "./EmptyState";
 import DangerConfirmModal from "./DangerConfirmModal";
+import { recommendationErrorMessage } from "./shared/memberRecommendation";
 
 type AgentDraft = {
   name: string;
@@ -43,7 +47,9 @@ export default function TeamDashboard({
   autoOpenMemberDialog,
   onAutoOpenHandled,
   onCreate,
+  onRecommend,
   onUpdate,
+  onOpenSettings,
   onDelete,
   onOpenTask,
   onOpenTaskPage,
@@ -63,7 +69,11 @@ export default function TeamDashboard({
   /** C11：命令面板/「＋新建」触发的自动打开成员弹窗（一次性）。 */
   autoOpenMemberDialog: boolean;
   onAutoOpenHandled: () => void;
-  onCreate: (input: AgentDraft) => void;
+  onCreate: (input: AgentDraft) => Promise<boolean>;
+  onRecommend: (
+    input: Omit<RecommendMembersRequest, "workspaceId">,
+  ) => Promise<RecommendMembersResponse>;
+  onOpenSettings: () => void;
   onUpdate: (input: UpdateAgentInput) => void;
   /** t167：删除成员；调用方负责二次确认后的 API。 */
   onDelete: (agent: Agent) => Promise<boolean>;
@@ -146,13 +156,15 @@ export default function TeamDashboard({
     setDialog({ agent });
   }
 
-  function submitAgent(draft: AgentDraft) {
+  async function submitAgent(draft: AgentDraft): Promise<boolean> {
     if (dialog?.agent) {
       onUpdate({ id: dialog.agent.id, ...draft });
-    } else {
-      onCreate(draft);
+      setDialog(null);
+      return true;
     }
-    setDialog(null);
+    const created = await onCreate(draft);
+    if (created) setDialog(null);
+    return created;
   }
 
   return (
@@ -302,6 +314,8 @@ export default function TeamDashboard({
           busy={busy}
           onClose={() => setDialog(null)}
           onSubmit={submitAgent}
+          onRecommend={onRecommend}
+          onOpenSettings={onOpenSettings}
           onDeleteRequest={(target, owned) => {
             setDialog(null);
             setDeleteMember({ agent: target, owned });
@@ -509,15 +523,34 @@ function AgentDialog({
   busy,
   onClose,
   onSubmit,
+  onRecommend,
+  onOpenSettings,
   onDeleteRequest,
 }: {
   agent: Agent | null;
   snapshot: Snapshot;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (draft: AgentDraft) => void;
+  onSubmit: (draft: AgentDraft) => Promise<boolean> | boolean;
+  onRecommend: (
+    input: Omit<RecommendMembersRequest, "workspaceId">,
+  ) => Promise<RecommendMembersResponse>;
+  onOpenSettings: () => void;
   onDeleteRequest: (agent: Agent, owned: number) => void;
 }) {
+  const defaultManual = snapshot.settings.models.length === 0 || snapshot.settings.mock;
+  const [tab, setTab] = useState<"router" | "manual" | "description">(
+    agent || defaultManual ? "manual" : "router",
+  );
+  const [candidates, setCandidates] = useState<MemberCandidate[]>([]);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [recommendationCode, setRecommendationCode] = useState<string | null>(null);
+  const [recommending, setRecommending] = useState(false);
+  const [description, setDescription] = useState("");
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [hiring, setHiring] = useState(false);
+  const [hireError, setHireError] = useState<string | null>(null);
+  const hiringRef = useRef(false);
   const [name, setName] = useState(agent?.name ?? "");
   const [role, setRole] = useState(agent?.role ?? "engineer");
   const [model, setModel] = useState(() => {
@@ -545,8 +578,225 @@ function AgentDialog({
           "You are a careful engineer. Inspect before editing, keep changes minimal, run checks, and report clearly.") ||
       persona !== (agent?.persona ?? "") ||
       agentsMd !== (agent?.agentsMd ?? "") ||
-      (agent !== null && permission !== agent.permission),
+      (agent !== null && permission !== agent.permission) ||
+      (!agent && (description.trim().length > 0 || candidates.length > 0)),
   );
+
+  async function runRecommendation(mode: "team-gap" | "description") {
+    if (recommending) return;
+    if (mode === "description" && (!description.trim() || description.trim().length > 2000)) {
+      setRecommendationCode("RECOMMEND_INVALID_SCHEMA");
+      setRecommendationError(
+        !description.trim() ? "请先描述需要的成员" : "描述不能超过 2000 字符",
+      );
+      return;
+    }
+    setRecommending(true);
+    setRecommendationError(null);
+    setRecommendationCode(null);
+    setCandidates([]);
+    try {
+      const response = await onRecommend({
+        mode,
+        ...(mode === "description" ? { description: description.trim() } : {}),
+      });
+      if (!response.ok) {
+        setRecommendationCode(response.code);
+        setRecommendationError(recommendationErrorMessage(response.code));
+        return;
+      }
+      setCandidates(response.result.candidates);
+      if (response.result.candidates.length === 0) {
+        setRecommendationCode("RECOMMEND_EMPTY");
+        setRecommendationError(recommendationErrorMessage("RECOMMEND_EMPTY"));
+      }
+    } catch (error) {
+      setRecommendationCode("RECOMMEND_FAILED");
+      setRecommendationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecommending(false);
+    }
+  }
+
+  function candidateToDraft(candidate: MemberCandidate): AgentDraft {
+    return {
+      name: candidate.name,
+      role: candidate.role,
+      model: candidate.suggestedModelProfileId,
+      systemPrompt: candidate.systemPrompt ?? "",
+      persona: candidate.persona ?? "",
+      agentsMd: candidate.agentsMd ?? "",
+      permission: "read_only",
+    };
+  }
+
+  function editCandidate(candidate: MemberCandidate) {
+    const draft = candidateToDraft(candidate);
+    setName(draft.name);
+    setRole(draft.role);
+    setModel(draft.model ?? "");
+    setSystemPrompt(draft.systemPrompt);
+    setPersona(draft.persona);
+    setAgentsMd(draft.agentsMd);
+    setTab("manual");
+  }
+
+  async function hireCandidate(candidate: MemberCandidate) {
+    if (hiringRef.current || busy || candidate.nameConflict) return;
+    hiringRef.current = true;
+    setHiring(true);
+    setHireError(null);
+    try {
+      const created = await onSubmit(candidateToDraft(candidate));
+      if (!created) setHireError("聘用失败；候选与输入已保留，可修改后重试。");
+    } catch (error) {
+      setHireError(error instanceof Error ? error.message : String(error));
+    } finally {
+      hiringRef.current = false;
+      setHiring(false);
+    }
+  }
+
+  function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const order: Array<"router" | "manual" | "description"> = [
+      "router",
+      "manual",
+      "description",
+    ];
+    const index = order.indexOf(tab);
+    const next =
+      event.key === "ArrowRight"
+        ? order[(index + 1) % order.length]
+        : event.key === "ArrowLeft"
+          ? order[(index - 1 + order.length) % order.length]
+          : event.key === "Home"
+            ? order[0]
+            : event.key === "End"
+              ? order[order.length - 1]
+              : null;
+    if (!next) return;
+    event.preventDefault();
+    if ((next === "router" || next === "description") && defaultManual) return;
+    setTab(next);
+    const list = event.currentTarget.parentElement;
+    const tabs = list ? Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]')) : [];
+    tabs[order.indexOf(next)]?.focus?.();
+  }
+
+  function candidateCards() {
+    return (
+      <div className="member-candidates">
+        {candidates.map((candidate) => {
+          const confirming = confirmId === candidate.candidateId;
+          return (
+            <article className="member-candidate" key={candidate.candidateId}>
+              <div className="member-candidate-head">
+                <div>
+                  <strong>{candidate.name}</strong>
+                  <span className="muted tiny"> · {candidate.role}</span>
+                </div>
+                <span className="chip">read_only</span>
+              </div>
+              <div className="muted tiny">
+                建议模型：{candidate.suggestedModelLabel ?? "使用默认模型"}
+              </div>
+              <p>{candidate.responsibilities}</p>
+              <p className="muted tiny">推荐理由：{candidate.reason}</p>
+              {candidate.nameConflict ? (
+                <div className="notice small" role="alert">
+                  名称与现有成员重复；请编辑后聘用。
+                </div>
+              ) : null}
+              {candidate.roleConflict ? (
+                <div className="notice small">已有多名同角色成员；角色冲突不阻断聘用。</div>
+              ) : null}
+              {candidate.skills.length > 0 ? (
+                <div className="row gap wrap">
+                  {candidate.skills.map((skill) => (
+                    <span className="chip" key={skill}>
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {candidate.risks.length > 0 ? (
+                <ul className="muted tiny">
+                  {candidate.risks.map((risk) => (
+                    <li key={risk}>{risk}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <details className="member-candidate-details">
+                <summary>详情（systemPrompt / persona / AGENTS.md）</summary>
+                <pre>{candidate.systemPrompt ?? "（空）"}</pre>
+                <pre>{candidate.persona ?? "（空）"}</pre>
+                <pre>{candidate.agentsMd ?? "（空）"}</pre>
+              </details>
+              <div className="row gap wrap">
+                <button
+                  type="button"
+                  className="primary small"
+                  disabled={busy || hiring || candidate.nameConflict}
+                  onClick={() => {
+                    setConfirmId(confirming ? null : candidate.candidateId);
+                    setHireError(null);
+                  }}
+                  aria-expanded={confirming}
+                  aria-controls={`member-confirm-${candidate.candidateId}`}
+                >
+                  聘用
+                </button>
+                <button
+                  type="button"
+                  className="ghost small"
+                  disabled={busy || hiring}
+                  onClick={() => editCandidate(candidate)}
+                >
+                  编辑后聘用
+                </button>
+              </div>
+              {confirming ? (
+                <div
+                  className="member-confirm"
+                  id={`member-confirm-${candidate.candidateId}`}
+                  role="group"
+                  aria-label={`确认聘用 ${candidate.name}`}
+                >
+                  <div className="muted tiny">
+                    确认聘用 {candidate.name}（{candidate.role}，read_only）。创建后只能在成员编辑中提权。
+                  </div>
+                  {hireError ? (
+                    <div className="notice small" role="alert">
+                      {hireError}
+                    </div>
+                  ) : null}
+                  <div className="row gap">
+                    <button
+                      type="button"
+                      className="primary small"
+                      disabled={hiring || busy || candidate.nameConflict}
+                      aria-busy={hiring}
+                      onClick={() => void hireCandidate(candidate)}
+                    >
+                      {hiring ? "聘用中…" : "确认聘用"}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost small"
+                      disabled={hiring}
+                      onClick={() => setConfirmId(null)}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <Modal
@@ -555,12 +805,56 @@ function AgentDialog({
       onClose={onClose}
       confirmClose={dirty}
     >
+      {!agent ? (
+        <div className="member-tabs" role="tablist" aria-label="新建成员方式">
+          {(
+            [
+              ["router", "Router 推荐"],
+              ["manual", "自己设定"],
+              ["description", "描述生成"],
+            ] as const
+          ).map(([key, label]) => {
+            const disabled = defaultManual && key !== "manual";
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`member-tab-${key}`}
+                aria-selected={tab === key}
+                aria-controls={`member-panel-${key}`}
+                aria-disabled={disabled}
+                tabIndex={tab === key ? 0 : -1}
+                className={tab === key ? "active" : ""}
+                onClick={() => {
+                  if (!disabled) setTab(key);
+                }}
+                onKeyDown={onTabKeyDown}
+                title={
+                  disabled
+                    ? snapshot.settings.mock
+                      ? "Mock 模式不提供推荐"
+                      : "请先在设置中添加模型"
+                    : undefined
+                }
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {agent || tab === "manual" ? (
       <form
           className="form modal-form"
-          onSubmit={(event) => {
+          id="member-panel-manual"
+          role={agent ? undefined : "tabpanel"}
+          aria-labelledby={agent ? undefined : "member-tab-manual"}
+          onSubmit={async (event) => {
             event.preventDefault();
             if (!name.trim()) return;
-            onSubmit({
+            if (!agent && snapshot.settings.models.length === 0) return;
+            await onSubmit({
               name: name.trim(),
               role: role.trim() || "engineer",
               model: model || null,
@@ -683,11 +977,178 @@ function AgentDialog({
             <button type="button" className="ghost" onClick={onClose}>
               取消
             </button>
-            <button className="primary" disabled={busy || !name.trim()}>
+            <button
+              className="primary"
+              disabled={busy || !name.trim() || snapshot.settings.models.length === 0}
+            >
               {agent ? "保存成员" : "创建成员"}
             </button>
           </div>
+          {!agent && snapshot.settings.models.length === 0 ? (
+            <div className="notice small" role="status">
+              尚未配置模型，不能聘用成员；请先在设置中添加模型。
+            </div>
+          ) : null}
         </form>
+      ) : tab === "router" ? (
+        <div
+          className="member-panel"
+          id="member-panel-router"
+          role="tabpanel"
+          aria-labelledby="member-tab-router"
+        >
+          <p className="muted small">
+            让 Router 根据当前工作区、任务缺口和现有团队推荐 1–3 位成员。推荐不会自动创建成员，聘用前必须确认。
+          </p>
+          {defaultManual ? (
+            <div className="notice small">
+              {snapshot.settings.mock
+                ? "Mock 模式不提供真实推荐；请使用「自己设定」。"
+                : "尚未配置模型；请先在设置中添加模型，或使用「自己设定」。"}
+              {!snapshot.settings.mock ? (
+                <button type="button" className="ghost small" onClick={onOpenSettings}>
+                  去设置模型
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="primary"
+              disabled={recommending}
+              aria-busy={recommending}
+              onClick={() => void runRecommendation("team-gap")}
+            >
+              {recommending ? "Router 正在推荐…" : "让 Router 推荐"}
+            </button>
+          )}
+          <div aria-live="polite" role="status">
+            {recommending ? "Router 正在推荐…" : null}
+          </div>
+          {recommendationError ? (
+            <div className="notice small" role="alert">
+              {recommendationError}
+              {!defaultManual ? (
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => void runRecommendation("team-gap")}
+                  disabled={recommending}
+                >
+                  重试
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {!recommending && candidates.length > 0 ? (
+            <>
+              {candidateCards()}
+              <button
+                type="button"
+                className="ghost small"
+                disabled={recommending || hiring}
+                onClick={() => void runRecommendation("team-gap")}
+              >
+                重新推荐
+              </button>
+            </>
+          ) : null}
+          {!recommending && !recommendationError && candidates.length === 0 && !defaultManual ? (
+            <div className="muted small">点击「让 Router 推荐」开始；不会自动创建成员。</div>
+          ) : null}
+          <div className="modal-foot">
+            <button type="button" className="ghost" onClick={onClose}>
+              取消
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="member-panel"
+          id="member-panel-description"
+          role="tabpanel"
+          aria-labelledby="member-tab-description"
+        >
+          <label>
+            描述你需要的成员（1–2000 字符）
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              rows={5}
+              placeholder="例如：需要一个负责前端可访问性与响应式回归的 QA，熟悉键盘/读屏，权限先只读"
+            />
+          </label>
+          <div className="muted tiny" aria-live="polite">
+            {description.trim().length} / 2000
+          </div>
+          {description.trim().length > 2000 ? (
+            <div className="notice small" role="alert">
+              描述不能超过 2000 字符。
+            </div>
+          ) : null}
+          {defaultManual ? (
+            <div className="notice small">
+              {snapshot.settings.mock
+                ? "Mock 模式不提供真实推荐；请使用「自己设定」。"
+                : "尚未配置模型；请先在设置中添加模型，或使用「自己设定」。"}
+              {!snapshot.settings.mock ? (
+                <button type="button" className="ghost small" onClick={onOpenSettings}>
+                  去设置模型
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="row gap">
+            <button
+              type="button"
+              className="primary"
+              disabled={
+                recommending ||
+                defaultManual ||
+                !description.trim() ||
+                description.trim().length > 2000
+              }
+              aria-busy={recommending}
+              onClick={() => void runRecommendation("description")}
+            >
+              {recommending ? "Router 正在生成…" : candidates.length ? "重新生成" : "生成候选"}
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              disabled={recommending || !description}
+              onClick={() => {
+                setDescription("");
+                setCandidates([]);
+                setRecommendationError(null);
+              }}
+            >
+              清空
+            </button>
+          </div>
+          {recommendationError ? (
+            <div className="notice small" role="alert">
+              {recommendationError}
+              {!defaultManual ? (
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => void runRecommendation("description")}
+                  disabled={recommending}
+                >
+                  重试
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {!recommending && candidates.length > 0 ? candidateCards() : null}
+          <div className="modal-foot">
+            <button type="button" className="ghost" onClick={onClose}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

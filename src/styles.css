@@ -8560,3 +8560,91 @@ body li {
     flex-basis: calc(100% - 40px);
   }
 }
+
+/* t272 Router 推荐成员 */
+.member-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  margin-bottom: 10px;
+}
+
+.member-tabs [role="tab"] {
+  flex: 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.member-tabs [role="tab"][aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.member-tabs [role="tab"][aria-disabled="true"] {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.member-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.member-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 10px;
+}
+
+.member-candidate {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.member-candidate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.member-candidate p {
+  margin: 0;
+}
+
+.member-candidate-details pre {
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
+.member-confirm {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+@media (max-width: 960px) {
+  .member-candidates {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .member-candidate-details pre {
+    max-height: 96px;
+  }
+}

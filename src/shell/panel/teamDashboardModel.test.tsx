@@ -14,7 +14,7 @@ vi.mock("../../Modal", () => ({
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
-  create: (element: unknown) => { root: { findAllByType: (type: string) => Array<{ children: unknown[] }> }; toJSON: () => unknown; unmount: () => void };
+  create: (element: unknown) => { root: { findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }> }; toJSON: () => unknown; unmount: () => void };
 };
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,7 +70,13 @@ function dashboard(s: Snapshot) {
       starmapFocus={null}
       autoOpenMemberDialog
       onAutoOpenHandled={noop}
-      onCreate={noop}
+      onCreate={async () => true}
+      onRecommend={async () => ({
+        ok: false as const,
+        code: "RECOMMEND_FAILED" as const,
+        message: "test",
+      })}
+      onOpenSettings={noop}
       onUpdate={noop}
       onDelete={async () => false}
       onOpenTask={noop}
@@ -92,6 +98,13 @@ describe("t276 TeamDashboard model dropdown", () => {
     });
     const renderer = treeRef.current;
     if (!renderer) throw new Error("renderer not created");
+    const manualTab = renderer.root
+      .findAllByType("button")
+      .find((button) => button.props.role === "tab" && textOf(button.children).includes("自己设定"));
+    expect(manualTab).toBeTruthy();
+    await act(() => {
+      (manualTab!.props.onClick as () => void)();
+    });
     const options = renderer.root.findAllByType("option");
     expect(options.some((option) => textOf(option.children).includes("GLM 5.3"))).toBe(true);
     await act(async () => {

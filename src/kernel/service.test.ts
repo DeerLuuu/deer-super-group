@@ -220,4 +220,16 @@ describe("AppService", () => {
     expect(trace.some((event) => event.type === "tool.call")).toBe(true);
     expect(trace.some((event) => event.type === "run.completed")).toBe(true);
   });
+
+  it("recommendMembers does not fabricate candidates in mock mode", async () => {
+    const { service, workspacePath } = setup();
+    const workspace = await service.openWorkspace(workspacePath);
+    expect(service.getSnapshot(workspace.id).agents.length).toBe(1);
+    const result = await service.recommendMembers({
+      workspaceId: workspace.id,
+      mode: "team-gap",
+    });
+    expect(result).toMatchObject({ ok: false, code: "MOCK_UNSUPPORTED" });
+    expect(service.getSnapshot(workspace.id).agents).toHaveLength(1);
+  });
 });
