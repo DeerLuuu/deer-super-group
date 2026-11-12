@@ -69,9 +69,9 @@ Chat composer 输入以 `/` 开头时显示命令补全（`App.ChatView`）：
 
 ```text
 pnpm typecheck   # 0
-pnpm build       # 0（452 modules）
+pnpm build       # 0（455 modules）
 pnpm test -- --testTimeout=20000 --maxWorkers=1
-                 # 132 files / 933 tests passed
+                 # 135 files / 950 tests passed
 ```
 
 > 默认并行有既有 openai/watchdog 5s timeout；serial 全绿。
