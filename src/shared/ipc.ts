@@ -63,6 +63,7 @@ import type {
   GitRefsSnapshot,
   GitWorkingStatus,
 } from "../git/readTypes.js";
+import type { GitInitProbe, GitInitResult } from "../git/initTypes.js";
 import type {
   ReviewConfig,
   ReviewConfigPatch,
@@ -197,6 +198,9 @@ export interface DeerApi {
   gitRecover(workspaceId: string): Promise<number>;
   // t301：只读版本图
   gitRepo(workspaceId: string): Promise<GitResult<GitReadRepo>>;
+  /** t348：非 Git 工作区初始化的只读预检/一次性写通道。 */
+  gitInitProbe?(workspaceId: string): Promise<GitInitProbe>;
+  gitInit?(workspaceId: string): Promise<GitResult<GitInitResult>>;
   gitGraph(workspaceId: string, params: { limit?: number; offset?: number; ref?: string }): Promise<GitResult<GitGraphPage>>;
   gitRefs(workspaceId: string, limit?: number): Promise<GitResult<GitRefsSnapshot>>;
   gitStatus(workspaceId: string): Promise<GitResult<GitWorkingStatus>>;

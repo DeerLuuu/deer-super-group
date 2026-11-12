@@ -49,6 +49,7 @@ export const GIT_EVENT_TYPES = [
   "merge.cancelled",
   "merge.conflict_task_created",
   "git.reconciled",
+  "git.repo_initialized",
 ] as const;
 
 export type GitEventType = (typeof GIT_EVENT_TYPES)[number];
@@ -105,6 +106,7 @@ export const GIT_EVENT_SCHEMAS: Record<GitEventType, z.ZodTypeAny> = {
   "merge.cancelled": z.object({ queueId: z.string(), reason: z.string() }).passthrough(),
   "merge.conflict_task_created": z.object({ queueId: z.string(), conflictTaskId: z.string(), sourceTaskId: z.string() }).passthrough(),
   "git.reconciled": z.object({ worktrees: z.number(), queue: z.number(), repaired: z.number() }).passthrough(),
+  "git.repo_initialized": z.object({ root: z.string(), branch: z.string(), headSha: z.null() }).passthrough(),
 };
 
 export function validateGitEvent(type: string, payload: unknown): { ok: true } | { ok: false; error: string } {

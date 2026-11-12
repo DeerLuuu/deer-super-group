@@ -134,6 +134,8 @@ const api: DeerApi = {
   gitRecover: (workspaceId: string) => ipcRenderer.invoke("git:recover", workspaceId),
   // t301：只读版本图
   gitRepo: (workspaceId: string) => ipcRenderer.invoke("git:repo", workspaceId),
+  gitInitProbe: (workspaceId: string) => ipcRenderer.invoke("git:init-probe", workspaceId),
+  gitInit: (workspaceId: string) => ipcRenderer.invoke("git:init", workspaceId),
   gitGraph: (workspaceId: string, params?: unknown) => ipcRenderer.invoke("git:graph", workspaceId, params),
   gitRefs: (workspaceId: string, limit?: number) => ipcRenderer.invoke("git:refs", workspaceId, limit),
   gitStatus: (workspaceId: string) => ipcRenderer.invoke("git:status", workspaceId),

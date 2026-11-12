@@ -12,6 +12,8 @@ import type {
   GitWorkingStatus,
 } from "../readTypes.js";
 import type { GitResult } from "../types.js";
+import type { GitInitProbe } from "../initTypes.js";
+import { GitInitModal } from "./GitInitModal.js";
 
 type Api = NonNullable<Window["deer"]>;
 
@@ -53,6 +55,11 @@ export default function GitGraphPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRefs, setShowRefs] = useState(true);
+  const [initProbe, setInitProbe] = useState<GitInitProbe | null>(null);
+  const [initOpen, setInitOpen] = useState(false);
+  const [initBusy, setInitBusy] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+  const [initSuccess, setInitSuccess] = useState(false);
   const requestRef = useRef(0);
   const commitRequestRef = useRef(0);
   const tabRefs = useRef<Record<"graph" | "detail" | "workspace", HTMLButtonElement | null>>({
@@ -85,7 +92,15 @@ export default function GitGraphPanel({
       const request = ++requestRef.current;
       setLoading(true);
       setError(null);
+      setInitError(null);
       try {
+        const probe = api.gitInitProbe ? await api.gitInitProbe(workspaceId) : null;
+        if (request !== requestRef.current) return;
+        setInitProbe(probe);
+        if (probe && probe.status !== "already-repo") {
+          setLoading(false);
+          return;
+        }
         const [repoResult, graphResult, refsResult] = await Promise.all([
           api.gitRepo(workspaceId),
           api.gitGraph(workspaceId, { limit: 200, offset: 0, ...(ref ? { ref } : {}) }),
@@ -227,8 +242,74 @@ export default function GitGraphPanel({
     }
   };
 
+  const runInit = async () => {
+    if (!api?.gitInit || initBusy) return;
+    setInitBusy(true);
+    setInitError(null);
+    try {
+      const result = await api.gitInit(workspaceId);
+      if (!result.ok) {
+        if (result.errorCode === "GIT_INIT_ALREADY_REPO") {
+          setInitOpen(false);
+          await load(null, null);
+          return;
+        }
+        setInitError(result.message ?? "初始化 Git 仓库失败，请重试");
+        return;
+      }
+      setInitOpen(false);
+      setInitSuccess(true);
+      await load(null, null);
+    } catch (cause) {
+      setInitError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setInitBusy(false);
+    }
+  };
+
   if (!api) {
     return <section className="git-graph-panel" aria-label="版本图"><p role="alert">版本图不可用：桌面桥未加载。</p></section>;
+  }
+
+  if (initProbe && initProbe.status !== "already-repo" && !loading && !error) {
+    return (
+      <section className="git-graph-panel" aria-label="版本图">
+        <header className="git-graph-top">
+          <div>
+            <h3>版本图</h3>
+            <div className="muted tiny ellipsis" title={initProbe.workspacePath}>{initProbe.workspacePath}</div>
+          </div>
+          <div className="git-graph-top-meta">
+            <span className="badge">只读</span>
+            <button type="button" className="ghost small" onClick={() => void load()}>刷新</button>
+          </div>
+        </header>
+        <div className="git-init-empty" role="status">
+          <h4>{initProbe.status === "ready" ? "这个工作区还不是 Git 仓库" : "无法初始化 Git 仓库"}</h4>
+          <p className="muted small">
+            {initProbe.status === "ready"
+              ? "初始化后可用分支、提交、工作区变更与合并队列；不会修改现有文件，也不会自动提交。"
+              : initProbe.reason ?? "请检查工作区路径、权限与 Git 安装。"}
+          </p>
+          {initProbe.status === "ready" ? (
+            <button type="button" className="primary git-init-cta" onClick={() => setInitOpen(true)}>
+              初始化 Git 仓库
+            </button>
+          ) : null}
+          {initSuccess ? <p className="muted small" role="status">Git 仓库已初始化（main，尚无提交）。</p> : null}
+        </div>
+        {initProbe.status === "ready" && initOpen ? (
+          <GitInitModal
+            workspacePath={initProbe.workspacePath}
+            root={initProbe.root ?? initProbe.workspacePath}
+            busy={initBusy}
+            error={initError}
+            onCancel={() => setInitOpen(false)}
+            onConfirm={() => void runInit()}
+          />
+        ) : null}
+      </section>
+    );
   }
 
   return (
@@ -254,6 +335,7 @@ export default function GitGraphPanel({
         </div>
       </header>
 
+      {initSuccess ? <p className="git-init-success" role="status">Git 仓库已初始化（main，尚无提交）。</p> : null}
       {error ? <div className="git-graph-error" role="alert">{error} <button className="ghost tiny" onClick={() => void load()}>重试</button></div> : null}
       {loading && !graph ? <p className="git-graph-loading" role="status">加载版本图…</p> : null}
 
@@ -380,7 +462,13 @@ export default function GitGraphPanel({
                   </button>
                 );
               })}
-              {commits.length === 0 && !loading ? <p className="muted small">没有匹配提交。</p> : null}
+              {commits.length === 0 && !loading ? (
+                <p className="muted small">
+                  {graph && graph.commits.length === 0
+                    ? `${repo?.branch ?? "main"} 尚无提交。工作区文件已就绪，但尚未创建首个提交。`
+                    : "没有匹配提交。"}
+                </p>
+              ) : null}
             </div>
           </div>
           {graph?.hasMore ? (

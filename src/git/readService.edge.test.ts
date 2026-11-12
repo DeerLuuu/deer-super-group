@@ -54,11 +54,17 @@ describe("GitReadService boundaries and degradation", () => {
     expect((await reader.graph({ limit: 10, offset: 0, ref: "bad ref" })).errorCode).toBe("GIT_READ_BAD_REF");
   });
 
-  it("returns NO_COMMITS for an empty repository", async () => {
+  it("reads an initialized empty repository instead of NO_COMMITS", async () => {
     const dir = initRepo("git-empty-");
     const reader = await readerFor(dir);
-    expect((await reader.repoInfo()).errorCode).toBe("GIT_READ_NO_COMMITS");
-    expect((await reader.graph({ limit: 10, offset: 0 })).errorCode).toBe("GIT_READ_NO_COMMITS");
+    const info = await reader.repoInfo();
+    expect(info.ok).toBe(true);
+    expect(info.value?.headSha).toBeNull();
+    expect(info.value?.branch).toBe("main");
+    const graph = await reader.graph({ limit: 10, offset: 0 });
+    expect(graph.ok).toBe(true);
+    expect(graph.value?.commits).toEqual([]);
+    expect(graph.value?.hasMore).toBe(false);
   });
 
   it("includes detached HEAD in the graph", async () => {

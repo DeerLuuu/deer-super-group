@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Store } from "../kernel/store.js";
 import type { Task } from "../shared/types.js";
-import type { TaskVcs, GitSettings, MergeQueueItem, MergeQueueSnapshot, PrInfo, PrProvider, PrepareRunInput, PrepareRunResult, RepoDiagnostics, RepoInfo, FinalizeRunInput, TaskVcsSnapshot } from "./types.js";
+import type { TaskVcs, GitSettings, MergeQueueItem, MergeQueueSnapshot, PrInfo, PrProvider, PrepareRunInput, PrepareRunResult, RepoDiagnostics, RepoInfo, FinalizeRunInput, TaskVcsSnapshot, GitResult } from "./types.js";
 import { DEFAULT_GIT_SETTINGS } from "./types.js";
 import { GitStore } from "./gitStore.js";
 import { GitExec, redactSecrets } from "./gitExec.js";
@@ -16,6 +16,8 @@ import { emitGitEvent } from "./events.js";
 import { RepoLock } from "./gitExec.js";
 import { GitReadService } from "./readService.js";
 import type { GitCommitDetail, GitDiffParams, GitGraphPage, GitReadRepo, GitWorkingStatus, GitDiffPage, GitRefsSnapshot } from "./readTypes.js";
+import { initializeGitRepo, probeGitInit } from "./gitInit.js";
+import type { GitInitProbe, GitInitResult } from "./initTypes.js";
 
 export interface GitServiceOptions {
   dataDir: string;
@@ -51,6 +53,7 @@ export class GitService {
   private readonly checks = new ChecksRunner();
   private readonly repoCache = new Map<string, { repo: RepoInfo; at: number }>();
   private readonly prLock = new RepoLock();
+  private readonly initLock = new RepoLock();
 
   constructor(private readonly options: GitServiceOptions) {
     this.gitStore = new GitStore(path.join(options.dataDir, "git.db"));
@@ -724,6 +727,58 @@ export class GitService {
       return { ok: false, result: { ok: false, errorCode: "GIT_READ_DEGRADED", message: "git runtime unavailable", retryable: true } };
     }
     return { ok: true, reader: new GitReadService(repo as RepoInfo & { root: string }, new GitExec(hooks)) };
+  }
+
+  async probeInit(workspaceId: string): Promise<GitInitProbe> {
+    const workspace = this.options.store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return {
+        workspaceId,
+        workspacePath: "",
+        root: null,
+        status: "workspace-missing",
+        canInitialize: false,
+        branch: "main",
+        gitVersion: null,
+        reason: "工作区不存在",
+      };
+    }
+    return probeGitInit(workspace.path, workspaceId);
+  }
+
+  async init(workspaceId: string): Promise<GitResult<GitInitResult>> {
+    return this.initLock.withLock(workspaceId, async () => {
+      const workspace = this.options.store.getWorkspace(workspaceId);
+      if (!workspace) {
+        return {
+          ok: false,
+          errorCode: "GIT_INIT_WORKSPACE_MISSING",
+          message: "工作区不存在",
+          retryable: false,
+        };
+      }
+      const initialized = await initializeGitRepo(workspace.path);
+      if (!initialized.ok || !initialized.value) return initialized;
+      const value = initialized.value;
+      this.repoCache.delete(workspaceId);
+      let auditEventId: string | null = null;
+      try {
+        const event = emitGitEvent(this.options.store, {
+          aggregateType: "workspace",
+          aggregateId: workspaceId,
+          type: "git.repo_initialized",
+          actor: "git-service",
+          payload: { workspaceId, root: value.root, branch: value.branch, headSha: null },
+        });
+        auditEventId = event.id;
+      } catch {
+        // Audit failure must not turn a successfully created repo into an error.
+      }
+      return {
+        ok: true,
+        value: { ...value, workspaceId, auditEventId },
+      };
+    });
   }
 
   async readRepo(workspaceId: string): Promise<import("./types.js").GitResult<GitReadRepo>> {
