@@ -83,6 +83,8 @@
   border: 0;
   background: transparent;
   cursor: row-resize;
+  touch-action: none;
+  user-select: none;
 }
 
 .git-st-splitter::after {

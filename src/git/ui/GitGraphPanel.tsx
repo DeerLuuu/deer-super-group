@@ -159,7 +159,8 @@ export default function GitGraphPanel({
 
   function onSplitterPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    event.preventDefault();
+    // 不调用 event.preventDefault()：它会抑制兼容鼠标事件，导致真实双击的
+    // dblclick 永远不触发。拖动选中由 .git-st-splitter 的 user-select/touch-action 处理。
     const element = event.currentTarget;
     element.setPointerCapture(event.pointerId);
     const container = layoutRef.current;

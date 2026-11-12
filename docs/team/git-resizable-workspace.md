@@ -39,3 +39,21 @@
 - 分隔条实现过程中修正：aria-valuemax 取整（原始容器高度为小数，与 clamp 后整数不一致）。
 - 修复期间发现并保持现状：`gitInitProbe` IPC 返回裸 probe（无 GitResult 包装），与其他 git 通道不同（harness 适配记录，不改生产契约）。
 - 后续可选：`--git-workspace-h` 与 Dock 面板宽度联动提示；触屏拖拽（pointer events 已天然支持）。
+
+## 5. t452 修复记录（F1–F3）
+
+- **F1（blocker）双击恢复 300 未生效**：根因是 `onSplitterPointerDown` 的 `event.preventDefault()` 抑制兼容鼠标事件，真实双击的 `dblclick` 不会触发。实测真实 Chromium 的 `pointerdown.detail` 始终为 0（第二击也不是 2），因此“pointerdown detail===2”方案不可用。修复：
+  - 删除 pointerdown 的 `preventDefault()`；分隔条 CSS 增加 `touch-action:none; user-select:none`，拖动时不选中文本/不触发原生滚动；保留 `onDoubleClick={() => commitWorkspaceHeight(GIT_WS_DEFAULT)}`。
+  - 组件单测改为真实语义：`onDoubleClick` → 300 + localStorage；普通 pointerdown 不重置（`GitGraphPanel.test.tsx`「t452 G9 splitter：双击恢复默认 300」）。
+  - 真实 Electron/CDP 断言：`Input.dispatchMouseEvent` 先 clickCount=1，再 clickCount=2；事件序列为 pointerdown(detail=0)/mousedown(1)/click(1)/pointerdown(0)/mousedown(2)/click(2)/dblclick(2)，dblclick 后 `aria-valuenow=300` 且 `localStorage['deer.git.workspaceHeight.<ws>']='300'`（`t452-electron-verify.json`）。
+  - 首次修复尝试（pointerdown detail=2 + Runtime 合成 PointerEvent）已废弃；真实事件证明 detail=0，不能用合成证据替代双击。
+- **F2 短高 DOM 证据**：真实 Electron 1372×328 与 1372×560，关闭 Team 右栏使 Git 容器宽 1266，DOM 断言：
+  - `.git-st-splitter` `display:none`；`splitter.focus()` 后 `document.activeElement` 不是分隔条（不可聚焦）；
+  - `.git-st-history` `display:none`；`.git-st-workspace` 仍存在（短高保留工作区）；
+  - 见 `t452-electron-verify.json` 的两条 1372 记录与 `electron-short-1372x328.png` / `electron-short-1372x560.png`。
+- **F3 真实 Electron 截图**：`pnpm build` + `seedGitwriteFixture`（真实 git 仓库 normal 夹具）+ 真实 Electron/CDP：
+  - `electron-wide-1440.png`：**真实 1440×900**（Team 右栏关闭，使 Git 面板 >719，分隔条可见；如 Team 默认开启则 1440 下主组约 666px，触发既有 ≤719 三 tab 断点，分隔条隐藏——这是既有宽度契约，不是 F1）；
+  - `electron-mid-960.png`（960×800）、`electron-mobile-480.png`（480×800，三 tab、splitter display:none）、`electron-short-1372x328.png`（用户实际短高）、`electron-short-1372x560.png`；
+  - 断言报告 `t452-electron-verify.json` 7/7 PASS。旧的 1920×1200 “wide” 截图和 Runtime 合成双击证据不再作为 F3/F1 依据。
+- **已知行为（记录，非缺陷）**：Dock 双栏下 1440 窗口 Git 面板主组约 666px，触发既有 ≤719 三 tab 断点，分隔条在该宽度隐藏；需 main 组 >719（关闭 Team/更宽窗口/单栏变体）才可拖拽，1440 宽截图已按“关闭 Team 以保证分隔条可见”拍摄并注明。建议后续评审是否为分隔条单独放宽宽度断点或提供面板最大化入口。
+- **验证**：typecheck 0 / build 0 / 全量 `pnpm test --no-file-parallelism` 全绿（含新增 F1 单测）。
