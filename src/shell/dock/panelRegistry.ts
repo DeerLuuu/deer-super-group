@@ -10,7 +10,10 @@ export type RouteTabString =
   | "chat"
   | "mailbox"
   | "board"
-  | "settings";
+  | "settings"
+  | "context"
+  | "polls"
+  | "watchdog";
 
 export type PanelKey =
   | "chat"
@@ -69,7 +72,7 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     key: "context",
     title: "上下文",
     component: "context",
-    routeTab: null,
+    routeTab: "context",
     renderer: "always",
     minWidth: 280,
     minHeight: 240,
@@ -128,7 +131,7 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     key: "polls",
     title: "投票",
     component: "polls",
-    routeTab: null,
+    routeTab: "polls",
     renderer: "onlyWhenVisible",
     minWidth: 430,
     minHeight: 320,
@@ -140,7 +143,7 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     key: "watchdog",
     title: "看门狗",
     component: "watchdog",
-    routeTab: null,
+    routeTab: "watchdog",
     renderer: "onlyWhenVisible",
     minWidth: 420,
     minHeight: 320,

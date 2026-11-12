@@ -569,6 +569,26 @@ button:disabled {
   font-size: 10px;
 }
 
+.panel-menu-search {
+  width: 100%;
+  margin: 2px 0 5px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.panel-menu-group {
+  display: grid;
+  gap: 2px;
+}
+
+.panel-menu-group-title {
+  padding: 6px 8px 2px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .panel-menu-item.is-open .panel-menu-state {
   color: var(--accent-2);
 }
@@ -8777,4 +8797,31 @@ body li {
   .merge-queue-summary .badge { font-size: 11px; }
   .merge-queue-actions > button { flex: 1 1 auto; }
   .merge-queue-waive { flex-basis: 100%; }
+}
+
+/* t319：辅助面板内容高度 100% 滚动，长内容不裁切 */
+.dock-panel-body[data-panel="context"],
+.dock-panel-body[data-panel="polls"],
+.dock-panel-body[data-panel="watchdog"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dock-panel-body[data-panel="context"] > .context-panel,
+.dock-panel-body[data-panel="polls"] > .poll-panel {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.dock-panel-body[data-panel="watchdog"] > .watchdog-panel {
+  min-height: 100%;
+}
+
+@media (max-width: 960px) {
+  .dock-panel-body[data-panel="context"],
+  .dock-panel-body[data-panel="polls"],
+  .dock-panel-body[data-panel="watchdog"] {
+    padding: 8px;
+  }
 }

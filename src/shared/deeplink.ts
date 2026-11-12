@@ -6,7 +6,17 @@
 //       &vcs=1（任务 VCS）· #/settings?git=1（设置 Git 区）。
 // C10 已把 Router 页合并进任务/对话页，旧 #/router 深链重定向到 #/tasks。
 
-export const ROUTE_TABS = ["tasks", "team", "chat", "mailbox", "board", "settings"] as const;
+export const ROUTE_TABS = [
+  "tasks",
+  "team",
+  "chat",
+  "mailbox",
+  "board",
+  "settings",
+  "context",
+  "polls",
+  "watchdog",
+] as const;
 
 export type RouteTab = (typeof ROUTE_TABS)[number];
 
@@ -58,6 +68,18 @@ export const DEFAULT_ROUTE: Route = {
 
 function isRouteTab(value: string): value is RouteTab {
   return (ROUTE_TABS as readonly string[]).includes(value);
+}
+
+/** 无效的辅助路径回退到 #/tasks；空 hash/根 hash 保持默认启动行为。 */
+export function normalizeHash(hash: string): string {
+  if (!hash || hash === "#" || hash === "#/") return hash;
+  const raw = hash.replace(/^#\/?/, "");
+  const segment = (raw.split("?")[0]?.split("/")[0] ?? "").toLowerCase();
+  if (segment === "git" || segment === "merge" || isRouteTab(segment) || segment in TAB_ALIASES) {
+    if (segment in TAB_ALIASES) return "#/tasks";
+    return isRouteTab(segment) ? `#/${segment}${hash.includes("?") ? `?${raw.split("?")[1]}` : ""}` : hash;
+  }
+  return "#/tasks";
 }
 
 export function parseHash(hash: string): Route {
