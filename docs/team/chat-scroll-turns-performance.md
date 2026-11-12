@@ -74,15 +74,23 @@
 
 真实 Electron/CDP（100 turns 大历史）：
 
-- hover tick 25 → 自定义 hint：`perf turn 275: … / 06:47:07 · complete`；
-- focus tick 10 → hint `perf turn 260…`，active 同步；
+- hover tick → 自定义 hint：`perf turn 275: … / 06:47:07 · 已完成`；
+- focus tick → hint `perf turn 260…`，active 同步；
 - ArrowDown → focus/active 移到下一 turn（`perf-msg-0520 → perf-msg-0522`）；
 - 当前视口 turn 高亮 `is-active`；点击跳转既有。
+- 首尾刻度实测 `0% / 100%`（默认 9 turns：0/11/27/30/49/64/81/84/100）。
 - 截图：
   - `docs/team/t466-large-1440.png`（100 rows/50 ticks 大历史）
   - `docs/team/t466-large-960.png`
-  - `docs/team/t466-rail-hover-1440.png`（hover hint）
-  - `docs/team/t466-rail-keyboard-1440.png`（键盘 focus/hint/current）
+  - `docs/team/t473-rail-hover-1440.png`（hover hint，状态中文）
+  - `docs/team/t473-rail-keyboard-1440.png`（键盘 focus/hint/current）
+
+## 5.1 t473 repair-round-2 追加修复
+
+- **加载更早 server-only**：新增 `serverLoadStartRef`；当 `visibleMessageCount === messages.length` 且 `historyHasMore` 时，点击加载更早会真正请求 server 页；`messages.length` 增长后 effect 自动把 `visibleMessageCount` 提升到新 `messages.length`，重新记录 preserve 并保持锚点；成功后 `preserveScrollRef=null`，后续发送 `stickToBottom` 仍生效。新增 `ServerPageProbe` 测试断言 rows/ticks 增加、`data-scroll-preserve=0`。
+- **rail 位置**：使用 `contentRef` 独立 reference，`anchor.getBoundingClientRect().top - content.getBoundingClientRect().top` 归一化到首尾 `0%/100%`；fallback 用 `anchor/node + scrollTop`；`normalizeTurnRailRatio` 单测 0/0.5/1。jump 使用 `scrollTopForTurn`，首轮负值钳制 0（单测）。
+- **状态中文**：`chatTurnStatusLabel` 映射 待处理/处理中/已完成/失败/已取消；aria/title/hint 全部使用中文（CDP 实测“已完成”）。
+- **真实模型 token**：尝试真实 `window.deer.sendChat` 时环境模型配置返回 400（Router `reasoning_content` / 成员 `max_tokens` 配置），改用 `ChatLiveStore.dispatch` 同渲染路径验证；真实模型 token 作为后续环境修复项记录，不伪造成功。
 
 ## 6. 三命令
 
@@ -90,7 +98,7 @@
 pnpm typecheck   # 0
 pnpm build       # 0；458 modules
 pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
-                 # 147 files / 1003 tests passed
+                 # 147 files / 1006 tests passed
 ```
 
 > F6 既有 5s flake 仍与本次无关；本次按验收要求串行/--no-file-parallelism。

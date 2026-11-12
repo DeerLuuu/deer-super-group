@@ -35,6 +35,50 @@ export function nextVisibleMessageCount(
   return Math.min(total, Math.max(current, current + Math.max(1, pageSize)));
 }
 
+/** 点击刻度后的 scrollTop：首轮钳制到 0，避免负值。 */
+export function scrollTopForTurn(
+  anchorTop: number,
+  nodeTop: number,
+  scrollTop: number,
+  padding = 12,
+): number {
+  return Math.max(0, anchorTop - nodeTop + scrollTop - padding);
+}
+
+/** turn 状态 → 中文描述，供刻度 title/aria 使用。 */
+export function chatTurnStatusLabel(status: string): string {
+  switch (status) {
+    case "pending":
+      return "待处理";
+    case "running":
+    case "streaming":
+      return "处理中";
+    case "complete":
+      return "已完成";
+    case "error":
+      return "失败";
+    case "cancelled":
+      return "已取消";
+    default:
+      return status;
+  }
+}
+
+/** 刻度条位置：优先使用 turn 顶部比例，否则按均分兜底。 */
+export function normalizeTurnRailRatio(
+  offset: number,
+  firstOffset: number,
+  lastOffset: number,
+  index: number,
+  count: number,
+): number {
+  if (count <= 1) return 0;
+  if (lastOffset > firstOffset) {
+    return Math.min(1, Math.max(0, (offset - firstOffset) / (lastOffset - firstOffset)));
+  }
+  return (index + 1) / (count + 1);
+}
+
 /** 刻度条位置：优先使用 turn 顶部比例，否则按均分兜底。 */
 export function turnRailRatio(
   offsetTop: number | null,

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatTurnStatusLabel,
   initialVisibleMessageCount,
   nextVisibleMessageCount,
+  normalizeTurnRailRatio,
+  scrollTopForTurn,
   turnRailRatio,
 } from "./chatHistory.js";
 import { DEFAULT_CHAT_HISTORY_LIMIT, normalizeChatHistoryLimit, normalizeLayoutSettings } from "./types.js";
@@ -32,5 +35,20 @@ describe("t443 chat scroll / history limit", () => {
     expect(turnRailRatio(null, 800, 2, 3)).toBe(0.75);
     expect(turnRailRatio(1200, 800, 0, 3)).toBe(1);
     expect(turnRailRatio(-20, 800, 0, 3)).toBe(0);
+    expect(turnRailRatio(0, 800, 0, 3)).toBe(0);
+    expect(turnRailRatio(800, 800, 2, 3)).toBe(1);
+    expect(scrollTopForTurn(120, 100, 0)).toBe(8);
+    expect(scrollTopForTurn(100, 100, 0)).toBe(0);
+    expect(normalizeTurnRailRatio(100, 100, 900, 0, 9)).toBe(0);
+    expect(normalizeTurnRailRatio(900, 100, 900, 8, 9)).toBe(1);
+    expect(normalizeTurnRailRatio(500, 100, 900, 4, 9)).toBe(0.5);
+  });
+
+  it("maps turn statuses to Chinese labels", () => {
+    expect(chatTurnStatusLabel("pending")).toBe("待处理");
+    expect(chatTurnStatusLabel("running")).toBe("处理中");
+    expect(chatTurnStatusLabel("complete")).toBe("已完成");
+    expect(chatTurnStatusLabel("error")).toBe("失败");
+    expect(chatTurnStatusLabel("cancelled")).toBe("已取消");
   });
 });

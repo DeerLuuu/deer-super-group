@@ -18,7 +18,8 @@
 ## 2. 加载更早 / 视口锚点
 
 - 顶部「加载更早」只在 `nearTop`（滚动到顶部 80px 内）或测试无 DOM 节点时显示；加载中显示 `加载更早…`，失败显示可重试错误。
-- 加载前记录 `{height, scrollHeight}`，使用既有 `applyHistoryScrollPreservation` 补偿 `scrollTop`，不跳动。
+- **server-only hasMore**：当 `visibleMessageCount === messages.length` 但 server `historyHasMore` 时，会真正请求更早页并追加 messages；`messages.length` 增长后 effect 自动把 `visibleMessageCount` 提升到新长度、重新记录并消费 preserve 锚点，成功后 `preserveScrollRef=null`，发送仍贴底。
+- 加载前记录 `{height, scrollTop}`，使用既有 `applyHistoryScrollPreservation` 补偿 `scrollTop`，不跳动。
 - 无更早历史显示「已到最早（N 条消息）」。
 - 分页大小改为设置项 `chatHistoryLimit`（20/40/80；0=全部），`nextVisibleMessageCount` 保留已显示条数。
 
@@ -32,26 +33,26 @@
 
 - `.chat-scroll-rail` 放在 `.chat-tab-panel` 右侧，每页一个 user turn 一个 `.chat-scroll-tick`：
   - `top` 由 anchor `getBoundingClientRect` 相对滚动容器计算，`turnRailRatio` clamp 0–1；无布局时均分兜底。
-  - 悬浮/`title`/`aria-label` 显示用户消息首行、时间、状态；点击 `jumpToTurn` 设置 `scrollTop`。
+  - 悬浮/`title`/`aria-label` 显示用户消息首行、时间、状态；状态映射为「待处理/处理中/已完成/失败/已取消」；点击 `jumpToTurn` 设置 `scrollTop`。
   - 当前视口 turn 高亮 `is-active`；`ArrowUp/ArrowDown` 在 rail 内移动焦点，`Enter` 跳转；`tabIndex` roving，`aria-label="对话轮次导航"`。
-  - 切换 agent 重置 active 为最新 turn。
+  - 位置使用 `contentRef` 独立 reference 的 rect 差归一化到首尾 0%/100%；无 content 时回退 `anchor/node + scrollTop`；切换 agent 重置 active 为最新 turn。
 - 响应式：480px 及以下 `display:none`，不遮挡内容；1440/960 显示。
 - 性能：scroll 处理通过 `requestAnimationFrame` 合并刷新；`ResizeObserver` 监听内容尺寸；无新增依赖。
 
 ## 5. 测试与验证
 
 新增/更新：
-- `src/shared/chatScrollTurns.test.ts`：默认 40 / clamp / 全部分支，初始与分页条数，刻度位置 clamp/均分。
+- `src/shared/chatScrollTurns.test.ts`：默认 40 / clamp / 全部分支，初始与分页条数，刻度位置 clamp/均分、首尾 0/100 归一化、jump 首轮 0、状态中文映射。
 - `src/shared/chatHistory.test.ts` 保持既有锚点/分页覆盖。
-- `src/shell/chat/chatViewIsolation.test.tsx`：新增初始滚动到 `scrollHeight`、刻度导航存在/首条 title；既有加载更早/失败/不前进测试保留。
+- `src/shell/chat/chatViewIsolation.test.tsx`：初始滚动到 `scrollHeight`、刻度导航；新增 server-only hasMore 追加 messages/rail 增加、`data-scroll-preserve=0`；既有加载更早/失败/不前进测试保留。
 - `src/SettingsView.test.tsx`：界面设置保存 `chatHistoryLimit=80`。
 - `src/App.tsx`：`dispatch` 未改；`ChatLiveTail` 仅在 stick 时跟随。
 
 ```text
 pnpm typecheck   # 0
 pnpm build       # 0；458 modules
-pnpm test -- --testTimeout=20000 --maxWorkers=1
-                 # 146 files / 1001 tests passed
+pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
+                 # 147 files / 1006 tests passed
 ```
 
 ## 6. 三档真实截图
@@ -61,7 +62,7 @@ pnpm test -- --testTimeout=20000 --maxWorkers=1
 - `docs/team/t443-chat-480.png`：480 Chat，rail 隐藏不挡内容，无横向溢出。
 - `docs/team/t443-top-1440.png`：滚到顶部，显示已到最早（当前工作区无更多历史）。
 
-真实 Electron + 临时 userData；CDP 断言：初始 `scrollTop=scrollHeight`、1440/960/480 `scrollWidth===innerWidth`、480 rail `display:none`、刻度 top 按 turn 实际位置分别约 1/10/23/26/42/56/70/73/86%、点击刻度 scrollTop 变化、`已到最早` 文本存在。
+真实 Electron + 临时 userData；CDP 断言：初始 `scrollTop=scrollHeight`、1440/960/480 `scrollWidth===innerWidth`、480 rail `display:none`、刻度 top 归一化首尾 0%/100%、点击刻度 scrollTop 变化、`已到最早` 文本存在。性能证据见 `docs/team/chat-scroll-turns-performance.md`。
 
 ## 7. 风险/回滚
 

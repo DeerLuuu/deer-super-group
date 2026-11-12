@@ -73,8 +73,11 @@ import { dispatchChatSubmission, extractRecommendationCandidates } from "./share
 import { translationCacheNeedsInvalidation } from "./shared/translationCache";
 import {
   applyHistoryScrollPreservation,
+  chatTurnStatusLabel,
   initialVisibleMessageCount,
   nextVisibleMessageCount,
+  normalizeTurnRailRatio,
+  scrollTopForTurn,
   turnRailRatio,
 } from "./shared/chatHistory";
 import {
@@ -6650,6 +6653,7 @@ export function ChatView({
     }, 0);
   }
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const serverLoadStartRef = useRef<number | null>(null);
   const visibleMessages = messages.slice(-Math.max(0, visibleMessageCount));
   // 旧 fixture 没有 external store：给一个空 store 供 hook 稳定调用，实际终端回退 legacy props。
   const fallbackLiveStoreRef = useRef<ChatLiveStore | null>(null);
@@ -6690,16 +6694,45 @@ export function ChatView({
       .reverse()
       .find((message) => {
         const anchor = turnAnchorRefs.current.get(message.id);
-        return Boolean(anchor) && anchor!.offsetTop <= top + 16;
+        if (!node || !anchor) return false;
+        const offset =
+          anchor.getBoundingClientRect().top -
+          node.getBoundingClientRect().top +
+          node.scrollTop;
+        return offset <= top + 16;
       });
     setActiveTurnId(current?.id ?? userMessages[0]?.id ?? null);
   }
 
   function measuredTurnRatio(messageId: string, index: number): number {
     const node = scrollRef.current;
+    const content = contentRef.current;
     const anchor = turnAnchorRefs.current.get(messageId);
+    if (content && anchor) {
+      const contentRect = content.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      const firstAnchor = turnAnchorRefs.current.get(userMessages[0]?.id ?? "");
+      const lastAnchor = turnAnchorRefs.current.get(userMessages[userMessages.length - 1]?.id ?? "");
+      const firstOffset = firstAnchor
+        ? firstAnchor.getBoundingClientRect().top - contentRect.top
+        : 0;
+      const lastOffset = lastAnchor
+        ? lastAnchor.getBoundingClientRect().top - contentRect.top
+        : contentRect.height;
+      return normalizeTurnRailRatio(
+        anchorRect.top - contentRect.top,
+        firstOffset,
+        lastOffset,
+        index,
+        userMessages.length,
+      );
+    }
     if (node && anchor) {
-      return turnRailRatio(anchor.offsetTop, node.scrollHeight, index, userMessages.length);
+      const offset =
+        anchor.getBoundingClientRect().top -
+        node.getBoundingClientRect().top +
+        node.scrollTop;
+      return turnRailRatio(offset, node.scrollHeight, index, userMessages.length);
     }
     return (index + 1) / (userMessages.length + 1);
   }
@@ -6733,7 +6766,11 @@ export function ChatView({
     const node = scrollRef.current;
     const anchor = turnAnchorRefs.current.get(turnId);
     if (!node || !anchor) return;
-    node.scrollTop = Math.max(0, anchor.offsetTop - 12);
+    node.scrollTop = scrollTopForTurn(
+      anchor.getBoundingClientRect().top,
+      node.getBoundingClientRect().top,
+      node.scrollTop,
+    );
     setActiveTurnId(turnId);
     stickToBottomRef.current = false;
     scheduleRailRefresh();
@@ -6787,6 +6824,15 @@ export function ChatView({
   }, [messages.length, visibleMessageCount]);
 
   useEffect(() => {
+    const start = serverLoadStartRef.current;
+    if (start === null || messages.length <= start) return;
+    const node = scrollRef.current;
+    if (node) preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
+    serverLoadStartRef.current = null;
+    setVisibleMessageCount(messages.length);
+  }, [messages.length]);
+
+  useEffect(() => {
     const node = contentRef.current;
     if (!node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
@@ -6800,6 +6846,7 @@ export function ChatView({
   async function loadEarlierHistory() {
     const hasEarlierMessages = visibleMessageCount < messages.length;
     if (messagePageLoading || (!hasEarlierMessages && !historyHasMore)) return;
+    if (!hasEarlierMessages) serverLoadStartRef.current = messages.length;
     const node = scrollRef.current;
     if (node) {
       preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
@@ -6811,6 +6858,7 @@ export function ChatView({
       if (onLoadEarlierHistory) {
         const committed = await onLoadEarlierHistory();
         if (committed === false) {
+          serverLoadStartRef.current = null;
           preserveScrollRef.current = null;
           setMessagePageError("更早历史加载失败，可重试");
           return;
@@ -6822,6 +6870,7 @@ export function ChatView({
         );
       }
     } catch (error) {
+      serverLoadStartRef.current = null;
       preserveScrollRef.current = null;
       setMessagePageError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -7006,7 +7055,7 @@ export function ChatView({
           </details>
         )}
 
-        <div className="chat-messages" ref={scrollRef} onScroll={handleChatScroll}>
+        <div className="chat-messages" ref={scrollRef} onScroll={handleChatScroll} data-scroll-preserve={preserveScrollRef.current ? "1" : "0"}>
           {messages.length === 0 && !busy && (
             // C24：空状态给可点击示例，一步发起对话。
             <EmptyState
@@ -7181,6 +7230,7 @@ export function ChatView({
                 ? new Date(message.createdAt).toLocaleTimeString()
                 : "时间未知";
               const status = turn?.status ?? "pending";
+              const statusLabel = chatTurnStatusLabel(status);
               return (
                 <button
                   key={message.id}
@@ -7188,15 +7238,15 @@ export function ChatView({
                   className={`chat-scroll-tick ${active ? "is-active" : ""}`}
                   data-rail-turn={message.id}
                   tabIndex={active ? 0 : -1}
-                  aria-label={`第 ${index + 1} 轮：${firstLine}，${time}，${status}`}
-                  title={`${firstLine}\n${time} · ${status}`}
+                  aria-label={`第 ${index + 1} 轮：${firstLine}，${time}，${statusLabel}`}
+                  title={`${firstLine}\n${time} · ${statusLabel}`}
                   style={{ top: `${Math.round(measuredTurnRatio(message.id, index) * 100)}%` }}
                   onClick={() => jumpToTurn(message.id)}
                   onFocus={() => {
                     setActiveTurnId(message.id);
-                    setRailHint(`${firstLine}\n${time} · ${status}`);
+                    setRailHint(`${firstLine}\n${time} · ${statusLabel}`);
                   }}
-                  onMouseEnter={() => setRailHint(`${firstLine}\n${time} · ${status}`)}
+                  onMouseEnter={() => setRailHint(`${firstLine}\n${time} · ${statusLabel}`)}
                   onMouseLeave={() => setRailHint(null)}
                   onBlur={() => setRailHint(null)}
                 />

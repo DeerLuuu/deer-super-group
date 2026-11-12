@@ -1,6 +1,6 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Agent, ChatMessage } from "../../shared/types.js";
 import { ChatView } from "../../App.js";
@@ -42,6 +42,7 @@ function ChatViewProbe({
   onLoadEarlierHistory,
   fixtureMessages = messages,
   historyLimit,
+  historyHasMore = false,
 }: {
   store: ChatLiveStore;
   onViewChange?: (view: "chat" | "trajectory") => void;
@@ -49,6 +50,7 @@ function ChatViewProbe({
   onLoadEarlierHistory?: () => Promise<boolean>;
   fixtureMessages?: ChatMessage[];
   historyLimit?: number;
+  historyHasMore?: boolean;
 }) {
   viewRenders += 1;
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -59,6 +61,7 @@ function ChatViewProbe({
       turnByAssistant={new Map()}
       turnByUser={new Map()}
       historyLimit={historyLimit}
+      historyHasMore={historyHasMore}
       onRetryTurn={() => {}}
       composerRef={composerRef}
       translateHistoryText={async (text) => text}
@@ -115,6 +118,85 @@ function ChatViewProbe({
 }
 
 describe("t260 R1 actual ChatView isolation", () => {
+  function ServerPageProbe({ store }: { store: ChatLiveStore }) {
+    const initial = messages.slice(110);
+    const [fixture, setFixture] = useState(initial);
+    return (
+      <ChatViewProbe
+        store={store}
+        fixtureMessages={fixture}
+        historyHasMore
+        onLoadEarlierHistory={async () => {
+          setFixture((current) => [...messages.slice(90, 110), ...current]);
+          return true;
+        }}
+      />
+    );
+  }
+
+  it("stays at the bottom for a new message while already following", async () => {
+    const store = new ChatLiveStore(WS);
+    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    expect(scrollNode.scrollTop).toBe(1200);
+    scrollNode.scrollHeight = 1500;
+    const next = [
+      ...messages,
+      {
+        id: "new-message",
+        workspaceId: WS,
+        agentId: "router",
+        role: "user" as const,
+        content: "new message after send",
+        reasoning: "",
+        createdAt: created,
+      },
+    ];
+    await act(async () => {
+      renderer!.update(<ChatViewProbe store={store} fixtureMessages={next} />);
+    });
+    expect(scrollNode.scrollTop).toBe(1500);
+    await act(() => renderer!.unmount());
+  });
+
+  it("loads server-only earlier messages and clears the preserve anchor", async () => {
+    const store = new ChatLiveStore(WS);
+    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ServerPageProbe store={store} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    await act(() => {
+      (chat.props.onScroll as (event: unknown) => void)({
+        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
+      });
+    });
+    const button = renderer!.root
+      .findAllByType("button")
+      .find((item) => JSON.stringify(item.children).includes("加载更早"))!;
+    expect(button).toBeTruthy();
+    await act(async () => {
+      await (button.props.onClick as () => Promise<void>)();
+    });
+    const rows = renderer!.root.findAllByProps({ className: "chat-row user" }).length;
+    const ticks = renderer!.root.findAllByProps({ "data-rail-turn": "m90" });
+    expect(rows).toBeGreaterThan(20);
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+    await act(() => renderer!.unmount());
+  });
+
+
   it("starts at the newest message and exposes turn ticks", async () => {
     const store = new ChatLiveStore(WS);
     const scrollNode = { scrollTop: 0, scrollHeight: 2400, clientHeight: 500 };
