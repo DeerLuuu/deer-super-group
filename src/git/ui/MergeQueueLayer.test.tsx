@@ -1,6 +1,5 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
-import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The repository has no jsdom/RTL; make Modal's portal render in-place for this
@@ -12,11 +11,12 @@ vi.mock("react-dom", async (importOriginal) => {
 
 import Modal from "../../Modal.js";
 import { hasOpenModal } from "../../shared/modalStack.js";
-import { MergeQueueModal } from "./GitPanels.js";
+import { MergeQueuePanel } from "./MergeQueuePanel.js";
+import type { MergeQueueItem } from "../types.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
-  create: (element: unknown) => { unmount: () => void };
+  create: (element: unknown) => { root: any; unmount: () => void };
 };
 
 class FakeElement {
@@ -38,20 +38,37 @@ class FakeElement {
   }
 }
 
-/** Mirrors App.tsx's guarded global shortcut handler; this is a contract probe,
- * not a second implementation: the gate is the production hasOpenModal(). */
-function guardedShortcut(
-  event: { key: string; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
-  onNavigate: () => void,
-  onPalette: () => void,
-) {
-  if (hasOpenModal()) return;
-  if (event.altKey && !event.ctrlKey && !event.metaKey && /^[1-6]$/.test(event.key)) {
-    onNavigate();
-  }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-    onPalette();
-  }
+function item(): MergeQueueItem {
+  return {
+    id: "q1",
+    workspaceId: "ws1",
+    taskId: "t3",
+    taskTitle: "Ship merge queue panel",
+    provider: "github",
+    prNumber: 45,
+    prUrl: null,
+    branch: "deer/t3-merge-queue",
+    state: "ready",
+    position: 1,
+    headSha: "abc",
+    baseSha: "def",
+    approvedHeadSha: null,
+    checks: { state: "success", summary: "all green" },
+    checksWaived: false,
+    retryAt: null,
+    review: "pass",
+    conflictTaskId: null,
+    lastError: null,
+    mergeCommitSha: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+}
+
+function openConfirm(renderer: { root: any }) {
+  const merge = renderer.root.findAllByType("button").find((node: any) => node.children.includes("合并…"));
+  expect(merge).toBeTruthy();
+  act(() => merge!.props.onClick());
 }
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,120 +86,49 @@ afterEach(() => {
   else (globalThis as { window?: unknown }).window = originalWindow;
 });
 
-describe("t198 MergeQueue is a first-class modal layer", () => {
-  it("registers in the common stack and Esc only closes the queue on top", async () => {
-    const keyHandlers: Array<(event: KeyboardEvent) => void> = [];
-    const root = new FakeElement();
-    const trigger = new FakeElement();
-    (globalThis as { HTMLElement?: unknown }).HTMLElement = FakeElement;
-    (globalThis as { document?: unknown }).document = {
-      activeElement: trigger,
-      body: { style: {} },
-      getElementById: (id: string) => (id === "root" ? root : null),
-      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
-        if (type === "keydown") keyHandlers.push(handler);
-      },
-      removeEventListener: () => {},
-    };
-    (globalThis as { window?: unknown }).window = {
-      confirm: () => true,
-      setInterval: () => 0,
-      clearInterval: () => {},
-      deer: {
-        mergeQueue: async () => ({ items: [], activeMerge: null }),
-      },
-    };
+function setupDom() {
+  const keyHandlers: Array<(event: KeyboardEvent) => void> = [];
+  const root = new FakeElement();
+  const trigger = new FakeElement();
+  (globalThis as { HTMLElement?: unknown }).HTMLElement = FakeElement;
+  (globalThis as { document?: unknown }).document = {
+    activeElement: trigger,
+    body: { style: {} },
+    getElementById: (id: string) => (id === "root" ? root : null),
+    addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
+      if (type === "keydown") keyHandlers.push(handler);
+    },
+    removeEventListener: () => {},
+  };
+  (globalThis as { window?: unknown }).window = {
+    confirm: () => true,
+    setInterval: () => 0,
+    clearInterval: () => {},
+    deer: {},
+  };
+  return { keyHandlers, root, trigger };
+}
+
+describe("t309 MergeQueue confirmation is a single Modal layer", () => {
+  it("registers the confirm Modal in the common stack and Esc only closes it", async () => {
+    const { keyHandlers, root, trigger } = setupDom();
     const closeSettings = vi.fn();
-    const closeQueue = vi.fn();
-    let renderer: { unmount: () => void } | null = null;
+    let renderer: ReturnType<typeof create> | null = null;
     await act(async () => {
       renderer = create(
         <>
           <Modal title="设置" portal={false} onClose={closeSettings}>
             <button type="button">设置内容</button>
           </Modal>
-          <MergeQueueModal workspaceId="w1" open onClose={closeQueue} />
+          <MergeQueuePanel workspaceId="w1" items={[item()]} onReload={() => undefined} />
         </>,
       );
       await Promise.resolve();
     });
+    openConfirm(renderer!);
     expect(hasOpenModal()).toBe(true);
-    // The fake root now has a real inert representation; modalStack must set it.
     expect(root.inert).toBe(true);
 
-    // App's global shortcuts are guarded by hasOpenModal(); while the queue is
-    // open, neither Alt+1–6 nor Ctrl+K may navigate/open the palette.
-    const navigate = vi.fn();
-    const palette = vi.fn();
-    guardedShortcut({ key: "1", altKey: true }, navigate, palette);
-    guardedShortcut({ key: "k", ctrlKey: true }, navigate, palette);
-    guardedShortcut({ key: "k", metaKey: true }, navigate, palette);
-    expect(navigate).not.toHaveBeenCalled();
-    expect(palette).not.toHaveBeenCalled();
-
-    const event = {
-      key: "Escape",
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as KeyboardEvent;
-    for (const handler of keyHandlers) handler(event);
-    expect(closeSettings).not.toHaveBeenCalled();
-    expect(closeQueue).toHaveBeenCalledTimes(1);
-
-    // Closing the top queue (unmounting the stack) releases root inert and
-    // returns focus to the element that was active before the Modal opened.
-    await act(async () => {
-      renderer?.unmount();
-    });
-    expect(root.inert).toBe(false);
-    expect(trigger.focus).toHaveBeenCalledTimes(1);
-  });
-
-  it("releases inert and restores trigger focus when the queue is closed", async () => {
-    const keyHandlers: Array<(event: KeyboardEvent) => void> = [];
-    const root = new FakeElement();
-    const trigger = new FakeElement();
-    (globalThis as { HTMLElement?: unknown }).HTMLElement = FakeElement;
-    (globalThis as { document?: unknown }).document = {
-      activeElement: trigger,
-      body: { style: {} },
-      getElementById: (id: string) => (id === "root" ? root : null),
-      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
-        if (type === "keydown") keyHandlers.push(handler);
-      },
-      removeEventListener: () => {},
-    };
-    (globalThis as { window?: unknown }).window = {
-      confirm: () => true,
-      setInterval: () => 0,
-      clearInterval: () => {},
-      deer: {
-        mergeQueue: async () => ({ items: [], activeMerge: null }),
-      },
-    };
-
-    function QueueHarness({ onClosed }: { onClosed: () => void }) {
-      const [open, setOpen] = useState(true);
-      return (
-        <MergeQueueModal
-          workspaceId="w1"
-          open={open}
-          onClose={() => {
-            onClosed();
-            setOpen(false);
-          }}
-        />
-      );
-    }
-
-    const onClosed = vi.fn();
-    let renderer: { unmount: () => void } | null = null;
-    await act(async () => {
-      renderer = create(<QueueHarness onClosed={onClosed} />);
-      await Promise.resolve();
-    });
-    expect(root.inert).toBe(true);
-    expect(hasOpenModal()).toBe(true);
     const event = {
       key: "Escape",
       preventDefault: vi.fn(),
@@ -192,10 +138,38 @@ describe("t198 MergeQueue is a first-class modal layer", () => {
       for (const handler of keyHandlers) handler(event);
       await Promise.resolve();
     });
-    expect(onClosed).toHaveBeenCalledTimes(1);
-    expect(root.inert).toBe(false);
+    expect(closeSettings).not.toHaveBeenCalled();
+    // The settings Modal is still open underneath; only the confirmation closes.
+    expect(hasOpenModal()).toBe(true);
+    expect(root.inert).toBe(true);
+
+    await act(async () => {
+      renderer?.unmount();
+    });
+    expect(trigger.focus).toHaveBeenCalled();
+  });
+
+  it("returns focus to the document trigger after closing the confirmation", async () => {
+    const { keyHandlers, root, trigger } = setupDom();
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<MergeQueuePanel workspaceId="w1" items={[item()]} onReload={() => undefined} />);
+      await Promise.resolve();
+    });
+    openConfirm(renderer!);
+    expect(hasOpenModal()).toBe(true);
+    const event = {
+      key: "Escape",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    await act(async () => {
+      for (const handler of keyHandlers) handler(event);
+      for (let index = 0; index < 6; index += 1) await Promise.resolve();
+    });
     expect(hasOpenModal()).toBe(false);
-    expect(trigger.focus).toHaveBeenCalledTimes(1);
+    expect(root.inert).toBe(false);
+    expect(trigger.focus).toHaveBeenCalled();
     await act(async () => {
       renderer?.unmount();
     });

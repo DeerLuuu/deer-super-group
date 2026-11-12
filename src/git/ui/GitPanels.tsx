@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Modal from "../../Modal.js";
 import { formatError } from "../../shared/copy.js";
-import type { GitSettings, MergeQueueItem, TaskVcsSnapshot } from "../types.js";
+import type { GitSettings, TaskVcsSnapshot } from "../types.js";
 
 export interface TaskVcsPanelProps {
   taskId: string;
   onClose?: () => void;
   onOpenGraph?: () => void;
+  onOpenMergeQueue?: () => void;
 }
 
 /**
  * Task-details VCS panel. Rendered in the task drawer by the integration layer;
  * keeps all network/IPC access behind window.deer and never receives tokens.
  */
-export function TaskVcsPanel({ taskId, onClose, onOpenGraph }: TaskVcsPanelProps) {
+export function TaskVcsPanel({ taskId, onClose, onOpenGraph, onOpenMergeQueue }: TaskVcsPanelProps) {
   const [snapshot, setSnapshot] = useState<TaskVcsSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -96,6 +96,11 @@ export function TaskVcsPanel({ taskId, onClose, onOpenGraph }: TaskVcsPanelProps
         <button type="button" disabled={busy || !vcs?.branch} onClick={() => void act(() => window.deer.gitCleanup(taskId))}>
           清理工作树
         </button>
+        {onOpenMergeQueue ? (
+          <button type="button" className="ghost" onClick={onOpenMergeQueue}>
+            查看合并队列
+          </button>
+        ) : null}
         {onOpenGraph ? (
           <button type="button" className="ghost" onClick={onOpenGraph}>
             在版本图中查看
@@ -103,105 +108,6 @@ export function TaskVcsPanel({ taskId, onClose, onOpenGraph }: TaskVcsPanelProps
         ) : null}
       </div>
     </section>
-  );
-}
-
-export interface MergeQueueModalProps {
-  workspaceId: string;
-  open: boolean;
-  onClose: () => void;
-}
-
-export function MergeQueueModal({ workspaceId, open, onClose }: MergeQueueModalProps) {
-  const [items, setItems] = useState<MergeQueueItem[]>([]);
-  const [activeMerge, setActiveMerge] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [waiveReason, setWaiveReason] = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const queue = await window.deer.mergeQueue(workspaceId);
-      setItems(queue.items);
-      setActiveMerge(queue.activeMerge);
-      setError(null);
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
-
-  useEffect(() => {
-    if (!open) return;
-    void load();
-    const timer = window.setInterval(() => void load(), 4_000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [open, load]);
-
-  if (!open) return null;
-
-  const act = async (fn: () => Promise<unknown>) => {
-    try {
-      await fn();
-      await load();
-      setError(null);
-    } catch (err) {
-      setError(formatError(err));
-    }
-  };
-
-  return (
-    <Modal title="合并队列" onClose={onClose} className="git-queue-modal">
-      <div aria-busy={loading}>
-        {error ? <p role="alert">{error}</p> : null}
-        {loading && items.length === 0 ? <p role="status">加载合并队列…</p> : null}
-        {!loading && items.length === 0 && !error ? <p>队列为空。</p> : null}
-        {items.length > 0 ? (
-          <ol className="git-queue-list">
-            {items.map((item) => (
-              <li key={item.id} aria-current={activeMerge === item.id ? "true" : undefined}>
-                <strong>{item.taskTitle}</strong>
-                <span>{item.state}</span>
-                <span>{item.branch ?? "no branch"}</span>
-                <span>{item.checksWaived ? "checks waived" : item.checks.state}</span>
-                <div>
-                  <button type="button" onClick={() => void act(() => window.deer.mergeApprove(item.taskId))}>
-                    批准
-                  </button>
-                  <button type="button" onClick={() => void act(() => window.deer.mergeStart(item.taskId))}>
-                    合并
-                  </button>
-                </div>
-                <label>
-                  豁免 checks 原因（至少 8 字）
-                  <input
-                    value={waiveReason}
-                    onChange={(event) => setWaiveReason(event.target.value)}
-                    aria-label={`${item.taskTitle} 豁免原因`}
-                  />
-                </label>
-                <button
-                  type="button"
-                  disabled={waiveReason.trim().length < 8}
-                  onClick={() => void act(() => window.deer.mergeWaiveChecks(item.taskId, waiveReason.trim()))}
-                >
-                  豁免 checks
-                </button>
-                {item.state === "ready" && (item.provider === "local" || item.provider === "manual") ? (
-                  <p className="muted tiny" role="status">
-                    本地/手动合并：请合并后由后续 P1 验证入口确认集成；当前版本不提供按钮。
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        ) : null}
-      </div>
-    </Modal>
   );
 }
 

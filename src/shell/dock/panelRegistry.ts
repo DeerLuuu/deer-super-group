@@ -24,7 +24,8 @@ export type PanelKey =
   | "watchdog"
   | "settings"
   | "planDraft"
-  | "gitGraph";
+  | "gitGraph"
+  | "mergeQueue";
 
 export type PanelDef = {
   key: PanelKey;
@@ -179,6 +180,19 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     renderer: "onlyWhenVisible",
     minWidth: 360,
     minHeight: 300,
+    closable: true,
+    defaultGroup: "main",
+    defaultClosed: true,
+  },
+  mergeQueue: {
+    key: "mergeQueue",
+    title: "合并队列",
+    component: "mergeQueue",
+    // 队列面板是任务域的高频子视图；打开时路由仍为 tasks，?merge=1 深链负责恢复。
+    routeTab: null,
+    renderer: "onlyWhenVisible",
+    minWidth: 360,
+    minHeight: 320,
     closable: true,
     defaultGroup: "main",
     defaultClosed: true,

@@ -37,6 +37,8 @@ export type PanelDepsInput = {
   watchdogHandoffs?: unknown;
   taskWorkspaceSource?: unknown;
   starmapFocus?: unknown;
+  mergeQueueItems?: unknown;
+  mergeQueueStale?: unknown;
 
   planDraft?: unknown;
   planSource?: unknown;
@@ -166,5 +168,6 @@ export function buildPanelDeps(input: PanelDepsInput): PanelDeps {
     watchdog: [input.watchdogSnapshot, input.watchdogCosts, input.selectedTaskId],
     settings: [input.settings],
     gitGraph: [input.workspaceId],
+    mergeQueue: [input.workspaceId, input.mergeQueueItems, input.mergeQueueStale],
   };
 }

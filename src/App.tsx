@@ -63,7 +63,8 @@ import type {
 } from "./shared/watchdog";
 import KernelAnnouncer from "./KernelAnnouncer";
 import ChatContent from "./ChatContent";
-import { MergeQueueModal, TaskVcsPanel } from "./git/ui/GitPanels";
+import { TaskVcsPanel } from "./git/ui/GitPanels";
+import { MergeQueuePanel } from "./git/ui/MergeQueuePanel";
 import GitGraphPanel from "./git/ui/GitGraphPanel";
 import MemoryWorkbench from "./shell/MemoryWorkbench";
 import ReviewSection from "./review/ui/ReviewSection";
@@ -204,6 +205,7 @@ export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "tasks",
   "planDraft",
   "gitGraph",
+  "mergeQueue",
   "team",
   "runs",
   "mailbox",
@@ -373,7 +375,12 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   // C12：初始 tab 来自 hash 深链（旧 #/router 由 parseHash 重定向到 tasks）。
-  const [initialRoute] = useState(() => parseHash(window.location.hash));
+  const [initialRoute] = useState(() => {
+    const route = parseHash(window.location.hash);
+    return /^#\/merge(?:\?|$)/.test(window.location.hash)
+      ? { ...route, tab: "tasks" as const, mergeQueue: true }
+      : route;
+  });
   // t52 集成修复 IF-01：冷启动（无显式深链）默认激活「对话」主面板，满足验收
   // 「对话与团队默认同时可见」与设计 §4 activePanel=chat；显式深链（#/tasks 等）
   // 仍优先。deeplink 模块与其默认路由契约不变（tests 不受影响）。
@@ -383,13 +390,15 @@ export default function App() {
       ? "runs"
       : initialRoute.gitGraph
         ? "gitGraph"
-        : window.location.hash.startsWith("#/") && initialRoute.tab !== "settings"
-          ? initialRoute.tab
-          : null,
+        : initialRoute.mergeQueue
+          ? "mergeQueue"
+          : window.location.hash.startsWith("#/") && initialRoute.tab !== "settings"
+            ? initialRoute.tab
+            : null,
   );
   const [tab, setTab] = useState<Tab>(() => {
     if (initialRoute.tab === "settings") return "settings";
-    if (initialRoute.run || initialRoute.gitGraph) return "tasks";
+    if (initialRoute.run || initialRoute.gitGraph || initialRoute.mergeQueue) return "tasks";
     if (!bootPanel) return "chat";
     return bootPanel === "runs" ? "tasks" : (bootPanel as Tab);
   });
@@ -506,7 +515,7 @@ export default function App() {
   const [taskRuns, setTaskRuns] = useState<Run[]>([]);
   const mergeQueueRefreshKey =
     snapshot?.tasks.map((task) => `${task.id}:${task.status}`).join("|") ?? "";
-  const { items: mergeQueueItems, reload: loadMergeQueue } = useMergeQueue(
+  const { items: mergeQueueItems, reload: loadMergeQueue, stale: mergeQueueStale } = useMergeQueue(
     snapshot?.workspace.id,
     mergeQueueOpen,
     mergeQueueRefreshKey,
@@ -523,6 +532,9 @@ export default function App() {
   const [reviewNotes, setReviewNotes] = useState("");
   const [kernelAnnouncement, setKernelAnnouncement] = useState<string | null>(null);
   const [activePanelKey, setActivePanelKey] = useState<PanelKey | null>(bootPanel);
+  useEffect(() => {
+    if (activePanelKey === "mergeQueue") setMergeQueueOpen(true);
+  }, [activePanelKey]);
   const schedulerRequestRef = useRef(0);
   const runsRequestRef = useRef(0);
   // DESIGN §15.4：满血模式（会话级，不持久化、不随启动恢复）。
@@ -1360,7 +1372,10 @@ export default function App() {
         }
         clearPlanDraftSession();
       }
-      const route = parseHash(window.location.hash);
+      const parsed = parseHash(window.location.hash);
+      const route = /^#\/merge(?:\?|$)/.test(window.location.hash)
+        ? { ...parsed, tab: "tasks" as const, mergeQueue: true }
+        : parsed;
       lastTabRef.current = route.tab;
       if (route.gitGraph) {
         setTab("tasks");
@@ -1404,6 +1419,11 @@ export default function App() {
       setSelectedBoard(route.board);
       // t103：Git 入口深链。设置页没有 git=1 时关闭 Git 聚焦，避免残留。
       setMergeQueueOpen(route.mergeQueue);
+      if (route.mergeQueue) {
+        setActivePanelKey("mergeQueue");
+        dockRef.current?.openPanel("mergeQueue");
+        void loadMergeQueue();
+      }
       if (route.gitSettings) {
         setSettingsOpen(true);
         setTab("settings");
@@ -2698,6 +2718,8 @@ export default function App() {
       setTab("tasks");
       dockRef.current?.openPanel("tasks");
     }
+    setActivePanelKey("mergeQueue");
+    dockRef.current?.openPanel("mergeQueue");
     setMergeQueueOpen(true);
     void loadMergeQueue();
   }
@@ -3067,6 +3089,16 @@ export default function App() {
                   );
                 case "gitGraph":
                   return <GitGraphPanel workspaceId={snapshot.workspace.id} />;
+                case "mergeQueue":
+                  return (
+                    <MergeQueuePanel
+                      workspaceId={snapshot.workspace.id}
+                      items={mergeQueueItems}
+                      stale={mergeQueueStale}
+                      onReload={() => loadMergeQueue()}
+                      onOpenTask={(taskId) => handleOpenTaskPage(taskId)}
+                    />
+                  );
                 case "tasks":
                   return (
                     <TasksView
@@ -3138,6 +3170,7 @@ export default function App() {
                       workspaceSource={taskWorkspaceSource}
                       onReturnSource={() => openPanel("team")}
                       onOpenGitGraph={() => openPanel("gitGraph")}
+                      onOpenMergeQueue={handleOpenMergeQueue}
                     />
                   );
                 case "team":
@@ -3398,6 +3431,8 @@ export default function App() {
     watchdogHandoffs,
     taskWorkspaceSource,
     starmapFocus,
+    mergeQueueItems,
+    mergeQueueStale,
     planDraft,
     planSource,
     planIssues,
@@ -3561,6 +3596,16 @@ export default function App() {
           >
             <span className="sidebar-action-icon">◈</span>
             <span className="sidebar-action-label">版本图</span>
+          </button>
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={handleOpenMergeQueue}
+            aria-label="合并队列"
+            title="打开合并队列面板"
+          >
+            <span className="sidebar-action-icon">⇥</span>
+            <span className="sidebar-action-label">合并队列</span>
           </button>
           <div className="panel-menu-wrap">
             <button
@@ -3765,6 +3810,7 @@ export default function App() {
               onActivePanelChange={handleDockActivePanel}
               onPanelClose={(key) => {
                 if (key === "planDraft") handlePlanDraftPanelClosed();
+                if (key === "mergeQueue") setMergeQueueOpen(false);
               }}
               onNotify={(message) => pushToast({ kind: "success", message })}
             />
@@ -3805,16 +3851,7 @@ export default function App() {
         </Modal>
       )}
 
-      {snapshot && (
-        <MergeQueueModal
-          workspaceId={snapshot.workspace.id}
-          open={mergeQueueOpen}
-          onClose={() => {
-            setMergeQueueOpen(false);
-            void loadMergeQueue();
-          }}
-        />
-      )}
+      {/* 合并队列已改为 Dock 面板；仅确认合并在面板内使用单次 Modal。 */}
 
       {/* t64：模型提问表单弹窗（不嵌套：风险审批优先，审批期间不渲染问题弹窗） */}
       {activeQuestion && !riskApproval && (
@@ -4134,6 +4171,7 @@ function TasksView({
   workspaceSource,
   onReturnSource,
   onOpenGitGraph,
+  onOpenMergeQueue,
 }: {
   snapshot: Snapshot;
   selectedTask: Task | null;
@@ -4180,6 +4218,7 @@ function TasksView({
   workspaceSource: "tasks" | "team";
   onReturnSource: () => void;
   onOpenGitGraph: () => void;
+  onOpenMergeQueue: () => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -4875,7 +4914,7 @@ function TasksView({
                 tabIndex={0}
               >
                 <div className="task-git-section" id="task-git-section">
-                  <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} onOpenGraph={onOpenGitGraph} />
+                  <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} onOpenGraph={onOpenGitGraph} onOpenMergeQueue={onOpenMergeQueue} />
                 </div>
                 <div className="muted tiny" role="note" aria-label="合并确认说明">
                   Git / PR / worktree 与入队准备不是合并确认；合并确认只在合并队列中执行。
