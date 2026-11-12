@@ -1,0 +1,56 @@
+{
+  "mode": "unborn",
+  "at": "2026-11-12T16:09:44.908Z",
+  "results": [
+    {
+      "id": "app-ready",
+      "ok": true,
+      "detail": "版本图入口已挂载"
+    },
+    {
+      "id": "aria-select-all",
+      "ok": true,
+      "detail": "全选 checkbox 具备 aria-label"
+    },
+    {
+      "id": "aria-commit-form",
+      "ok": true,
+      "detail": "提交表单 aria-label"
+    },
+    {
+      "id": "aria-ignore-button",
+      "ok": true,
+      "detail": ".gitignore 按钮带 title 说明"
+    },
+    {
+      "id": "tabs-roving",
+      "ok": true,
+      "detail": "版本视图 tablist 存在（roving tabindex 基线）"
+    },
+    {
+      "id": "keyboard-tab",
+      "ok": true,
+      "detail": "Tab 后焦点位于 BUTTON.ghost tiny sidebar-toggle"
+    },
+    {
+      "id": "submit-disabled-no-staged",
+      "ok": true,
+      "detail": "{\"disabled\":true,\"text\":\"提交（0 个文件）\"}"
+    },
+    {
+      "id": "first-commit-guide",
+      "ok": true,
+      "detail": "空仓库显示三步首提引导"
+    },
+    {
+      "id": "ignore-modal-unborn",
+      "ok": true,
+      "detail": "unborn 仓库 .gitignore 预览 Modal"
+    },
+    {
+      "id": "unborn-first-commit",
+      "ok": true,
+      "detail": "unborn 仓库完成首个提交并出现在版本图"
+    }
+  ]
+}

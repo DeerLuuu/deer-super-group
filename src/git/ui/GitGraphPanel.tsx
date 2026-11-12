@@ -19,6 +19,9 @@ import Modal from "../../Modal.js";
 
 type Api = NonNullable<Window["deer"]>;
 
+/** t389：按 workspaceId 记忆最后视图，Dock 视口切换重挂面板后恢复（防暂存上下文丢失）。 */
+const lastViewByWorkspace = new Map<string, "graph" | "detail" | "workspace">();
+
 function unwrap<T>(result: GitResult<T>): T {
   if (!result.ok || result.value === undefined) {
     throw new Error(`${result.errorCode ?? "GIT_READ_INTERNAL"}: ${result.message ?? "read failed"}`);
@@ -50,7 +53,12 @@ export default function GitGraphPanel({
   const [detail, setDetail] = useState<GitCommitDetail | null>(null);
   const [working, setWorking] = useState<GitWorkingStatus | null>(null);
   const [workingDiff, setWorkingDiff] = useState<GitDiffPage | null>(null);
-  const [view, setView] = useState<"graph" | "detail" | "workspace">("graph");
+  // t389 走查修复：Dock 在视口切换（wide/single 变体往返）时会重挂本面板，
+  // view 状态丢失导致用户暂存上下文消失。按 workspaceId 记忆最后视图，
+  // 重挂时恢复到离开前的 tab。
+  const [view, setView] = useState<"graph" | "detail" | "workspace">(
+    () => lastViewByWorkspace.get(workspaceId) ?? "graph",
+  );
   const [filter, setFilter] = useState("");
   const [refFilter, setRefFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -152,6 +160,12 @@ export default function GitGraphPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
+  // t389：重挂时若恢复的是「工作区」视图，需主动拉取工作区状态（selectView 不会再触发）。
+  useEffect(() => {
+    if (lastViewByWorkspace.get(workspaceId) === "workspace") void loadWorking();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
   const loadMore = async () => {
     if (!api || !graph || graph.nextOffset == null || busy) return;
     setBusy(true);
@@ -189,6 +203,7 @@ export default function GitGraphPanel({
 
   function selectView(next: "graph" | "detail" | "workspace", focus = false) {
     setView(next);
+    lastViewByWorkspace.set(workspaceId, next);
     if (next === "workspace") void loadWorking();
     if (focus) tabRefs.current[next]?.focus();
   }
@@ -248,7 +263,9 @@ export default function GitGraphPanel({
   const handleStage = useCallback(
     (paths: string[]) => {
       if (!api?.gitStage || paths.length === 0) return;
-      void runWrite(() => api.gitStage!(workspaceId, paths));
+      // t389 走查修复：stage 只影响工作区状态，不改变提交图；
+      // 重载整图会长时间阻塞写按钮（writeBusy >1 分钟），故仅刷新 status。
+      void runWrite(() => api.gitStage!(workspaceId, paths), { reloadGraph: false });
     },
     [api, runWrite, workspaceId],
   );
@@ -256,7 +273,8 @@ export default function GitGraphPanel({
   const handleUnstage = useCallback(
     (paths: string[]) => {
       if (!api?.gitUnstage || paths.length === 0) return;
-      void runWrite(() => api.gitUnstage!(workspaceId, paths));
+      // t389 走查修复：同 stage——unstage 不改图，只刷新工作区状态。
+      void runWrite(() => api.gitUnstage!(workspaceId, paths), { reloadGraph: false });
     },
     [api, runWrite, workspaceId],
   );
@@ -597,7 +615,7 @@ export default function GitGraphPanel({
                 onRefresh={() => void loadWorking()}
                 onOpen={openWorkingFile}
                 diff={workingDiff}
-                isFirstCommit={!repo?.headSha}
+                isFirstCommit={!loading && repo !== null && !repo.headSha}
                 writeBusy={writeBusy}
                 writeError={writeError}
                 onDismissWriteError={() => setWriteError(null)}
@@ -644,18 +662,19 @@ export default function GitGraphPanel({
           description={
             ignorePreviewData.exists
               ? "仅追加缺失的模板行，现有内容保持不变"
-              : "将创建 .gitignore 并写入常见忽略条目"
+              : "将创建 .gitignore 并仅写入下列模板行；后续再生成也只追加缺失行，不覆盖任何现有文件"
           }
           onClose={() => setIgnoreOpen(false)}
         >
           <div className="git-ignore-preview">
             {ignorePreviewData.additions.length === 0 ? (
-              <p className="muted small">模板条目已全部存在，无需追加。</p>
+              <p className="muted small">模板条目已全部存在，无需追加（不会修改文件）。</p>
             ) : (
               <>
                 <p className="muted small">
-                  将追加 {ignorePreviewData.additions.length} 行：
-                  node_modules/、dist/、dist-electron/、branches/ 等常见忽略项。
+                  {ignorePreviewData.exists
+                    ? `仅追加缺失的 ${ignorePreviewData.additions.length} 行模板条目（node_modules/、dist/、dist-electron/、branches/ 等），现有内容保持不变。`
+                    : `将创建 .gitignore 并写入 ${ignorePreviewData.additions.length} 行常见忽略条目（node_modules/、dist/、dist-electron/、branches/ 等）；不会覆盖任何现有文件。`}
                 </p>
                 <pre className="git-ignore-diff" aria-label="将追加的内容"><code>{`+ ${ignorePreviewData.additions.join("\n+ ")}`}</code></pre>
                 {ignorePreviewData.exists && ignorePreviewData.existing ? (

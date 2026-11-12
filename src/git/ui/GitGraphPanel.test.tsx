@@ -170,6 +170,7 @@ describe("GitGraphPanel", () => {
   });
 
   it("ignores a stale loadCommit response after a newer selection", async () => {
+    // t389：view 记忆按 workspaceId 存取；此用例用独立 id，避免继承其它用例的「工作区」视图。
     const shaA = "a".repeat(40);
     const shaB = "b".repeat(40);
     const makeCommit = (sha: string, subject: string) => ({
@@ -235,7 +236,7 @@ describe("GitGraphPanel", () => {
     try {
       let renderer: ReturnType<typeof TestRenderer.create> | null = null;
       await act(async () => {
-        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws1" />);
+        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws-stale" />);
         await Promise.resolve();
       });
       const root = renderer!.root;
@@ -256,6 +257,51 @@ describe("GitGraphPanel", () => {
       expect(root.findByType("h2").props.children).toBe("B");
       renderer!.unmount();
     } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
+  });
+
+  // t389：repo 探测尚未返回时不能把「未知」误当成 unborn，闪出首提引导。
+  it("does not show the first-commit guide while repo status is still loading", async () => {
+    const previous = (globalThis as { window?: unknown }).window;
+    let resolveRepo!: (value: unknown) => void;
+    const pendingRepo = new Promise<unknown>((resolve) => {
+      resolveRepo = resolve;
+    });
+    (globalThis as { window?: unknown }).window = {
+      deer: {
+        gitRepo: () => pendingRepo,
+        gitGraph: async () => ({ ok: false }),
+        gitRefs: async () => ({ ok: false }),
+        gitCommit: async () => ({ ok: false }),
+        gitStatus: async () => ({ ok: false }),
+        gitDiff: async () => ({ ok: false }),
+      },
+    };
+    let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+    try {
+      await act(async () => {
+        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws-loading-first-commit" />);
+        await Promise.resolve();
+      });
+      const root = renderer!.root;
+      const workspaceTab = root
+        .findAllByType("button")
+        .find((button: { props: { children?: unknown } }) => {
+          const children = button.props.children;
+          return Array.isArray(children)
+            ? children.some((child) => (typeof child === "string" ? child.trim() === "工作区" : false))
+            : children === "工作区";
+        });
+      expect(workspaceTab).toBeTruthy();
+      await act(async () => {
+        (workspaceTab!.props.onClick as () => void)();
+        await Promise.resolve();
+      });
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("首次提交");
+      resolveRepo({ ok: false });
+    } finally {
+      renderer?.unmount();
       (globalThis as { window?: unknown }).window = previous;
     }
   });
@@ -326,11 +372,15 @@ describe("GitGraphPanel", () => {
       diff: { files: [], bytes: 0, truncated: false, binary: false, submodule: false },
     };
     const calls = { stage: [] as string[][], commit: [] as Array<{ title: string; body?: string }>, preview: 0 };
+    let graphCalls = 0;
     const previous = (globalThis as { window?: unknown }).window;
     (globalThis as { window?: unknown }).window = {
       deer: {
         gitRepo: async () => ({ ok: true, value: repo }),
-        gitGraph: async () => ({ ok: true, value: graph }),
+        gitGraph: async () => {
+          graphCalls += 1;
+          return { ok: true, value: graph };
+        },
         gitRefs: async () => ({ ok: true, value: { refs: [], worktrees: [], truncated: false } }),
         gitCommit: async () => ({ ok: true, value: detail }),
         gitStatus: async () => ({ ok: true, value: working }),
@@ -386,6 +436,7 @@ describe("GitGraphPanel", () => {
         selectAll.props.onChange({ target: { checked: true } });
         await Promise.resolve();
       });
+      const graphCallsBeforeStage = graphCalls;
       await act(async () => {
         const stageBtn = root.findAllByType("button").find((node: any) => {
           const text = String(node.props.children ?? "");
@@ -396,6 +447,8 @@ describe("GitGraphPanel", () => {
         for (let index = 0; index < 10; index += 1) await Promise.resolve();
       });
       expect(calls.stage).toEqual([["a.txt", "b.txt"]]);
+      // t389：stage 不改变提交图，不应重载 graph（避免 writeBusy 长时间阻塞后续按钮）。
+      expect(graphCalls).toBe(graphCallsBeforeStage);
       expect(json()).toContain("已暂存");
 
       // 提交框：填标题 → 提交（N 个文件）→ gitCreateCommit 收到标题。
@@ -429,7 +482,20 @@ describe("GitGraphPanel", () => {
       expect(calls.preview).toBe(1);
       expect(json()).toContain("生成 .gitignore");
       expect(json()).toContain("node_modules/");
+      // t389 走查修复：新建分支也必须声明「仅写入模板行、不覆盖现有文件」。
+      expect(json()).toContain("不覆盖任何现有文件");
       renderer!.unmount();
+
+      // t389 走查修复：Dock 视口切换重挂后，按 workspaceId 恢复最后的视图 tab。
+      let renderer2: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer2 = TestRenderer.create(<GitGraphPanel workspaceId="ws1" />);
+        for (let index = 0; index < 10; index += 1) await Promise.resolve();
+      });
+      const remounted = JSON.stringify(renderer2!.toJSON());
+      expect(remounted).toContain("已暂存");
+      expect(remounted).toContain("提交已暂存文件");
+      renderer2!.unmount();
     } finally {
       (globalThis as { window?: unknown }).window = previous;
     }
