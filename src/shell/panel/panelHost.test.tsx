@@ -76,14 +76,29 @@ function fixture(overrides: Partial<PanelDepsInput> = {}): PanelDepsInput {
   };
 }
 
-function mountedTree(renderRef: { current: PanelRender }, input: PanelDepsInput) {
+function mountedTree(
+  renderRef: { current: PanelRender },
+  input: PanelDepsInput,
+  keys: PanelKey[] = mounted,
+) {
   return (
     <PanelHostProvider renderRef={renderRef} depsByKey={buildPanelDeps(input)}>
-      {mounted.map((key) => (
+      {keys.map((key) => (
         <PanelHost key={key} panelKey={key} />
       ))}
     </PanelHostProvider>
   );
+}
+
+function countRef() {
+  const counts: Record<string, number> = {};
+  const renderRef: { current: PanelRender } = {
+    current: (key) => {
+      counts[key] = (counts[key] ?? 0) + 1;
+      return <div data-panel={key}>{`${key}:${counts[key]}`}</div>;
+    },
+  };
+  return { counts, renderRef };
 }
 
 describe("t265 R2 PanelHost + t270 real panelDepsByKey", () => {
@@ -162,6 +177,74 @@ describe("t265 R2 PanelHost + t270 real panelDepsByKey", () => {
     await act(async () => {
       renderer.unmount();
     });
+  });
+
+  it("settings-only bumps team and settings, not unrelated domains", async () => {
+    const { counts, renderRef } = countRef();
+    const base = fixture();
+    const keys: PanelKey[] = ["team", "settings", "context", "watchdog"];
+    const treeRef: { current?: ReturnType<typeof create> } = {};
+    await act(async () => {
+      treeRef.current = create(mountedTree(renderRef, base, keys));
+    });
+    const renderer = treeRef.current;
+    if (!renderer) throw new Error("renderer not created");
+    expect(counts).toEqual({ team: 1, settings: 1, context: 1, watchdog: 1 });
+
+    const settingsNext = {
+      models: [
+        {
+          id: "p:m2",
+          providerId: "p",
+          modelId: "m2",
+          label: "模型二",
+          supportsImages: false,
+          contextWindow: 128000,
+          maxOutputTokens: 8192,
+          thinkingEnabled: false,
+          thinkingEffort: "medium",
+        },
+      ],
+      providers: [{ id: "p", name: "Provider" }],
+    };
+    await act(async () => {
+      renderer.update(mountedTree(renderRef, { ...base, settings: settingsNext }, keys));
+    });
+    expect(counts).toEqual({ team: 2, settings: 2, context: 1, watchdog: 1 });
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it("runs/board/polls/planDraft own-domain bumps do not render unrelated panels", async () => {
+    const cases: Array<{ key: PanelKey; patch: Partial<PanelDepsInput> }> = [
+      { key: "runs", patch: { runsLoading: true } },
+      { key: "board", patch: { boardEntries: [{ id: "b2", title: "next" }] } },
+      { key: "polls", patch: { pollIntent: { title: "next poll" } } },
+      { key: "planDraft", patch: { planDraft: { title: "next plan" } } },
+    ];
+    for (const item of cases) {
+      const { counts, renderRef } = countRef();
+      const base = fixture();
+      const keys: PanelKey[] = [item.key, "context", "watchdog"];
+      const treeRef: { current?: ReturnType<typeof create> } = {};
+      await act(async () => {
+        treeRef.current = create(mountedTree(renderRef, base, keys));
+      });
+      const renderer = treeRef.current;
+      if (!renderer) throw new Error(`renderer not created for ${item.key}`);
+      expect(counts).toEqual({ [item.key]: 1, context: 1, watchdog: 1 });
+
+      await act(async () => {
+        renderer.update(mountedTree(renderRef, { ...base, ...item.patch }, keys));
+      });
+      expect(counts).toEqual({ [item.key]: 2, context: 1, watchdog: 1 });
+
+      await act(async () => {
+        renderer.unmount();
+      });
+    }
   });
 
   it("renderRef is a facade to the latest renderer and late mounts read the latest version", async () => {
