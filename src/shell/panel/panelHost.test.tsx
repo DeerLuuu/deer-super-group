@@ -1,9 +1,9 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
 import { describe, expect, it } from "vitest";
-import type { ReactNode } from "react";
 import type { PanelKey } from "../dock/panelRegistry.js";
-import { PanelHost, PanelHostProvider, type PanelDeps, type PanelRender } from "./PanelHost.js";
+import { buildPanelDeps, type PanelDepsInput } from "./panelDeps.js";
+import { PanelHost, PanelHostProvider, type PanelRender } from "./PanelHost.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -12,67 +12,151 @@ const { act, create } = TestRenderer as {
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const six: PanelKey[] = ["chat", "tasks", "team", "mailbox", "board", "runs"];
+const mounted: PanelKey[] = ["chat", "tasks", "team", "mailbox", "context", "watchdog"];
 
-describe("t265 R2 PanelHost", () => {
-  it("6 mounted panels: unrelated provider render does not render any panel; one domain bump renders only that panel", async () => {
+function fixture(overrides: Partial<PanelDepsInput> = {}): PanelDepsInput {
+  return {
+    agents: [{ id: "a1", name: "Alice" }],
+    tasks: [],
+    workspace: { id: "w1", name: "Workspace" },
+    workspaceId: "w1",
+    runs: [],
+    settings: { providers: [], models: [] },
+    boardEntries: [],
+    messages: [{ id: "m1", subject: "hello" }],
+    selectedTask: null,
+    selectedTaskId: null,
+    trace: [],
+    busy: false,
+    taskStatusFilter: "all",
+    createIntent: null,
+    scheduler: null,
+    schedulerLoading: false,
+    schedulerError: null,
+    taskRuns: [],
+    runsLoading: false,
+    runsError: null,
+    selectedRunId: null,
+    actionBusy: null,
+    actionError: null,
+    watchdogAlerts: [],
+    watchdogHandoffs: [],
+    taskWorkspaceSource: "tasks",
+    starmapFocus: null,
+    planDraft: null,
+    planSource: null,
+    planIssues: [],
+    planBusy: false,
+    planError: null,
+    planConfirming: false,
+    chatMessages: [],
+    chatTurnsByAssistant: new Map(),
+    chatTurnByUser: new Map(),
+    questionsByKey: new Map(),
+    questionsLoaded: true,
+    pendingQuestions: [],
+    chatBusy: false,
+    chatInput: "",
+    chatView: "chat",
+    chatTrajectory: [],
+    chatTrajectoryLoading: false,
+    contextTaskId: null,
+    contextSource: null,
+    chatContextBusy: false,
+    chatFullThrottle: false,
+    workspaceOverview: null,
+    context: null,
+    selectedMessageId: null,
+    selectedBoard: null,
+    pollIntent: null,
+    watchdogSnapshot: null,
+    watchdogCosts: null,
+    ...overrides,
+  };
+}
+
+function mountedTree(renderRef: { current: PanelRender }, input: PanelDepsInput) {
+  return (
+    <PanelHostProvider renderRef={renderRef} depsByKey={buildPanelDeps(input)}>
+      {mounted.map((key) => (
+        <PanelHost key={key} panelKey={key} />
+      ))}
+    </PanelHostProvider>
+  );
+}
+
+describe("t265 R2 PanelHost + t270 real panelDepsByKey", () => {
+  it("uses production deps: unrelated state and messages/agents changes only bump correct panels", async () => {
     const counts: Record<string, number> = {};
     const renderRef: { current: PanelRender } = {
       current: (key) => {
         counts[key] = (counts[key] ?? 0) + 1;
-        return <div data-panel={key}>{`${key}:${counts[key]}`}</div> as ReactNode;
+        return <div data-panel={key}>{`${key}:${counts[key]}`}</div>;
       },
     };
-    const baseDeps: PanelDeps = {
-      chat: [1],
-      tasks: [1],
-      team: [1],
-      mailbox: [1],
-      board: [1],
-      runs: [1],
-    };
-    const tree = (
-      <PanelHostProvider renderRef={renderRef} depsByKey={baseDeps}>
-        {six.map((key) => (
-          <PanelHost key={key} panelKey={key} />
-        ))}
-      </PanelHostProvider>
-    );
+    const base = fixture();
+    const deps = buildPanelDeps(base);
+    expect(deps.mailbox).toContain(base.agents);
 
     const treeRef: { current?: ReturnType<typeof create> } = {};
     await act(async () => {
-      treeRef.current = create(tree);
+      treeRef.current = create(mountedTree(renderRef, base));
     });
     const renderer = treeRef.current;
     if (!renderer) throw new Error("renderer not created");
-    expect(counts).toEqual({ chat: 1, tasks: 1, team: 1, mailbox: 1, board: 1, runs: 1 });
-
-    // App rerender with a new deps object, but identical array references: no panel render.
-    await act(async () => {
-      renderer.update(
-        <PanelHostProvider renderRef={renderRef} depsByKey={{ ...baseDeps }}>
-          {six.map((key) => (
-            <PanelHost key={key} panelKey={key} />
-          ))}
-        </PanelHostProvider>,
-      );
+    expect(counts).toEqual({
+      chat: 1,
+      tasks: 1,
+      team: 1,
+      mailbox: 1,
+      context: 1,
+      watchdog: 1,
     });
-    expect(counts).toEqual({ chat: 1, tasks: 1, team: 1, mailbox: 1, board: 1, runs: 1 });
 
-    // Only mailbox's domain changes.
+    // App rerender with same slice references: no panel render.
     await act(async () => {
-      renderer.update(
-        <PanelHostProvider
-          renderRef={renderRef}
-          depsByKey={{ ...baseDeps, mailbox: [2] }}
-        >
-          {six.map((key) => (
-            <PanelHost key={key} panelKey={key} />
-          ))}
-        </PanelHostProvider>,
-      );
+      renderer.update(mountedTree(renderRef, { ...base }));
     });
-    expect(counts).toEqual({ chat: 1, tasks: 1, team: 1, mailbox: 2, board: 1, runs: 1 });
+    expect(counts).toEqual({
+      chat: 1,
+      tasks: 1,
+      team: 1,
+      mailbox: 1,
+      context: 1,
+      watchdog: 1,
+    });
+
+    // Mailbox domain only.
+    const messagesNext = [{ id: "m2", subject: "next" }];
+    await act(async () => {
+      renderer.update(mountedTree(renderRef, { ...base, messages: messagesNext }));
+    });
+    expect(counts).toEqual({
+      chat: 1,
+      tasks: 1,
+      team: 1,
+      mailbox: 2,
+      context: 1,
+      watchdog: 1,
+    });
+
+    // t270 F1：成员变化（agents 新引用）必须 bump mailbox。
+    // chat/tasks/team 也消费 agents，属于合理更新；context/watchdog 不得误触发。
+    const agentsNext = [
+      { id: "a1", name: "Alice" },
+      { id: "a2", name: "Bob" },
+    ];
+    await act(async () => {
+      renderer.update(mountedTree(renderRef, { ...base, agents: agentsNext }));
+    });
+    expect(counts).toEqual({
+      chat: 2,
+      tasks: 2,
+      team: 2,
+      mailbox: 3,
+      context: 1,
+      watchdog: 1,
+    });
 
     await act(async () => {
       renderer.unmount();
@@ -84,10 +168,10 @@ describe("t265 R2 PanelHost", () => {
     const renderRef: { current: PanelRender } = {
       current: (key) => <div>{`${key}:${label}`}</div>,
     };
-    const deps: PanelDeps = { mailbox: [1] };
-    const tree = (mounted: boolean) => (
-      <PanelHostProvider renderRef={renderRef} depsByKey={deps}>
-        {mounted ? <PanelHost panelKey="mailbox" /> : null}
+    const input = fixture();
+    const tree = (isMounted: boolean) => (
+      <PanelHostProvider renderRef={renderRef} depsByKey={buildPanelDeps(input)}>
+        {isMounted ? <PanelHost panelKey="mailbox" /> : null}
       </PanelHostProvider>
     );
     const treeRef: { current?: ReturnType<typeof create> } = {};
