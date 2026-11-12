@@ -41,6 +41,7 @@ export type RefreshCoordinatorOptions = {
 export function domainsForEventType(type: string): readonly RefreshDomain[] {
   if (type.startsWith("task.")) return ["snapshot", "scheduler", "runs"];
   if (type.startsWith("scheduler.")) return ["snapshot", "scheduler"];
+  // handoff 同时影响 RunHistory 交接卡与 watchdog handoff 视图；不额外拉 snapshot。
   if (type === "run.handoff_created") return ["runs", "watchdog"];
   if (
     type === "run.started" ||
@@ -102,6 +103,16 @@ export class RefreshCoordinator {
 
   isStale(): boolean {
     return this.stale;
+  }
+
+  /**
+   * 手动 full refresh 成功后的显式恢复：清 stale/failures/backoff，允许后续 notify 正常 flush。
+   * 手动刷新有独立 App token，不推进 coordinator 的 generation/lastSeq；下一事件仍按 seq 继续。
+   */
+  markRecovered(): void {
+    this.failures = 0;
+    this.stale = false;
+    this.retryDelay = null;
   }
 
   getPendingCount(): number {

@@ -1161,6 +1161,10 @@ export default function App() {
     [loadTrace, loadScheduler, loadRuns, loadWatchdog, loadMergeQueue],
   );
 
+  /**
+   * 手动 full refresh：与 App token/stale 共享，但不推进 Coordinator 的 generation/lastSeq；
+   * 成功后显式 markRecovered，允许后续 onEvent notify 继续 flush；失败 invalidateAll 进入 backoff。
+   */
   const refresh = useCallback(
     async (workspaceId: string) => {
       const token = ++refreshTokenRef.current;
@@ -1169,6 +1173,7 @@ export default function App() {
         if (token === refreshTokenRef.current) {
           setRefreshStale(false);
           setStaleDomains(new Set());
+          refreshCoordinatorRef.current?.markRecovered();
         }
       } catch (error) {
         if (token === refreshTokenRef.current) {
@@ -1182,6 +1187,17 @@ export default function App() {
     },
     [refreshDomains],
   );
+
+  const handleManualRefresh = useCallback(async () => {
+    const current = snapshotRef.current;
+    if (!current) return;
+    try {
+      await refresh(current.workspace.id);
+    } catch (error) {
+      setError(errorText(error));
+      pushToast({ kind: "error", message: `刷新失败：${formatError(error)}` });
+    }
+  }, [refresh, pushToast]);
 
   const refreshWatchdog = useCallback(async () => {
     const workspaceId = snapshotRef.current?.workspace.id;
@@ -2579,8 +2595,7 @@ export default function App() {
   function handleRetryAfterError() {
     setError(null);
     setErrorRetry(null);
-    const current = snapshotRef.current;
-    if (current) void refresh(current.workspace.id);
+    void handleManualRefresh();
     void loadChat().catch((cause) => showError(errorText(cause)));
   }
 
@@ -3489,7 +3504,7 @@ export default function App() {
           <button
             type="button"
             className="ghost small sidebar-action"
-            onClick={() => void refresh(snapshot.workspace.id)}
+            onClick={() => void handleManualRefresh()}
             title="刷新"
           >
             <span className="sidebar-action-icon">↻</span>
@@ -3726,7 +3741,7 @@ export default function App() {
             busy={busy}
             onSave={handleSaveSettings}
             onDirtyChange={setSettingsDirty}
-            onReload={() => void refresh(snapshot.workspace.id)}
+            onReload={() => void handleManualRefresh()}
             initialSection={gitSettingsFocus ? "git" : settingsInitialSection}
           />
         </Modal>

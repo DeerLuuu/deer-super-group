@@ -139,10 +139,11 @@ describe("t282 R3 RefreshCoordinator", () => {
     vi.useFakeTimers();
     let attempts = 0;
     let stale = 0;
+    let offline = true;
     const coordinator = new RefreshCoordinator({
       onFlush: async () => {
         attempts += 1;
-        throw new Error("offline");
+        if (offline) throw new Error("offline");
       },
       onStale: () => {
         stale += 1;
@@ -162,6 +163,15 @@ describe("t282 R3 RefreshCoordinator", () => {
     expect(attempts).toBe(2);
     expect(stale).toBe(1);
     expect(coordinator.isStale()).toBe(true);
+
+    // 手动刷新成功后的显式恢复：清 stale/failures，下一条事件能再次 flush。
+    offline = false;
+    coordinator.markRecovered();
+    expect(coordinator.isStale()).toBe(false);
+    coordinator.notify(event(21, "watchdog.alert"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(attempts).toBe(3);
+    expect(coordinator.isStale()).toBe(false);
     coordinator.dispose();
   });
 

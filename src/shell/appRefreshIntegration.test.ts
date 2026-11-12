@@ -80,7 +80,10 @@ function makeAppPipeline() {
       const token = ++appToken;
       try {
         await refreshDomains(ALL_REFRESH_DOMAINS, token);
-        if (token === appToken) stale = false;
+        if (token === appToken) {
+          stale = false;
+          coordinator.markRecovered();
+        }
       } catch (error) {
         if (token === appToken) {
           stale = true;
@@ -160,6 +163,21 @@ describe("t286 App-level event→IPC integration", () => {
     await app.manualRefresh();
     expect(app.isStale()).toBe(false);
     expect(app.state.version).toBe(8);
+    app.coordinator.dispose();
+  });
+
+  it("manual success marks coordinator recovered and next event can flush", async () => {
+    vi.useFakeTimers();
+    const app = makeAppPipeline();
+    await app.manualRefresh();
+    expect(app.isStale()).toBe(false);
+    expect(app.coordinator.isStale()).toBe(false);
+    expect(app.ipc.getWatchdog).toHaveBeenCalledTimes(1);
+
+    app.coordinator.notify(event(1, "watchdog.alert"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(app.ipc.getWatchdog).toHaveBeenCalledTimes(2);
+    expect(app.coordinator.isStale()).toBe(false);
     app.coordinator.dispose();
   });
 
