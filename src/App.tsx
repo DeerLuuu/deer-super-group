@@ -139,6 +139,9 @@ import {
   type WorkflowStage,
 } from "./shell/workflowData";
 import { ToastHost, useToasts, type ToastItem } from "./Toast";
+import { taskExecutionContract } from "./shell/executionContract";
+import { TaskContractChips } from "./shell/TaskContractChips";
+import type { SettingsSection } from "./SettingsView";
 import {
   BOARD_CONFIDENCE_LABEL,
   BOARD_KIND_LABEL,
@@ -441,7 +444,7 @@ export default function App() {
   // t103：Git 入口——合并队列 Modal、设置 Modal 内 Git 区聚焦、任务详情 VCS 区聚焦。
   const [mergeQueueOpen, setMergeQueueOpen] = useState(false);
   const [gitSettingsFocus, setGitSettingsFocus] = useState(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState<"models" | undefined>(
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
     undefined,
   );
   const [taskVcsFocus, setTaskVcsFocus] = useState(false);
@@ -530,6 +533,7 @@ export default function App() {
   const [panelSearch, setPanelSearch] = useState("");
   const [openPanelKeys, setOpenPanelKeys] = useState<PanelKey[]>([]);
   const [createIntent, setCreateIntent] = useState<CreateIntent | null>(null);
+  const [memberEditTarget, setMemberEditTarget] = useState<string | null>(null);
   // t136：从任务/黑板发起 Poll 时带入来源并自动打开创建弹窗。
   const [pollIntent, setPollIntent] = useState<{
     title: string;
@@ -2716,10 +2720,15 @@ export default function App() {
     openPanel("runs");
   }
 
-  function openSettingsSection(section: "models" = "models") {
+  function openSettingsSection(section: SettingsSection = "models") {
     setGitSettingsFocus(false);
     setSettingsInitialSection(section);
     openPanel("settings");
+  }
+
+  function openTeamMember(ownerId: string | null) {
+    setMemberEditTarget(ownerId);
+    openPanel("team");
   }
 
   function showError(
@@ -3277,6 +3286,9 @@ export default function App() {
                       onReturnSource={() => openPanel("team")}
                       onOpenGitGraph={() => openPanel("gitGraph")}
                       onOpenMergeQueue={handleOpenMergeQueue}
+                      fullThrottle={chatFullThrottle}
+                      onOpenModels={() => openSettingsSection("models")}
+                      onEditOwner={(ownerId) => openTeamMember(ownerId)}
                     />
                   );
                 case "team":
@@ -3293,6 +3305,8 @@ export default function App() {
                           starmapFocus={starmapFocus}
                           autoOpenMemberDialog={createIntent === "member"}
                           onAutoOpenHandled={() => setCreateIntent(null)}
+                          autoEditMemberId={memberEditTarget}
+                          onAutoEditHandled={() => setMemberEditTarget(null)}
                           onCreate={handleCreateAgent}
                           onRecommend={handleRecommendMembers}
                           onOpenSettings={() => openSettingsSection("models")}
@@ -4327,6 +4341,9 @@ function TasksView({
   onReturnSource,
   onOpenGitGraph,
   onOpenMergeQueue,
+  fullThrottle,
+  onOpenModels,
+  onEditOwner,
 }: {
   snapshot: Snapshot;
   selectedTask: Task | null;
@@ -4374,6 +4391,9 @@ function TasksView({
   onReturnSource: () => void;
   onOpenGitGraph: () => void;
   onOpenMergeQueue: () => void;
+  fullThrottle: boolean;
+  onOpenModels: () => void;
+  onEditOwner: (ownerId: string | null) => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -4497,6 +4517,12 @@ function TasksView({
     : [];
   const unfilledDeps = selectedTaskDeps.filter((task) => task.status !== "done");
   const selectedOwner = selectedTask?.ownerId ? agents.get(selectedTask.ownerId) ?? null : null;
+  const contract = taskExecutionContract(
+    selectedTask,
+    snapshot.agents,
+    fullThrottle,
+    trace.length,
+  );
   const currentRun =
     runs.find((run) => run.id === selectedRunId) ??
     runs.find((run) => run.status === "running") ??
@@ -4807,6 +4833,12 @@ function TasksView({
                     <span>优先级：{selectedTask.priority ?? 50}</span>
                     <span>当前 Run：{currentRun ? currentRun.id.slice(0, 10) : "无"}</span>
                   </div>
+                  <TaskContractChips
+                    contract={contract}
+                    fullThrottle={fullThrottle}
+                    onOpenModels={onOpenModels}
+                    onEditOwner={onEditOwner}
+                  />
                 </div>
                 <div className="row gap wrap task-workspace-actions">
                   {workspaceSource === "team" ? (
@@ -5020,9 +5052,10 @@ function TasksView({
                 <div>
                   <div className="section-label">执行契约 / 来源</div>
                   <div className="muted tiny task-workspace-contract">
-                    <span>负责人：{selectedOwner?.name ?? "未分配"}</span>
-                    <span>模型：{selectedOwner?.model ?? "默认模型"}</span>
-                    <span>权限：{selectedOwner?.permission ?? "—"}</span>
+                    <span>负责人：{contract.ownerName}</span>
+                    <span>模型：{contract.model}</span>
+                    <span>权限：{contract.permissionLabel}</span>
+                    <span>FT：{contract.fullThrottle}</span>
                     <span>优先级：{selectedTask.priority ?? 50}</span>
                     <span>来源：任务列表 / {workspaceSource === "team" ? "团队" : "任务页"}</span>
                   </div>

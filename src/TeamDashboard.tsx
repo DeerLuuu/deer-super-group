@@ -46,6 +46,8 @@ export default function TeamDashboard({
   starmapFocus,
   autoOpenMemberDialog,
   onAutoOpenHandled,
+  autoEditMemberId,
+  onAutoEditHandled,
   onCreate,
   onRecommend,
   onUpdate,
@@ -69,6 +71,9 @@ export default function TeamDashboard({
   /** C11：命令面板/「＋新建」触发的自动打开成员弹窗（一次性）。 */
   autoOpenMemberDialog: boolean;
   onAutoOpenHandled: () => void;
+  /** P1-5：从任务头权限 chip 跳到指定成员的编辑弹窗（一次性）。 */
+  autoEditMemberId?: string | null;
+  onAutoEditHandled?: () => void;
   onCreate: (input: AgentDraft) => Promise<boolean>;
   onRecommend: (
     input: Omit<RecommendMembersRequest, "workspaceId">,
@@ -103,6 +108,14 @@ export default function TeamDashboard({
     setDialog({ agent: null });
     onAutoOpenHandled();
   }, [autoOpenMemberDialog, onAutoOpenHandled]);
+
+  // P1-5：任务头权限 chip → 团队仅保留一处成员编辑。
+  useEffect(() => {
+    if (!autoEditMemberId) return;
+    const agent = snapshot.agents.find((item) => item.id === autoEditMemberId);
+    if (agent) setDialog({ agent });
+    onAutoEditHandled?.();
+  }, [autoEditMemberId, snapshot.agents, onAutoEditHandled]);
 
   const taskById = useMemo(
     () => new Map(snapshot.tasks.map((task) => [task.id, task])),

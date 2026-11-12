@@ -8898,3 +8898,89 @@ body li {
 .chat-messages {
   overflow-anchor: none;
 }
+
+/* t337：任务头只读执行契约 chips */
+.task-contract-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.task-contract-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+}
+
+button.task-contract-chip {
+  cursor: pointer;
+}
+
+button.task-contract-chip:hover {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+
+button.task-contract-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.task-contract-chip-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.task-contract-chip.is-on {
+  border-color: var(--accent-2);
+}
+
+@media (max-width: 480px) {
+  .task-contract-chips {
+    gap: 4px;
+  }
+
+  .task-contract-chip {
+    padding: 3px 6px;
+  }
+}
+
+/* t337：窄窗下 Dock 不得比主区更宽（任务头 480 契约不裁切） */
+.dock-host,
+.dock-shell,
+.dock-root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.dock-root .dv-dockview {
+  max-width: 100%;
+}
+
+@media (max-width: 600px) {
+  .dock-root .dv-dockview,
+  .dock-root .dv-split-view-container,
+  .dock-root .dv-view-container,
+  .dock-root .dv-view {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
