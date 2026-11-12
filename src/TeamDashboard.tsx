@@ -119,8 +119,7 @@ export default function TeamDashboard({
   useEffect(() => {
     if (!recommendedMembers?.length) return;
     setDialog({ agent: null, candidates: recommendedMembers });
-    onRecommendedMembersHandled?.();
-  }, [recommendedMembers, onRecommendedMembersHandled]);
+  }, [recommendedMembers]);
 
   // P1-5：任务头权限 chip → 团队仅保留一处成员编辑。
   useEffect(() => {
@@ -339,7 +338,10 @@ export default function TeamDashboard({
           initialCandidates={dialog.candidates}
           snapshot={snapshot}
           busy={busy}
-          onClose={() => setDialog(null)}
+          onClose={() => {
+            setDialog(null);
+            onRecommendedMembersHandled?.();
+          }}
           onSubmit={submitAgent}
           onRecommend={onRecommend}
           onOpenSettings={onOpenSettings}

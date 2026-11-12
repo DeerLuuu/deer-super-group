@@ -49,7 +49,7 @@ Chat composer 输入以 `/` 开头时显示命令补全（`App.ChatView`）：
    - read_only、skills/risks、详情。
 3. 不自动创建：卡片「聘用」先展开「确认聘用」；确认后走现有 `onCreate`（`createAgent`），默认 `read_only`；「编辑后聘用」进入现有手动表单，字段可编辑；取消/关闭 Modal 不创建；多候选一次选择一个（不批量自动建）。
 4. 失败/空候选：只 toast 错误，不打开 Modal；重名候选沿用 `nameConflict`（禁用聘用并提示编辑）；Mock/无模型时推荐 API 返回错误，不打开 Modal；Modal 内若缺失模型/Mock 会显示提示并禁用聘用（防御性）。
-5. 焦点/Esc/回焦复用统一 `Modal`；Modal 关闭后焦点回到触发前；Chat 焦点不被抢走。
+5. 焦点/Esc/回焦复用统一 `Modal`；真实 Electron `/team` 自动弹窗后按 Esc，焦点回到 Chat composer（`aria-label=给 Router 发消息`）；取消关闭不创建。Team panel 的 `recommendedMembers` 已加入 `panelDeps`，否则 PanelHost 缓存不会让已打开的 Team 面板收到新候选。
 
 ## 4. 范围与安全
 
@@ -62,16 +62,17 @@ Chat composer 输入以 `/` 开头时显示命令补全（`App.ChatView`）：
 
 新增/更新：
 
-- `src/shared/routerMemberHandoff.test.ts`：`/team`、`/TEAM`、前导空格、`/team 参数` 解析；普通文字/`/teamfoo` 不触发；候选提取。
-- `src/kernel/chatTurnUi.test.tsx`：补全打开、`/c`/`/t` 过滤、ArrowDown+Enter 插入、Tab 插入、鼠标、Esc、参数模式、无匹配、普通文字不打开。
+- `src/shared/routerMemberHandoff.test.ts`：`/team`、`/TEAM`、前导空格、`/team 参数` 解析；普通文字/`/teamfoo` 不触发；候选提取；`dispatchChatSubmission` 的 `/unknown`、`/teamfoo` send、`/team` team、`/clear`/`/compact` 分支。
+- `src/kernel/chatTurnUi.test.tsx`：命令面板打开/过滤/键盘/鼠标/Esc/无匹配；无匹配 Enter 关闭并 onSend；`/unknown`、`/teamfoo` 走 send 且不插入；ArrowUp/focus/aria-activedescendant 与 480 键盘路径；参数模式隐藏。
+- `src/shell/panel/panelHost.test.tsx`：`recommendedMembers` 只 bump team，不误渲染其他面板。
 - `src/shell/routerMemberHandoff.test.tsx`：候选自动打开、预填字段、聘用前不创建、确认后 `read_only` 创建、编辑、取消/关闭不创建、重名禁用、Mock 禁用。
-- `src/kernel/service.ts`：Router prompt 明确「普通聊天要用 /team」、不创建成员；无普通意图推荐调用。
+- `src/kernel/service.ts`：Router prompt 明确普通聊天要用 `/team`、不创建成员；无普通意图推荐调用。
 
 ```text
 pnpm typecheck   # 0
 pnpm build       # 0（455 modules）
 pnpm test -- --testTimeout=20000 --maxWorkers=1
-                 # 135 files / 950 tests passed
+                 # 135 files / 954 tests passed
 ```
 
 > 默认并行有既有 openai/watchdog 5s timeout；serial 全绿。
@@ -81,8 +82,10 @@ pnpm test -- --testTimeout=20000 --maxWorkers=1
 - `docs/team/t415-command-1440.png`
 - `docs/team/t415-command-960.png`
 - `docs/team/t415-command-480.png`
+- `docs/team/t415-team-modal-1440.png`（真实模型推荐，3 候选自动弹窗）
+- `docs/team/t415-team-modal-480.png`
 
-真实 Electron + 临时 userData 副本，Chat composer 输入 `/` 打开补全面板；三档面板均在输入框上方、无裁切。自动打开 Team Modal 的断言由 `routerMemberHandoff.test` 覆盖（真实模型推荐依赖用户模型配置，截图不伪造）。
+真实 Electron + 临时 userData 副本；`/team` 调用真实 `deepseek-flash` 推荐模型自动打开 Team 新建成员 Modal；Esc 后 CDP 断言 `activeElement` 回到 Chat composer。
 
 ## 7. 风险 / 回滚 / 遗留
 

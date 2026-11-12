@@ -113,6 +113,8 @@ describe("t415 Router recommendation handoff", () => {
     expect(output).toContain("Accessibility review");
     expect(output).toContain("No accessibility specialist");
     expect(output).toContain("read_only");
+    const close = renderer.root.findByProps({ "aria-label": "modal-close" });
+    await act(() => close.props.onClick());
     expect(onHandled).toHaveBeenCalled();
     act(() => renderer.unmount());
   });

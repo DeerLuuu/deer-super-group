@@ -12,6 +12,37 @@ export function parseTeamCommand(text: string): { description: string | null } |
   return { description: description || null };
 }
 
+export type ChatSubmissionHandlers = {
+  clear: () => void;
+  compact: () => void;
+  team: (description: string | null) => void;
+  send: (text: string) => void;
+};
+
+/** App-level deterministic dispatch for /clear, /compact, /team and chat. */
+export function dispatchChatSubmission(
+  text: string,
+  handlers: ChatSubmissionHandlers,
+): "clear" | "compact" | "team" | "send" {
+  const value = text.trim();
+  const lower = value.toLowerCase();
+  if (lower === "/clear" || value === "/清空") {
+    handlers.clear();
+    return "clear";
+  }
+  if (lower === "/compact" || value === "/压缩") {
+    handlers.compact();
+    return "compact";
+  }
+  const team = parseTeamCommand(value);
+  if (team) {
+    handlers.team(team.description);
+    return "team";
+  }
+  handlers.send(text);
+  return "send";
+}
+
 function isCandidate(value: unknown): value is MemberCandidate {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<MemberCandidate>;

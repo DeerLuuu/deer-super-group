@@ -69,7 +69,7 @@ import SchedulerBar from "./SchedulerBar";
 import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
 import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
-import { extractRecommendationCandidates, parseTeamCommand } from "./shared/routerMemberHandoff";
+import { dispatchChatSubmission, extractRecommendationCandidates } from "./shared/routerMemberHandoff";
 import { translationCacheNeedsInvalidation } from "./shared/translationCache";
 import {
   applyHistoryScrollPreservation,
@@ -2180,6 +2180,7 @@ export default function App() {
       setRecommendedMembers(candidates);
       setCreateIntent(null);
       openPanel("team");
+      openPanel("team");
     } catch (error) {
       pushToast({ kind: "error", message: errorText(error) });
     } finally {
@@ -2631,25 +2632,24 @@ export default function App() {
   async function handleSendChat() {
     const text = chatInput.trim();
     if (!text || chatBusy || chatContextBusy) return;
-    const command = text.toLowerCase();
-    if (command === "/clear" || command === "/清空") {
-      setChatInput("");
-      await handleClearContext();
-      return;
-    }
-    if (command === "/compact" || command === "/压缩") {
-      setChatInput("");
-      await handleCompactContext();
-      return;
-    }
-    const team = parseTeamCommand(text);
-    if (team) {
-      setChatInput("");
-      await handleTeamCommand(team.description);
-      return;
-    }
-    setChatInput("");
-    await sendChatText(text);
+    dispatchChatSubmission(text, {
+      clear: () => {
+        setChatInput("");
+        void handleClearContext();
+      },
+      compact: () => {
+        setChatInput("");
+        void handleCompactContext();
+      },
+      team: (description) => {
+        setChatInput("");
+        void handleTeamCommand(description);
+      },
+      send: (value) => {
+        setChatInput("");
+        void sendChatText(value);
+      },
+    });
   }
 
   // ---------- t64：提问弹窗（队列 / 自动打开 / 回答 / 取消 / 超时） ----------
@@ -3665,6 +3665,7 @@ export default function App() {
     busy,
     taskStatusFilter,
     createIntent,
+    recommendedMembers,
     scheduler,
     schedulerLoading,
     schedulerError,
@@ -6442,10 +6443,10 @@ export function ChatView({
   function chooseCommand(command: (typeof CHAT_COMMANDS)[number]) {
     onInput(command.insert);
     setCommandDismissed(true);
+    const composer = composerRef.current;
+    composer?.focus();
     setTimeout(() => {
-      const composer = composerRef.current;
       if (!composer) return;
-      composer.focus();
       const end = command.insert.length;
       composer.setSelectionRange(end, end);
     }, 0);
@@ -6867,6 +6868,10 @@ export function ChatView({
                   event.preventDefault();
                   const command = commandMatches[commandIndex];
                   if (command) chooseCommand(command);
+                  else {
+                    setCommandDismissed(true);
+                    onSend();
+                  }
                   return;
                 }
                 if (event.key === "Tab") {

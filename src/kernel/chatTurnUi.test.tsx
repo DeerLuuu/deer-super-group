@@ -22,7 +22,7 @@ interface ChatRenderer {
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
-  create: (element: unknown) => ChatRenderer;
+  create: (element: unknown, options?: unknown) => ChatRenderer;
 };
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,10 +38,10 @@ function textOf(value: unknown): string {
   return "";
 }
 
-async function render(element: unknown): Promise<ChatRenderer> {
+async function render(element: unknown, options?: unknown): Promise<ChatRenderer> {
   let renderer: ChatRenderer | null = null;
   await act(async () => {
-    renderer = create(element);
+    renderer = create(element, options);
   });
   if (!renderer) throw new Error("renderer not created");
   return renderer as ChatRenderer;
@@ -526,8 +526,8 @@ describe("t172 App UI history process", () => {
 });
 
 describe("t415 chat command completion", () => {
-  function commandProps(input: string, onInput = vi.fn(), onSend = vi.fn()) {
-    return chatViewProps({ input, onInput, onSend });
+  function commandProps(input: string, onInput = vi.fn(), onSend = vi.fn(), overrides: Record<string, unknown> = {}) {
+    return chatViewProps({ input, onInput, onSend, ...overrides });
   }
 
   function commandOptions(renderer: ChatRenderer): string[] {
@@ -603,5 +603,54 @@ describe("t415 chat command completion", () => {
     expect(ordinary.root.findAllByProps({ className: "chat-command-menu" })).toHaveLength(0);
     const plain = await render(<ChatView {...commandProps("hello")} />);
     expect(plain.root.findAllByProps({ className: "chat-command-menu" })).toHaveLength(0);
+  });
+
+  it("sends unmatched /unknown and /teamfoo as ordinary messages without inserting commands", async () => {
+    for (const input of ["/unknown", "/teamfoo"]) {
+      const onInput = vi.fn();
+      const onSend = vi.fn();
+      const renderer = await render(<ChatView {...commandProps(input, onInput, onSend)} />);
+      const textarea = renderer.root.findByType("textarea");
+      const preventDefault = vi.fn();
+      await act(() => {
+        (textarea.props.onKeyDown as (event: unknown) => void)({ key: "Enter", preventDefault });
+      });
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(onInput).not.toHaveBeenCalled();
+      expect(renderer.root.findAllByProps({ className: "chat-command-menu" })).toHaveLength(0);
+    }
+  });
+
+  it("keeps ArrowUp/focus/aria-activedescendant on the 480 keyboard path", async () => {
+    const previous = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = { innerWidth: 480, matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }) };
+    try {
+      const focus = vi.fn();
+      const setSelectionRange = vi.fn();
+      const inserted = vi.fn();
+      const fakeComposer = { focus, setSelectionRange };
+      const renderer = await render(
+        <ChatView {...commandProps("/", inserted, vi.fn())} />,
+        {
+          createNodeMock: (node: { type?: string }) =>
+            node.type === "textarea" ? fakeComposer : null,
+        },
+      );
+      const textarea = renderer.root.findByType("textarea");
+      expect(textarea.props["aria-activedescendant"]).toBe("chat-command-0");
+      await act(() => {
+        (textarea.props.onKeyDown as (event: unknown) => void)({ key: "ArrowUp", preventDefault: vi.fn() });
+      });
+      expect(textarea.props["aria-activedescendant"]).toBe("chat-command-2");
+      await act(async () => {
+        (textarea.props.onKeyDown as (event: unknown) => void)({ key: "Tab", preventDefault: vi.fn() });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(inserted).toHaveBeenCalledWith("/team ");
+      expect(focus).toHaveBeenCalled();
+      expect(setSelectionRange).toHaveBeenCalledWith("/team ".length, "/team ".length);
+    } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
   });
 });
