@@ -3,6 +3,9 @@ import {
   deriveMailboxThreads,
   filterMailboxThreads,
   mailboxParticipants,
+  mailboxReadStorageKey,
+  parseMailboxReadIds,
+  serializeMailboxReadIds,
   totalMailboxUnread,
 } from "./mailboxThreads";
 import type { MailboxMessage } from "./types";
@@ -107,5 +110,15 @@ describe("t356 mailbox thread projection", () => {
   it("returns an empty projection for an empty mailbox", () => {
     expect(deriveMailboxThreads([])).toEqual([]);
     expect(totalMailboxUnread([])).toBe(0);
+  });
+
+  it("round-trips read state through the workspace-scoped storage value after reload", () => {
+    const key = mailboxReadStorageKey("ws-1");
+    expect(key).toBe("deer.mailbox.read.ws-1");
+    const saved = serializeMailboxReadIds(new Set(["msg-1", "msg-2"]));
+    const afterReload = parseMailboxReadIds(saved);
+    expect([...afterReload]).toEqual(["msg-1", "msg-2"]);
+    expect(parseMailboxReadIds(null).size).toBe(0);
+    expect(parseMailboxReadIds("{broken").size).toBe(0);
   });
 });

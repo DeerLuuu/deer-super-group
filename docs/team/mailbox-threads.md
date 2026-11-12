@@ -70,8 +70,8 @@
 ## 6. 验证
 
 - `pnpm typecheck` exit 0。
-- `pnpm build` exit 0（js 321.79 kB / gzip 95.97；vendor 414.89 / 97.22）。
-- `pnpm test -- --max-workers=1`：127 文件 / 906 用例全绿（exit 0）。默认并行在本机有既有重测试 5s timeout 基线（与本功能无关；串行/扩展运行通过）。
+- `pnpm build` exit 0（js 321.93 kB / gzip 96.00；vendor 414.89 / 97.22）。
+- `pnpm test -- --max-workers=1`：127 文件 / 907 用例全绿（exit 0）。默认并行在本机有既有重测试 5s timeout 基线（与本功能无关；串行/扩展运行通过）。
 
 ## 7. 风险、边界与回滚
 

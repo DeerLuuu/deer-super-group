@@ -43,6 +43,9 @@ import {
   deriveMailboxThreads,
   filterMailboxThreads,
   mailboxParticipants,
+  mailboxReadStorageKey,
+  parseMailboxReadIds,
+  serializeMailboxReadIds,
   totalMailboxUnread,
   type MailboxThread,
 } from "./shared/mailboxThreads";
@@ -1553,14 +1556,8 @@ export default function App() {
     const workspaceId = snapshot?.workspace.id;
     if (!workspaceId) return;
     try {
-      const raw = localStorage.getItem(`deer.mailbox.read.${workspaceId}`);
-      const values = raw ? (JSON.parse(raw) as unknown) : [];
       setMailboxReadIds(
-        new Set(
-          Array.isArray(values)
-            ? values.filter((value): value is string => typeof value === "string")
-            : [],
-        ),
+        parseMailboxReadIds(localStorage.getItem(mailboxReadStorageKey(workspaceId))),
       );
     } catch {
       setMailboxReadIds(new Set());
@@ -3001,7 +2998,7 @@ export default function App() {
       const next = new Set(previous);
       for (const id of ids) next.add(id);
       try {
-        localStorage.setItem(`deer.mailbox.read.${workspaceId}`, JSON.stringify([...next]));
+        localStorage.setItem(mailboxReadStorageKey(workspaceId), serializeMailboxReadIds(next));
       } catch {
         // localStorage 不可用时仍保留会话内已读状态。
       }

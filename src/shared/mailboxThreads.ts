@@ -201,3 +201,26 @@ export function mailboxParticipants(threads: readonly MailboxThread[]): string[]
 export function totalMailboxUnread(threads: readonly MailboxThread[]): number {
   return threads.reduce((total, thread) => total + thread.unreadCount, 0);
 }
+
+/** UI-only read state 的 localStorage 键（按工作区隔离；不写 DB）。 */
+export function mailboxReadStorageKey(workspaceId: string): string {
+  return `deer.mailbox.read.${workspaceId}`;
+}
+
+export function parseMailboxReadIds(raw: string | null): Set<string> {
+  if (!raw) return new Set();
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return new Set(
+      Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export function serializeMailboxReadIds(ids: ReadonlySet<string>): string {
+  return JSON.stringify([...ids]);
+}
