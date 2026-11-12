@@ -149,8 +149,8 @@ export interface DeerApi {
   saveSettings(settings: LlmSettings): Promise<LlmSettingsInfo>;
   listModels(settings: LlmSettings, providerId?: string): Promise<ModelListResult>;
   listChat(workspaceId: string, agentId?: string): Promise<ChatMessage[]>;
-  sendChat(workspaceId: string, message: string): Promise<ChatMessage | null>;
-  cancelChat(workspaceId: string): Promise<void>;
+  sendChat(workspaceId: string, agentId: string, message: string): Promise<ChatMessage | null>;
+  cancelChat(workspaceId: string, agentId: string): Promise<void>;
   /** t170：/clear 命令——清空当前 Router 对话、画布索引与提问。 */
   clearChatContext(workspaceId: string): Promise<ClearChatContextResult>;
   /** t170：/compact 命令——保留最近 8 条，其余压缩为 system 摘要。 */

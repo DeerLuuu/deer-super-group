@@ -7,6 +7,7 @@ describe("parseHash（C12 深链解析）", () => {
       tab: "tasks",
       task: null,
       chatTask: null,
+      chatAgent: null,
       message: null,
       board: null,
       run: null,
@@ -61,6 +62,17 @@ describe("parseHash（C12 深链解析）", () => {
     const route = parseHash("#/chat?task=t5");
     expect(route.tab).toBe("chat");
     expect(route.chatTask).toBe("t5");
+    expect(route.chatAgent).toBeNull();
+  });
+
+  it("解析并生成成员对话深链 #/chat?agent=a1&task=t5", () => {
+    const route = parseHash("#/chat?agent=a1&task=t5");
+    expect(route.tab).toBe("chat");
+    expect(route.chatAgent).toBe("a1");
+    expect(route.chatTask).toBe("t5");
+    expect(buildHash("chat", { chatAgent: "a1", chatTask: "t5" })).toBe(
+      "#/chat?task=t5&agent=a1",
+    );
   });
 
   it("解析邮箱与黑板深链", () => {

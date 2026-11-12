@@ -4,31 +4,32 @@ import type { ChatLiveSettled } from "../../shared/chatLive.js";
 import type { ChatLiveStore } from "./chatLiveStore.js";
 
 /**
- * t260（R1）：只做事件桥接，不持有 React state。
- * 挂在 App 顶层，即使 Chat panel 被关闭仍能接收 done/cancel/error；
- * token 只写 external store，不触发 App setState。
+ * t424：按 agent 路由实时事件。切走的 agent 仍继续接收/保留自己的 live tail，
+ * 只有当前选中的 store 渲染到 ChatView。
  */
 export function ChatLiveBridge({
-  store,
+  stores,
   workspaceId,
   onSettled,
 }: {
-  store: ChatLiveStore;
+  stores: Map<string, ChatLiveStore>;
   workspaceId: string;
-  onSettled?: (settled: ChatLiveSettled) => void;
+  onSettled?: (agentId: string, settled: ChatLiveSettled) => void;
 }) {
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
 
   useEffect(() => {
-    store.setWorkspace(workspaceId);
+    for (const store of stores.values()) store.setWorkspace(workspaceId);
     const off = window.deer.onChatEvent((event: ChatEvent) => {
       if (event.workspaceId !== workspaceId) return;
+      const store = stores.get(event.agentId);
+      if (!store) return;
       const settled = store.dispatch(event);
-      if (settled) onSettledRef.current?.(settled);
+      if (settled) onSettledRef.current?.(event.agentId, settled);
     });
     return off;
-  }, [store, workspaceId]);
+  }, [stores, workspaceId]);
 
   return null;
 }

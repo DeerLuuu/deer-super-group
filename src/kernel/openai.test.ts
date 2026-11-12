@@ -131,7 +131,8 @@ describe("OpenAI-compatible integration", () => {
 
     // t172：provider 只接受 [a-zA-Z0-9_-]；内部点号工具名必须在 wire 上编码。
     lastToolNames = [];
-    await service.sendChat(workspace.id, "用一句话打个招呼");
+    const router = service.getSnapshot(workspace.id).agents.find((agent) => agent.isRouter)!;
+    await service.sendChat(workspace.id, router.id, "用一句话打个招呼");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(lastToolNames.length).toBeGreaterThan(0);
     for (const name of lastToolNames) {

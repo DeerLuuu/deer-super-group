@@ -164,7 +164,32 @@ function chatViewProps(overrides: Record<string, unknown> = {}) {
     onClearContext: () => {},
     onCompactContext: () => {},
     overview: null,
-    routerAgent: { permission: "full_access", model: null } as Agent,
+    agent: {
+      id: "router",
+      workspaceId: "ws",
+      name: "Router",
+      role: "Router",
+      systemPrompt: "",
+      persona: "",
+      agentsMd: "",
+      permission: "full_access",
+      model: null,
+      isRouter: true,
+      status: "idle",
+      createdAt: "",
+    } as Agent,
+    agentOptions: [
+      {
+        id: "router",
+        name: "Router",
+        role: "Router",
+        isRouter: true,
+        model: null,
+        permission: "full_access" as const,
+        status: "idle" as const,
+      },
+    ],
+    onSwitchAgent: () => {},
     modelOptions: [],
     fullThrottle: false,
     onModelChange: () => {},
@@ -652,5 +677,85 @@ describe("t415 chat command completion", () => {
     } finally {
       (globalThis as { window?: unknown }).window = previous;
     }
+  });
+
+  it("t424 renders member chat labels, disables Router-only controls and switches agent", async () => {
+    const member = {
+      id: "a1",
+      workspaceId: "ws",
+      name: "Mika",
+      role: "Designer",
+      systemPrompt: "",
+      persona: "",
+      agentsMd: "",
+      permission: "workspace_write",
+      model: "deepseek-flash",
+      isRouter: false,
+      status: "idle",
+      createdAt: "",
+    } as Agent;
+    const onSwitchAgent = vi.fn();
+    const renderer = await render(
+      <ChatView
+        {...chatViewProps({
+          agent: member,
+          agentOptions: [
+            {
+              id: "router",
+              name: "Router",
+              role: "Router",
+              isRouter: true,
+              model: null,
+              permission: "full_access",
+              status: "idle",
+            },
+            {
+              id: "a1",
+              name: "Mika",
+              role: "Designer",
+              isRouter: false,
+              model: "deepseek-flash",
+              permission: "workspace_write",
+              status: "idle",
+            },
+          ],
+          onSwitchAgent,
+          input: "/",
+        })}
+      />,
+    );
+    const text = textOf(renderer.toJSON());
+    expect(text).toContain("Mika 对话");
+    expect(text).toContain("成员独立对话");
+    expect(text).toContain("成员对话不支持 /clear、/compact、/team");
+    const textarea = renderer.root.findByType("textarea");
+    expect(textarea.props["aria-label"]).toBe("给 Mika 发消息");
+    expect(textarea.props.placeholder).toContain("给 Mika 发消息");
+    const compressed = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("压缩"));
+    const clear = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("清空"));
+    const plan = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("从这段对话规划"));
+    expect(compressed!.props.disabled).toBe(true);
+    expect(clear!.props.disabled).toBe(true);
+    expect(plan!.props.disabled).toBe(true);
+
+    const trigger = renderer.root
+      .findAllByProps({ role: "combobox" })
+      .find((node) => node.props["aria-label"] === "切换对话成员")!;
+    await act(async () => {
+      (trigger.props.onClick as () => void)();
+    });
+    const routerOption = renderer.root
+      .findAllByProps({ role: "option" })
+      .find((option) => textOf(option.props.children).includes("Router"));
+    await act(async () => {
+      (routerOption!.props.onClick as () => void)();
+    });
+    expect(onSwitchAgent).toHaveBeenCalledWith("router");
   });
 });

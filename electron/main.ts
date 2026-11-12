@@ -261,10 +261,12 @@ app.whenReady().then(() => {
   handle("chat:translate", (text: string) => getService().translateText(text));
   handle("translation:get", () => getService().getTranslationSettings());
   handle("translation:save", (settings) => getService().saveTranslationSettings(settings));
-  handle("chat:send", (workspaceId: string, message: string) =>
-    getService().sendChat(workspaceId, message),
+  handle("chat:send", (workspaceId: string, agentId: string, message: string) =>
+    getService().sendChat(workspaceId, agentId, message),
   );
-  handle("chat:cancel", (workspaceId: string) => getService().cancelChat(workspaceId));
+  handle("chat:cancel", (workspaceId: string, agentId: string) =>
+    getService().cancelChat(workspaceId, agentId),
+  );
   handle("chat:clear-context", (workspaceId: string) =>
     getService().clearChatContext(workspaceId),
   );

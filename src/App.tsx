@@ -105,6 +105,8 @@ import type {
   ChatLiveToolTrace as ChatToolTrace,
 } from "./shared/chatLive";
 import { ChatLiveBridge } from "./shell/chat/ChatLiveBridge";
+import { AgentSwitcher } from "./shell/chat/AgentSwitcher";
+import { chatAgentOptions, isRouterOnlyChatCommand } from "./shared/chatAgent";
 import {
   ChatLiveStore,
   useChatLiveState,
@@ -285,8 +287,6 @@ const REFRESH_DOMAIN_LABEL: Record<RefreshDomain, string> = {
 };
 
 type TaskStatusFilter = "all" | TaskStatus;
-
-const chatLiveStore = new ChatLiveStore();
 
 const CHAT_TRAJECTORY_KIND_LABEL: Record<ChatTrajectoryEntry["kind"], string> = {
   user: "用户",
@@ -485,7 +485,17 @@ export default function App() {
   const [planConfirming, setPlanConfirming] = useState(false);
   const planConfirmKeyRef = useRef("");
   const planPreviewGateRef = useRef(new PlanPreviewGate());
-  const [chatBusy, setChatBusy] = useState(false);
+  const [chatBusyByAgent, setChatBusyByAgent] = useState<Record<string, boolean>>({});
+  const chatBusyByAgentRef = useRef<Record<string, boolean>>({});
+  const [chatAgentId, setChatAgentId] = useState<string | null>(
+    initialRoute.tab === "chat" ? initialRoute.chatAgent : null,
+  );
+  const chatAgentIdRef = useRef<string | null>(
+    initialRoute.tab === "chat" ? initialRoute.chatAgent : null,
+  );
+  const chatLoadSeqRef = useRef(0);
+  const chatLiveStoresRef = useRef<Map<string, ChatLiveStore>>(new Map());
+  const chatDraftsRef = useRef<Map<string, string>>(new Map());
   const [chatContextBusy, setChatContextBusy] = useState(false);
   const [chatTurns, setChatTurns] = useState<ChatTurnHistoryPage | null>(null);
   const [chatTurnsLoading, setChatTurnsLoading] = useState(false);
@@ -521,6 +531,7 @@ export default function App() {
   const [chatTrajectory, setChatTrajectory] = useState<ChatTrajectoryEntry[]>([]);
   const [chatTrajectoryLoading, setChatTrajectoryLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const chatInputRef = useRef(chatInput);
   const [context, setContext] = useState<ContextSnapshot | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -606,8 +617,10 @@ export default function App() {
   }, [activePanelKey]);
   const schedulerRequestRef = useRef(0);
   const runsRequestRef = useRef(0);
-  // DESIGN §15.4：满血模式（会话级，不持久化、不随启动恢复）。
-  const [chatFullThrottle, setChatFullThrottle] = useState(false);
+  // DESIGN §15.4：满血模式按 agent 会话级，不持久化、不随启动恢复。
+  const [chatFullThrottleByAgent, setChatFullThrottleByAgent] = useState<
+    Record<string, boolean>
+  >({});
   // t58 IF-05：auto_risk 高风险人类审批队列（内存态；刷新即失，主进程超时兜底）。
   // 多个高风险调用并发时按 FIFO 依次弹窗，避免后到请求覆盖先到请求导致误超时。
   const [riskApprovals, setRiskApprovals] = useState<RiskApprovalRequest[]>([]);
@@ -622,7 +635,51 @@ export default function App() {
   const autoOpenedQuestionIdsRef = useRef<Set<string>>(new Set());
   const knownPendingQuestionIdsRef = useRef<Set<string>>(new Set());
   const questionsFirstLoadRef = useRef(true);
-  // C26：全局 toast 反馈。
+  // t424：对话选中 agent 与 per-agent 状态（draft/busy/FT/live store）。
+  const chatRouterAgent = snapshot?.agents.find((agent) => agent.isRouter) ?? null;
+  const selectedChatAgent = chatAgentId
+    ? snapshot?.agents.find((agent) => agent.id === chatAgentId) ?? chatRouterAgent
+    : chatRouterAgent;
+  const selectedChatAgentId = selectedChatAgent?.id ?? null;
+  const chatBusy = selectedChatAgentId
+    ? Boolean(chatBusyByAgent[selectedChatAgentId])
+    : false;
+  const chatFullThrottle = selectedChatAgentId
+    ? Boolean(chatFullThrottleByAgent[selectedChatAgentId])
+    : false;
+  const fallbackChatLiveStoreRef = useRef<ChatLiveStore | null>(null);
+  function getChatLiveStore(agentId: string): ChatLiveStore {
+    let store = chatLiveStoresRef.current.get(agentId);
+    if (!store) {
+      store = new ChatLiveStore(snapshot?.workspace.id ?? null);
+      chatLiveStoresRef.current.set(agentId, store);
+    } else if (snapshot?.workspace.id) {
+      store.setWorkspace(snapshot.workspace.id);
+    }
+    return store;
+  }
+  if (!fallbackChatLiveStoreRef.current) fallbackChatLiveStoreRef.current = new ChatLiveStore();
+  const chatLiveStore = selectedChatAgentId
+    ? getChatLiveStore(selectedChatAgentId)
+    : fallbackChatLiveStoreRef.current;
+  function setSelectedChatBusy(value: boolean): void {
+    if (!selectedChatAgentId) return;
+    const next = { ...chatBusyByAgentRef.current, [selectedChatAgentId]: value };
+    chatBusyByAgentRef.current = next;
+    setChatBusyByAgent(next);
+  }
+  function setSelectedChatFullThrottle(value: boolean): void {
+    if (!selectedChatAgentId) return;
+    setChatFullThrottleByAgent((previous) => ({
+      ...previous,
+      [selectedChatAgentId]: value,
+    }));
+  }
+  function setAgentChatBusy(agentId: string, value: boolean): void {
+    const next = { ...chatBusyByAgentRef.current, [agentId]: value };
+    chatBusyByAgentRef.current = next;
+    setChatBusyByAgent(next);
+  }
   const { toasts, pushToast: pushRawToast, dismissToast } = useToasts();
   const pushToast = useCallback(
     (toast: { kind: "success" | "error" | "info"; message: string; detail?: string; action?: { label: string; onClick: () => void } }) => {
@@ -685,6 +742,32 @@ export default function App() {
     snapshotRef.current = snapshot;
   }, [snapshot]);
 
+  // t424：快照就绪后解析对话成员；无效/已删除 agent 回退 Router 并清理深链。
+  useEffect(() => {
+    if (!snapshot) return;
+    const router = snapshot.agents.find((agent) => agent.isRouter);
+    if (!router) return;
+    const current = chatAgentIdRef.current;
+    const resolved = current
+      ? snapshot.agents.find(
+          (agent) => agent.id === current && agent.workspaceId === snapshot.workspace.id,
+        )
+      : undefined;
+    if (current && !resolved) {
+      chatAgentIdRef.current = router.id;
+      setChatAgentId(router.id);
+      pushToast({ kind: "error", message: "成员不存在或不属于当前工作区，已回到 Router 对话" });
+      const hash = buildHash("chat", { chatTask: contextTaskId });
+      lastWrittenHashRef.current = hash;
+      window.history.replaceState(null, "", hash);
+      return;
+    }
+    if (!current) {
+      chatAgentIdRef.current = router.id;
+      setChatAgentId(router.id);
+    }
+  }, [snapshot, contextTaskId, pushToast]);
+
   // t50：openPanel 是所有导航的唯一入口（侧栏/Alt+N/命令面板/hash/C14 都走这里）。
   const openPanel = useCallback(
     (key: PanelKey) => {
@@ -715,6 +798,47 @@ export default function App() {
     },
     [loadMergeQueue, settingsDirty, settingsOpen, tab],
   );
+
+  function handleSwitchChatAgent(nextId: string): void {
+    const current = snapshotRef.current;
+    if (!current) return;
+    const next = current.agents.find((agent) => agent.id === nextId);
+    const currentAgentId =
+      chatAgentIdRef.current ?? current.agents.find((agent) => agent.isRouter)?.id ?? null;
+    if (!next || next.id === currentAgentId) return;
+    if (currentAgentId) {
+      chatDraftsRef.current.set(currentAgentId, chatInputRef.current);
+    }
+    chatAgentIdRef.current = next.id;
+    setChatAgentId(next.id);
+    chatLoadSeqRef.current += 1;
+    chatTurnsRequestRef.current += 1;
+    setChatMessages([]);
+    setChatTurns(null);
+    setChatTurnsLoading(false);
+    setChatTurnsError(null);
+    setChatTrajectory([]);
+    setChatTrajectoryLoading(false);
+    setContext(null);
+    setChatQuestions([]);
+    setQuestionsLoaded(!next.isRouter);
+    setQuestionModalId(null);
+    setChatView("chat");
+    const nextDraft = chatDraftsRef.current.get(next.id) ?? "";
+    chatInputRef.current = nextDraft;
+    setChatInput(nextDraft);
+    setKernelAnnouncement(`已切换到 ${next.name} 的对话`);
+  }
+
+  function handleOpenAgentChat(agentId: string): void {
+    handleSwitchChatAgent(agentId);
+    setTab("chat");
+    openPanel("chat");
+  }
+
+  // t424：Tab 变更后写 hash；Router 保持 `#/chat`，成员写 `agent=<id>`。
+  const chatAgentHashParam =
+    selectedChatAgent && !selectedChatAgent.isRouter ? selectedChatAgent.id : null;
 
   function focusPanelNow(key: PrimaryRailKey): boolean {
     if (activePanelKey !== key) return false;
@@ -822,6 +946,7 @@ export default function App() {
     const hash = buildHash(tab, {
       task: selectedTaskId,
       chatTask: contextTaskId,
+      chatAgent: chatAgentHashParam,
       message: selectedMessageId,
       board: selectedBoard,
       // t69：只在 Run 面板激活时写 r，避免任务页内联 Run 历史污染深链。
@@ -843,6 +968,7 @@ export default function App() {
     tab,
     selectedTaskId,
     contextTaskId,
+    chatAgentHashParam,
     selectedMessageId,
     selectedBoard,
     selectedRunId,
@@ -1138,14 +1264,18 @@ export default function App() {
     [],
   );
 
-  const loadChat = useCallback(async () => {
+  const loadChat = useCallback(async (requestedAgentId?: string) => {
     const current = snapshotRef.current;
     if (!current) return;
     const router = current.agents.find((agent) => agent.isRouter);
     if (!router) return;
+    const agentId = requestedAgentId ?? chatAgentIdRef.current ?? router.id;
+    const agent = current.agents.find((item) => item.id === agentId);
+    if (!agent) return;
+    const loadSeq = ++chatLoadSeqRef.current;
     const requestId = ++chatTurnsRequestRef.current;
     const turnsPromise = window.deer
-      .getChatTurns(current.workspace.id, router.id, { limit: 20 })
+      .getChatTurns(current.workspace.id, agent.id, { limit: 20 })
       .catch((error) => {
         if (!chatTurnsToastRef.current) {
           chatTurnsToastRef.current = true;
@@ -1157,14 +1287,11 @@ export default function App() {
         return null;
       });
     const [messages, contextSnapshot, turns] = await Promise.all([
-      window.deer.listChat(current.workspace.id, router.id),
-      window.deer.getContext(
-        current.workspace.id,
-        contextTaskId ? undefined : router.id,
-        contextTaskId ?? undefined,
-      ),
+      window.deer.listChat(current.workspace.id, agent.id),
+      window.deer.getContext(current.workspace.id, agent.id, contextTaskId ?? undefined),
       turnsPromise,
     ]);
+    if (loadSeq !== chatLoadSeqRef.current || chatAgentIdRef.current !== agent.id) return;
     setChatMessages(messages);
     setContext(contextSnapshot);
     if (requestId === chatTurnsRequestRef.current) {
@@ -1173,12 +1300,19 @@ export default function App() {
       setChatTurnsLoading(false);
       if (turns) chatTurnsToastRef.current = false;
     }
+    if (!agent.isRouter) {
+      setChatQuestions([]);
+      setQuestionsLoaded(true);
+      return;
+    }
     // t64 §4.9：问题状态单独加载；失败不阻断消息渲染（画布/文本仍可用）。
     try {
-      const questions = await window.deer.listChatQuestions(current.workspace.id, router.id);
+      const questions = await window.deer.listChatQuestions(current.workspace.id, agent.id);
+      if (loadSeq !== chatLoadSeqRef.current || chatAgentIdRef.current !== agent.id) return;
       setChatQuestions(questions);
       setQuestionsLoaded(true);
     } catch (error) {
+      if (loadSeq !== chatLoadSeqRef.current || chatAgentIdRef.current !== agent.id) return;
       setQuestionsLoaded(true);
       pushToast({
         kind: "error",
@@ -1191,15 +1325,16 @@ export default function App() {
     const current = snapshotRef.current;
     const page = chatTurns;
     if (!current || !page?.hasMore || !page.nextBefore || chatTurnsLoading) return false;
-    const router = current.agents.find((agent) => agent.isRouter);
-    if (!router) return false;
+    const agentId = chatAgentIdRef.current;
+    if (!agentId) return false;
     setChatTurnsLoading(true);
     setChatTurnsError(null);
     try {
-      const earlier = await window.deer.getChatTurns(current.workspace.id, router.id, {
+      const earlier = await window.deer.getChatTurns(current.workspace.id, agentId, {
         limit: 20,
         before: page.nextBefore,
       });
+      if (chatAgentIdRef.current !== agentId) return false;
       setChatTurns((previous) => {
         if (!previous) return earlier;
         const seen = new Set(previous.turns.map((turn) => turn.turnId));
@@ -1228,11 +1363,12 @@ export default function App() {
   const loadChatTrajectory = useCallback(async () => {
     const current = snapshotRef.current;
     if (!current) return;
-    const router = current.agents.find((agent) => agent.isRouter);
-    if (!router) return;
+    const agentId = chatAgentIdRef.current;
+    if (!agentId) return;
     setChatTrajectoryLoading(true);
     try {
-      const entries = await window.deer.getChatTrajectory(current.workspace.id, router.id);
+      const entries = await window.deer.getChatTrajectory(current.workspace.id, agentId);
+      if (chatAgentIdRef.current !== agentId) return;
       setChatTrajectory(entries);
     } catch (error) {
       setError(errorText(error));
@@ -1245,7 +1381,7 @@ export default function App() {
   useEffect(() => {
     if (chatView !== "trajectory") return;
     void loadChatTrajectory();
-  }, [chatView, snapshot?.workspace.id, loadChatTrajectory]);
+  }, [chatView, snapshot?.workspace.id, selectedChatAgentId, loadChatTrajectory]);
 
   const loadWatchdog = useCallback(
     async (
@@ -1529,6 +1665,15 @@ export default function App() {
       }
       setContextTaskId(route.chatTask);
       setContextSource(route.chatTask ? "tasks" : null);
+      if (route.tab === "chat") {
+        const current = snapshotRef.current;
+        const router = current?.agents.find((agent) => agent.isRouter);
+        const requested = route.chatAgent
+          ? current?.agents.find((agent) => agent.id === route.chatAgent)
+          : undefined;
+        const target = requested ?? router;
+        if (target) handleSwitchChatAgent(target.id);
+      }
       setSelectedMessageId(route.message);
       setSelectedBoard(route.board);
       // t103：Git 入口深链。设置页没有 git=1 时关闭 Git 聚焦，避免残留。
@@ -1645,9 +1790,22 @@ export default function App() {
   }, [snapshot?.workspace.id]);
 
   useEffect(() => {
-    if (!snapshot) return;
-    void loadChat().catch((error) => setError(errorText(error)));
-  }, [snapshot?.workspace.id, contextTaskId, loadChat]);
+    if (!snapshot || !selectedChatAgentId) return;
+    chatAgentIdRef.current = selectedChatAgentId;
+    void loadChat(selectedChatAgentId).catch((error) => setError(errorText(error)));
+  }, [snapshot?.workspace.id, contextTaskId, selectedChatAgentId, loadChat]);
+
+  // t424：draft 按 agent 独立、仅会话内存；切换保留，刷新丢失（设计 §4.4）。
+  useEffect(() => {
+    if (!selectedChatAgentId) return;
+    setChatInput(chatDraftsRef.current.get(selectedChatAgentId) ?? "");
+  }, [selectedChatAgentId]);
+
+  useEffect(() => {
+    if (!selectedChatAgentId) return;
+    chatDraftsRef.current.set(selectedChatAgentId, chatInput);
+    chatInputRef.current = chatInput;
+  }, [selectedChatAgentId, chatInput]);
 
   // t64 §6.3 / t80 F6：待回答问题自动打开（DEC-10）。纯函数 shouldAutoOpenQuestion
   // 统一判定「对话面板可见 / 窗口有焦点 / 无其他弹窗 / composer 未聚焦且无草稿 /
@@ -1789,12 +1947,15 @@ export default function App() {
     }
   }
 
-  const handleChatLiveSettled = useCallback((settled: ChatLiveSettled) => {
-    setChatBusy(false);
-    if (settled.kind === "error") {
-      setError(formatError(settled.event.error));
-    }
-  }, []);
+  const handleChatLiveSettled = useCallback(
+    (agentId: string, settled: ChatLiveSettled) => {
+      setAgentChatBusy(agentId, false);
+      if (settled.kind === "error" && agentId === selectedChatAgentId) {
+        setError(formatError(settled.event.error));
+      }
+    },
+    [selectedChatAgentId],
+  );
 
   // t168/t172：历史思考只在展开时翻译；设置指纹变化时清缓存，文本缓存复用实时译文。
   const translateHistoryText = useCallback(
@@ -1838,7 +1999,13 @@ export default function App() {
     setPendingConfirm(null);
     setKernelAnnouncement(null);
     setChatMessages([]);
-    chatLiveStore.reset();
+    chatLiveStoresRef.current.clear();
+    chatDraftsRef.current.clear();
+    chatAgentIdRef.current = null;
+    setChatAgentId(null);
+    setChatBusyByAgent({});
+    chatBusyByAgentRef.current = {};
+    setChatFullThrottleByAgent({});
     setChatTurns(null);
     setChatTurnsLoading(false);
     setChatTurnsError(null);
@@ -1848,15 +2015,12 @@ export default function App() {
     translationSettingsKeyRef.current = null;
     setChatView("chat");
     setChatTrajectory([]);
-    setChatBusy(false);
     setContext(null);
     setContextTaskId(null);
     setContextSource(null);
     setTaskStatusFilter("all");
     setSelectedMessageId(null);
     setSelectedBoard(null);
-    // DESIGN §15.4：满血模式仅会话级，切换工作区即复位。
-    setChatFullThrottle(false);
     // t64 §6.4：切换工作区关闭问题弹窗、清空队列/草稿/延后（新工作区独立）。
     setChatQuestions([]);
     setQuestionsLoaded(false);
@@ -1871,17 +2035,16 @@ export default function App() {
   // t55 集成修复 IF-03：切换工作区前清掉旧工作区的满血模式，
   // 避免服务端会话仍注入高预算提示、而 UI 标识与本地状态已归零。
   async function clearFullThrottleBeforeWorkspaceSwitch(): Promise<void> {
-    if (!chatFullThrottle) return;
+    if (!chatFullThrottle || !selectedChatAgentId) return;
     const current = snapshotRef.current;
-    const router = current?.agents.find((agent) => agent.isRouter);
-    if (current && router) {
+    if (current) {
       try {
-        await window.deer.setFullThrottle(current.workspace.id, router.id, false);
+        await window.deer.setFullThrottle(current.workspace.id, selectedChatAgentId, false);
       } catch {
         /* 审计失败不阻塞工作区切换 */
       }
     }
-    setChatFullThrottle(false);
+    setSelectedChatFullThrottle(false);
   }
 
   async function handleOpenWorkspace() {
@@ -2161,8 +2324,12 @@ export default function App() {
   }
 
   async function handleTeamCommand(description: string | null): Promise<void> {
+    if (!selectedChatAgent?.isRouter) {
+      pushToast({ kind: "info", message: "仅 Router 对话支持 /team 推荐成员" });
+      return;
+    }
     if (chatBusy || chatContextBusy) return;
-    setChatBusy(true);
+    setSelectedChatBusy(true);
     setError(null);
     try {
       const response = await handleRecommendMembers(
@@ -2184,7 +2351,7 @@ export default function App() {
     } catch (error) {
       pushToast({ kind: "error", message: errorText(error) });
     } finally {
-      setChatBusy(false);
+      setSelectedChatBusy(false);
     }
   }
 
@@ -2258,12 +2425,11 @@ export default function App() {
     permission?: PermissionMode;
   }) {
     const current = snapshotRef.current;
-    const router = current?.agents.find((agent) => agent.isRouter);
-    if (!router || !current) return;
+    if (!current || !selectedChatAgent) return;
     setBusy(true);
     setError(null);
     try {
-      await window.deer.updateAgent({ id: router.id, ...patch });
+      await window.deer.updateAgent({ id: selectedChatAgent.id, ...patch });
       await refresh(current.workspace.id);
       if (patch.model !== undefined) {
         pushToast({ kind: "success", message: "已切换对话模型，下一条消息生效" });
@@ -2285,11 +2451,10 @@ export default function App() {
   // DESIGN §15.4：满血模式开关（会话级提示/预算覆盖，不改变权限）。
   async function handleFullThrottleChange(enabled: boolean) {
     const current = snapshotRef.current;
-    const router = current?.agents.find((agent) => agent.isRouter);
-    if (!router || !current) return;
+    if (!current || !selectedChatAgentId) return;
     try {
-      await window.deer.setFullThrottle(current.workspace.id, router.id, enabled);
-      setChatFullThrottle(enabled);
+      await window.deer.setFullThrottle(current.workspace.id, selectedChatAgentId, enabled);
+      setSelectedChatFullThrottle(enabled);
       pushToast({
         kind: "success",
         message: enabled
@@ -2508,18 +2673,18 @@ export default function App() {
     options: { failureToast?: string; onFailure?: () => void } = {},
   ): Promise<boolean> {
     const current = snapshotRef.current;
-    const router = current?.agents.find((agent) => agent.isRouter);
+    const agent = selectedChatAgent;
     const message = text.trim();
-    if (!current || !router || !message || chatBusy) return false;
-    setChatBusy(true);
-    chatLiveStore.clearLive();
+    if (!current || !agent || !message || chatBusyByAgentRef.current[agent.id]) return false;
+    setAgentChatBusy(agent.id, true);
+    getChatLiveStore(agent.id).clearLive();
     setError(null);
     setChatMessages((prev) => [
       ...prev,
       {
         id: `temp-${Date.now()}`,
         workspaceId: current.workspace.id,
-        agentId: router.id,
+        agentId: agent.id,
         role: "user",
         content: message,
         reasoning: "",
@@ -2527,7 +2692,7 @@ export default function App() {
       },
     ]);
     try {
-      await window.deer.sendChat(current.workspace.id, message);
+      await window.deer.sendChat(current.workspace.id, agent.id, message);
       return true;
     } catch (error) {
       setError(errorText(error));
@@ -2538,8 +2703,10 @@ export default function App() {
       }
       return false;
     } finally {
-      setChatBusy(false);
-      void loadChat().catch((error) => setError(errorText(error)));
+      setAgentChatBusy(agent.id, false);
+      if (chatAgentIdRef.current === agent.id) {
+        void loadChat(agent.id).catch((error) => setError(errorText(error)));
+      }
     }
   }
 
@@ -2549,10 +2716,10 @@ export default function App() {
    */
   async function resendAnswer(answerText: string) {
     const current = snapshotRef.current;
-    const router = current?.agents.find((agent) => agent.isRouter);
-    if (!current || !router) return;
+    const agent = selectedChatAgent;
+    if (!current || !agent) return;
     try {
-      const messages = await window.deer.listChat(current.workspace.id, router.id);
+      const messages = await window.deer.listChat(current.workspace.id, agent.id);
       setChatMessages(messages);
       if (answerAlreadySent(messages, answerText)) {
         pushToast({ kind: "info", message: "该回答已在对话中，未重复发送" });
@@ -2567,7 +2734,11 @@ export default function App() {
 
   async function handleClearContext(): Promise<void> {
     const current = snapshotRef.current;
-    if (!current || chatBusy || chatContextBusy) return;
+    if (!current || !selectedChatAgent?.isRouter) {
+      pushToast({ kind: "info", message: "仅 Router 对话支持 /clear，成员对话不会被清空" });
+      return;
+    }
+    if (chatBusy || chatContextBusy) return;
     if (
       chatMessages.length > 0 &&
       !window.confirm("清空当前对话上下文？消息、画布索引与提问会被删除，此操作不可撤销。")
@@ -2575,7 +2746,7 @@ export default function App() {
       return;
     }
     setChatContextBusy(true);
-    chatLiveStore.clearLive();
+    getChatLiveStore(selectedChatAgent.id).clearLive();
     setError(null);
     try {
       const result = await window.deer.clearChatContext(current.workspace.id);
@@ -2596,9 +2767,13 @@ export default function App() {
 
   async function handleCompactContext(): Promise<void> {
     const current = snapshotRef.current;
-    if (!current || chatBusy || chatContextBusy) return;
+    if (!current || !selectedChatAgent?.isRouter) {
+      pushToast({ kind: "info", message: "仅 Router 对话支持 /compact，成员对话不会被压缩" });
+      return;
+    }
+    if (chatBusy || chatContextBusy) return;
     setChatContextBusy(true);
-    chatLiveStore.clearLive();
+    getChatLiveStore(selectedChatAgent.id).clearLive();
     setError(null);
     try {
       const result = await window.deer.compactChatContext(current.workspace.id);
@@ -2632,6 +2807,17 @@ export default function App() {
   async function handleSendChat() {
     const text = chatInput.trim();
     if (!text || chatBusy || chatContextBusy) return;
+    if (
+      selectedChatAgent &&
+      !selectedChatAgent.isRouter &&
+      isRouterOnlyChatCommand(text)
+    ) {
+      pushToast({
+        kind: "info",
+        message: "仅 Router 对话支持 /clear、/compact、/team；成员对话不受影响",
+      });
+      return;
+    }
     dispatchChatSubmission(text, {
       clear: () => {
         setChatInput("");
@@ -2767,9 +2953,9 @@ export default function App() {
 
   async function handleStopChat() {
     const current = snapshotRef.current;
-    if (!current) return;
+    if (!current || !selectedChatAgentId) return;
     try {
-      await window.deer.cancelChat(current.workspace.id);
+      await window.deer.cancelChat(current.workspace.id, selectedChatAgentId);
     } catch (error) {
       setError(errorText(error));
     }
@@ -3434,6 +3620,7 @@ export default function App() {
                           onOpenMergeQueue={handleOpenMergeQueue}
                           onOpenMemory={() => openPanel("board")}
                           onOpenTaskGit={(taskId) => handleOpenTaskVcs(taskId)}
+                          onOpenAgentChat={handleOpenAgentChat}
                         />
                       )}
                     </LazyPanel>
@@ -3546,7 +3733,9 @@ export default function App() {
                       onClearContext={() => void handleClearContext()}
                       onCompactContext={() => void handleCompactContext()}
                       overview={snapshot.workspace.overview}
-                      routerAgent={chatRouter}
+                      agent={selectedChatAgent ?? chatRouter}
+                      agentOptions={chatAgentOptions(snapshot.agents)}
+                      onSwitchAgent={handleSwitchChatAgent}
                       modelOptions={chatModelOptions}
                       fullThrottle={chatFullThrottle}
                       onModelChange={(model) => void handleChatControlUpdate({ model })}
@@ -3719,7 +3908,7 @@ export default function App() {
     <div className="app" data-translation-revision={translationRevision}>
       <SkipLink />
       <ChatLiveBridge
-        store={chatLiveStore}
+        stores={chatLiveStoresRef.current}
         workspaceId={snapshot.workspace.id}
         onSettled={handleChatLiveSettled}
       />
@@ -6348,7 +6537,9 @@ export function ChatView({
   onClearContext,
   onCompactContext,
   overview,
-  routerAgent,
+  agent,
+  agentOptions,
+  onSwitchAgent,
   modelOptions,
   fullThrottle,
   onModelChange,
@@ -6409,8 +6600,10 @@ export function ChatView({
   onClearContext: () => void;
   onCompactContext: () => void;
   overview: string | null;
-  /** DESIGN §15.5：对话控制条——当前成员（Router）与模型选项。 */
-  routerAgent: Agent;
+  /** t424：当前对话成员（Router 或成员）；标题/权限/模型/满血均跟随。 */
+  agent: Agent;
+  agentOptions: ReturnType<typeof chatAgentOptions>;
+  onSwitchAgent: (agentId: string) => void;
   modelOptions: Array<{ id: string; label: string }>;
   fullThrottle: boolean;
   onModelChange: (modelProfileId: string | null) => void;
@@ -6433,7 +6626,9 @@ export function ChatView({
     !/\s/.test(commandRaw) &&
     !commandDismissed;
   const commandMatches = commandOpen
-    ? CHAT_COMMANDS.filter((command) => command.name.startsWith(commandText.toLowerCase()))
+    ? agent.isRouter
+      ? CHAT_COMMANDS.filter((command) => command.name.startsWith(commandText.toLowerCase()))
+      : []
     : [];
 
   useEffect(() => {
@@ -6537,29 +6732,40 @@ export function ChatView({
   const historyLoadingNow = messagePageLoading || Boolean(historyLoading);
   const historyErrorNow = messagePageError ?? historyError ?? null;
   const hasEarlierHistory = visibleMessageCount < messages.length || Boolean(historyHasMore);
+  const isRouter = agent.isRouter;
 
   return (
     <div className="chat-layout">
       <section className="panel chat-panel">
         <div className="panel-head">
-          <div>
-            <div className="panel-title">
-              Router 对话
-              {fullThrottle && (
-                <span
-                  className="badge ft-badge"
-                  title="满血模式已开启：仅提高预算/努力，不改变工具权限"
-                >
-                  FULL THROTTLE
-                </span>
-              )}
-            </div>
-            <div className="muted tiny">
-              讨论、澄清需求；「上下文」作为独立面板打开 · 权限：{PERMISSION_LABELS[routerAgent.permission]}
+          <div className="chat-agent-heading">
+            <AgentSwitcher
+              agents={agentOptions}
+              selectedId={agent.id}
+              onSelect={onSwitchAgent}
+            />
+            <div>
+              <div className="panel-title">
+                {isRouter ? "Router 对话" : `${agent.name} 对话`}
+                {fullThrottle && (
+                  <span
+                    className="badge ft-badge"
+                    title="满血模式已开启：仅提高预算/努力，不改变工具权限"
+                  >
+                    FULL THROTTLE
+                  </span>
+                )}
+              </div>
+              <div className="muted tiny">
+                {isRouter
+                  ? "讨论、澄清需求；「上下文」作为独立面板打开"
+                  : `成员独立对话 · 模型：${agent.model ?? "默认模型"}`}
+                {" · "}权限：{PERMISSION_LABELS[agent.permission]}
+              </div>
             </div>
           </div>
           <div className="row gap">
-            {pendingQuestionCount > 0 && (
+            {isRouter && pendingQuestionCount > 0 && (
               <button
                 type="button"
                 className="badge question-chip"
@@ -6588,8 +6794,12 @@ export function ChatView({
               type="button"
               className="ghost tiny"
               onClick={onCompactContext}
-              disabled={busy || contextBusy}
-              title="压缩上下文：保留最近 8 条，较早消息合并为摘要（/compact）"
+              disabled={!isRouter || busy || contextBusy}
+              title={
+                isRouter
+                  ? "压缩上下文：保留最近 8 条，较早消息合并为摘要（/compact）"
+                  : "仅 Router 对话支持 /compact"
+              }
             >
               {contextBusy ? "处理中…" : "压缩"}
             </button>
@@ -6597,8 +6807,12 @@ export function ChatView({
               type="button"
               className="ghost tiny run-danger"
               onClick={onClearContext}
-              disabled={busy || contextBusy}
-              title="清空上下文：删除当前对话消息、画布索引与提问（/clear）"
+              disabled={!isRouter || busy || contextBusy}
+              title={
+                isRouter
+                  ? "清空上下文：删除当前对话消息、画布索引与提问（/clear）"
+                  : "仅 Router 对话支持 /clear"
+              }
             >
               清空
             </button>
@@ -6697,8 +6911,12 @@ export function ChatView({
             // C24：空状态给可点击示例，一步发起对话。
             <EmptyState
               icon="◎"
-              title="和 Router 说点什么"
-              description="讨论目标、澄清需求，Router 会给出建议。"
+              title={`和 ${agent.name} 说点什么`}
+              description={
+                isRouter
+                  ? "讨论目标、澄清需求，Router 会给出建议。"
+                  : `这是与 ${agent.name} 的独立对话，不会注入 Router 的团队规划/画布协议。`
+              }
               actions={[
                 {
                   label: "开始对话",
@@ -6757,6 +6975,7 @@ export function ChatView({
                 <ChatBubble
                   messageId={message.id}
                   role={message.role}
+                  assistantName={agent.name}
                   content={message.content}
                   reasoning={historical ? "" : message.reasoning}
                   translate={translateHistoryText}
@@ -6792,6 +7011,7 @@ export function ChatView({
           {liveStore && (
             <ChatLiveTail
               store={liveStore}
+              assistantName={agent.name}
               busy={busy}
               scrollRef={scrollRef}
               questions={questions}
@@ -6804,6 +7024,7 @@ export function ChatView({
           {showLegacyLiveBubble && (
             <ChatBubble
               role="assistant"
+              assistantName={agent.name}
               content={legacyStream ?? ""}
               reasoning=""
               process={legacyProcess}
@@ -6825,7 +7046,11 @@ export function ChatView({
               id="chat-command-listbox"
             >
               {commandMatches.length === 0 ? (
-                <div className="chat-command-empty" role="status">无匹配命令</div>
+                <div className="chat-command-empty" role="status">
+                  {agent.isRouter
+                    ? "无匹配命令"
+                    : "成员对话不支持 /clear、/compact、/team"}
+                </div>
               ) : (
                 commandMatches.map((command, index) => (
                   <button
@@ -6848,7 +7073,7 @@ export function ChatView({
           <textarea
             ref={composerRef}
             role="combobox"
-            aria-label="给 Router 发消息"
+            aria-label={`给 ${agent.name} 发消息`}
             aria-describedby="chat-composer-help"
             aria-autocomplete="list"
             aria-haspopup="listbox"
@@ -6897,21 +7122,31 @@ export function ChatView({
               }
             }}
             rows={3}
-            placeholder="给 Router 发消息… Ctrl+Enter 发送 · /clear 清空 · /compact 压缩 · /team 推荐成员"
+            placeholder={
+              isRouter
+                ? "给 Router 发消息… Ctrl+Enter 发送 · /clear 清空 · /compact 压缩 · /team 推荐成员"
+                : `给 ${agent.name} 发消息… Ctrl+Enter 发送`
+            }
           />
           <div className="row between">
             <span className="muted tiny" id="chat-composer-help">
               {busy
-                ? "Router 正在回复…"
-                : "上下文与工具会随任务变化 · Ctrl+Enter 发送 · /clear 清空 · /compact 压缩 · /team 推荐成员"}
+                ? `${agent.name} 正在回复…`
+                : isRouter
+                  ? "上下文与工具会随任务变化 · Ctrl+Enter 发送 · /clear 清空 · /compact 压缩 · /team 推荐成员"
+                  : `成员对话不支持 /clear、/compact、/team · Ctrl+Enter 发送`}
             </span>
             <div className="row gap">
               <button
                 type="button"
                 className="ghost small"
                 onClick={onPlanFromChat}
-                disabled={busy || !onPlanFromChat || (!input.trim() && messages.length === 0)}
-                title="把当前输入框目标与对话带入可编辑计划草案；确认前不创建任务"
+                disabled={!isRouter || busy || !onPlanFromChat || (!input.trim() && messages.length === 0)}
+                title={
+                  isRouter
+                    ? "把当前输入框目标与对话带入可编辑计划草案；确认前不创建任务"
+                    : "仅 Router 对话支持从对话规划"
+                }
               >
                 从这段对话规划
               </button>
@@ -6931,7 +7166,7 @@ export function ChatView({
             <label className="chat-control">
               <span className="muted tiny">模型</span>
               <select
-                value={routerAgent.model ?? ""}
+                value={agent.model ?? ""}
                 onChange={(event) =>
                   onModelChange(event.target.value === "" ? null : event.target.value)
                 }
@@ -6950,13 +7185,13 @@ export function ChatView({
             <label className="chat-control">
               <span className="muted tiny">权限</span>
               <select
-                value={routerAgent.permission}
+                value={agent.permission}
                 onChange={(event) =>
                   onPermissionChange(event.target.value as PermissionMode)
                 }
                 disabled={busy}
-                aria-label={`权限模式：${PERMISSION_LABELS[routerAgent.permission]}`}
-                title={PERMISSION_DESCRIPTIONS[routerAgent.permission]}
+                aria-label={`权限模式：${PERMISSION_LABELS[agent.permission]}`}
+                title={PERMISSION_DESCRIPTIONS[agent.permission]}
               >
                 {PERMISSION_MODES.map((mode) => (
                   <option key={mode} value={mode} title={PERMISSION_DESCRIPTIONS[mode]}>
@@ -7002,6 +7237,7 @@ export function ChatView({
  */
 function ChatLiveTail({
   store,
+  assistantName,
   busy,
   scrollRef,
   questions,
@@ -7011,6 +7247,7 @@ function ChatLiveTail({
   translateHistoryText,
 }: {
   store: ChatLiveStore;
+  assistantName: string;
   busy: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
   questions: ReadonlyMap<string, ChatQuestionRecord>;
@@ -7056,6 +7293,7 @@ function ChatLiveTail({
   return (
     <ChatBubble
       role="assistant"
+      assistantName={assistantName}
       content={live.stream}
       reasoning=""
       process={process}
@@ -7786,6 +8024,7 @@ function ChatMessageReasoning({
 function ChatBubble({
   messageId,
   role,
+  assistantName = "Router",
   content,
   reasoning,
   translate,
@@ -7800,6 +8039,8 @@ function ChatBubble({
 }: {
   messageId?: string;
   role: ChatMessage["role"];
+  /** t424：assistant 气泡按当前成员显示；历史消息同属该成员。 */
+  assistantName?: string;
   content: string;
   reasoning?: string;
   translate?: (text: string) => Promise<string>;
@@ -7815,10 +8056,12 @@ function ChatBubble({
 }) {
   return (
     <div className={`chat-row ${role}`}>
-      <div className="chat-avatar">{role === "user" ? "你" : role === "assistant" ? "R" : "S"}</div>
+      <div className="chat-avatar">
+        {role === "user" ? "你" : role === "assistant" ? assistantName.slice(0, 1).toUpperCase() : "S"}
+      </div>
       <div className="chat-bubble">
         <div className="chat-meta">
-          {role === "user" ? "你" : role === "assistant" ? "Router" : "System"}
+          {role === "user" ? "你" : role === "assistant" ? assistantName : "System"}
           {createdAt ? ` · ${time(createdAt)}` : ""}
           {streaming ? " · 生成中" : ""}
         </div>
