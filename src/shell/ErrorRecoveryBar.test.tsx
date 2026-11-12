@@ -48,4 +48,48 @@ describe("t247 ErrorRecoveryBar", () => {
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(textOf(renderer!.toJSON())).not.toContain("sk-secret");
   });
+
+  it("uses the provided write-retry callback instead of generic refresh", async () => {
+    const run = vi.fn();
+    const onRetry = vi.fn();
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <ErrorRecoveryBar
+          message="network fetch failed"
+          retryAction={{ label: "重试创建任务", run }}
+          onOpenSettings={() => {}}
+          onOpenModels={() => {}}
+          onRetry={onRetry}
+          onClose={() => {}}
+        />,
+      );
+    });
+    const primary = renderer!.root
+      .findAllByType("button")
+      .find((button) => button.props.className === "primary tiny");
+    expect(textOf(primary!.children)).toContain("重试创建任务");
+    await act(() => {
+      (primary!.props.onClick as () => void)();
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it("labels generic retry as refresh and states it will not resend", async () => {
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <ErrorRecoveryBar
+          message="network timeout"
+          onOpenSettings={() => {}}
+          onOpenModels={() => {}}
+          onRetry={() => {}}
+          onClose={() => {}}
+        />,
+      );
+    });
+    expect(textOf(renderer!.toJSON())).toContain("刷新");
+    expect(textOf(renderer!.toJSON())).toContain("不会重发原操作");
+  });
 });

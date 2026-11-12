@@ -26,6 +26,29 @@ export interface FirstRunState {
   action: { kind: FirstRunActionKind; label: string };
 }
 
+export interface FirstRunKeyStatus {
+  keyReady: boolean;
+  providerId: string | null;
+  providerName: string | null;
+}
+
+/** 只检查当前默认模型所属 provider；其他 provider 的 Key 不能掩盖当前阻塞。 */
+export function resolveFirstRunKeyStatus(
+  providers: ReadonlyArray<{ id: string; name: string; apiKeySource: "env" | "local" | "none" }>,
+  model: { providerId: string } | null,
+): FirstRunKeyStatus {
+  if (!model) return { keyReady: false, providerId: null, providerName: null };
+  const provider = providers.find((item) => item.id === model.providerId);
+  if (!provider) {
+    return { keyReady: false, providerId: model.providerId, providerName: null };
+  }
+  return {
+    keyReady: provider.apiKeySource !== "none",
+    providerId: provider.id,
+    providerName: provider.name,
+  };
+}
+
 export function deriveFirstRunState(input: {
   workspaceName: string;
   workspacePath: string;
@@ -37,6 +60,7 @@ export function deriveFirstRunState(input: {
   modelLabel: string;
   mock: boolean;
   keyReady: boolean;
+  keyProviderName?: string | null;
 }): FirstRunState {
   const workspaceReady = input.workspacePath.trim().length > 0;
   const modelReady = input.modelCount > 0 && Boolean(input.modelId);
@@ -64,7 +88,9 @@ export function deriveFirstRunState(input: {
         ? "Mock 模式：不调用真实 provider"
         : input.keyReady
           ? "Key 已配置（环境或本地）"
-          : "未配置 Key",
+          : input.keyProviderName
+            ? `当前模型 Provider（${input.keyProviderName}）未配置 Key`
+            : "当前模型未关联 Provider 或未配置 Key",
     },
     {
       key: "member",
@@ -92,7 +118,9 @@ export function deriveFirstRunState(input: {
       ? "Mock 模式"
       : input.keyReady
         ? "Key 已配置"
-        : "未配置 Key",
+        : input.keyProviderName
+          ? `当前模型 Provider（${input.keyProviderName}）未配置 Key`
+          : "当前模型未配置 Key",
     mock: input.mock,
     workerCount: input.workerCount,
     checks,

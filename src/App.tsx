@@ -85,7 +85,7 @@ import PlanDraftPanel from "./shell/PlanDraftPanel";
 import FirstRunCard from "./shell/FirstRunCard";
 import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
 import ApprovalTerms from "./shell/ApprovalTerms";
-import { deriveFirstRunState } from "./shell/firstRunData";
+import { deriveFirstRunState, resolveFirstRunKeyStatus } from "./shell/firstRunData";
 import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
 import {
   resolveTaskWorkspaceSource,
@@ -440,6 +440,11 @@ export default function App() {
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorRetry, setErrorRetry] = useState<{
+    message: string;
+    label: string;
+    run: () => void;
+  } | null>(null);
   const [firstRunCollapsed, setFirstRunCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem("deer.sidebarWidth"));
@@ -1822,7 +1827,10 @@ export default function App() {
         },
       });
     } catch (error) {
-      setError(errorText(error));
+      showError(errorText(error), {
+        label: "重试创建任务",
+        run: () => void handleCreateTask(title, description, acceptance),
+      });
     } finally {
       setBusy(false);
     }
@@ -2139,7 +2147,12 @@ export default function App() {
           : `已创建 ${result.tasks.length} 个任务（DAG）`,
       });
     } catch (error) {
-      setPlanError(`确认失败：${formatError(error)}`);
+      const message = `确认失败：${formatError(error)}`;
+      setPlanError(message);
+      showError(message, {
+        label: "重试确认",
+        run: () => void handleConfirmPlan(ackHighRisk),
+      });
     } finally {
       setPlanConfirming(false);
     }
@@ -2478,11 +2491,20 @@ export default function App() {
     openPanel("settings");
   }
 
+  function showError(
+    message: string,
+    retry?: { label: string; run: () => void },
+  ) {
+    setError(message);
+    setErrorRetry(retry ? { ...retry, message } : null);
+  }
+
   function handleRetryAfterError() {
     setError(null);
+    setErrorRetry(null);
     const current = snapshotRef.current;
     if (current) void refresh(current.workspace.id);
-    void loadChat().catch((cause) => setError(errorText(cause)));
+    void loadChat().catch((cause) => showError(errorText(cause)));
   }
 
   function handleFirstRunAction() {    switch (firstRunState.action.kind) {
@@ -2727,7 +2749,10 @@ export default function App() {
         action: { label: "查看", onClick: () => openPanel("mailbox") },
       });
     } catch (error) {
-      setError(errorText(error));
+      showError(errorText(error), {
+        label: "重试发送邮件",
+        run: () => void handleSendMessage(input),
+      });
     } finally {
       setBusy(false);
     }
@@ -2838,6 +2863,10 @@ export default function App() {
   const firstRunProvider = firstRunModel
     ? snapshot.settings.providers.find((provider) => provider.id === firstRunModel.providerId)
     : undefined;
+  const firstRunKey = resolveFirstRunKeyStatus(
+    snapshot.settings.providers,
+    firstRunModel ?? null,
+  );
   const firstRunState = deriveFirstRunState({
     workspaceName: snapshot.workspace.name,
     workspacePath: snapshot.workspace.path,
@@ -2850,7 +2879,8 @@ export default function App() {
       ? `${firstRunModel.label} · ${firstRunProvider?.name ?? firstRunModel.providerId}`
       : "",
     mock: snapshot.settings.mock,
-    keyReady: snapshot.settings.providers.some((provider) => provider.apiKeySource !== "none"),
+    keyReady: firstRunKey.keyReady,
+    keyProviderName: firstRunKey.providerName,
   });
   const failedCount = snapshot.tasks.filter((task) => task.status === "failed").length;
   // t194：显示宽度而不是改写保存宽度；回到宽屏后恢复用户原始 250/480。
@@ -3119,10 +3149,18 @@ export default function App() {
         {error && (
           <ErrorRecoveryBar
             message={formatError(error)}
+            retryAction={
+              errorRetry?.message === error
+                ? { label: errorRetry.label, run: errorRetry.run }
+                : undefined
+            }
             onOpenSettings={() => openSettingsSection("models")}
             onOpenModels={() => openSettingsSection("models")}
             onRetry={handleRetryAfterError}
-            onClose={() => setError(null)}
+            onClose={() => {
+              setError(null);
+              setErrorRetry(null);
+            }}
           />
         )}
 
@@ -4098,9 +4136,10 @@ function TasksView({
                 className="ghost small"
                 onClick={() => onPlanDraft()}
                 disabled={busy}
-                title="让 Router 把一个目标拆成任务 DAG"
+                title="从对话目标生成可编辑 Plan Draft（secondary；不会直接创建任务）"
+                aria-label="从对话规划"
               >
-                规划任务
+                从对话规划
               </button>
               <button
                 type="button"

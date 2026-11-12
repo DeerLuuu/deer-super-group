@@ -21,7 +21,7 @@ describe("t247 provider error recovery", () => {
     });
     expect(classifyErrorRecovery("unexpected parser failure")).toMatchObject({
       kind: "unknown",
-      action: { kind: "details", label: "查看详情" },
+      action: { kind: "details", label: "查看脱敏摘要" },
     });
   });
 

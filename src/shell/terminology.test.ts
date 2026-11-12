@@ -19,10 +19,20 @@ describe("t247 approval terminology", () => {
     expect(start).toBeGreaterThan(-1);
     expect(block).toContain('"+ 新建任务"');
     expect(block).not.toContain("规划任务");
+    expect(appSource).toContain("从对话规划");
+    expect(appSource).toContain('aria-label="从对话规划"');
   });
 
   it("focuses the models section for recovery/first-run settings actions", () => {
     expect(appSource).toContain('openSettingsSection("models")');
     expect(appSource).toContain('initialSection={gitSettingsFocus ? "git" : settingsInitialSection}');
+  });
+
+  it("uses only the current model provider for first-run key readiness", () => {
+    expect(appSource).toContain("resolveFirstRunKeyStatus(");
+    expect(appSource).not.toContain(
+      'snapshot.settings.providers.some((provider) => provider.apiKeySource !== "none")',
+    );
+    expect(appSource).toContain("keyProviderName: firstRunKey.providerName");
   });
 });

@@ -55,6 +55,6 @@ export function classifyErrorRecovery(message: string): ErrorRecovery {
     kind: "unknown",
     title: "操作失败",
     summary,
-    action: { kind: "details", label: "查看详情" },
+    action: { kind: "details", label: "查看脱敏摘要" },
   };
 }

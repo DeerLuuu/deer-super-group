@@ -51,8 +51,13 @@ describe("t247 FirstRunCard", () => {
     expect(renderer!.root.findAllByProps({ "aria-label": "就绪清单" })).toHaveLength(1);
     expect(textOf(renderer!.toJSON())).toContain("创建团队成员");
     expect(renderer!.root.findAllByType("button").filter((button) => button.props.className === "primary small")).toHaveLength(1);
+    const collapse = renderer!.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("稍后"))!;
+    expect(collapse.props["aria-expanded"]).toBe(true);
+    expect(collapse.props["aria-controls"]).toBe("first-run-card-region");
     await act(() => {
-      (renderer!.root.findAllByType("button").find((button) => textOf(button.children).includes("稍后"))!.props.onClick as () => void)();
+      (collapse.props.onClick as () => void)();
     });
     expect(onToggle).toHaveBeenCalled();
     await act(async () => {
@@ -61,5 +66,10 @@ describe("t247 FirstRunCard", () => {
       );
     });
     expect(textOf(renderer!.toJSON())).toContain("首用就绪检查");
+    const expand = renderer!.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("首用就绪检查"))!;
+    expect(expand.props["aria-expanded"]).toBe(false);
+    expect(expand.props["aria-controls"]).toBe("first-run-card-region");
   });
 });
