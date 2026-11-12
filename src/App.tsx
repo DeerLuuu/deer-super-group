@@ -1958,7 +1958,7 @@ export default function App() {
         await executeKernelAction(
           `run:${intent.run.id}`,
           () => window.deer.cancelRun(intent.run.id),
-          `已取消 Run #${intent.run.attempt ?? 1}（${intent.taskTitle}）`,
+          `已取消执行 #${intent.run.attempt ?? 1}（${intent.taskTitle}）`,
         );
         break;
       case "pause":
@@ -2156,7 +2156,7 @@ export default function App() {
       pushToast({
         kind: "success",
         message: `已删除任务「${task.title}」${
-          result.removedRuns > 0 ? `，清理 ${result.removedRuns} 条 Run` : ""
+          result.removedRuns > 0 ? `，清理 ${result.removedRuns} 条运行记录` : ""
         }`,
       });
       return true;
@@ -4248,12 +4248,12 @@ function KernelConfirmModal({
         )}
         {intent.kind === "cancelTask" && (
           <div className="notice small">
-            取消不会删除任务与已有 Run 记录；需要重跑请新建任务或使用「重试」（仅失败任务）。
+            取消不会删除任务与已有运行记录；需要重跑请新建任务或使用「重试」（仅失败任务）。
           </div>
         )}
         {intent.kind === "cancelRun" && (
           <div className="notice small">
-            Run 级取消只影响本次执行；任务可选择「重试」重新入队。
+            本次执行级取消只影响这一轮；任务可选择「重试」重新入队。
           </div>
         )}
         {intent.kind === "resume" && (
@@ -4831,7 +4831,7 @@ function TasksView({
                   <div className="muted tiny task-workspace-meta">
                     <span>负责人：{selectedOwner?.name ?? "未分配"}</span>
                     <span>优先级：{selectedTask.priority ?? 50}</span>
-                    <span>当前 Run：{currentRun ? currentRun.id.slice(0, 10) : "无"}</span>
+                    <span>当前执行：{currentRun ? currentRun.id.slice(0, 10) : "无"}</span>
                   </div>
                   <TaskContractChips
                     contract={contract}
@@ -5169,9 +5169,9 @@ function TasksView({
                 tabIndex={0}
               >
                 <div className="task-history-runs">
-                  <div className="section-label">最近 Run（{runs.length}）</div>
+                  <div className="section-label">最近执行（{runs.length}）</div>
                   {runs.length === 0 ? (
-                    <div className="empty small">还没有 Run。</div>
+                    <div className="empty small">还没有执行记录。</div>
                   ) : (
                     <ul className="task-history-run-list">
                       {runs.slice(0, 8).map((run) => (

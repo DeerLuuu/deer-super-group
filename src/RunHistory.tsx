@@ -60,7 +60,7 @@ export function RunDetail({
       <div className="run-detail-head">
         <div className="row gap wrap">
           <RunStatusBadge status={run.status} />
-          <strong>{runTitle(run)}</strong>
+          <strong title={runTitle(run)}>第 {run.attempt ?? 1} 次执行</strong>
           <span className="muted tiny">{runStatusHint(run)}</span>
         </div>
         <div className="row gap">
@@ -69,7 +69,7 @@ export function RunDetail({
               type="button"
               className="ghost tiny"
               onClick={() => onOpenRunPanel(run.id)}
-              title="在运行面板查看该 Run 的完整上下文"
+              title="在运行面板查看该次执行的完整上下文（Run）"
             >
               在运行面板打开
             </button>
@@ -82,12 +82,12 @@ export function RunDetail({
             disabled={!canCancelRun(run) || cancelBusy}
             title={
               canCancelRun(run)
-                ? "取消该 Run：会中止执行，任务将被标记为失败（RUN_CANCELLED）"
-                : "仅运行中（running）的 Run 可以取消"
+                ? "取消该次执行：会中止执行，任务将被标记为失败（RUN_CANCELLED）"
+                : "仅运行中（running）的执行可以取消"
             }
             aria-describedby={canCancelRun(run) ? undefined : cancelHintId}
           >
-            {cancelBusy ? "取消中…" : "取消 Run"}
+            {cancelBusy ? "取消中…" : "取消执行"}
           </button>
         </div>
       </div>
@@ -178,18 +178,18 @@ export function RunDetail({
       {/* t107 F3：取消不可用时的可见原因（aria-describedby 引用）。 */}
       {!canCancelRun(run) && (
         <div id={cancelHintId} className="muted tiny task-action-hint">
-          仅运行中（running）的 Run 可以取消；历史 Run 不可取消。
+          仅运行中（running）的执行可以取消；历史执行不可取消。
         </div>
       )}
 
       <div className="run-timeline-head">
-        <span className="section-label">Run 事件</span>
+        <span className="section-label">执行事件</span>
         <span className="muted tiny">{timeline.length} 条</span>
       </div>
       {timeline.length === 0 ? (
-        <div className="empty small">该 Run 暂无事件（可能仍在启动或事件被清理）。</div>
+        <div className="empty small">该次执行暂无事件（可能仍在启动或事件被清理）。</div>
       ) : (
-        <ol className="run-timeline" aria-label={`${runTitle(run)} 事件时间线`}>
+        <ol className="run-timeline" aria-label={`第 ${run.attempt ?? 1} 次执行的事件时间线`}>
           {timeline.map((event) => (
             <li key={event.seq} className={`run-event tone-${eventTone(event.type)}`}>
               <div className="run-event-meta">
@@ -308,13 +308,13 @@ export default function RunHistory({
       {loading && runs.length === 0 && (
         <div className="run-history-skeleton" role="status" aria-live="polite">
           <span /> <span /> <span />
-          <div className="muted tiny">正在加载 Run 记录…</div>
+          <div className="muted tiny">正在加载运行记录…</div>
         </div>
       )}
 
       {error && (
         <div className="run-history-error" role="alert">
-          <span>Run 记录读取失败：{error}</span>
+          <span>运行记录读取失败：{error}</span>
           <button type="button" className="ghost tiny" onClick={onRetryLoad}>
             重试
           </button>
@@ -332,7 +332,7 @@ export default function RunHistory({
 
       {sorted.length > 0 && (
         <>
-          <ul className="run-list" aria-label="Run 列表">
+          <ul className="run-list" aria-label="运行记录列表">
             {sorted.map((run) => {
               const agent = agentById.get(run.agentId) ?? null;
               const active = run.id === selected?.id;
@@ -343,7 +343,7 @@ export default function RunHistory({
                     className={`run-row ${active ? "selected" : ""}`}
                     onClick={() => onSelectRun(run.id)}
                     aria-pressed={active}
-                    aria-label={`${runTitle(run)}，${runStatusLabel(run.status)}`}
+                    aria-label={`第 ${run.attempt ?? 1} 次执行，${runStatusLabel(run.status)}`}
                   >
                     <span className="run-row-main">
                       <span className="run-attempt">#{run.attempt ?? 1}</span>

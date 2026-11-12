@@ -233,6 +233,13 @@ describe("t190 Settings draft/save safety", () => {
       validateModelSetup([{ ...provider, baseUrl: "" }], [model], model.id),
     ).toContain("Base URL");
     expect(validateModelSetup([provider], [model], "")).toContain("默认模型");
+    expect(
+      validateModelSetup(
+        [{ ...provider, apiKey: "", apiKeyEnv: "" }],
+        [model],
+        model.id,
+      ),
+    ).toContain("API Key");
     expect(validateModelSetup([provider], [model], model.id)).toBeNull();
 
     const onSave = vi.fn(async () => ({ ok: true as const }));
@@ -264,5 +271,21 @@ describe("t190 Settings draft/save safety", () => {
     });
     expect(onSave).not.toHaveBeenCalled();
     expect(textOf(renderer.toJSON())).toContain("请填写供应商名称");
+
+    const interfaceNav = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("界面"))!;
+    await act(async () => {
+      (interfaceNav.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    const layoutSave = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("保存界面设置"))!;
+    await act(async () => {
+      (layoutSave.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 });

@@ -54,3 +54,11 @@ Settings → 模型：
 
 - 仅 UI 文案/布局/CSS/校验前置；无 schema/权限/gate/数据层/依赖变更。
 - 回滚文案/CSS/`validateModelSetup` 即恢复；配置 payload 字段不变。
+
+## t345 修复
+
+- **F1 残留术语**：App 取消任务/执行确认、取消 toast、删除 toast、当前执行、最近执行；RunPanel 空态/读取失败/详情 aria；RunHistory 取消执行、执行事件、加载/失败、取消 hint；ReviewSection「阻断项」；技术原文保留在 title（Run 历史 / blocker / checks）。
+- **F2 校验**：`validateModelSetup(..., allowMissingKey)` 增加 API Key/环境变量必填；默认模型必须显式选择（select 占位「请选择默认模型」，不再自动回退 models[0]）；API Key 与默认模型 select `aria-invalid`。
+- **保存范围**：模型保存仅校验模型分区；界面/ Git 等保存调用 `save({validateModels:false})`，不会被模型未配置误阻塞；测试断言 inline 错误阻止模型保存但界面保存仍可调用 onSave。
+- **F3 截图**：`docs/team/t341-memory-1440.png`、`docs/team/t341-model-path-960.png`（替换旧尺寸）。
+- 无 schema/数据层变更。

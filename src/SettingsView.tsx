@@ -39,14 +39,21 @@ export function validateModelSetup(
   providers: ProviderProfile[],
   models: ModelProfile[],
   defaultModel: string,
+  allowMissingKey = false,
 ): string | null {
   if (providers.length === 0) return "请先添加一个模型供应商";
   const unnamed = providers.find((provider) => !provider.name.trim());
   if (unnamed) return "请填写供应商名称";
   const noBase = providers.find((provider) => !provider.baseUrl.trim());
   if (noBase) return "请填写 Base URL";
+  if (
+    !allowMissingKey &&
+    providers.some((provider) => !provider.apiKey.trim() && !provider.apiKeyEnv.trim())
+  ) {
+    return "请填写 API Key 或 API Key 环境变量";
+  }
   if (models.length === 0) return "请至少添加一个模型（可先测试连接并获取）";
-  if (!defaultModel.trim()) return "请选择默认模型";
+  if (!defaultModel.trim()) return "请显式选择一个默认模型";
   return null;
 }
 
@@ -327,19 +334,18 @@ export default function SettingsView({
     );
   }
 
-  async function save() {
+  async function save(options: { validateModels?: boolean } = {}) {
     if (saving) return;
-    const validation = validateModelSetup(
-      providers,
-      models,
-      defaultModel || models[0]?.id || "",
-    );
+    const validateModels = options.validateModels !== false;
+    const validation = validateModels
+      ? validateModelSetup(providers, models, defaultModel, mock)
+      : null;
     if (validation) {
       setModelValidationError(validation);
       setSaveStatus({ kind: "error", message: validation });
       return;
     }
-    setModelValidationError(null);
+    if (validateModels) setModelValidationError(null);
     const first = providers[0] ?? defaultProviderProfile();
     const nextMaxDockGroups = normalizeMaxDockGroups(maxDockGroups);
     const payload: LlmSettings = {
@@ -348,7 +354,7 @@ export default function SettingsView({
       apiKey: first.apiKey,
       apiKeyEnv: first.apiKeyEnv,
       providers,
-      model: defaultModel || models[0]?.id || "",
+      model: defaultModel,
       models,
       mock,
       layout: { maxDockGroups: nextMaxDockGroups },
@@ -523,6 +529,11 @@ export default function SettingsView({
                       <input
                         type="password"
                         value={activeProvider.apiKey}
+                        aria-invalid={
+                          Boolean(modelValidationError) &&
+                          !activeProvider.apiKey.trim() &&
+                          !activeProvider.apiKeyEnv.trim()
+                        }
                         onChange={(event) => {
                           setModelValidationError(null);
                           updateProvider(activeProvider.id, { apiKey: event.target.value });
@@ -780,15 +791,25 @@ export default function SettingsView({
                   默认模型
                   <select
                     value={defaultModel}
-                    onChange={(event) => setDefaultModel(event.target.value)}
+                    aria-invalid={Boolean(modelValidationError) && !defaultModel.trim()}
+                    onChange={(event) => {
+                      setModelValidationError(null);
+                      setDefaultModel(event.target.value);
+                    }}
                     disabled={models.length === 0}
                   >
+                    <option value="">请选择默认模型</option>
                     {models.map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.label} · {providerName(model.providerId)} ({model.modelId})
                       </option>
                     ))}
                   </select>
+                  {!defaultModel.trim() && models.length > 0 ? (
+                    <span className="muted tiny">
+                      未选择默认模型；保存前需显式选择，不会自动回退到第一个模型。
+                    </span>
+                  ) : null}
                 </label>
                 <button className="primary" onClick={() => void save()} disabled={busy || saving}>
                   {saving ? "保存中…" : "保存"}
@@ -838,7 +859,7 @@ export default function SettingsView({
               </div>
             </div>
             <div className="settings-block-foot">
-              <button className="primary" onClick={() => void save()} disabled={busy || saving}>
+              <button className="primary" onClick={() => void save({ validateModels: false })} disabled={busy || saving}>
                 {saving ? "保存中…" : "保存界面设置"}
               </button>
               {saveStatus && (
@@ -1032,7 +1053,7 @@ export default function SettingsView({
               </table>
             </div>
             <div className="settings-block-foot">
-              <button className="primary" onClick={save} disabled={busy}>
+              <button className="primary" onClick={() => void save({ validateModels: false })} disabled={busy}>
                 保存
               </button>
             </div>
