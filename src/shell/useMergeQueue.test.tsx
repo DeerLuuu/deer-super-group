@@ -190,4 +190,46 @@ describe("t226 useMergeQueue unknown/empty/refresh", () => {
     });
     expect((items as unknown as MergeQueueItem[])[0]?.state).toBe("ready");
   });
+
+  it("distinguishes first-load failure and reopens after close", async () => {
+    const mergeQueue = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("queue down"))
+      .mockResolvedValue({ items: [] as MergeQueueItem[], activeMerge: null });
+    (globalThis as { window?: unknown }).window = {
+      deer: { mergeQueue },
+      setInterval: () => 1,
+      clearInterval: () => {},
+    };
+    let state: ReturnType<typeof useMergeQueue> | null = null;
+    function Harness({ active }: { active: boolean }) {
+      state = useMergeQueue("ws", active, "key");
+      return null;
+    }
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<Harness active={false} />);
+      for (let index = 0; index < 6; index += 1) await Promise.resolve();
+    });
+    expect(state!.items).toBeNull();
+    expect(state!.error).toContain("queue down");
+    expect(state!.loading).toBe(false);
+
+    await act(async () => {
+      await state!.reload();
+      for (let index = 0; index < 6; index += 1) await Promise.resolve();
+    });
+    expect(state!.items).toEqual([]);
+    expect(state!.error).toBeNull();
+
+    const calls = mergeQueue.mock.calls.length;
+    await act(async () => {
+      (renderer as any).update(<Harness active={true} />);
+      for (let index = 0; index < 6; index += 1) await Promise.resolve();
+    });
+    expect(mergeQueue.mock.calls.length).toBeGreaterThan(calls);
+    await act(async () => {
+      (renderer as any).update(<Harness active={false} />);
+    });
+  });
 });

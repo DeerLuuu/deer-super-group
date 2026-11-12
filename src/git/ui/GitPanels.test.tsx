@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GitSettingsPanel, MergeQueueModal, TaskVcsPanel } from "./GitPanels.js";
+import { GitSettingsPanel, TaskVcsPanel } from "./GitPanels.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -40,21 +40,6 @@ describe("GitPanels initial loading states", () => {
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain("加载 Git 状态");
     expect(html).not.toContain("尚未产生 Git 提交");
-  });
-
-  it("MergeQueueModal shows loading only while open", () => {
-    const open = renderToStaticMarkup(
-      <MergeQueueModal workspaceId="w1" open onClose={() => undefined} />,
-    );
-    expect(open).toContain('role="dialog"');
-    expect(open).toContain('aria-label="合并队列"');
-    expect(open).toContain("modal-backdrop");
-    expect(open).toContain('aria-busy="true"');
-    expect(open).toContain("加载合并队列");
-    const closed = renderToStaticMarkup(
-      <MergeQueueModal workspaceId="w1" open={false} onClose={() => undefined} />,
-    );
-    expect(closed).toBe("");
   });
 
   it("GitSettingsPanel shows loading before settings arrive", () => {

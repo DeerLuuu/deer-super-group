@@ -8726,3 +8726,55 @@ body li {
     min-height: 240px;
   }
 }
+
+/* t309: MergeQueue Dock panel (confirmation stays in a single Modal) */
+.merge-queue-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  height: 100%;
+  padding: 10px 12px;
+  overflow: auto;
+  box-sizing: border-box;
+}
+.merge-queue-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.merge-queue-head h3 { margin: 0; }
+.merge-queue-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+.merge-queue-stale { border-color: var(--warning); color: var(--warning); }
+.merge-queue-error { display: flex; align-items: center; gap: 8px; border: 1px solid var(--danger); color: var(--danger); padding: 6px 8px; border-radius: 6px; }
+.merge-queue-empty { margin: 4px 0; }
+.merge-queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.merge-queue-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 8px 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.merge-queue-row.has-conflict { border-color: var(--danger); }
+.merge-queue-row-main { min-width: 0; }
+.merge-queue-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.merge-queue-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; min-width: 0; }
+.merge-queue-meta .mono { overflow-wrap: anywhere; }
+.merge-queue-error-text { color: var(--danger); margin: 4px 0; font-size: 12px; }
+.merge-queue-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; align-content: flex-start; }
+.merge-queue-waive { flex: 1 1 190px; min-width: 150px; }
+.merge-queue-waive input { width: 100%; box-sizing: border-box; }
+.merge-confirm-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 8px 0; }
+.merge-confirm-meta dt { color: var(--muted); }
+.merge-confirm-meta dd { margin: 0; overflow-wrap: anywhere; }
+.merge-confirm-actions { justify-content: flex-end; }
+@media (max-width: 960px) {
+  .merge-queue-row { grid-template-columns: minmax(0, 1fr); }
+  .merge-queue-actions { border-top: 1px solid var(--border); padding-top: 8px; }
+}
+@media (max-width: 720px) {
+  .merge-queue-panel { padding: 6px; }
+  .merge-queue-head { flex-wrap: wrap; }
+  .merge-queue-summary .badge { font-size: 11px; }
+  .merge-queue-actions > button { flex: 1 1 auto; }
+  .merge-queue-waive { flex-basis: 100%; }
+}
