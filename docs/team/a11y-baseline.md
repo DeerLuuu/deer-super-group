@@ -64,3 +64,33 @@
 ## 回滚
 
 - 删除 `.skip-link`/`#main-content`/composer label/Chat tabs/ARIA/resizer CSS 即可回退到原交互；无数据迁移。
+
+## t296 补强：窄窗 resizer 与证据
+
+### Resizer 真实上限
+
+- 侧栏使用 `clampSidebarWidth`/`sidebarMaxWidth(viewportWidth)`：960→394、900→334、760→194、480→180；`aria-valuemax` 动态取该值，`aria-valuenow` 取实际显示宽度。
+- 侧栏折叠时不渲染 resizer（960/900/760/480 自动折叠场景均 `resizer=false`），只能通过「展开侧栏」按钮恢复，避免无意义 56px separator。
+- Tasks 使用 `actualListWidth = clampTaskListWidth(state, layoutRef 测量宽度)`；容器 640px 以下不渲染 task resizer，详情面板仍在单列第二行。
+- `SeparatorControl` 统一处理 ArrowLeft/Right + Home；resizer 有 focus outline 和真实 aria 值。
+
+运行时键盘抽查（expand 侧栏后连续 ArrowRight）：
+
+| viewport | sidebar aria max | 实际到达 | Tasks aria max | 480 resizer |
+|---|---|---|---|---|
+| 960 | 394 | 394 | 457 | hidden（480 容器单列） |
+| 900 | 334 | 334 | 426 | — |
+| 760 | 194 | 194 | 353 | — |
+| 480 | 180 | 180 | 280 | task resizer 不渲染 |
+
+- 480 Chat/Team/Tasks：`scrollWidth==innerWidth`；Team layout 383、Tasks layout 398；Tasks detail 节点存在（单列 container rule）。
+- 截图补充：`t292-a11y-480-team.png`、`t292-a11y-480-tasks.png`、`t292-a11y-480-tasks-detail.png`、`t292-a11y-resizer-960.png`。
+- Chat tabs 增加 Home/End；测试覆盖。
+- 对比测试改为从 `styles.css` 读取 `--text/--muted/--bg/--panel` token，而不是硬编码 hex。
+- 新增交互测试：`SeparatorControl.test.tsx`（aria/clamp/Arrow/Home）、`SkipLink.test.tsx`、`Toast.test.tsx`（focus pause）、Chat tabs Home/End。
+
+### 验证范围声明（需产品确认）
+
+- 200% 证据使用真实 Electron + CDP **CSS 视口 480**，不是 OS 级 200%/DPR2 真机设置；DPR2/真实系统缩放、读屏软件（NVDA/VoiceOver）仍应在发布前走查。
+- 本 PR 的验收按“CSS 视口基线”成立；若要对外宣称 OS 200% 通过，需产品确认后再补一次真实系统缩放/DPR2 截图。
+- CI 保留 extended/单跑宽限；plain 全量 5s 并发问题为既有 openai/watchdog/git flake，不归因本 PR。

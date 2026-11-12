@@ -186,9 +186,13 @@ import {
   displayedSidebarWidth,
   resizeSidebarWidth,
   shouldAutoCollapseSidebar,
+  sidebarMaxWidth,
   sidebarWidthStateForWindow,
 } from "./shell/dock/narrowWindow";
 import PrimaryRail, { usePrimaryRailFocus } from "./shell/PrimaryRail";
+import SeparatorControl from "./shell/SeparatorControl";
+import SkipLink from "./shell/SkipLink";
+import { clampTaskListWidth, taskListMaxWidth } from "./shell/taskListWidth";
 import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
@@ -932,12 +936,18 @@ export default function App() {
   }
 
   function stepSidebarWidth(delta: number) {
-    const next = Math.min(480, Math.max(180, effectiveSidebarWidth + delta));
-    sidebarWidthRef.current = next;
-    sidebarDisplayWidthRef.current = next;
-    setSidebarWidth(next);
-    setSidebarDisplayWidth(next);
-    localStorage.setItem("deer.sidebarWidth", String(next));
+    const next = resizeSidebarWidth(
+      { preferred: sidebarWidth, displayed: sidebarDisplayWidth },
+      viewportWidth,
+      effectiveSidebarWidth + delta,
+    );
+    sidebarWidthRef.current = next.preferred;
+    sidebarDisplayWidthRef.current = next.displayed;
+    setSidebarWidth(next.preferred);
+    setSidebarDisplayWidth(next.displayed);
+    if (viewportWidth > 1100) {
+      localStorage.setItem("deer.sidebarWidth", String(next.preferred));
+    }
   }
 
   const loadTrace = useCallback(
@@ -3400,9 +3410,7 @@ export default function App() {
   });
   return (
     <div className="app">
-      <a className="skip-link" href="#main-content">
-        跳到主内容
-      </a>
+      <SkipLink />
       <ChatLiveBridge
         store={chatLiveStore}
         workspaceId={snapshot.workspace.id}
@@ -3629,28 +3637,19 @@ export default function App() {
         )}
       </aside>
 
-      <div
-        className="resizer"
-        role="separator"
-        aria-label="调整侧栏宽度"
-        aria-orientation="vertical"
-        aria-valuemin={180}
-        aria-valuemax={480}
-        aria-valuenow={effectiveSidebarWidth}
-        tabIndex={0}
-        title="拖动调整侧栏宽度，双击恢复默认；方向键调整"
-        onMouseDown={startResize}
-        onDoubleClick={resetSidebarWidth}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-            event.preventDefault();
-            stepSidebarWidth(event.key === "ArrowLeft" ? -16 : 16);
-          } else if (event.key === "Home") {
-            event.preventDefault();
-            resetSidebarWidth();
-          }
-        }}
-      />
+      {!sidebarCollapsed ? (
+        <SeparatorControl
+          className="resizer"
+          label="调整侧栏宽度"
+          value={effectiveSidebarWidth}
+          min={180}
+          max={sidebarMaxWidth(viewportWidth)}
+          onStep={stepSidebarWidth}
+          onReset={resetSidebarWidth}
+          onMouseDown={startResize}
+          onDoubleClick={resetSidebarWidth}
+        />
+      ) : null}
 
       <main className="main" id="main-content" aria-label="主内容" tabIndex={-1}>
         <WorkflowRail
@@ -4175,6 +4174,21 @@ function TasksView({
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const listWidthRef = useRef(listWidth);
   const resizingListRef = useRef(false);
+  const [listLayoutWidth, setListLayoutWidth] = useState(0);
+
+  useEffect(() => {
+    const node = layoutRef.current;
+    if (!node) {
+      setListLayoutWidth(0);
+      return;
+    }
+    const measure = () => setListLayoutWidth(node.getBoundingClientRect().width);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [listCollapsed]);
 
   useEffect(() => {
     listWidthRef.current = listWidth;
@@ -4204,6 +4218,9 @@ function TasksView({
     };
   }, []);
 
+  const taskListMax = taskListMaxWidth(listLayoutWidth);
+  const actualListWidth = clampTaskListWidth(listWidth, listLayoutWidth);
+
   function startListResize(event: { preventDefault: () => void }) {
     event.preventDefault();
     resizingListRef.current = true;
@@ -4218,7 +4235,7 @@ function TasksView({
   }
 
   function stepListWidth(delta: number) {
-    const next = Math.min(520, Math.max(280, listWidth + delta));
+    const next = clampTaskListWidth(actualListWidth + delta, listLayoutWidth);
     listWidthRef.current = next;
     setListWidth(next);
     localStorage.setItem("deer.taskListWidth", String(next));
@@ -4457,30 +4474,19 @@ function TasksView({
         </section>
       )}
 
-      {!listCollapsed && (
-        <div
+      {!listCollapsed && listLayoutWidth > 640 ? (
+        <SeparatorControl
           className="task-resizer"
-          role="separator"
-          aria-label="调整任务列表宽度"
-          aria-orientation="vertical"
-          aria-valuemin={280}
-          aria-valuemax={520}
-          aria-valuenow={listWidth}
-          tabIndex={0}
-          title="拖动调整任务列表宽度，双击恢复默认；方向键调整"
+          label="调整任务列表宽度"
+          value={actualListWidth}
+          min={280}
+          max={taskListMax}
+          onStep={stepListWidth}
+          onReset={resetListWidth}
           onMouseDown={startListResize}
           onDoubleClick={resetListWidth}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-              event.preventDefault();
-              stepListWidth(event.key === "ArrowLeft" ? -16 : 16);
-            } else if (event.key === "Home") {
-              event.preventDefault();
-              resetListWidth();
-            }
-          }}
         />
-      )}
+      ) : null}
 
       <section className="panel task-detail-panel">
         <div className="panel-head">
@@ -5787,6 +5793,18 @@ export function ChatView({
             className={view === "chat" ? "active" : ""}
             onClick={() => onViewChange("chat")}
             onKeyDown={(event) => {
+              if (event.key === "Home") {
+                event.preventDefault();
+                onViewChange("chat");
+                document.getElementById("chat-tab-chat")?.focus();
+                return;
+              }
+              if (event.key === "End") {
+                event.preventDefault();
+                onViewChange("trajectory");
+                document.getElementById("chat-tab-trajectory")?.focus();
+                return;
+              }
               if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
               event.preventDefault();
               onViewChange("trajectory");
@@ -5805,6 +5823,18 @@ export function ChatView({
             className={view === "trajectory" ? "active" : ""}
             onClick={() => onViewChange("trajectory")}
             onKeyDown={(event) => {
+              if (event.key === "Home") {
+                event.preventDefault();
+                onViewChange("chat");
+                document.getElementById("chat-tab-chat")?.focus();
+                return;
+              }
+              if (event.key === "End") {
+                event.preventDefault();
+                onViewChange("trajectory");
+                document.getElementById("chat-tab-trajectory")?.focus();
+                return;
+              }
               if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
               event.preventDefault();
               onViewChange("chat");

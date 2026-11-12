@@ -5,6 +5,8 @@ const app = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 const settings = readFileSync(new URL("./SettingsView.tsx", import.meta.url), "utf8");
 const toast = readFileSync(new URL("./Toast.tsx", import.meta.url), "utf8");
+const skipLink = readFileSync(new URL("./shell/SkipLink.tsx", import.meta.url), "utf8");
+const separator = readFileSync(new URL("./shell/SeparatorControl.tsx", import.meta.url), "utf8");
 
 function luminance(hex: string): number {
   const channels = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
@@ -22,10 +24,11 @@ function contrast(a: string, b: string): number {
 
 describe("t292 accessibility baseline", () => {
   it("has a first skip link to a labelled main landmark and labelled sidebar", () => {
-    expect(app).toContain('className="skip-link" href="#main-content"');
+    expect(skipLink).toContain('className="skip-link" href="#main-content"');
+    expect(app).toContain("<SkipLink />");
     expect(app).toContain('id="main-content" aria-label="主内容" tabIndex={-1}');
     expect(app).toContain('aria-label="侧栏"');
-    expect(app.indexOf('className="skip-link"')).toBeLessThan(app.indexOf("<aside"));
+    expect(app.indexOf("<SkipLink />")).toBeLessThan(app.indexOf("<aside"));
   });
 
   it("keeps composer, Chat tabs and resizers semantically labelled", () => {
@@ -34,11 +37,16 @@ describe("t292 accessibility baseline", () => {
     expect(app).toContain('id="chat-panel-chat"');
     expect(app).toContain('role="tabpanel"');
     expect(app).toContain('aria-controls="chat-panel-chat"');
-    expect(app).toContain('aria-label="调整侧栏宽度"');
-    expect(app).toContain('aria-label="调整任务列表宽度"');
-    expect(app).toContain("aria-valuenow={effectiveSidebarWidth}");
-    expect(app).toContain("aria-valuenow={listWidth}");
-    expect(app).toContain('event.key === "ArrowRight"');
+    expect(separator).toContain('aria-label={label}');
+    expect(separator).toContain('aria-valuenow={Math.min(max, Math.max(min, value))}');
+    expect(app).toContain('label="调整侧栏宽度"');
+    expect(app).toContain('label="调整任务列表宽度"');
+    expect(app).toContain("value={effectiveSidebarWidth}");
+    expect(app).toContain("value={actualListWidth}");
+    expect(app).toContain("sidebarMaxWidth(viewportWidth)");
+    expect(app).toContain("taskListMaxWidth");
+    expect(separator).toContain('event.key === "ArrowRight"');
+    expect(separator).toContain('event.key === "Home"');
   });
 
   it("has visible focus, reduced motion and single-column 480 fallbacks", () => {
@@ -56,9 +64,13 @@ describe("t292 accessibility baseline", () => {
   });
 
   it("keeps body and secondary text at 4.5:1 or better", () => {
-    expect(contrast("#e6edf3", "#0d1117")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#8b98a9", "#0d1117")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#8b98a9", "#151b24")).toBeGreaterThanOrEqual(4.5);
+    const textToken = css.match(/--text:\s*(#[0-9a-fA-F]{6})/)?.[1]!;
+    const mutedToken = css.match(/--muted:\s*(#[0-9a-fA-F]{6})/)?.[1]!;
+    const bgToken = css.match(/--bg:\s*(#[0-9a-fA-F]{6})/)?.[1]!;
+    const panelToken = css.match(/--panel:\s*(#[0-9a-fA-F]{6})/)?.[1]!;
+    expect(contrast(textToken, bgToken)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(mutedToken, bgToken)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(mutedToken, panelToken)).toBeGreaterThanOrEqual(4.5);
     expect(css).toContain("color: var(--muted);");
     expect(css).not.toContain("color: #6e7681;");
   });
