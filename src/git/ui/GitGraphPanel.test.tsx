@@ -26,6 +26,8 @@ describe("GitGraphPanel", () => {
       expect(html).toContain("版本图");
       expect(html).toContain("只读");
       expect(html).toContain("筛选提交");
+      expect(html).toContain('role="tablist"');
+      expect(html).toContain("aria-label=\"版本视图\"");
     } finally {
       (globalThis as { window?: unknown }).window = previous;
     }
