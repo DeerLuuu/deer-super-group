@@ -73,6 +73,17 @@ import {
   shouldAutoOpenQuestion,
 } from "./interactive/questionFlow";
 import type { QuestionValues } from "./shared/interactive";
+import type { ChatLiveSettled } from "./shared/chatLive";
+import type {
+  ChatLiveReasoningSegment as ChatReasoningSegment,
+  ChatLiveToolTrace as ChatToolTrace,
+} from "./shared/chatLive";
+import { ChatLiveBridge } from "./shell/chat/ChatLiveBridge";
+import {
+  ChatLiveStore,
+  useChatLiveState,
+  useChatLiveTerminals,
+} from "./shell/chat/chatLiveStore";
 import CommandPalette, {
   CREATE_LABELS,
   CREATE_TARGET_TAB,
@@ -196,24 +207,7 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
 
 type TaskStatusFilter = "all" | TaskStatus;
 
-/** t173：chat 工具调用过程（实时，刷新后不保留）。 */
-type ChatToolTrace = {
-  callId: string;
-  name: string;
-  arguments: string;
-  status: "running" | "ok" | "error" | "unknown";
-  value?: unknown;
-  error?: string;
-  step?: number;
-};
-
-type ChatReasoningSegment = {
-  id: string;
-  step: number;
-  text: string;
-  status: "loading" | "done" | "error";
-  translation?: string;
-};
+const chatLiveStore = new ChatLiveStore();
 
 const CHAT_TRAJECTORY_KIND_LABEL: Record<ChatTrajectoryEntry["kind"], string> = {
   user: "用户",
@@ -398,16 +392,10 @@ export default function App() {
   const [planConfirming, setPlanConfirming] = useState(false);
   const planConfirmKeyRef = useRef("");
   const planPreviewGateRef = useRef(new PlanPreviewGate());
-  const [chatStream, setChatStream] = useState("");
-  const [chatReasoning, setChatReasoning] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [chatContextBusy, setChatContextBusy] = useState(false);
-  const [chatTools, setChatTools] = useState<ChatToolTrace[]>([]);
-  const [chatReasoningSegments, setChatReasoningSegments] = useState<ChatReasoningSegment[]>([]);
   const [chatTurns, setChatTurns] = useState<ChatTurnHistoryPage | null>(null);
-  const [liveTerminals, setLiveTerminals] = useState<Map<string, ChatTurnTerminal>>(new Map());
   const chatComposerRef = useRef<HTMLTextAreaElement | null>(null);
-  const translationRequests = useRef(new Set<string>());
   const historyTranslationMemo = useMemo(
     () => createChatTranslationMemo((text) => window.deer.translateText(text)),
     [],
@@ -1432,113 +1420,12 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    const off = window.deer.onChatEvent((event) => {
-      const current = snapshotRef.current;
-      if (!current || event.workspaceId !== current.workspace.id) return;
-      if (event.type === "delta") {
-        setChatStream((prev) => prev + event.text);
-      } else if (event.type === "reasoning") {
-        setChatReasoning((prev) => prev + event.text);
-      } else if (event.type === "reasoning_segment") {
-        setChatReasoningSegments((prev) => [
-          ...prev,
-          {
-            id: `reasoning-${event.step}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            step: event.step,
-            text: event.text,
-            status: "loading",
-          },
-        ]);
-        setChatReasoning("");
-      } else if (event.type === "tool_call") {
-        setChatTools((prev) => {
-          const next: ChatToolTrace = {
-            callId: event.callId,
-            name: event.name,
-            arguments: event.arguments,
-            status: "running",
-            step: event.step,
-          };
-          return prev.some((item) => item.callId === event.callId)
-            ? prev.map((item) => (item.callId === event.callId ? next : item))
-            : [...prev, next];
-        });
-      } else if (event.type === "tool_result") {
-        setChatTools((prev) => {
-          const next: ChatToolTrace = {
-            callId: event.callId,
-            name: event.name,
-            arguments: prev.find((item) => item.callId === event.callId)?.arguments ?? "",
-            status: event.ok ? "ok" : "error",
-            value: event.value,
-            error: event.error,
-            step: event.step,
-          };
-          return prev.some((item) => item.callId === event.callId)
-            ? prev.map((item) => (item.callId === event.callId ? next : item))
-            : [...prev, next];
-        });
-      } else if (event.type === "done") {
-        setChatStream("");
-        setChatReasoning("");
-        setChatTools([]);
-        setChatReasoningSegments([]);
-        setChatBusy(false);
-        void loadChat().catch((error) => setError(errorText(error)));
-      } else if (event.type === "cancelled") {
-        if (event.userMessageId && event.terminal) {
-          setLiveTerminals((prev) => new Map(prev).set(event.userMessageId!, event.terminal!));
-        }
-        setChatStream("");
-        setChatReasoning("");
-        setChatTools([]);
-        setChatReasoningSegments([]);
-        setChatBusy(false);
-        void loadChat().catch(() => {});
-      } else if (event.type === "error") {
-        if (event.userMessageId && event.terminal) {
-          setLiveTerminals((prev) => new Map(prev).set(event.userMessageId!, event.terminal!));
-        }
-        setChatStream("");
-        setChatReasoning("");
-        setChatTools([]);
-        setChatReasoningSegments([]);
-        setChatBusy(false);
-        setError(formatError(event.error));
-        void loadChat().catch(() => {});
-      }
-    });
-    return off;
-  }, [loadChat]);
-
-  // t179：思考段完成后自动机翻；每段只请求一次，失败只降级为无译文。
-  useEffect(() => {
-    const pending = chatReasoningSegments.filter(
-      (segment) =>
-        segment.status === "loading" &&
-        !translationRequests.current.has(segment.id) &&
-        segment.text.trim(),
-    );
-    for (const segment of pending) {
-      translationRequests.current.add(segment.id);
-      void window.deer
-        .translateText(segment.text)
-        .then((translation) => {
-          historyTranslationMemo.prime(segment.text, translation);
-          setChatReasoningSegments((prev) =>
-            prev.map((item) =>
-              item.id === segment.id ? { ...item, status: "done", translation } : item,
-            ),
-          );
-        })
-        .catch(() => {
-          setChatReasoningSegments((prev) =>
-            prev.map((item) => (item.id === segment.id ? { ...item, status: "error" } : item)),
-          );
-        });
+  const handleChatLiveSettled = useCallback((settled: ChatLiveSettled) => {
+    setChatBusy(false);
+    if (settled.kind === "error") {
+      setError(formatError(settled.event.error));
     }
-  }, [chatReasoningSegments, historyTranslationMemo]);
+  }, []);
 
   // t168/t172：历史思考只在展开时翻译；设置指纹变化时清缓存，文本缓存复用实时译文。
   const translateHistoryText = useCallback(
@@ -1585,17 +1472,12 @@ export default function App() {
     setPendingConfirm(null);
     setKernelAnnouncement(null);
     setChatMessages([]);
-    setChatStream("");
-    setChatReasoning("");
-    setChatTools([]);
-    setChatReasoningSegments([]);
+    chatLiveStore.reset();
     setChatTurns(null);
-    setLiveTerminals(new Map());
     chatTurnsRequestRef.current += 1;
     chatTurnsToastRef.current = false;
     historyTranslationMemo.clear();
     translationSettingsKeyRef.current = null;
-    translationRequests.current.clear();
     setChatView("chat");
     setChatTrajectory([]);
     setChatBusy(false);
@@ -2208,10 +2090,7 @@ export default function App() {
     const message = text.trim();
     if (!current || !router || !message || chatBusy) return false;
     setChatBusy(true);
-    setChatStream("");
-    setChatReasoning("");
-    setChatTools([]);
-    setChatReasoningSegments([]);
+    chatLiveStore.clearLive();
     setError(null);
     setChatMessages((prev) => [
       ...prev,
@@ -2274,8 +2153,7 @@ export default function App() {
       return;
     }
     setChatContextBusy(true);
-    setChatTools([]);
-    setChatReasoningSegments([]);
+    chatLiveStore.clearLive();
     setError(null);
     try {
       const result = await window.deer.clearChatContext(current.workspace.id);
@@ -2298,8 +2176,7 @@ export default function App() {
     const current = snapshotRef.current;
     if (!current || chatBusy || chatContextBusy) return;
     setChatContextBusy(true);
-    setChatTools([]);
-    setChatReasoningSegments([]);
+    chatLiveStore.clearLive();
     setError(null);
     try {
       const result = await window.deer.compactChatContext(current.workspace.id);
@@ -2938,6 +2815,11 @@ export default function App() {
 
   return (
     <div className="app">
+      <ChatLiveBridge
+        store={chatLiveStore}
+        workspaceId={snapshot.workspace.id}
+        onSettled={handleChatLiveSettled}
+      />
       <aside
         className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
         style={sidebarCollapsed ? undefined : { width: `${effectiveSidebarWidth}px` }}
@@ -3419,11 +3301,9 @@ export default function App() {
                   return (
                     <ChatView
                       messages={chatMessages}
-                      tools={chatTools}
-                      reasoningSegments={chatReasoningSegments}
+                      liveStore={chatLiveStore}
                       turnByAssistant={chatTurnsByAssistant}
                       turnByUser={chatTurnByUser}
-                      liveTerminals={liveTerminals}
                       onRetryTurn={handleRetryTurn}
                       composerRef={chatComposerRef}
                       translateHistoryText={translateHistoryText}
@@ -3432,8 +3312,6 @@ export default function App() {
                       trajectory={chatTrajectory}
                       trajectoryLoading={chatTrajectoryLoading}
                       onRefreshTrajectory={() => void loadChatTrajectory()}
-                      stream={chatStream}
-                      reasoning={chatReasoning}
                       busy={chatBusy}
                       input={chatInput}
                       onInput={setChatInput}
@@ -5378,11 +5256,12 @@ function formatToolPayload(value: unknown): string {
 
 export function ChatView({
   messages,
-  tools,
-  reasoningSegments,
+  liveStore,
+  tools: legacyTools,
+  reasoningSegments: legacyReasoningSegments,
   turnByAssistant,
   turnByUser,
-  liveTerminals,
+  liveTerminals: legacyLiveTerminals,
   onRetryTurn,
   composerRef,
   translateHistoryText,
@@ -5391,8 +5270,8 @@ export function ChatView({
   trajectory,
   trajectoryLoading,
   onRefreshTrajectory,
-  stream,
-  reasoning,
+  stream: legacyStream,
+  reasoning: legacyReasoning,
   busy,
   input,
   onInput,
@@ -5422,11 +5301,13 @@ export function ChatView({
   onToast,
 }: {
   messages: ChatMessage[];
-  tools: ChatToolTrace[];
-  reasoningSegments: ChatReasoningSegment[];
+  /** R1：生产路径必传；旧 fixture 可省略并走下方 legacy props 兼容渲染。 */
+  liveStore?: ChatLiveStore;
+  tools?: ChatToolTrace[];
+  reasoningSegments?: ChatReasoningSegment[];
   turnByAssistant: ReadonlyMap<string, ChatAssistantTurn>;
   turnByUser: ReadonlyMap<string, ChatTurn>;
-  liveTerminals: ReadonlyMap<string, ChatTurnTerminal>;
+  liveTerminals?: ReadonlyMap<string, ChatTurnTerminal>;
   onRetryTurn: (content: string) => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   translateHistoryText: (text: string) => Promise<string>;
@@ -5435,8 +5316,8 @@ export function ChatView({
   trajectory: ChatTrajectoryEntry[];
   trajectoryLoading: boolean;
   onRefreshTrajectory: () => void;
-  stream: string;
-  reasoning: string;
+  stream?: string;
+  reasoning?: string;
   busy: boolean;
   input: string;
   onInput: (value: string) => void;
@@ -5470,24 +5351,34 @@ export function ChatView({
   onFullThrottleChange: (enabled: boolean) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // 旧 fixture 没有 external store：给一个空 store 供 hook 稳定调用，实际终端回退 legacy props。
+  const fallbackLiveStoreRef = useRef<ChatLiveStore | null>(null);
+  if (!fallbackLiveStoreRef.current) fallbackLiveStoreRef.current = new ChatLiveStore();
+  const chatLiveStoreForView = liveStore ?? fallbackLiveStoreRef.current;
+  const storeTerminals = useChatLiveTerminals(chatLiveStoreForView);
+  // R1：token 只更新 ChatLiveTail；历史 terminal 是低频 Map，ChatView 不订阅 stream/tools。
+  const liveTerminals = liveStore ? storeTerminals : legacyLiveTerminals ?? storeTerminals;
+  const legacyProcess =
+    !liveStore &&
+    ((legacyTools?.length ?? 0) > 0 ||
+      (legacyReasoningSegments?.length ?? 0) > 0 ||
+      Boolean(legacyReasoning?.trim())) ? (
+      <ChatTurnProcess
+        reasoningSegments={legacyReasoningSegments ?? []}
+        tools={legacyTools ?? []}
+        liveReasoning={legacyReasoning ?? ""}
+        busy={busy}
+      />
+    ) : undefined;
+  const showLegacyLiveBubble =
+    !liveStore &&
+    (Boolean(legacyStream?.trim() || legacyReasoning?.trim()) ||
+      (busy && Boolean(legacyProcess)));
 
   useEffect(() => {
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [messages, stream, tools, reasoningSegments]);
-
-  const hasLiveProcess =
-    tools.length > 0 || reasoningSegments.length > 0 || Boolean(reasoning.trim());
-  const liveProcess = hasLiveProcess ? (
-    <ChatTurnProcess
-      reasoningSegments={reasoningSegments}
-      tools={tools}
-      liveReasoning={reasoning}
-      busy={busy}
-    />
-  ) : null;
-  const showLiveBubble =
-    Boolean(stream.trim() || reasoning.trim()) || (busy && Boolean(liveProcess));
+  }, [messages]);
 
   return (
     <div className="chat-layout">
@@ -5597,7 +5488,7 @@ export function ChatView({
         )}
 
         <div className="chat-messages" ref={scrollRef}>
-          {messages.length === 0 && !stream && (
+          {messages.length === 0 && !busy && (
             // C24：空状态给可点击示例，一步发起对话。
             <EmptyState
               icon="◎"
@@ -5668,12 +5559,24 @@ export function ChatView({
               </Fragment>
             );
           })}
-          {showLiveBubble && (
+          {liveStore && (
+            <ChatLiveTail
+              store={liveStore}
+              busy={busy}
+              scrollRef={scrollRef}
+              questions={questions}
+              questionsLoaded={questionsLoaded}
+              onAnswerQuestion={onAnswerQuestion}
+              onToast={onToast}
+              translateHistoryText={translateHistoryText}
+            />
+          )}
+          {showLegacyLiveBubble && (
             <ChatBubble
               role="assistant"
-              content={stream}
+              content={legacyStream ?? ""}
               reasoning=""
-              process={liveProcess}
+              process={legacyProcess}
               streaming
               questions={questions}
               questionsLoaded={questionsLoaded}
@@ -5784,6 +5687,78 @@ export function ChatView({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * t260（R1）：唯一订阅 ChatLiveStore 的渲染组件。
+ * token/tool/reasoning 只更新此子树；历史消息、Dock、Rail/Workflow/NeedsMe 不参与。
+ */
+function ChatLiveTail({
+  store,
+  busy,
+  scrollRef,
+  questions,
+  questionsLoaded,
+  onAnswerQuestion,
+  onToast,
+  translateHistoryText,
+}: {
+  store: ChatLiveStore;
+  busy: boolean;
+  scrollRef: RefObject<HTMLDivElement | null>;
+  questions: ReadonlyMap<string, ChatQuestionRecord>;
+  questionsLoaded: boolean;
+  onAnswerQuestion: (questionId: string) => void;
+  onToast: (toast: { kind: "success" | "error" | "info"; message: string }) => void;
+  translateHistoryText: (text: string) => Promise<string>;
+}) {
+  const live = useChatLiveState(store);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [live.stream, live.reasoning, live.segments, live.tools, scrollRef]);
+
+  // 思考段完成后才翻译；store 记请求 id，避免重挂载/重渲染重复打 Bing。
+  useEffect(() => {
+    for (const segment of live.segments) {
+      if (segment.status !== "loading" || !segment.text.trim()) continue;
+      if (!store.beginTranslation(segment.id)) continue;
+      void translateHistoryText(segment.text)
+        .then((translation) => store.setTranslation(segment.id, translation))
+        .catch(() => store.setTranslationError(segment.id));
+    }
+  }, [live.segments, store, translateHistoryText]);
+
+  const hasProcess =
+    live.tools.length > 0 ||
+    live.segments.length > 0 ||
+    Boolean(live.reasoning.trim());
+  const show = Boolean(live.stream.trim() || live.reasoning.trim()) || (busy && hasProcess);
+  if (!show) return null;
+
+  const process = hasProcess ? (
+    <ChatTurnProcess
+      reasoningSegments={[...live.segments]}
+      tools={[...live.tools]}
+      liveReasoning={live.reasoning}
+      busy={busy}
+    />
+  ) : undefined;
+
+  return (
+    <ChatBubble
+      role="assistant"
+      content={live.stream}
+      reasoning=""
+      process={process}
+      streaming
+      questions={questions}
+      questionsLoaded={questionsLoaded}
+      onAnswerQuestion={onAnswerQuestion}
+      onToast={onToast}
+    />
   );
 }
 
