@@ -9478,3 +9478,24 @@ button.task-contract-chip:focus-visible {
     display: none;
   }
 }
+
+
+.chat-scroll-hint {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 220px;
+  max-width: 60vw;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  pointer-events: none;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--bg) 55%, transparent);
+  z-index: 5;
+}

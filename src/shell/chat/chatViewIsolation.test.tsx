@@ -14,6 +14,7 @@ const { act, create } = TestRenderer as {
       findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
     };
     toJSON: () => unknown;
+    update: (element: unknown) => void;
     unmount: () => void;
   };
 };
@@ -39,20 +40,25 @@ function ChatViewProbe({
   onViewChange = () => {},
   loadEarlierMessages,
   onLoadEarlierHistory,
+  fixtureMessages = messages,
+  historyLimit,
 }: {
   store: ChatLiveStore;
   onViewChange?: (view: "chat" | "trajectory") => void;
   loadEarlierMessages?: () => Promise<void>;
   onLoadEarlierHistory?: () => Promise<boolean>;
+  fixtureMessages?: ChatMessage[];
+  historyLimit?: number;
 }) {
   viewRenders += 1;
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   return (
     <ChatView
       liveStore={store}
-      messages={messages}
+      messages={fixtureMessages}
       turnByAssistant={new Map()}
       turnByUser={new Map()}
+      historyLimit={historyLimit}
       onRetryTurn={() => {}}
       composerRef={composerRef}
       translateHistoryText={async (text) => text}
@@ -261,5 +267,60 @@ describe("t260 R1 actual ChatView isolation", () => {
     expect(output).not.toContain("fixture message 0");
     expect(output).toContain("加载失败");
     expect(output).toContain("重试");
+  });
+
+  it("applies a changed historyLimit immediately", async () => {
+    const store = new ChatLiveStore(WS);
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} historyLimit={40} />);
+    });
+    expect(JSON.stringify(renderer!.toJSON())).toContain("已显示最近 40 条");
+    await act(async () => {
+      renderer!.update(<ChatViewProbe store={store} historyLimit={80} />);
+    });
+    expect(JSON.stringify(renderer!.toJSON())).toContain("已显示最近 80 条");
+    await act(() => renderer!.unmount());
+  });
+
+  it("renders and scrolls 300 turns within the performance budget", async () => {
+    const perfMessages: ChatMessage[] = Array.from({ length: 600 }, (_, index) => ({
+      id: `perf-${index}`,
+      workspaceId: WS,
+      agentId: "router",
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `perf turn ${Math.floor(index / 2)} line ${index}`,
+      reasoning: "",
+      createdAt: created,
+    }));
+    const scrollNode = { scrollTop: 0, scrollHeight: 30000, clientHeight: 500 };
+    const store = new ChatLiveStore(WS);
+    const renderStart = performance.now();
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} fixtureMessages={perfMessages} historyLimit={0} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    const renderMs = performance.now() - renderStart;
+    expect(scrollNode.scrollTop).toBe(30000);
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    const scrollStart = performance.now();
+    await act(async () => {
+      for (let index = 0; index < 60; index += 1) {
+        (chat.props.onScroll as (event: unknown) => void)({
+          currentTarget: { scrollTop: (index % 30) * 100, scrollHeight: 30000, clientHeight: 500 },
+        });
+      }
+    });
+    const scrollMs = performance.now() - scrollStart;
+    const json = JSON.stringify(renderer!.toJSON());
+    const nodes = (json.match(/"type":/g) ?? []).length;
+    console.info("t443 perf 300 turns", { renderMs: Math.round(renderMs), scroll60Ms: Math.round(scrollMs), nodes });
+    expect(renderMs).toBeLessThan(2500);
+    expect(scrollMs).toBeLessThan(600);
+    expect(nodes).toBeLessThan(7000);
+    await act(() => renderer!.unmount());
   });
 });

@@ -6612,7 +6612,8 @@ export function ChatView({
   const initialVisibleCount = initialVisibleMessageCount(messages.length, historyLimit);
   const [visibleMessageCount, setVisibleMessageCount] = useState(() => initialVisibleCount);
   const [nearTop, setNearTop] = useState(false);
-  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);  const [messagePageLoading, setMessagePageLoading] = useState(false);
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
+  const [railHint, setRailHint] = useState<string | null>(null);  const [messagePageLoading, setMessagePageLoading] = useState(false);
   const [messagePageError, setMessagePageError] = useState<string | null>(null);
   const [commandDismissed, setCommandDismissed] = useState(false);
   const [commandIndex, setCommandIndex] = useState(0);
@@ -6689,9 +6690,7 @@ export function ChatView({
       .reverse()
       .find((message) => {
         const anchor = turnAnchorRefs.current.get(message.id);
-        if (!anchor || !node) return false;
-        const offset = anchor.getBoundingClientRect().top - node.getBoundingClientRect().top + top;
-        return offset <= top + 16;
+        return Boolean(anchor) && anchor!.offsetTop <= top + 16;
       });
     setActiveTurnId(current?.id ?? userMessages[0]?.id ?? null);
   }
@@ -6700,11 +6699,7 @@ export function ChatView({
     const node = scrollRef.current;
     const anchor = turnAnchorRefs.current.get(messageId);
     if (node && anchor) {
-      const offset =
-        anchor.getBoundingClientRect().top -
-        node.getBoundingClientRect().top +
-        node.scrollTop;
-      return turnRailRatio(offset, node.scrollHeight, index, userMessages.length);
+      return turnRailRatio(anchor.offsetTop, node.scrollHeight, index, userMessages.length);
     }
     return (index + 1) / (userMessages.length + 1);
   }
@@ -7197,10 +7192,21 @@ export function ChatView({
                   title={`${firstLine}\n${time} · ${status}`}
                   style={{ top: `${Math.round(measuredTurnRatio(message.id, index) * 100)}%` }}
                   onClick={() => jumpToTurn(message.id)}
-                  onFocus={() => setActiveTurnId(message.id)}
+                  onFocus={() => {
+                    setActiveTurnId(message.id);
+                    setRailHint(`${firstLine}\n${time} · ${status}`);
+                  }}
+                  onMouseEnter={() => setRailHint(`${firstLine}\n${time} · ${status}`)}
+                  onMouseLeave={() => setRailHint(null)}
+                  onBlur={() => setRailHint(null)}
                 />
               );
             })}
+            {railHint ? (
+              <div className="chat-scroll-hint" role="status">
+                {railHint}
+              </div>
+            ) : null}
           </nav>
         )}
 
@@ -7402,7 +7408,7 @@ export function ChatView({
  * t260（R1）：唯一订阅 ChatLiveStore 的渲染组件。
  * token/tool/reasoning 只更新此子树；历史消息、Dock、Rail/Workflow/NeedsMe 不参与。
  */
-function ChatLiveTail({
+export function ChatLiveTail({
   store,
   assistantName,
   busy,
