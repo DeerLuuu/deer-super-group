@@ -50,6 +50,7 @@ import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
 import {
   BudgetBar,
   WatchdogAlertBanner,
+  WatchdogPanel,
 } from "./watchdog/WatchdogPanel";
 import type {
   CostSnapshot,
@@ -196,8 +197,6 @@ const loadSettingsPanel = () => import("./SettingsView");
 const loadTeamPanel = () => import("./TeamDashboard");
 const loadMemoryPanel = () => import("./shell/MemoryWorkbench");
 const loadPollPanel = () => import("./shell/PollPanel");
-const loadWatchdogPanel = () =>
-  import("./watchdog/WatchdogPanel").then((module) => ({ default: module.WatchdogPanel }));
 const loadGitGraphPanel = () => import("./git/ui/GitGraphPanel");
 const loadMergeQueuePanel = () =>
   import("./git/ui/MergeQueuePanel").then((module) => ({ default: module.MergeQueuePanel }));
@@ -3451,20 +3450,16 @@ export default function App() {
                     );
                   }
                   return (
-                    <LazyPanel load={loadWatchdogPanel} label="看门狗">
-                      {(WatchdogPanel) => (
-                        <WatchdogPanel
-                          snapshot={watchdogSnapshot}
-                          costs={watchdogCosts}
-                          onAck={handleAckWatchdogAlert}
-                          onResolve={handleResolveWatchdogAlert}
-                          onRelease={handleReleaseWatchdogHold}
-                          onOpenRun={(runId) => {
-                            if (runId) openRunsPanel(selectedTaskId, runId);
-                          }}
-                        />
-                      )}
-                    </LazyPanel>
+                    <WatchdogPanel
+                      snapshot={watchdogSnapshot}
+                      costs={watchdogCosts}
+                      onAck={handleAckWatchdogAlert}
+                      onResolve={handleResolveWatchdogAlert}
+                      onRelease={handleReleaseWatchdogHold}
+                      onOpenRun={(runId) => {
+                        if (runId) openRunsPanel(selectedTaskId, runId);
+                      }}
+                    />
                   );
                 default:
                   return null;
