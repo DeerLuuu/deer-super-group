@@ -3404,9 +3404,14 @@ export default function App() {
                         <TeamDashboard
                           snapshot={snapshot}
                           busy={busy}
-                          selectedTaskId={null}
+                          selectedTaskId={selectedTaskId}
                           onSelectTask={(taskId) => {
-                            if (taskId) handleOpenTaskWorkspace(taskId, "team");
+                            // G6：星图单击只做选中（高亮 + 概览浮窗），不导航、不打开任务工作区。
+                            setSelectedTaskId(taskId);
+                            const current = snapshotRef.current;
+                            if (taskId && current?.tasks.some((task) => task.id === taskId)) {
+                              void loadTrace(taskId);
+                            }
                           }}
                           starmapFocus={starmapFocus}
                           autoOpenMemberDialog={createIntent === "member"}
