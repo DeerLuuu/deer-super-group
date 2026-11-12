@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RefreshCoordinator, type RefreshDomain } from "./refreshCoordinator.js";
+import { RefreshCoordinator, ALL_REFRESH_DOMAINS, type RefreshDomain } from "./refreshCoordinator.js";
 
 /**
  * t286 F6：App 级 event→IPC 集成测（fake IPC，复刻 App 的 token/generation/域读取）。
@@ -76,6 +76,19 @@ function makeAppPipeline() {
     setSelectedTask: (taskId: string | null) => {
       selectedTask = taskId;
     },
+    manualRefresh: async () => {
+      const token = ++appToken;
+      try {
+        await refreshDomains(ALL_REFRESH_DOMAINS, token);
+        if (token === appToken) stale = false;
+      } catch (error) {
+        if (token === appToken) {
+          stale = true;
+          coordinator.invalidateAll();
+        }
+        throw error;
+      }
+    },
     reset: () => {
       appToken += 1;
       coordinator.reset();
@@ -132,6 +145,21 @@ describe("t286 App-level event→IPC integration", () => {
     expect(app.ipc.getTrace).toHaveBeenCalledTimes(1);
     expect(app.ipc.listRuns).toHaveBeenCalledTimes(1);
     expect(app.ipc.getWatchdog).toHaveBeenCalledTimes(3);
+    app.coordinator.dispose();
+  });
+
+  it("manual full refresh shares stale/token and retries via coordinator on failure", async () => {
+    vi.useFakeTimers();
+    const app = makeAppPipeline();
+    app.ipc.getScheduler.mockRejectedValueOnce(new Error("offline"));
+    await expect(app.manualRefresh()).rejects.toThrow("offline");
+    expect(app.isStale()).toBe(true);
+    expect(app.getToken()).toBe(1);
+
+    app.ipc.getSnapshot.mockResolvedValue({ version: 8 });
+    await app.manualRefresh();
+    expect(app.isStale()).toBe(false);
+    expect(app.state.version).toBe(8);
     app.coordinator.dispose();
   });
 
