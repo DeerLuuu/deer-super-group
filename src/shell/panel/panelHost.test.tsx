@@ -31,6 +31,7 @@ function fixture(overrides: Partial<PanelDepsInput> = {}): PanelDepsInput {
     busy: false,
     taskStatusFilter: "all",
     createIntent: null,
+    recommendedMembers: null,
     scheduler: null,
     schedulerLoading: false,
     schedulerError: null,
@@ -212,6 +213,28 @@ describe("t265 R2 PanelHost + t270 real panelDepsByKey", () => {
     });
     expect(counts).toEqual({ team: 2, settings: 2, context: 1, watchdog: 1 });
 
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it("recommendedMembers bump renders only the team panel", async () => {
+    const { counts, renderRef } = countRef();
+    const base = fixture();
+    const keys: PanelKey[] = ["team", "chat", "context", "watchdog"];
+    const treeRef: { current?: ReturnType<typeof create> } = {};
+    await act(async () => {
+      treeRef.current = create(mountedTree(renderRef, base, keys));
+    });
+    const renderer = treeRef.current;
+    if (!renderer) throw new Error("renderer not created");
+    expect(counts).toEqual({ team: 1, chat: 1, context: 1, watchdog: 1 });
+    await act(async () => {
+      renderer.update(
+        mountedTree(renderRef, { ...base, recommendedMembers: [{ candidateId: "c1" }] }, keys),
+      );
+    });
+    expect(counts).toEqual({ team: 2, chat: 1, context: 1, watchdog: 1 });
     await act(async () => {
       renderer.unmount();
     });
