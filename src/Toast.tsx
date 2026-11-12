@@ -99,6 +99,8 @@ function ToastRow({
       role={toast.kind === "error" ? "alert" : "status"}
       onMouseEnter={pause}
       onMouseLeave={resume}
+      onFocus={pause}
+      onBlur={resume}
     >
       <div className="toast-body">
         <div className="toast-message">{toast.message}</div>

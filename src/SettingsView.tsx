@@ -370,7 +370,9 @@ export default function SettingsView({
         {SECTIONS.map((item) => (
           <button
             key={item.id}
+            type="button"
             className={`settings-nav-item ${section === item.id ? "active" : ""}`}
+            aria-current={section === item.id ? "page" : undefined}
             onClick={() => changeSection(item.id)}
           >
             <span>{item.label}</span>

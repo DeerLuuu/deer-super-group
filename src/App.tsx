@@ -931,6 +931,15 @@ export default function App() {
     localStorage.setItem("deer.sidebarWidth", String(SIDEBAR_DEFAULT_WIDTH));
   }
 
+  function stepSidebarWidth(delta: number) {
+    const next = Math.min(480, Math.max(180, effectiveSidebarWidth + delta));
+    sidebarWidthRef.current = next;
+    sidebarDisplayWidthRef.current = next;
+    setSidebarWidth(next);
+    setSidebarDisplayWidth(next);
+    localStorage.setItem("deer.sidebarWidth", String(next));
+  }
+
   const loadTrace = useCallback(
     async (
       taskId: string,
@@ -3391,6 +3400,9 @@ export default function App() {
   });
   return (
     <div className="app">
+      <a className="skip-link" href="#main-content">
+        跳到主内容
+      </a>
       <ChatLiveBridge
         store={chatLiveStore}
         workspaceId={snapshot.workspace.id}
@@ -3398,6 +3410,7 @@ export default function App() {
       />
       <aside
         className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
+        aria-label="侧栏"
         style={sidebarCollapsed ? undefined : { width: `${effectiveSidebarWidth}px` }}
       >
         <div className="brand">
@@ -3480,6 +3493,7 @@ export default function App() {
               }}
               aria-expanded={createMenuOpen}
               aria-haspopup="menu"
+              aria-label="新建"
               title="新建"
             >
               <span className="sidebar-action-icon">＋</span>
@@ -3505,6 +3519,7 @@ export default function App() {
             type="button"
             className="ghost small sidebar-action"
             onClick={() => void handleManualRefresh()}
+            aria-label="刷新"
             title="刷新"
           >
             <span className="sidebar-action-icon">↻</span>
@@ -3517,6 +3532,7 @@ export default function App() {
               onClick={togglePanelMenu}
               aria-expanded={panelMenuOpen}
               aria-haspopup="menu"
+              aria-label="面板"
               title="面板：打开或聚焦面板"
             >
               <span className="sidebar-action-icon">▦</span>
@@ -3616,13 +3632,27 @@ export default function App() {
       <div
         className="resizer"
         role="separator"
+        aria-label="调整侧栏宽度"
         aria-orientation="vertical"
-        title="拖动调整侧栏宽度，双击恢复默认"
+        aria-valuemin={180}
+        aria-valuemax={480}
+        aria-valuenow={effectiveSidebarWidth}
+        tabIndex={0}
+        title="拖动调整侧栏宽度，双击恢复默认；方向键调整"
         onMouseDown={startResize}
         onDoubleClick={resetSidebarWidth}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            event.preventDefault();
+            stepSidebarWidth(event.key === "ArrowLeft" ? -16 : 16);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            resetSidebarWidth();
+          }
+        }}
       />
 
-      <main className="main">
+      <main className="main" id="main-content" aria-label="主内容" tabIndex={-1}>
         <WorkflowRail
           projection={workflowProjection}
           needs={needsMe}
@@ -4187,6 +4217,13 @@ function TasksView({
     localStorage.setItem("deer.taskListWidth", "380");
   }
 
+  function stepListWidth(delta: number) {
+    const next = Math.min(520, Math.max(280, listWidth + delta));
+    listWidthRef.current = next;
+    setListWidth(next);
+    localStorage.setItem("deer.taskListWidth", String(next));
+  }
+
   function toggleListCollapsed() {
     setListCollapsed((collapsed) => {
       const next = !collapsed;
@@ -4424,10 +4461,24 @@ function TasksView({
         <div
           className="task-resizer"
           role="separator"
+          aria-label="调整任务列表宽度"
           aria-orientation="vertical"
-          title="拖动调整任务列表宽度，双击恢复默认"
+          aria-valuemin={280}
+          aria-valuemax={520}
+          aria-valuenow={listWidth}
+          tabIndex={0}
+          title="拖动调整任务列表宽度，双击恢复默认；方向键调整"
           onMouseDown={startListResize}
           onDoubleClick={resetListWidth}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+              event.preventDefault();
+              stepListWidth(event.key === "ArrowLeft" ? -16 : 16);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              resetListWidth();
+            }
+          }}
         />
       )}
 
@@ -5729,18 +5780,36 @@ export function ChatView({
           <button
             type="button"
             role="tab"
+            id="chat-tab-chat"
+            aria-controls="chat-panel-chat"
             aria-selected={view === "chat"}
+            tabIndex={view === "chat" ? 0 : -1}
             className={view === "chat" ? "active" : ""}
             onClick={() => onViewChange("chat")}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+              event.preventDefault();
+              onViewChange("trajectory");
+              document.getElementById("chat-tab-trajectory")?.focus();
+            }}
           >
             对话
           </button>
           <button
             type="button"
             role="tab"
+            id="chat-tab-trajectory"
+            aria-controls="chat-panel-trajectory"
             aria-selected={view === "trajectory"}
+            tabIndex={view === "trajectory" ? 0 : -1}
             className={view === "trajectory" ? "active" : ""}
             onClick={() => onViewChange("trajectory")}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+              event.preventDefault();
+              onViewChange("chat");
+              document.getElementById("chat-tab-chat")?.focus();
+            }}
           >
             轨迹
             {trajectory.length > 0 && <span className="chat-view-count">{trajectory.length}</span>}
@@ -5748,7 +5817,12 @@ export function ChatView({
         </div>
 
         {view === "chat" ? (
-          <>
+          <div
+            id="chat-panel-chat"
+            className="chat-tab-panel"
+            role="tabpanel"
+            aria-labelledby="chat-tab-chat"
+          >
         {/* C10：工作区概述并入对话页，可折叠卡片 */}
         {overview && (
           <details className="overview-card">
@@ -5864,6 +5938,8 @@ export function ChatView({
         <div className="chat-composer">
           <textarea
             ref={composerRef}
+            aria-label="给 Router 发消息"
+            aria-describedby="chat-composer-help"
             value={input}
             onChange={(event) => onInput(event.target.value)}
             onKeyDown={(event) => {
@@ -5876,10 +5952,10 @@ export function ChatView({
             placeholder="给 Router 发消息… Ctrl+Enter 发送 · /clear 清空 · /compact 压缩"
           />
           <div className="row between">
-            <span className="muted tiny">
+            <span className="muted tiny" id="chat-composer-help">
               {busy
                 ? "Router 正在回复…"
-                : "上下文与工具会随任务变化 · /clear 清空 · /compact 压缩"}
+                : "上下文与工具会随任务变化 · Ctrl+Enter 发送 · /clear 清空 · /compact 压缩"}
             </span>
             <div className="row gap">
               <button
@@ -5952,13 +6028,20 @@ export function ChatView({
             </label>
           </div>
         </div>
-          </>
+          </div>
         ) : (
-          <ChatTrajectoryPanel
-            entries={trajectory}
-            loading={trajectoryLoading}
-            onRefresh={onRefreshTrajectory}
-          />
+          <div
+            id="chat-panel-trajectory"
+            className="chat-tab-panel"
+            role="tabpanel"
+            aria-labelledby="chat-tab-trajectory"
+          >
+            <ChatTrajectoryPanel
+              entries={trajectory}
+              loading={trajectoryLoading}
+              onRefresh={onRefreshTrajectory}
+            />
+          </div>
         )}
       </section>
     </div>
