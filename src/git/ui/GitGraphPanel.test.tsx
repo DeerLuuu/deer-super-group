@@ -125,7 +125,9 @@ describe("GitGraphPanel", () => {
         await Promise.resolve();
       });
       const root = renderer!.root;
-      const tablist = root.findByProps({ role: "tablist" });
+      const tablist = root
+        .findAllByProps({ role: "tablist" })
+        .find((node: any) => node.props["aria-label"] === "版本视图")!;
       await act(async () => {
         tablist.props.onKeyDown({ key: "ArrowRight", preventDefault() {} });
       });
@@ -154,7 +156,8 @@ describe("GitGraphPanel", () => {
       });
       // t352 G1：文件行改为 checkbox 行 + 「diff」按钮。
       const diffButton = root.findAllByType("button").find((node: any) =>
-        node.props.className?.includes?.("git-file-open") && node.props.children === "diff",
+        node.props.className?.includes?.("git-file-open") &&
+        String(node.props["aria-label"] ?? "").startsWith("查看 "),
       );
       expect(diffButton).toBeTruthy();
       await act(async () => {
@@ -465,6 +468,12 @@ describe("GitGraphPanel", () => {
         expect(submit).toBeTruthy();
         // test renderer 不会把 submit 冒泡到 form，直接触发 form onSubmit。
         const form = root.findByProps({ "aria-label": "提交已暂存文件" });
+        expect(
+          String(form.findAllByProps({ className: "git-ws-staged-count" })[0]?.props.children),
+        ).toContain("已暂存");
+        expect(
+          String(form.findAllByProps({ className: "git-ws-staged-count" })[0]?.props.children),
+        ).toContain("文件");
         form.props.onSubmit({ preventDefault() {} });
         for (let index = 0; index < 10; index += 1) await Promise.resolve();
       });
@@ -669,12 +678,70 @@ describe("GitGraphPanel", () => {
       expect(json).toContain("日期");
       expect(json).toContain("作者");
       expect(json).toContain("Author Name");
-      expect(json).toContain("待定的文件 · 按状态排序");
+      expect(json).toContain("筛选");
       expect(json).toContain("已暂存 (");
       expect(json).toContain("未暂存 / 未跟踪 (");
       expect(json).toContain("选择一个提交查看详情");
       expect(json).toContain("版本视图");
+      expect(json).toContain("git-ws-sections");
+      expect(json).toContain("git-ws-resizer");
       const root = renderer!.root;
+      const separator = root.findByProps({ role: "separator" });
+      expect(separator.props["aria-valuenow"]).toBe(38);
+      const sections = root.findByProps({ className: "git-ws-sections" });
+      expect(sections).toBeTruthy();
+      const stagedSection = root.findByProps({ "aria-label": "已暂存文件，共 1 个" });
+      expect(stagedSection.findAllByType("li")).toHaveLength(1);
+      expect(stagedSection.findAllByProps({ className: "ellipsis" }).length).toBeGreaterThan(0);
+      await act(async () => {
+        (separator.props.onKeyDown as (event: unknown) => void)({
+          key: "ArrowDown",
+          preventDefault() {},
+        });
+        await Promise.resolve();
+      });
+      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(43);
+      await act(async () => {
+        (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+          key: "Home",
+          preventDefault() {},
+        });
+        await Promise.resolve();
+      });
+      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(38);
+      for (let index = 0; index < 20; index += 1) {
+        await act(async () => {
+          (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+            key: "ArrowDown",
+            preventDefault() {},
+          });
+          await Promise.resolve();
+        });
+      }
+      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(80);
+      for (let index = 0; index < 20; index += 1) {
+        await act(async () => {
+          (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+            key: "ArrowUp",
+            preventDefault() {},
+          });
+          await Promise.resolve();
+        });
+      }
+      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(20);
+      await act(async () => {
+        (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+          key: "Home",
+          preventDefault() {},
+        });
+        await Promise.resolve();
+      });
+      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(38);
+      expect(
+        root
+          .findAllByProps({ role: "tab" })
+          .some((node: any) => String(node.props.children).includes("已暂存")),
+      ).toBe(true);
       const author = root
         .findAllByType("input")
         .find((input: any) => String(input.props["aria-label"]).includes("Author Name"));
@@ -698,6 +765,12 @@ describe("GitGraphPanel", () => {
       const filtered = JSON.stringify(renderer!.toJSON());
       expect(filtered).toContain("staged.txt");
       expect(filtered).not.toContain("work.txt");
+      expect(root.findAllByProps({ className: "git-ws-section-list" })).toHaveLength(2);
+      await act(async () => {
+        (fileSearch!.props.onChange as (event: unknown) => void)({ target: { value: "work" } });
+        await Promise.resolve();
+      });
+      expect(JSON.stringify(renderer!.toJSON())).toContain("没有已暂存文件");
       renderer!.unmount();
     } finally {
       (globalThis as { window?: unknown }).window = previous;
