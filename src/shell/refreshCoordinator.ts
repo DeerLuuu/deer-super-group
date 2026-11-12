@@ -41,7 +41,12 @@ export type RefreshCoordinatorOptions = {
 export function domainsForEventType(type: string): readonly RefreshDomain[] {
   if (type.startsWith("task.")) return ["snapshot", "scheduler", "runs"];
   if (type.startsWith("scheduler.")) return ["snapshot", "scheduler"];
-  if (type === "run.completed" || type === "run.failed" || type === "run.cancelled") {
+  if (
+    type === "run.started" ||
+    type === "run.completed" ||
+    type === "run.failed" ||
+    type === "run.cancelled"
+  ) {
     return ["runs", "snapshot", "scheduler"];
   }
   if (type.startsWith("run.")) return ["runs"];
@@ -104,8 +109,8 @@ export class RefreshCoordinator {
 
     const gap = this.lastSeq > 0 && event.seq !== this.lastSeq + 1;
     this.lastSeq = event.seq;
-    this.failures = 0;
-    this.stale = false;
+    // 已 stale：不再让每个离线事件触发新的 flush；等 online/invalidateAll 或成功恢复。
+    if (this.stale) return;
 
     if (gap) {
       this.full = true;
@@ -132,6 +137,8 @@ export class RefreshCoordinator {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.pending.clear();
+    // F1/F5：使当前 in-flight 的 generation 失效；旧 Promise 完成后不得再改状态/排下一批。
+    this.generation += 1;
     this.inFlight = false;
     this.pendingWhileInFlight = false;
     this.full = false;
@@ -143,6 +150,7 @@ export class RefreshCoordinator {
 
   dispose(): void {
     this.disposed = true;
+    this.generation += 1;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.pending.clear();
@@ -182,10 +190,12 @@ export class RefreshCoordinator {
         generation,
         lastSeq: this.lastSeq,
       });
+      if (generation !== this.generation) return;
       this.failures = 0;
       this.stale = false;
       this.retryDelay = null;
     } catch {
+      if (generation !== this.generation) return;
       this.failures += 1;
       if (this.failures <= (this.options.maxRetries ?? 3)) {
         for (const domain of domains) this.pending.add(domain);
@@ -196,6 +206,8 @@ export class RefreshCoordinator {
         this.options.onStale?.();
       }
     } finally {
+      // reset/dispose 后旧 flush 不得清掉新一代的 in-flight 或排旧批次。
+      if (generation !== this.generation) return;
       this.inFlight = false;
       if (this.pendingWhileInFlight) {
         this.pendingWhileInFlight = false;

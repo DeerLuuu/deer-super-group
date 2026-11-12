@@ -27,6 +27,8 @@ describe("t282 R3 RefreshCoordinator", () => {
     expect(domainsForEventType("task.created")).toEqual(["snapshot", "scheduler", "runs"]);
     expect(domainsForEventType("merge.enqueued")).toEqual(["mergeQueue", "snapshot"]);
     expect(domainsForEventType("watchdog.alert")).toEqual(["watchdog"]);
+    expect(domainsForEventType("run.started")).toEqual(["runs", "snapshot", "scheduler"]);
+    expect(domainsForEventType("run.heartbeat")).toEqual(["runs"]);
     expect(domainsForEventType("chat.reasoning")).toEqual([]);
 
     coordinator.notify(event(1, "task.created"));
@@ -126,6 +128,70 @@ describe("t282 R3 RefreshCoordinator", () => {
     expect(coordinator.isStale()).toBe(true);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(attempts).toBe(2); // 不无限重试
+    coordinator.dispose();
+  });
+
+  it("does not reset failure count on new events; offline storm stays stale", async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    let stale = 0;
+    const coordinator = new RefreshCoordinator({
+      onFlush: async () => {
+        attempts += 1;
+        throw new Error("offline");
+      },
+      onStale: () => {
+        stale += 1;
+      },
+      maxRetries: 1,
+    });
+    coordinator.notify(event(1, "watchdog.alert"));
+    await vi.advanceTimersByTimeAsync(120);
+    await vi.advanceTimersByTimeAsync(120);
+    expect(attempts).toBe(2);
+    expect(coordinator.isStale()).toBe(true);
+
+    for (let seq = 2; seq <= 20; seq += 1) {
+      coordinator.notify(event(seq, "watchdog.alert"));
+    }
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(attempts).toBe(2);
+    expect(stale).toBe(1);
+    expect(coordinator.isStale()).toBe(true);
+    coordinator.dispose();
+  });
+
+  it("reset invalidates an in-flight generation and does not schedule the old batch", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    let resolveFirst!: () => void;
+    const coordinator = new RefreshCoordinator({
+      onFlush: () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          });
+        }
+        return Promise.resolve();
+      },
+    });
+    coordinator.notify(event(1, "task.created"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(calls).toBe(1);
+
+    coordinator.reset();
+    resolveFirst();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls).toBe(1);
+    expect(coordinator.getPendingCount()).toBe(0);
+    expect(coordinator.isStale()).toBe(false);
+
+    // 新一代 seq 重新起算并正常 flush。
+    coordinator.notify(event(1, "task.created"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(calls).toBe(2);
     coordinator.dispose();
   });
 

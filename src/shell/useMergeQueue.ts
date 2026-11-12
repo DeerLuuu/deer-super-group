@@ -19,24 +19,30 @@ export function useMergeQueue(
   const [stale, setStale] = useState(false);
   const requestRef = useRef(0);
 
-  const reload = useCallback(async () => {
-    const request = ++requestRef.current;
-    if (!workspaceId || typeof window.deer.mergeQueue !== "function") {
-      setItems(null);
-      setStale(false);
-      return;
-    }
-    try {
-      const queue = await window.deer.mergeQueue(workspaceId);
-      if (request === requestRef.current) {
-        setItems(queue.items);
+  const reload = useCallback(
+    async (options: { strict?: boolean; guard?: () => boolean } = {}) => {
+      const request = ++requestRef.current;
+      if (!workspaceId || typeof window.deer.mergeQueue !== "function") {
+        setItems(null);
         setStale(false);
+        return;
       }
-    } catch {
-      // R3：保留 last-good；失败只标记 stale，不把已知队列伪造成空/未知。
-      if (request === requestRef.current) setStale(true);
-    }
-  }, [workspaceId]);
+      try {
+        const queue = await window.deer.mergeQueue(workspaceId);
+        if (options.guard && !options.guard()) return;
+        if (request === requestRef.current) {
+          setItems(queue.items);
+          setStale(false);
+        }
+      } catch (error) {
+        if (options.guard && !options.guard()) return;
+        // R3：保留 last-good；失败只标记 stale，不把已知队列伪造成空/未知。
+        if (request === requestRef.current) setStale(true);
+        if (options.strict) throw error;
+      }
+    },
+    [workspaceId],
+  );
 
   useEffect(() => {
     void reload();
