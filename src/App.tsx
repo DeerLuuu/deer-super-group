@@ -47,6 +47,8 @@ import SchedulerBar from "./SchedulerBar";
 import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
 import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
+import { translationCacheNeedsInvalidation } from "./shared/translationCache";
+import { nextVisibleMessageCount, scrollTopAfterPrepend } from "./shared/chatHistory";
 import {
   BudgetBar,
   WatchdogAlertBanner,
@@ -457,6 +459,8 @@ export default function App() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatContextBusy, setChatContextBusy] = useState(false);
   const [chatTurns, setChatTurns] = useState<ChatTurnHistoryPage | null>(null);
+  const [chatTurnsLoading, setChatTurnsLoading] = useState(false);
+  const [chatTurnsError, setChatTurnsError] = useState<string | null>(null);
   const chatComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const historyTranslationMemo = useMemo(
     () => createChatTranslationMemo((text) => window.deer.translateText(text)),
@@ -1131,6 +1135,8 @@ export default function App() {
     setContext(contextSnapshot);
     if (requestId === chatTurnsRequestRef.current) {
       setChatTurns(turns);
+      setChatTurnsError(null);
+      setChatTurnsLoading(false);
       if (turns) chatTurnsToastRef.current = false;
     }
     // t64 §4.9：问题状态单独加载；失败不阻断消息渲染（画布/文本仍可用）。
@@ -1146,6 +1152,42 @@ export default function App() {
       });
     }
   }, [contextTaskId, pushToast]);
+
+  const loadEarlierChatTurns = useCallback(async () => {
+    const current = snapshotRef.current;
+    const page = chatTurns;
+    if (!current || !page?.hasMore || !page.nextBefore || chatTurnsLoading) return;
+    const router = current.agents.find((agent) => agent.isRouter);
+    if (!router) return;
+    setChatTurnsLoading(true);
+    setChatTurnsError(null);
+    try {
+      const earlier = await window.deer.getChatTurns(current.workspace.id, router.id, {
+        limit: 20,
+        before: page.nextBefore,
+      });
+      setChatTurns((previous) => {
+        if (!previous) return earlier;
+        const seen = new Set(previous.turns.map((turn) => turn.turnId));
+        const merged = [
+          ...earlier.turns.filter((turn) => !seen.has(turn.turnId)),
+          ...previous.turns,
+        ];
+        return {
+          ...previous,
+          turns: merged,
+          hasMore: earlier.hasMore,
+          nextBefore: earlier.nextBefore,
+          truncated: previous.truncated || earlier.truncated,
+          generatedAt: earlier.generatedAt,
+        };
+      });
+    } catch (error) {
+      setChatTurnsError(errorText(error));
+    } finally {
+      setChatTurnsLoading(false);
+    }
+  }, [chatTurns, chatTurnsLoading]);
 
   const loadChatTrajectory = useCallback(async () => {
     const current = snapshotRef.current;
@@ -1697,11 +1739,7 @@ export default function App() {
       } catch {
         // 设置读取失败不阻断翻译；沿用现有缓存。
       }
-      if (
-        settingsKey !== null &&
-        translationSettingsKeyRef.current !== null &&
-        settingsKey !== translationSettingsKeyRef.current
-      ) {
+      if (translationCacheNeedsInvalidation(translationSettingsKeyRef.current, settingsKey)) {
         historyTranslationMemo.clear();
       }
       if (settingsKey !== null) translationSettingsKeyRef.current = settingsKey;
@@ -1735,6 +1773,8 @@ export default function App() {
     setChatMessages([]);
     chatLiveStore.reset();
     setChatTurns(null);
+    setChatTurnsLoading(false);
+    setChatTurnsError(null);
     chatTurnsRequestRef.current += 1;
     chatTurnsToastRef.current = false;
     historyTranslationMemo.clear();
@@ -3329,6 +3369,10 @@ export default function App() {
                       onRetryTurn={handleRetryTurn}
                       composerRef={chatComposerRef}
                       translateHistoryText={translateHistoryText}
+                      historyHasMore={Boolean(chatTurns?.hasMore)}
+                      historyLoading={chatTurnsLoading}
+                      historyError={chatTurnsError}
+                      onLoadEarlierHistory={() => void loadEarlierChatTurns()}
                       view={chatView}
                       onViewChange={setChatView}
                       trajectory={chatTrajectory}
@@ -5772,6 +5816,11 @@ export function ChatView({
   onRetryTurn,
   composerRef,
   translateHistoryText,
+  historyHasMore,
+  historyLoading,
+  historyError,
+  onLoadEarlierHistory,
+  loadEarlierMessages,
   view,
   onViewChange,
   trajectory,
@@ -5818,6 +5867,11 @@ export function ChatView({
   onRetryTurn: (content: string) => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   translateHistoryText: (text: string) => Promise<string>;
+  historyHasMore?: boolean;
+  historyLoading?: boolean;
+  historyError?: string | null;
+  onLoadEarlierHistory?: () => void;
+  loadEarlierMessages?: () => Promise<void>;
   view: "chat" | "trajectory";
   onViewChange: (view: "chat" | "trajectory") => void;
   trajectory: ChatTrajectoryEntry[];
@@ -5858,6 +5912,14 @@ export function ChatView({
   onFullThrottleChange: (enabled: boolean) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const CHAT_MESSAGE_PAGE = 40;
+  const [visibleMessageCount, setVisibleMessageCount] = useState(() =>
+    Math.min(CHAT_MESSAGE_PAGE, messages.length),
+  );
+  const [messagePageLoading, setMessagePageLoading] = useState(false);
+  const [messagePageError, setMessagePageError] = useState<string | null>(null);
+  const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const visibleMessages = messages.slice(-Math.max(0, visibleMessageCount));
   // 旧 fixture 没有 external store：给一个空 store 供 hook 稳定调用，实际终端回退 legacy props。
   const fallbackLiveStoreRef = useRef<ChatLiveStore | null>(null);
   if (!fallbackLiveStoreRef.current) fallbackLiveStoreRef.current = new ChatLiveStore();
@@ -5883,9 +5945,57 @@ export function ChatView({
       (busy && Boolean(legacyProcess)));
 
   useEffect(() => {
+    setVisibleMessageCount((current) =>
+      Math.min(Math.max(current, Math.min(CHAT_MESSAGE_PAGE, messages.length)), messages.length),
+    );
+  }, [messages.length]);
+
+  useEffect(() => {
     const node = scrollRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [messages]);
+    if (!node) return;
+    const preserve = preserveScrollRef.current;
+    if (preserve) {
+      node.scrollTop = scrollTopAfterPrepend(
+        preserve.top,
+        preserve.height,
+        node.scrollHeight,
+      );
+      preserveScrollRef.current = null;
+      return;
+    }
+    if (node.scrollHeight - node.scrollTop - node.clientHeight < 120) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [messages.length, visibleMessageCount]);
+
+  async function loadEarlierHistory() {
+    const hasEarlierMessages = visibleMessageCount < messages.length;
+    if (messagePageLoading || (!hasEarlierMessages && !historyHasMore)) return;
+    const node = scrollRef.current;
+    if (node) {
+      preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
+    }
+    setMessagePageLoading(true);
+    setMessagePageError(null);
+    try {
+      if (loadEarlierMessages) await loadEarlierMessages();
+      if (hasEarlierMessages) {
+        setVisibleMessageCount((current) =>
+          nextVisibleMessageCount(current, messages.length, CHAT_MESSAGE_PAGE),
+        );
+      }
+      onLoadEarlierHistory?.();
+    } catch (error) {
+      preserveScrollRef.current = null;
+      setMessagePageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMessagePageLoading(false);
+    }
+  }
+
+  const historyLoadingNow = messagePageLoading || Boolean(historyLoading);
+  const historyErrorNow = messagePageError ?? historyError ?? null;
+  const hasEarlierHistory = visibleMessageCount < messages.length || Boolean(historyHasMore);
 
   return (
     <div className="chat-layout">
@@ -6057,7 +6167,29 @@ export function ChatView({
               ]}
             />
           )}
-          {messages.map((message) => {
+          {hasEarlierHistory ? (
+            <div className="chat-history-more">
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => void loadEarlierHistory()}
+                disabled={historyLoadingNow}
+                aria-busy={historyLoadingNow}
+              >
+                {historyLoadingNow ? "加载更早…" : "加载更早"}
+              </button>
+              <span className="muted tiny" aria-live="polite">
+                {historyErrorNow
+                  ? `加载失败：${historyErrorNow}，可重试`
+                  : `${messages.length} 条消息，已显示最近 ${visibleMessageCount} 条`}
+              </span>
+            </div>
+          ) : messages.length > 0 ? (
+            <div className="chat-history-more muted tiny" aria-live="polite">
+              已到最早（{messages.length} 条消息）
+            </div>
+          ) : null}
+          {visibleMessages.map((message) => {
             const historical =
               message.role === "assistant" ? turnByAssistant.get(message.id) : undefined;
             const turn = message.role === "user" ? turnByUser.get(message.id) : undefined;
@@ -6086,6 +6218,7 @@ export function ChatView({
                   role={message.role}
                   content={message.content}
                   reasoning={historical ? "" : message.reasoning}
+                  translate={translateHistoryText}
                   process={
                     historical && historical.steps.length > 0 ? (
                       <ChatTurnHistoryProcess
@@ -6676,10 +6809,9 @@ function ChatTurnHistoryReasoning({
   }));
   const requested = useRef(false);
 
-  useEffect(() => {
-    if (!open || requested.current || !reasoning.text.trim()) return;
-    requested.current = true;
-    setSegment((prev) => ({ ...prev, status: "loading" }));
+  function requestTranslation() {
+    if (!reasoning.text.trim()) return;
+    setSegment((prev) => ({ ...prev, status: "loading", translation: undefined }));
     void translate(reasoning.text)
       .then((translation) => {
         setSegment((prev) => ({ ...prev, status: "done", translation }));
@@ -6687,6 +6819,13 @@ function ChatTurnHistoryReasoning({
       .catch(() => {
         setSegment((prev) => ({ ...prev, status: "error" }));
       });
+  }
+
+  useEffect(() => {
+    if (!open || requested.current || !reasoning.text.trim()) return;
+    requested.current = true;
+    requestTranslation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, reasoning.text, translate]);
 
   return (
@@ -6694,6 +6833,7 @@ function ChatTurnHistoryReasoning({
       segment={segment}
       open={open}
       onToggle={() => setOpen((value) => !value)}
+      onRetry={requestTranslation}
       legacy={reasoning.source === "message"}
     />
   );
@@ -6818,11 +6958,13 @@ function ChatReasoningBlock({
   segment,
   open,
   onToggle,
+  onRetry,
   legacy,
 }: {
   segment: ChatReasoningSegment;
   open: boolean;
   onToggle: () => void;
+  onRetry?: () => void;
   /** t168：message.reasoning 降级的旧数据标记。 */
   legacy?: boolean;
 }) {
@@ -6883,7 +7025,14 @@ function ChatReasoningBlock({
             <div className="chat-turn-translation-status">机翻中…</div>
           )}
           {segment.status === "error" && (
-            <div className="chat-turn-translation-status is-error">机翻失败</div>
+            <div className="chat-turn-translation-status is-error">
+              机翻失败，已显示原文
+              {onRetry ? (
+                <button type="button" className="ghost tiny" onClick={onRetry}>
+                  重试翻译
+                </button>
+              ) : null}
+            </div>
           )}
         </div>
       )}
@@ -6894,9 +7043,11 @@ function ChatReasoningBlock({
 function ChatMessageReasoning({
   text,
   streaming,
+  translate,
 }: {
   text: string;
   streaming: boolean;
+  translate?: (text: string) => Promise<string>;
 }) {
   const [open, setOpen] = useState(streaming);
   const [segment, setSegment] = useState<ChatReasoningSegment>(() => ({
@@ -6907,25 +7058,33 @@ function ChatMessageReasoning({
   }));
   const requested = useRef(false);
 
-  // t183：历史消息的 reasoning 只在展开时懒翻译，避免启动时批量打 Bing。
-  useEffect(() => {
-    if (!open || requested.current || !text.trim()) return;
-    requested.current = true;
-    void window.deer
-      .translateText(text)
+  function requestTranslation() {
+    if (!text.trim()) return;
+    setSegment((prev) => ({ ...prev, status: "loading", translation: undefined }));
+    const run = translate ?? ((value: string) => window.deer.translateText(value));
+    void run(text)
       .then((translation) => {
         setSegment((prev) => ({ ...prev, status: "done", translation }));
       })
       .catch(() => {
         setSegment((prev) => ({ ...prev, status: "error" }));
       });
-  }, [open, text]);
+  }
+
+  // t183：历史消息的 reasoning 只在展开时懒翻译，避免启动时批量打 Bing。
+  useEffect(() => {
+    if (!open || requested.current || !text.trim()) return;
+    requested.current = true;
+    requestTranslation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, text, translate]);
 
   return (
     <ChatReasoningBlock
       segment={segment}
       open={open}
       onToggle={() => setOpen((value) => !value)}
+      onRetry={requestTranslation}
     />
   );
 }
@@ -6935,6 +7094,7 @@ function ChatBubble({
   role,
   content,
   reasoning,
+  translate,
   process,
   createdAt,
   streaming,
@@ -6947,6 +7107,7 @@ function ChatBubble({
   role: ChatMessage["role"];
   content: string;
   reasoning?: string;
+  translate?: (text: string) => Promise<string>;
   /** t177：思考段 + 工具调用，和最终回复放在同一个 bubble 内。 */
   process?: ReactNode;
   createdAt?: string;
@@ -6966,7 +7127,11 @@ function ChatBubble({
           {streaming ? " · 生成中" : ""}
         </div>
         {reasoning && (
-          <ChatMessageReasoning text={reasoning} streaming={Boolean(streaming)} />
+          <ChatMessageReasoning
+            text={reasoning}
+            streaming={Boolean(streaming)}
+            translate={translate}
+          />
         )}
         {process}
         {content && (

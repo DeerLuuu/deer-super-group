@@ -9,7 +9,10 @@ import { ChatLiveStore } from "./chatLiveStore.js";
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
   create: (element: unknown) => {
-    root: { findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }> };
+    root: {
+      findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }>;
+      findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
+    };
     toJSON: () => unknown;
     unmount: () => void;
   };
@@ -34,9 +37,11 @@ let viewRenders = 0;
 function ChatViewProbe({
   store,
   onViewChange = () => {},
+  loadEarlierMessages,
 }: {
   store: ChatLiveStore;
   onViewChange?: (view: "chat" | "trajectory") => void;
+  loadEarlierMessages?: () => Promise<void>;
 }) {
   viewRenders += 1;
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -51,6 +56,7 @@ function ChatViewProbe({
       translateHistoryText={async (text) => text}
       view="chat"
       onViewChange={onViewChange}
+      loadEarlierMessages={loadEarlierMessages}
       trajectory={[]}
       trajectoryLoading={false}
       onRefreshTrajectory={() => {}}
@@ -145,5 +151,53 @@ describe("t260 R1 actual ChatView isolation", () => {
     expect(onViewChange).toHaveBeenLastCalledWith("chat");
     if (originalDocument === undefined) delete (globalThis as { document?: unknown }).document;
     else (globalThis as { document?: unknown }).document = originalDocument;
+  });
+
+  it("loads earlier messages and keeps newest messages", async () => {
+    const store = new ChatLiveStore(WS);
+    const treeRef: { current?: ReturnType<typeof create> } = {};
+    await act(async () => {
+      treeRef.current = create(<ChatViewProbe store={store} />);
+    });
+    const renderer = treeRef.current!;
+    const initial = JSON.stringify(renderer.toJSON());
+    expect(initial).toContain("fixture message 149");
+    expect(initial).not.toContain("fixture message 0");
+    for (let page = 0; page < 3; page += 1) {
+      const more = renderer.root
+        .findAllByType("button")
+        .find((button) => JSON.stringify(button.children).includes("加载更早"))!;
+      await act(async () => {
+        await (more.props.onClick as () => Promise<void>)();
+      });
+    }
+    const loaded = JSON.stringify(renderer.toJSON());
+    expect(loaded).toContain("fixture message 0");
+    expect(loaded).toContain("fixture message 149");
+    expect(loaded).toContain("已到最早");
+  });
+
+  it("shows a retryable error when earlier history fails", async () => {
+    const store = new ChatLiveStore(WS);
+    const loadEarlierMessages = vi.fn(async () => {
+      throw new Error("history network failed");
+    });
+    const treeRef: { current?: ReturnType<typeof create> } = {};
+    await act(async () => {
+      treeRef.current = create(
+        <ChatViewProbe store={store} loadEarlierMessages={loadEarlierMessages} />,
+      );
+    });
+    const renderer = treeRef.current!;
+    const more = renderer.root
+      .findAllByType("button")
+      .find((button) => JSON.stringify(button.children).includes("加载更早"))!;
+    await act(async () => {
+      await (more.props.onClick as () => Promise<void>)();
+    });
+    const failed = JSON.stringify(renderer.toJSON());
+    expect(failed).toContain("加载失败");
+    expect(failed).toContain("可重试");
+    expect(loadEarlierMessages).toHaveBeenCalledTimes(1);
   });
 });

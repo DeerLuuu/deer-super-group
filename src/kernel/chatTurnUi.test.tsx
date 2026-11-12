@@ -269,6 +269,16 @@ describe("t172 App UI history process", () => {
     const html = textOf(renderer.toJSON());
     expect(html).toContain("先检查工具");
     expect(html).toContain("机翻失败");
+    expect(html).toContain("重试翻译");
+    expect(translate).toHaveBeenCalledTimes(1);
+    const retryTranslation = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("重试翻译"))!;
+    await act(async () => {
+      (retryTranslation.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    expect(translate).toHaveBeenCalledTimes(2);
   });
 
   it("does not attach live tools to a persisted assistant bubble", async () => {
