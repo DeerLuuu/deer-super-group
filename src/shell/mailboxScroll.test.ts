@@ -25,6 +25,12 @@ describe("t405 mailbox scroll anchors", () => {
     expect(restoreMailboxScrollTop(reordered, anchor)).toBe(220);
   });
 
+  it("keeps a negative anchor offset so exact scrollTop is restored", () => {
+    const anchor = captureMailboxAnchor([{ id: "b", offsetTop: 187, offsetHeight: 80 }], 180);
+    expect(anchor).toEqual({ id: "b", offset: -7 });
+    expect(restoreMailboxScrollTop([{ id: "b", offsetTop: 187, offsetHeight: 80 }], anchor)).toBe(180);
+  });
+
   it("restores the same thread when a new active thread is inserted above", () => {
     const anchor = captureMailboxAnchor(items, 120);
     const withNewTop = [

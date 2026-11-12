@@ -9,6 +9,9 @@ vi.mock("react-dom", async (importOriginal) => {
 });
 
 vi.mock("../CommandPalette", () => ({
+  // Mock boundary: this test owns App wiring (palette callback -> selectedMessageId
+  // + mailbox panel). The real palette render/input path is covered by
+  // src/CommandPalette.test.tsx; this test does not claim a full App palette e2e.
   default: ({ onOpenMessage }: { onOpenMessage: (id: string) => void }) => (
     <button data-testid="palette-open-message" onClick={() => onOpenMessage("reply-1")}>
       打开测试邮件线程

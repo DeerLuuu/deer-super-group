@@ -7,22 +7,16 @@
 - 单一功能：邮箱线程化。
 - 分支：`feature/t356-mailbox-threads`（PR https://github.com/DeerLuuu/deer-super-group/pull/55，未合并）。
 - 基线：main `e2ac41a`（G3 SourceTree Git 面板已合入后的最新 main）。
-- 不新增数据源、不改权限、不改 schema；没有新增 IPC 通道。
+- 不新增数据源/IPC/权限；新增 `messages.parent_id` 可空列迁移（旧行保持 NULL），回复真实落库。
 
-## 2. 当前数据模型与兼容策略（重要）
+## 2. 数据模型与回复链（真实 parent_id）
 
-仓库当前 `messages` 表只有 `thread_id`，**没有 `parent_id` 列**；现有 `MailboxMessage` 也只有 `threadId`。本任务不迁移 schema，因此：
-
-1. `src/shared/mailboxThreads.ts` 投影同时支持：
-   - 消息上的可选 `parentId`（为已有/未来数据保留的链式字段）；
-   - 存量 `threadId`：同 `thread_id` 的消息聚合为一线程；
-   - 没有 parentId 的存量消息：按各自 `thread_id` 分组；若 thread_id 互不相同则各自成独立线程。
-2. 同一线程内，若消息没有显式 `parentId`，按创建时间把**上一封**作为展示父节点，形成线性回复链（根 → 回复 → 再回复），用于缩进/连线。
-3. 线程投影的 `threadId` 取**根消息 id**；另保留 `threadKey = 根消息.threadId`。
-4. 回复沿用现有 `messages.thread_id`：`SendMessageInput` 增加可选 `threadId`（仅复用现有列，不新增列/通道），Electron 现有 handler 透传，`Store.addMessage` 已有 `threadId` 入参。
-5. 存量无 parentId、thread_id 各异的旧邮件不丢、不合并；有同 thread_id 的历史项目仍按原线程聚合。
-
-这是对“现有 parentId 链”在当前 schema 下的兼容实现：行为上线程根/回复链/缩进完整；没有为了本功能增加数据库迁移。
+1. `messages` 表新增 **可空 `parent_id`**（`node:sqlite` `ALTER TABLE ADD COLUMN` 幂等；新库直接建列）；旧库启动时补列，旧行 `parent_id` 保持 NULL，不强行回填。
+2. `MailboxMessage.parentId?: Id` 由 `toMessage` 从 `parent_id` 读回；`SendMessageInput.parentId?: Id` 由 App/Compose 传入；`Store.addMessage` 写入 `parent_id`；顶层消息为 NULL。
+3. 回复 compose 传**被回复消息 id**（当前选中消息；无选中时用线程最后一条），并带线程 `threadId` 存储键；顶部「发邮件」不带 parentId。
+4. `deriveMailboxThreads` 优先真实 `parentId` 建链，支持 A→B、A→C 分支；只有**整条 thread 都没有 parentId 的 legacy 数据**才保留 thread_id + createdAt 线性兼容，不再对新数据按 createdAt 推断父节点。
+5. 线程 `threadId` 取根消息 id，`threadKey` 保留 DB `thread_id`；同一 thread_id 仍聚合，真实 parentId 跨 thread 时也会 union 到同一线程。
+6. 真实 DB 测试：`Store.addMessage`→`listMessages`→`toMessage` 读回 parent_id、A→B/A→C 分支投影、旧库补列幂等、旧行 NULL 兼容；迁移在启动期完成，失败关闭连接并拒绝启动，不留下半迁移状态。另有真实 Electron UI 回复→SQLite 查询证据（`t409-mailbox-parent-roundtrip.json`）：parent_id 指向被回复消息，thread_id 保持 `thread-deep`。
 
 ## 3. 线程/未读/搜索
 
@@ -33,7 +27,8 @@
 - 搜索：主题、摘要、参与者、正文；成员下拉按 `from`/`to` 参与者过滤。
 - 无邮件 / 搜不到结果分别显示带行动的空态；清除筛选可恢复。
 - 当前选中线程高亮；深链 `#/mailbox?m=<messageId>` 会定位到包含该消息的线程（回复链内定位）。
-- 点击「回复线程」打开 compose，自动带线程参与者、`Re:` 主题与 `threadId`（`threadKey`），发送后仍停留在该线程。
+- 点击「回复线程」打开 compose，自动带线程参与者、`Re:` 主题、线程 `threadId`（`threadKey`）和**被回复消息 `parentId`**，发送后仍停留在该线程。
+- 筛选把当前选中线程隐藏时，详情显示「当前选中线程被筛选隐藏」+ 清除筛选，不再展示另一线程造成 detail/hash 分叉；无选中时仍默认第一条可见线程。
 
 ### 3.1 刷新/重排/新消息保持（t405）
 
@@ -49,17 +44,29 @@
 - `MAILBOX_MAX_INDENT = 6`：UI 最大缩进 `6 × 14px = 84px`，更深回复仍展示内容但不继续右移。
 - `mailboxThreads.test.ts` 的 50 层父链测试确认 `depth[0]=0`、`depth[12]=12`、`depth[49]=12`。
 
+### 3.3 listbox 键盘 / 筛选隐藏 / read-id 清理（t409）
+
+- 线程行采用 roving tabIndex：当前 active option `tabIndex=0`，其余 `-1`；`ArrowUp/ArrowDown/Home/End` 移动焦点并同步 `aria-selected`。无选中时第一条可见线程为 0。
+- 筛选隐藏当前选中线程时显示显式空态（见 §3），不切换 detail 或 hash；测试 `shows an explicit hidden-selected state...`。
+- read ids 每次快照按当前 messages 裁剪（`pruneMailboxReadIds`），已归档/不存在消息的 id 不无限累积；对应 helper 测试。
+- App 级跨面板测试 `mailboxAppThread.test.tsx` 明确 **mock 边界**：本测试验证 App 的 Command Palette 回调 → `selectedMessageId` → mailbox 定位；真实 Palette UI 由 `CommandPalette.test.tsx` 覆盖，不声称完整真实 palette e2e。
+
+### 3.4 960/480 刷新保持（t409 F3）
+
+- `t409-mailbox-small-refresh.json`：960/480 各自刷新前/后 listTop 320、chainTop 180、firstThread/firstMessage anchor 与 active 深层回复链一致，`scrollWidth===innerWidth`（960/480）。
+- 截图：`t409-mailbox-960-before.png` / `-after.png`、`t409-mailbox-480-before.png` / `-after.png`。
+
 ## 4. 组件与文件
 
-- `src/shared/mailboxThreads.ts`：纯投影 `deriveMailboxThreads`、`filterMailboxThreads`、`mailboxParticipants`、`totalMailboxUnread`、depth/indent 上限、read-state 存取。
-- `src/shared/mailboxThreads.test.ts`：8 项纯函数测试（含 50 层深链、read-state reload）。
-- `src/shell/mailboxScroll.ts`：滚动锚点捕获/恢复/序列化纯函数。
-- `src/shell/mailboxScroll.test.ts`：5 项测试（重排、新消息顶部插入、详情、持久化容错）。
-- `src/App.tsx`：`MailboxView` 线程列表 + 回复链 + 搜索/过滤 + 全部已读 + scroll 保持 + compose 线程上下文；App read state/localStorage；`MailboxComposeModal` 可选 thread 预填。
-- `src/shared/types.ts`：`MailboxMessage.parentId?`、`SendMessageInput.threadId?`（均为可选，不改 DB）。
+- `src/kernel/store.ts`：`messages.parent_id` 建列/幂等 ALTER、`addMessage` 写入、`toMessage` 读回、启动迁移失败关闭连接；新增 `src/kernel/store.mailbox.test.ts` 真实 DB round-trip/分支/迁移幂等测试。
+- `src/shared/mailboxThreads.ts`：纯投影（优先真实 parentId；legacy thread_id 线性兼容）、depth/indent 上限、read-state 存取/裁剪。
+- `src/shared/mailboxThreads.test.ts`：线程派生、A→B/A→C 分支、50 层深链、read reload/prune、搜索/空态等。
+- `src/shell/mailboxScroll.ts` + test：滚动锚点捕获/恢复/序列化；重排、新顶插入、负 offset 精确恢复、持久化容错。
+- `src/App.tsx`：`MailboxView` 线程列表/回复链/搜索过滤/全部已读/scroll 保持/roving tabIndex/筛选隐藏态；App read state + prune；`MailboxComposeModal` 可选 thread + parentId。
+- `src/shared/types.ts`：`MailboxMessage.parentId?`、`SendMessageInput.parentId?`（真实持久化字段）。
 - `src/styles.css`：线程列表/链/未读/过滤条；≤900/≤720/≤480 单列布局，无横向溢出。
-- `src/shell/MailboxView.test.tsx`：6 项视图测试（含新消息置顶保持展开）。
-- `src/shell/mailboxAppThread.test.tsx`：1 项 App 级 Command Palette → mailbox 线程定位测试。
+- `src/shell/MailboxView.test.tsx`：8 项视图测试（roving 键盘、新消息置顶、筛选隐藏、parentId reply）。
+- `src/shell/mailboxAppThread.test.tsx`：App 级跨面板定位（Command Palette mock boundary）。
 - `src/shell/MailboxComposeModal.test.tsx`：原失败保留测试保持通过。
 
 ## 5. 截图与真实 Electron 走查
@@ -84,25 +91,33 @@ t405 刷新/重排保持截图（25 个线程，list/detail 均滚动到中段�
 
 `t405-mailbox-walkthrough.json` 记录：before/after-refresh listTop 620、chainTop 260、firstThread offset 67、active 深层回复链完全一致；插入新线程并刷新后 topSubject=新消息、rows 25→26、firstThread/offset/chainTop 保持；`全部标为已读` settled 后未读为 `全部已读`（修正旧 walkthrough 采样时机）。
 
+t409 小屏刷新保持截图（25 个线程，listTop 320 / chainTop 180）：
+
+| 960 刷新前 | 960 刷新后 | 480 刷新前 | 480 刷新后 |
+|---|---|---|---|
+| ![](t409-mailbox-960-before.png) | ![](t409-mailbox-960-after.png) | ![](t409-mailbox-480-before.png) | ![](t409-mailbox-480-after.png) |
+
+`t409-mailbox-small-refresh.json`：960/480 的 firstThread/firstMessage anchor、active 深层回复链和 scrollTop 在刷新前后一致，且 `scrollWidth===innerWidth`。真实 UI 回复→DB 证据见 `t409-mailbox-parent-roundtrip.json`（parent_id 指向被回复消息）。
+
 `t356-mailbox-walkthrough.json` 记录 DOM 断言：
 
 - 3 个线程；同 thread_id 的 3 封显示 1 行、3 封 / 3 未读；点击后回复链 3 条，缩进 `0/14/28px`。
 - 「全部标为已读」后 `全部已读`；搜索「评审」后 1 行；成员过滤 `Reviewer` 后 1 行；无结果空态。
-- 回复弹窗主题 `Re: 独立通知`、收件人 `Builder, Router`；发送回调携带 `threadId`。
-- 焦点首行 + `ArrowDown` 后 `aria-selected` 移到第二线程；列表 `role=listbox`、行 `role=option`、`aria-label` 含线程/未读数。
+- 回复弹窗主题 `Re: 独立通知`、收件人 `Builder, Router`；发送回调携带 `threadId` 与 `parentId`（t409 后）。
+- 焦点首行 + `ArrowDown` 后 `aria-selected` 移到第二线程；列表 `role=listbox`、行 `role=option`、roving `tabIndex`、`aria-label` 含线程/未读数。
 - 960/480 `documentElement.scrollWidth === innerWidth`（960/480），无横向裁切。
 
 ## 6. 验证
 
 - `pnpm typecheck` exit 0。
-- `pnpm build` exit 0（js 323.86 kB / gzip 96.57；vendor 414.89 / 97.22）。
-- `pnpm test -- --max-workers=1 --testTimeout=20000`：129 文件 / 915 用例全绿（exit 0）。默认并行 5s timeout 与串行首轮 openai 5s timeout 均为既有重测试基线（与本功能无关；扩展/串行重跑通过）。
+- `pnpm build` exit 0（js 324.91 kB / gzip 96.87；vendor 414.89 / 97.22）。
+- `pnpm test -- --max-workers=1 --testTimeout=20000`：130 文件 / 922 用例全绿（exit 0）。默认并行 5s timeout 与串行首轮 openai 5s timeout 均为既有重测试基线（与本功能无关；扩展/串行重跑通过）。
 
 ## 7. 风险、边界与回滚
 
-- 未改 `src/kernel/`、`electron/`、`src/git/`、权限、数据源、IPC 通道；只复用现有 `thread_id` 列和现有 `sendMessage`。
-- read state 仅在工作区 localStorage；scroll 锚点仅在工作区 sessionStorage（UI-only，不跨设备/不写 DB）；换工作区按 key 隔离。
-- 当前没有真实 `parent_id` 列，显式 parentId 分支主要服务已有/后续数据；存量兼容路径已验证。
-- 回滚：revert 本 PR 单 commit；不影响已有消息与 schema。
+- 未改 `electron/`、`src/git/`、权限、数据源、IPC 通道；新增仅 `messages.parent_id` 可空列迁移；回复复用现有 `sendMessage`。
+- read state 仅在工作区 localStorage；scroll 锚点仅在工作区 sessionStorage（UI-only，不跨设备/不写 DB）；换工作区按 key 隔离；已归档/删除消息的 read id 会裁剪。
+- 旧行 `parent_id=NULL` 只在整条 thread 无真实 parent 时按 thread_id+createdAt 线性兼容；新回复优先真实 parentId，A→B/A→C 分支有真实 DB 测试。
+- 回滚：revert 本 PR 单 commit；数据库新增可空列可保留（旧版本 SELECT * 忽略），不影响已有消息。
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

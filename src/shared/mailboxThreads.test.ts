@@ -7,6 +7,7 @@ import {
   mailboxParticipants,
   mailboxReadStorageKey,
   parseMailboxReadIds,
+  pruneMailboxReadIds,
   serializeMailboxReadIds,
   totalMailboxUnread,
 } from "./mailboxThreads";
@@ -70,6 +71,17 @@ describe("t356 mailbox thread projection", () => {
     expect(threads[0].messages.map((entry) => entry.parentId)).toEqual([null, root.id, child.id]);
     expect(threads[0].messages.map((entry) => entry.depth)).toEqual([0, 1, 2]);
     expect(threads[0].threadId).toBe(root.id);
+  });
+
+  it("supports real branch replies A→B and A→C instead of a createdAt chain", () => {
+    const a = message({ threadId: "branch", subject: "A" });
+    const b = message({ threadId: "branch", parentId: a.id, subject: "B" });
+    const c = message({ threadId: "branch", parentId: a.id, subject: "C" });
+    const threads = deriveMailboxThreads([c, b, a]);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].messages.map((entry) => entry.parentId)).toEqual([null, a.id, a.id]);
+    expect(threads[0].messages.map((entry) => entry.depth)).toEqual([0, 1, 1]);
+    expect(threads[0].messages[1].parentId).toBe(threads[0].messages[2].parentId);
   });
 
   it("aggregates unread and sorts by latest activity", () => {
@@ -137,5 +149,12 @@ describe("t356 mailbox thread projection", () => {
     expect([...afterReload]).toEqual(["msg-1", "msg-2"]);
     expect(parseMailboxReadIds(null).size).toBe(0);
     expect(parseMailboxReadIds("{broken").size).toBe(0);
+  });
+
+  it("prunes read ids for archived or missing messages", () => {
+    expect([...pruneMailboxReadIds(new Set(["a", "b", "gone"]), ["a", "b", "c"])]).toEqual([
+      "a",
+      "b",
+    ]);
   });
 });

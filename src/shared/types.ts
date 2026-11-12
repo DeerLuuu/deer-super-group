@@ -826,8 +826,10 @@ export interface SendMessageInput {
   subject: string;
   body: string;
   kind: MessageKind;
-  /** 复用 messages.thread_id（不新增列）：线程内回复携带根线程的存储键。 */
+  /** 线程存储键（复用 messages.thread_id）。 */
   threadId?: Id;
+  /** 被回复消息 id（messages.parent_id；顶层消息省略）。 */
+  parentId?: Id;
 }
 
 export interface PostBoardInput {

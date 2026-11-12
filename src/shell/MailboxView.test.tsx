@@ -1,5 +1,6 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 vi.mock("../Modal.js", () => ({
   default: ({ children }: { children: unknown }) => children,
@@ -202,6 +203,7 @@ describe("t356 MailboxView threads", () => {
         subject: "Re: Launch checklist",
         body: "Follow up",
         threadId: "t1",
+        parentId: root.id,
       }),
     );
   });
@@ -238,5 +240,86 @@ describe("t356 MailboxView threads", () => {
     expect(selectedRow?.props["aria-label"]).toContain("Selected thread");
     expect(selectedRow?.props["data-expanded"]).toBe(true);
     expect(JSON.stringify(renderer.toJSON())).toContain("Selected thread");
+  });
+
+  it("uses roving tabIndex and Arrow/Home/End update the active thread", async () => {
+    const first = mail({
+      id: "first",
+      threadId: "t1",
+      subject: "First",
+      createdAt: "2026-01-01T00:00:09Z",
+    });
+    const second = mail({
+      id: "second",
+      threadId: "t2",
+      subject: "Second",
+      createdAt: "2026-01-01T00:00:07Z",
+    });
+    const third = mail({
+      id: "third",
+      threadId: "t3",
+      subject: "Third",
+      createdAt: "2026-01-01T00:00:08Z",
+    });
+    function Harness() {
+      const [selected, setSelected] = useState(first.id);
+      return (
+        <MailboxView
+          snapshot={snapshot([first, second, third])}
+          busy={false}
+          selectedMessageId={selected}
+          onSelectMessage={setSelected}
+          autoOpenCompose={false}
+          onAutoOpenHandled={vi.fn()}
+          onSend={vi.fn(async () => true)}
+          readIds={new Set()}
+          onMarkRead={vi.fn()}
+        />
+      );
+    }
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<Harness />);
+    });
+    let rows = renderer!.root.findAllByProps({ role: "option" });
+    expect(rows.map((row) => row.props["tabIndex"])).toEqual([0, -1, -1]);
+    await act(async () => {
+      (rows[0].props.onKeyDown as (event: unknown) => void)({
+        key: "ArrowDown",
+        preventDefault: vi.fn(),
+      });
+    });
+    rows = renderer!.root.findAllByProps({ role: "option" });
+    expect(rows.map((row) => row.props["aria-selected"])).toEqual([false, true, false]);
+    expect(rows.map((row) => row.props["tabIndex"])).toEqual([-1, 0, -1]);
+    await act(async () => {
+      (rows[1].props.onKeyDown as (event: unknown) => void)({
+        key: "End",
+        preventDefault: vi.fn(),
+      });
+    });
+    rows = renderer!.root.findAllByProps({ role: "option" });
+    expect(rows[2].props["aria-selected"]).toBe(true);
+    await act(async () => {
+      (rows[2].props.onKeyDown as (event: unknown) => void)({
+        key: "Home",
+        preventDefault: vi.fn(),
+      });
+    });
+    rows = renderer!.root.findAllByProps({ role: "option" });
+    expect(rows[0].props["aria-selected"]).toBe(true);
+  });
+
+  it("shows an explicit hidden-selected state instead of a mismatched detail pane", async () => {
+    const selected = mail({ id: "selected", threadId: "t1", subject: "Hidden thread" });
+    const other = mail({ id: "other", threadId: "t2", subject: "Other thread" });
+    const renderer = renderView({ messages: [selected, other], selectedMessageId: selected.id });
+    const search = renderer.root.findAllByProps({ "aria-label": "搜索邮件线程" })[0];
+    await act(() => {
+      (search.props.onChange as (event: unknown) => void)({ target: { value: "Other" } });
+    });
+    const output = JSON.stringify(renderer.toJSON());
+    expect(output).toContain("当前选中线程被筛选隐藏");
+    expect(renderer.root.findAllByProps({ "aria-selected": true })).toHaveLength(0);
   });
 });

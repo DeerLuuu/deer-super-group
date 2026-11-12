@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
   thread_id TEXT NOT NULL,
+  parent_id TEXT,
   from_agent TEXT NOT NULL,
   to_agents TEXT NOT NULL DEFAULT '[]',
   kind TEXT NOT NULL,
@@ -450,6 +451,7 @@ function toMessage(row: Row): MailboxMessage {
     id: String(row.id),
     workspaceId: String(row.workspace_id),
     threadId: String(row.thread_id),
+    ...(row.parent_id == null ? {} : { parentId: String(row.parent_id) }),
     from: String(row.from_agent),
     to: parseJson<string[]>(row.to_agents, []),
     kind: String(row.kind) as MessageKind,
@@ -613,6 +615,26 @@ export class Store {
       this.db.exec(
         "ALTER TABLE agents ADD COLUMN permission TEXT NOT NULL DEFAULT 'workspace_write'",
       );
+    }
+
+    // t409 M1：真实回复链父节点。旧库补可空列；旧行保持 NULL，
+    // 由投影层只对 legacy thread 做线性兼容。ALTER ADD COLUMN 原子，
+    // 失败会关闭连接并拒绝启动，避免留下半迁移状态。
+    try {
+      const messageColumns = this.db.prepare("PRAGMA table_info(messages)").all() as Array<{
+        name?: string;
+      }>;
+      if (!messageColumns.some((column) => column.name === "parent_id")) {
+        this.db.exec("ALTER TABLE messages ADD COLUMN parent_id TEXT");
+      }
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_id)");
+    } catch (error) {
+      try {
+        this.db.close();
+      } catch {
+        // ignore close error
+      }
+      throw error;
     }
 
     // t68：事件/投影/调度 schema（v2）。旧库补列并为存量实体写基线事件。
@@ -1596,11 +1618,13 @@ export class Store {
     body: string;
     refs?: string[];
     threadId?: string;
+    parentId?: string;
   }): MailboxMessage {
     const message: MailboxMessage = {
       id: newId("msg"),
       workspaceId: input.workspaceId,
       threadId: input.threadId ?? newId("thread"),
+      ...(input.parentId ? { parentId: input.parentId } : {}),
       from: input.from,
       to: input.to,
       kind: input.kind,
@@ -1611,13 +1635,14 @@ export class Store {
     };
     this.db
       .prepare(
-        `INSERT INTO messages (id, workspace_id, thread_id, from_agent, to_agents, kind, subject, body, refs, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (id, workspace_id, thread_id, parent_id, from_agent, to_agents, kind, subject, body, refs, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         message.id,
         message.workspaceId,
         message.threadId,
+        message.parentId ?? null,
         message.from,
         JSON.stringify(message.to),
         message.kind,

@@ -47,6 +47,7 @@ import {
   mailboxParticipants,
   mailboxReadStorageKey,
   parseMailboxReadIds,
+  pruneMailboxReadIds,
   serializeMailboxReadIds,
   totalMailboxUnread,
   type MailboxThread,
@@ -1575,6 +1576,24 @@ export default function App() {
   }, [snapshot?.workspace.id]);
 
   useEffect(() => {
+    const workspaceId = snapshot?.workspace.id;
+    if (!workspaceId || !snapshot || snapshot.messages.length === 0) return;
+    setMailboxReadIds((previous) => {
+      const next = pruneMailboxReadIds(
+        previous,
+        snapshot.messages.map((message) => message.id),
+      );
+      if (next.size === previous.size) return previous;
+      try {
+        localStorage.setItem(mailboxReadStorageKey(workspaceId), serializeMailboxReadIds(next));
+      } catch {
+        // localStorage 不可用时仍保留会话内已读状态。
+      }
+      return next;
+    });
+  }, [snapshot?.workspace.id, snapshot?.messages]);
+
+  useEffect(() => {
     const coordinator = new RefreshCoordinator({
       onFlush: async ({ domains, generation, lastSeq }) => {
         const current = snapshotRef.current;
@@ -3022,6 +3041,7 @@ export default function App() {
     body: string;
     kind: MailboxMessage["kind"];
     threadId?: string;
+    parentId?: string;
   }): Promise<boolean> {
     const current = snapshotRef.current;
     if (!current) return false;
@@ -5404,11 +5424,16 @@ function mailboxScrollItems(
   attribute: "data-thread-id" | "data-message-id",
 ): MailboxScrollItem[] {
   if (!container) return [];
-  return Array.from(container.querySelectorAll<HTMLElement>(`[${attribute}]`)).map((element) => ({
-    id: element.getAttribute(attribute) ?? "",
-    offsetTop: element.offsetTop,
-    offsetHeight: element.offsetHeight,
-  }));
+  const containerRect = container.getBoundingClientRect();
+  return Array.from(container.querySelectorAll<HTMLElement>(`[${attribute}]`)).map((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      id: element.getAttribute(attribute) ?? "",
+      // offsetTop 相对 offsetParent（可能含 panel header），这里换成相对滚动容器的 content offset。
+      offsetTop: rect.top - containerRect.top + container.scrollTop,
+      offsetHeight: rect.height,
+    };
+  });
 }
 
 function readMailboxScrollState(storageKey: string): MailboxScrollState {
@@ -5455,12 +5480,14 @@ export function MailboxView({
     body: string;
     kind: MailboxMessage["kind"];
     threadId?: string;
+    parentId?: string;
   }) => Promise<boolean>;
   readIds: ReadonlySet<string>;
   onMarkRead: (ids: string[]) => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeThread, setComposeThread] = useState<MailboxThread | null>(null);
+  const [composeParentId, setComposeParentId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [member, setMember] = useState("");
   const threadRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -5472,6 +5499,7 @@ export function MailboxView({
   useEffect(() => {
     if (!autoOpenCompose) return;
     setComposeThread(null);
+    setComposeParentId(null);
     setComposeOpen(true);
     onAutoOpenHandled();
   }, [autoOpenCompose, onAutoOpenHandled]);
@@ -5485,11 +5513,25 @@ export function MailboxView({
     () => filterMailboxThreads(threads, query, member || null),
     [threads, query, member],
   );
-  const selectedThread =
-    visibleThreads.find((thread) =>
-      thread.messages.some((entry) => entry.message.id === selectedMessageId),
-    ) ?? visibleThreads[0] ?? null;
+  const selectedThreadMatch =
+    selectedMessageId === null
+      ? null
+      : threads.find((thread) =>
+          thread.messages.some((entry) => entry.message.id === selectedMessageId),
+        ) ?? null;
+  const selectedHidden = Boolean(
+    selectedThreadMatch &&
+      !visibleThreads.some((thread) => thread.threadId === selectedThreadMatch.threadId),
+  );
+  const selectedThread = selectedHidden
+    ? null
+    : selectedMessageId === null
+      ? visibleThreads[0] ?? null
+      : visibleThreads.find((thread) =>
+          thread.messages.some((entry) => entry.message.id === selectedMessageId),
+        ) ?? null;
   const unreadTotal = useMemo(() => totalMailboxUnread(threads), [threads]);
+  const rovingThreadId = selectedThread?.threadId ?? visibleThreads[0]?.threadId ?? null;
 
   function rememberScroll() {
     const list = listRef.current;
@@ -5535,8 +5577,9 @@ export function MailboxView({
     onSelectMessage(thread.threadId);
   }
 
-  function openCompose(thread: MailboxThread | null) {
+  function openCompose(thread: MailboxThread | null, parentId: string | null = null) {
     setComposeThread(thread);
+    setComposeParentId(parentId);
     setComposeOpen(true);
   }
 
@@ -5660,6 +5703,7 @@ export function MailboxView({
               }}
               type="button"
               role="option"
+              tabIndex={rovingThreadId === thread.threadId ? 0 : -1}
               data-thread-id={thread.threadId}
               data-expanded={selectedThread?.threadId === thread.threadId}
               aria-selected={selectedThread?.threadId === thread.threadId}
@@ -5712,7 +5756,17 @@ export function MailboxView({
                 <button
                   type="button"
                   className="primary small"
-                  onClick={() => openCompose(selectedThread)}
+                  onClick={() =>
+                    openCompose(
+                      selectedThread,
+                      selectedMessageId &&
+                        selectedThread.messages.some(
+                          (entry) => entry.message.id === selectedMessageId,
+                        )
+                        ? selectedMessageId
+                        : selectedThread.lastMessage.id,
+                    )
+                  }
                   disabled={busy}
                 >
                   回复线程
@@ -5756,6 +5810,22 @@ export function MailboxView({
               ))}
             </div>
           </>
+        ) : selectedHidden ? (
+          <EmptyState
+            icon="⌕"
+            title="当前选中线程被筛选隐藏"
+            description="搜索或成员过滤不包含当前展开/链接的线程；清除筛选即可回到原线程。"
+            actions={[
+              {
+                label: "清除筛选",
+                onClick: () => {
+                  setQuery("");
+                  setMember("");
+                },
+                primary: true,
+              },
+            ]}
+          />
         ) : (
           <EmptyState
             icon="✉"
@@ -5772,10 +5842,11 @@ export function MailboxView({
 
       {composeOpen && (
         <MailboxComposeModal
-          key={composeThread?.threadId ?? "new-mail"}
+          key={`${composeThread?.threadId ?? "new-mail"}:${composeParentId ?? "root"}`}
           snapshot={snapshot}
           busy={busy}
           thread={composeThread}
+          parentId={composeParentId}
           onClose={() => setComposeOpen(false)}
           onSend={onSend}
         />
@@ -5790,17 +5861,20 @@ export function MailboxComposeModal({
   onClose,
   onSend,
   thread = null,
+  parentId = null,
 }: {
   snapshot: Snapshot;
   busy: boolean;
   onClose: () => void;
   thread?: MailboxThread | null;
+  parentId?: string | null;
   onSend: (input: {
     to: string[];
     subject: string;
     body: string;
     kind: MailboxMessage["kind"];
     threadId?: string;
+    parentId?: string;
   }) => Promise<boolean>;
 }) {
   const initialRecipients =
@@ -5859,6 +5933,7 @@ export function MailboxComposeModal({
             body: body.trim(),
             kind,
             ...(thread ? { threadId: thread.threadKey } : {}),
+            ...(parentId ? { parentId } : {}),
           });
           if (sent) onClose();
         }}

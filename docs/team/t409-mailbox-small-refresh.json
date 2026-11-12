@@ -1,0 +1,84 @@
+[
+  {
+    "width": 960,
+    "height": 800,
+    "before": {
+      "listTop": 320,
+      "listHeight": 3030,
+      "chainTop": 180,
+      "chainHeight": 1547,
+      "firstThread": {
+        "id": "msg_mwduis0n_11a606e7d9",
+        "offset": 79.71875
+      },
+      "firstMessage": {
+        "id": "msg_mwduirq4_445c81bbad",
+        "offset": -7
+      },
+      "active": "线程：深层回复链，0 封未读，20 封",
+      "scrollWidth": 960,
+      "innerWidth": 960
+    },
+    "after": {
+      "listTop": 320,
+      "listHeight": 3030,
+      "chainTop": 180,
+      "chainHeight": 1547,
+      "firstThread": {
+        "id": "msg_mwduis0n_11a606e7d9",
+        "offset": 79.71875
+      },
+      "firstMessage": {
+        "id": "msg_mwduirq4_445c81bbad",
+        "offset": -7
+      },
+      "active": "线程：深层回复链，0 封未读，20 封",
+      "scrollWidth": 960,
+      "innerWidth": 960
+    },
+    "anchorsKept": true,
+    "scrollWidth": 960,
+    "innerWidth": 960
+  },
+  {
+    "width": 480,
+    "height": 800,
+    "before": {
+      "listTop": 320,
+      "listHeight": 3030,
+      "chainTop": 180,
+      "chainHeight": 1533,
+      "firstThread": {
+        "id": "msg_mwduis0n_11a606e7d9",
+        "offset": 79.71875
+      },
+      "firstMessage": {
+        "id": "msg_mwduirq4_445c81bbad",
+        "offset": -3
+      },
+      "active": "线程：深层回复链，0 封未读，20 封",
+      "scrollWidth": 480,
+      "innerWidth": 480
+    },
+    "after": {
+      "listTop": 320,
+      "listHeight": 3030,
+      "chainTop": 180,
+      "chainHeight": 1533,
+      "firstThread": {
+        "id": "msg_mwduis0n_11a606e7d9",
+        "offset": 79.71875
+      },
+      "firstMessage": {
+        "id": "msg_mwduirq4_445c81bbad",
+        "offset": -3
+      },
+      "active": "线程：深层回复链，0 封未读，20 封",
+      "scrollWidth": 480,
+      "innerWidth": 480
+    },
+    "anchorsKept": true,
+    "scrollWidth": 480,
+    "innerWidth": 480
+  }
+]

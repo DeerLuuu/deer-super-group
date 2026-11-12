@@ -113,6 +113,9 @@ export function deriveMailboxThreads(
     const root =
       sorted.find((message) => !message.parentId || !inBucket.has(message.parentId)) ??
       sorted[0];
+    // 只有整条 thread 都没有真实 parentId 的 legacy 数据才按时间线性兼容；
+    // 一旦有真实 parentId，null 的消息就是真实顶层/分支根，不再按 createdAt 推断。
+    const hasPersistedParent = sorted.some((message) => message.parentId != null);
     const relation = new Map<string, string | null>();
     for (let index = 0; index < sorted.length; index += 1) {
       const message = sorted[index];
@@ -120,8 +123,10 @@ export function deriveMailboxThreads(
         relation.set(message.id, null);
       } else if (message.parentId && inBucket.has(message.parentId) && message.parentId !== message.id) {
         relation.set(message.id, message.parentId);
-      } else {
+      } else if (!hasPersistedParent && index > 0) {
         relation.set(message.id, sorted[index - 1]?.id ?? null);
+      } else {
+        relation.set(message.id, null);
       }
     }
 
@@ -226,4 +231,13 @@ export function parseMailboxReadIds(raw: string | null): Set<string> {
 
 export function serializeMailboxReadIds(ids: ReadonlySet<string>): string {
   return JSON.stringify([...ids]);
+}
+
+/** 清理已归档/已删除消息的 read id，避免 localStorage 无限增长。 */
+export function pruneMailboxReadIds(
+  readIds: ReadonlySet<string>,
+  existingMessageIds: Iterable<string>,
+): Set<string> {
+  const existing = new Set(existingMessageIds);
+  return new Set([...readIds].filter((id) => existing.has(id)));
 }

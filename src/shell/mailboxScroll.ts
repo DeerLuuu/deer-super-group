@@ -34,7 +34,9 @@ export function captureMailboxAnchor(
   if (!firstVisible) return { id: null, offset: 0 };
   return {
     id: firstVisible.id,
-    offset: Math.max(0, scrollTop - firstVisible.offsetTop),
+    // 允许负 offset：第一可见项可能从视口顶下方开始（padding/间距），
+    // 保留它才能精确恢复原 scrollTop，而不是把该项强行对齐到顶部。
+    offset: scrollTop - firstVisible.offsetTop,
   };
 }
 
@@ -69,13 +71,16 @@ export function parseMailboxScrollState(raw: string | null): MailboxScrollState 
     return {
       thread: {
         id: typeof thread?.id === "string" ? thread.id : null,
-        offset: typeof thread?.offset === "number" && Number.isFinite(thread.offset) ? Math.max(0, thread.offset) : 0,
+        offset:
+          typeof thread?.offset === "number" && Number.isFinite(thread.offset)
+            ? thread.offset
+            : 0,
       },
       message: {
         id: typeof message?.id === "string" ? message.id : null,
         offset:
           typeof message?.offset === "number" && Number.isFinite(message.offset)
-            ? Math.max(0, message.offset)
+            ? message.offset
             : 0,
       },
     };
