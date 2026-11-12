@@ -14,7 +14,7 @@ export interface ErrorRecovery {
 export function classifyErrorRecovery(message: string): ErrorRecovery {
   const summary = sanitizeErrorText(message, 260);
   if (
-    /未配置.*(?:api\s*)?key|api\s*key\s*(?:为空|缺失|未配置|empty|missing)|key.*(?:为空|缺失|missing|empty)|not configured|missing key/i.test(
+    /无\s*api\s*key|no\s+api\s*key|api\s*key\s*(?:is\s+)?not\s+configured|未配置.*(?:api\s*)?key|api\s*key\s*(?:为空|缺失|未配置|empty|missing)|key.*(?:为空|缺失|missing|empty)|not configured|missing key/i.test(
       message,
     )
   ) {

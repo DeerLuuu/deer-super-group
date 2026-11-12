@@ -592,6 +592,7 @@ export default function App() {
       setSettingsDirty(false);
       setSettingsOpen(false);
       setGitSettingsFocus(false);
+      setSettingsInitialSection(undefined);
       if (key !== "tasks") setTaskVcsFocus(false);
       if (key !== "tasks") setTaskReviewFocus(false);
       setPanelMenuOpen(false);
@@ -660,6 +661,7 @@ export default function App() {
     setSettingsOpen(false);
     setSettingsDirty(false);
     setGitSettingsFocus(false);
+    setSettingsInitialSection(undefined);
     // t172：设置页可能修改了翻译源/目标；关闭时清空会话翻译缓存。
     historyTranslationMemo.clear();
     translationSettingsKeyRef.current = null;
@@ -1216,6 +1218,7 @@ export default function App() {
         }
         setSettingsDirty(false);
         setSettingsOpen(false);
+        setSettingsInitialSection(undefined);
         setSettingsReturnTab(route.tab);
         setTab(route.tab);
         dockRef.current?.openPanel(route.tab);
@@ -1798,9 +1801,13 @@ export default function App() {
     }
   }
 
-  async function handleCreateTask(title: string, description: string, acceptance: string[]) {
+  async function handleCreateTask(
+    title: string,
+    description: string,
+    acceptance: string[],
+  ): Promise<boolean> {
     const current = snapshotRef.current;
-    if (!current) return;
+    if (!current) return false;
     setBusy(true);
     setError(null);
     try {
@@ -1826,11 +1833,11 @@ export default function App() {
           },
         },
       });
+      return true;
     } catch (error) {
-      showError(errorText(error), {
-        label: "重试创建任务",
-        run: () => void handleCreateTask(title, description, acceptance),
-      });
+      // 非幂等写操作不自动重试；保留表单由调用方决定是否再次提交。
+      showError(errorText(error));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -2565,6 +2572,7 @@ export default function App() {
       setSettingsDirty(false);
       setSettingsOpen(false);
       setGitSettingsFocus(false);
+      setSettingsInitialSection(undefined);
     }
     if (tab !== "tasks" && tab !== "team") {
       setTab("tasks");
@@ -2730,9 +2738,9 @@ export default function App() {
     subject: string;
     body: string;
     kind: MailboxMessage["kind"];
-  }) {
+  }): Promise<boolean> {
     const current = snapshotRef.current;
-    if (!current) return;
+    if (!current) return false;
     setBusy(true);
     setError(null);
     try {
@@ -2748,11 +2756,11 @@ export default function App() {
         message: `已发送邮件「${input.subject}」`,
         action: { label: "查看", onClick: () => openPanel("mailbox") },
       });
+      return true;
     } catch (error) {
-      showError(errorText(error), {
-        label: "重试发送邮件",
-        run: () => void handleSendMessage(input),
-      });
+      // 非幂等写操作不自动重试；保留表单由调用方决定是否再次发送。
+      showError(errorText(error));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -3900,7 +3908,7 @@ function TasksView({
   autoOpen: "task" | "plan" | null;
   onAutoOpenHandled: () => void;
   onSelect: (task: Task) => void;
-  onCreate: (title: string, description: string, acceptance: string[]) => void;
+  onCreate: (title: string, description: string, acceptance: string[]) => Promise<boolean>;
   onContext: (taskId: string) => void;
   onLocate: (taskId: string) => void;
   onPlanDraft: () => void;
@@ -4131,16 +4139,18 @@ function TasksView({
               </div>
             </div>
             <div className="row gap">
-              <button
-                type="button"
-                className="ghost small"
-                onClick={() => onPlanDraft()}
-                disabled={busy}
-                title="从对话目标生成可编辑 Plan Draft（secondary；不会直接创建任务）"
-                aria-label="从对话规划"
-              >
-                从对话规划
-              </button>
+              {snapshot.tasks.length > 0 ? (
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => onPlanDraft()}
+                  disabled={busy}
+                  title="从对话目标生成可编辑 Plan Draft（secondary；不会直接创建任务）"
+                  aria-label="从对话规划（secondary，不会直接创建任务）"
+                >
+                  从对话规划
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="primary small"
@@ -4727,14 +4737,14 @@ function TasksView({
   );
 }
 
-function TaskComposeModal({
+export function TaskComposeModal({
   busy,
   onClose,
   onCreate,
 }: {
   busy: boolean;
   onClose: () => void;
-  onCreate: (title: string, description: string, acceptance: string[]) => void;
+  onCreate: (title: string, description: string, acceptance: string[]) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -4750,10 +4760,10 @@ function TaskComposeModal({
     >
       <form
         className="form modal-form"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
           if (!title.trim()) return;
-          onCreate(
+          const created = await onCreate(
             title.trim(),
             description.trim(),
             acceptance
@@ -4761,7 +4771,7 @@ function TaskComposeModal({
               .map((item) => item.trim())
               .filter(Boolean),
           );
-          onClose();
+          if (created) onClose();
         }}
       >
         <label>
@@ -4860,7 +4870,7 @@ function MailboxView({
     subject: string;
     body: string;
     kind: MailboxMessage["kind"];
-  }) => void;
+  }) => Promise<boolean>;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
 
@@ -4965,7 +4975,7 @@ function MailboxView({
   );
 }
 
-function MailboxComposeModal({
+export function MailboxComposeModal({
   snapshot,
   busy,
   onClose,
@@ -4979,7 +4989,7 @@ function MailboxComposeModal({
     subject: string;
     body: string;
     kind: MailboxMessage["kind"];
-  }) => void;
+  }) => Promise<boolean>;
 }) {
   const [to, setTo] = useState("Router");
   const [subject, setSubject] = useState("");
@@ -5012,16 +5022,16 @@ function MailboxComposeModal({
     >
       <form
           className="form modal-form"
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
             if (!selectedRecipients.length || !subject.trim() || !body.trim()) return;
-            onSend({
+            const sent = await onSend({
               to: selectedRecipients,
               subject: subject.trim(),
               body: body.trim(),
               kind,
             });
-            onClose();
+            if (sent) onClose();
           }}
         >
           <label>

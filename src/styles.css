@@ -8230,6 +8230,11 @@ body li {
   gap: 10px;
 }
 
+.first-run-card-content {
+  display: grid;
+  gap: 8px;
+}
+
 .first-run-checks {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

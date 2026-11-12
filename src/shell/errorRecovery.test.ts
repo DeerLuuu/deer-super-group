@@ -27,6 +27,8 @@ describe("t247 provider error recovery", () => {
 
   it("matches real UI key messages, not only the short fixture", () => {
     for (const message of [
+      "No API key configured",
+      "API key is not configured",
       "未配置 API Key",
       "API Key 为空",
       "API key missing",

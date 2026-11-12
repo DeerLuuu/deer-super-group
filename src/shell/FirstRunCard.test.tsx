@@ -55,7 +55,8 @@ describe("t247 FirstRunCard", () => {
       .findAllByType("button")
       .find((button) => textOf(button.children).includes("稍后"))!;
     expect(collapse.props["aria-expanded"]).toBe(true);
-    expect(collapse.props["aria-controls"]).toBe("first-run-card-region");
+    expect(collapse.props["aria-controls"]).toBe("first-run-card-content");
+    expect(renderer!.root.findAllByProps({ id: "first-run-card-content" }).length).toBe(1);
     await act(() => {
       (collapse.props.onClick as () => void)();
     });
@@ -70,6 +71,7 @@ describe("t247 FirstRunCard", () => {
       .findAllByType("button")
       .find((button) => textOf(button.children).includes("首用就绪检查"))!;
     expect(expand.props["aria-expanded"]).toBe(false);
-    expect(expand.props["aria-controls"]).toBe("first-run-card-region");
+    expect(expand.props["aria-controls"]).toBe("first-run-card-content");
+    expect(renderer!.root.findAllByProps({ id: "first-run-card-content" }).length).toBe(1);
   });
 });

@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 
 const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 
-describe("t253 write-operation retry wiring", () => {
-  it("attaches executable retry actions for createTask/sendMessage/planDraft confirm", () => {
-    expect(appSource).toContain('label: "重试创建任务"');
-    expect(appSource).toContain('label: "重试发送邮件"');
+describe("t253/t255 write-operation retry wiring", () => {
+  it("retries only the idempotent plan confirm; non-idempotent writes keep the form", () => {
     expect(appSource).toContain('label: "重试确认"');
-    expect(appSource).toContain("retryAction={");
-    expect(appSource).toContain("run: () => void handleCreateTask");
-    expect(appSource).toContain("run: () => void handleSendMessage");
     expect(appSource).toContain("run: () => void handleConfirmPlan");
+    expect(appSource).not.toContain('label: "重试创建任务"');
+    expect(appSource).not.toContain('label: "重试发送邮件"');
+    expect(appSource).toContain("if (created) onClose()");
+    expect(appSource).toContain("if (sent) onClose()");
+    expect(appSource).toContain("retryAction={");
   });
 });

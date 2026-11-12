@@ -20,7 +20,7 @@ describe("t247 approval terminology", () => {
     expect(block).toContain('"+ 新建任务"');
     expect(block).not.toContain("规划任务");
     expect(appSource).toContain("从对话规划");
-    expect(appSource).toContain('aria-label="从对话规划"');
+    expect(appSource).toContain('aria-label="从对话规划（secondary');
   });
 
   it("focuses the models section for recovery/first-run settings actions", () => {
@@ -34,5 +34,13 @@ describe("t247 approval terminology", () => {
       'snapshot.settings.providers.some((provider) => provider.apiKeySource !== "none")',
     );
     expect(appSource).toContain("keyProviderName: firstRunKey.providerName");
+  });
+
+  it("clears the Settings initial section when closing", () => {
+    const close = appSource.slice(
+      appSource.indexOf("function closeSettings()"),
+      appSource.indexOf("// t50：dock 激活面板", appSource.indexOf("function closeSettings()")),
+    );
+    expect(close).toContain("setSettingsInitialSection(undefined)");
   });
 });
