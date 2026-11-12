@@ -7,6 +7,8 @@ export interface MergeQueuePanelProps {
   workspaceId: string;
   items: MergeQueueItem[] | null;
   stale?: boolean;
+  error?: string | null;
+  loading?: boolean;
   onReload: () => Promise<unknown> | void;
   onOpenTask?: (taskId: string) => void;
 }
@@ -26,9 +28,9 @@ function stateLabel(state: MergeQueueItem["state"]): string {
   }[state];
 }
 
-export function MergeQueuePanel({ workspaceId, items, stale, onReload, onOpenTask }: MergeQueuePanelProps) {
+export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, loading = false, onReload, onOpenTask }: MergeQueuePanelProps) {
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState<MergeQueueItem | null>(null);
 
@@ -37,9 +39,9 @@ export function MergeQueuePanel({ workspaceId, items, stale, onReload, onOpenTas
     try {
       await fn();
       await onReload();
-      setError(null);
+      setActionError(null);
     } catch (cause) {
-      setError(formatError(cause));
+      setActionError(formatError(cause));
     } finally {
       setBusy(null);
     }
@@ -48,16 +50,17 @@ export function MergeQueuePanel({ workspaceId, items, stale, onReload, onOpenTas
   const queue = items ?? [];
   const ready = queue.filter((item) => item.state === "ready").length;
   const active = queue.filter((item) => item.state === "merging" || item.state === "updating").length;
-  const waiting = queue.filter((item) => item.state === "waiting_checks" || item.state === "waiting_review").length;
+  const waiting = queue.filter((item) => item.state === "queued" || item.state === "waiting_checks" || item.state === "waiting_review").length;
+  const conflicts = queue.filter((item) => Boolean(item.conflictTaskId)).length;
 
   return (
-    <section className="merge-queue-panel" aria-label="合并队列" aria-busy={busy !== null || items === null}>
+    <section className="merge-queue-panel" aria-label="合并队列" aria-busy={busy !== null || loading}>
       <header className="merge-queue-head">
         <div>
           <h3>合并队列</h3>
           <p className="muted tiny">只读队列快照 · 仅确认合并使用弹窗</p>
         </div>
-        <button type="button" className="ghost small" onClick={() => void onReload()} disabled={busy !== null}>
+        <button type="button" className="ghost small" onClick={() => void onReload()} disabled={busy !== null || loading}>
           刷新
         </button>
       </header>
@@ -66,12 +69,22 @@ export function MergeQueuePanel({ workspaceId, items, stale, onReload, onOpenTas
         <span className="badge">共 {queue.length}</span>
         <span className="badge">可合并 {ready}</span>
         <span className="badge">等待 {waiting}</span>
+        <span className="badge">冲突 {conflicts}</span>
         <span className="badge">进行中 {active}</span>
         {stale ? <span className="badge merge-queue-stale">数据可能过期</span> : null}
       </div>
 
-      {error ? <div className="merge-queue-error" role="alert">{error} <button type="button" className="ghost tiny" onClick={() => void onReload()}>重试</button></div> : null}
-      {items === null ? <p role="status">加载合并队列…</p> : null}
+      {items === null ? (
+        loading || (!loadError && !stale) ? <p role="status">加载合并队列…</p> :
+          <div className="merge-queue-error" role="alert">
+            {loadError ?? "读取合并队列失败，无法确认队列状态。"}
+            <button type="button" className="ghost tiny" onClick={() => void onReload()}>重试</button>
+          </div>
+      ) : null}
+      {items !== null && loadError ? (
+        <p className="merge-queue-stale-note" role="status">最近刷新失败：{loadError}（保留上次成功快照）</p>
+      ) : null}
+      {actionError ? <div className="merge-queue-error" role="alert">{actionError} <button type="button" className="ghost tiny" onClick={() => void onReload()}>重试</button></div> : null}
       {items !== null && queue.length === 0 ? <p className="merge-queue-empty" role="status">队列为空。任务交付后可以在任务 Git 页加入合并队列。</p> : null}
 
       {queue.length > 0 ? (

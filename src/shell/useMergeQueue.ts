@@ -17,6 +17,8 @@ export function useMergeQueue(
 ) {
   const [items, setItems] = useState<MergeQueueItem[] | null>(null);
   const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const requestRef = useRef(0);
 
   const reload = useCallback(
@@ -25,20 +27,29 @@ export function useMergeQueue(
       if (!workspaceId || typeof window.deer.mergeQueue !== "function") {
         setItems(null);
         setStale(false);
+        setError(null);
+        setLoading(false);
         return;
       }
+      setLoading(true);
       try {
         const queue = await window.deer.mergeQueue(workspaceId);
         if (options.guard && !options.guard()) return;
         if (request === requestRef.current) {
           setItems(queue.items);
           setStale(false);
+          setError(null);
         }
-      } catch (error) {
+      } catch (cause) {
         if (options.guard && !options.guard()) return;
         // R3：保留 last-good；失败只标记 stale，不把已知队列伪造成空/未知。
-        if (request === requestRef.current) setStale(true);
-        if (options.strict) throw error;
+        if (request === requestRef.current) {
+          setStale(true);
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+        if (options.strict) throw cause;
+      } finally {
+        if (request === requestRef.current) setLoading(false);
       }
     },
     [workspaceId],
@@ -55,5 +66,5 @@ export function useMergeQueue(
     return () => window.clearInterval(timer);
   }, [active, reload]);
 
-  return { items, reload, stale };
+  return { items, reload, stale, error, loading };
 }

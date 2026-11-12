@@ -515,7 +515,13 @@ export default function App() {
   const [taskRuns, setTaskRuns] = useState<Run[]>([]);
   const mergeQueueRefreshKey =
     snapshot?.tasks.map((task) => `${task.id}:${task.status}`).join("|") ?? "";
-  const { items: mergeQueueItems, reload: loadMergeQueue, stale: mergeQueueStale } = useMergeQueue(
+  const {
+    items: mergeQueueItems,
+    reload: loadMergeQueue,
+    stale: mergeQueueStale,
+    error: mergeQueueError,
+    loading: mergeQueueLoading,
+  } = useMergeQueue(
     snapshot?.workspace.id,
     mergeQueueOpen,
     mergeQueueRefreshKey,
@@ -3095,6 +3101,8 @@ export default function App() {
                       workspaceId={snapshot.workspace.id}
                       items={mergeQueueItems}
                       stale={mergeQueueStale}
+                      error={mergeQueueError}
+                      loading={mergeQueueLoading}
                       onReload={() => loadMergeQueue()}
                       onOpenTask={(taskId) => handleOpenTaskPage(taskId)}
                     />

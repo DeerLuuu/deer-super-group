@@ -24,6 +24,8 @@ describe("MergeQueue Dock panel contract", () => {
     const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
     const deeplinkSource = readFileSync(new URL("../shared/deeplink.ts", import.meta.url), "utf8");
     expect(appSource).toContain('"mergeQueue",');
+    expect(appSource).toContain('openPanel("mergeQueue")');
+    expect(appSource).toContain('if (key === "mergeQueue") setMergeQueueOpen(false)');
     expect(deeplinkSource).toContain('params.get("merge") === "1"');
   });
 });

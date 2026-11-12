@@ -36,7 +36,15 @@
 - `src/git/ui/MergeQueueLayer.test.tsx`：确认 Modal 进入公共 modal stack；Esc 只关闭顶层；focus 归还；设置 Modal 不被误关。
 - `src/shell/mergeQueuePanel.test.ts`：PanelKey/defaultClosed/closable、`mergeQueue` launcher、`?merge=1`、CSS 1440/960/720 contract。
 - 现有 `parseHash` mergeQueue 测试、team/workflow/needsMe 投影、useMergeQueue token/stale 测试保持。
-- 验证：typecheck 0；build 0（441 modules）；extended test 109 files/823 tests 全绿。
+- 验证：typecheck 0；build 0（441 modules）；extended test 109 files/825 tests 全绿。
+
+## 4.1 t313 复验修复
+
+- F1：真实 Electron 截图（Electron 45 + CDP viewport）：[1440 列表](t313-1440-list.png)、[1440 确认 Modal](t313-1440-modal.png)、[960 单列](t313-960-list.png)、[480 单列](t313-480-list.png)、[1440 空队列](t313-1440-empty.png)。
+- F2：`useMergeQueue` 增加 `error/loading`；`items=null && stale` 显示失败原因+重试，不再一直“加载中”；面板测试覆盖首次失败、重试和 action 失败保留队列。
+- F3：`useMergeQueue` 测试覆盖首次失败→重试→关闭→重新 active 再加载；App source contract 断言 `openPanel("mergeQueue")` 与 `onPanelClose` 复位。
+- F4：480 使用真实 480 viewport 截图（非 720 继承）。
+- F5：摘要等待包含 `queued`；冲突数按 `conflictTaskId` 汇总，面板测试断言。
 
 ## 5. 回归与限制
 

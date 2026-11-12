@@ -124,19 +124,37 @@ describe("MergeQueuePanel", () => {
     expect(JSON.stringify(renderer.toJSON())).toContain("Ship merge queue panel");
   });
 
-  it("shows loading, empty and conflict states", () => {
-    const loading = mount(null);
+  it("shows loading, failure, empty and conflict states", () => {
+    const loading = mount(null, { loading: true });
     expect(JSON.stringify(loading.renderer.toJSON())).toContain("加载合并队列");
-    loading.renderer.unmount();
+    act(() => loading.renderer.unmount());
+
+    const failed = mount(null, { error: "merge queue unavailable" });
+    expect(JSON.stringify(failed.renderer.toJSON())).toContain("merge queue unavailable");
+    expect(JSON.stringify(failed.renderer.toJSON())).toContain("重试");
+    act(() => failed.renderer.unmount());
 
     const empty = mount([]);
     expect(JSON.stringify(empty.renderer.toJSON())).toContain("队列为空");
-    empty.renderer.unmount();
+    act(() => empty.renderer.unmount());
 
     const conflict = mount([item({ conflictTaskId: "conflict-1", lastError: "merge conflict" })]);
     expect(JSON.stringify(conflict.renderer.toJSON())).toContain("冲突任务");
     expect(JSON.stringify(conflict.renderer.toJSON())).toContain("merge conflict");
-    conflict.renderer.unmount();
+    act(() => conflict.renderer.unmount());
+  });
+
+  it("counts queued in waiting and summarizes conflicts", () => {
+    const { renderer } = mount([
+      item({ id: "q1", state: "queued" }),
+      item({ id: "q2", conflictTaskId: "conflict-1", state: "blocked" }),
+    ]);
+    const badges = renderer.root.findAllByType("span").filter((node: any) => Array.isArray(node.children));
+    const waiting = badges.find((node: any) => node.children.includes("等待 "));
+    const conflicts = badges.find((node: any) => node.children.includes("冲突 "));
+    expect(waiting?.children).toContain("1");
+    expect(conflicts?.children).toContain("1");
+    act(() => renderer.unmount());
   });
 
   it("closes the confirmation Modal without merging", () => {
