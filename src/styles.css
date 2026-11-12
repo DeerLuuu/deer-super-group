@@ -8713,3 +8713,16 @@ body li {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* t298：480 Tasks 单列必须给详情可用高度；整行可纵向滚动，避免被压成 0。 */
+@container tasks-panel (max-width: 640px) {
+  .tasks-layout {
+    grid-template-rows: auto minmax(120px, 180px) minmax(240px, 1fr);
+    overflow-y: auto;
+    align-content: start;
+  }
+
+  .tasks-layout > .task-detail-panel {
+    min-height: 240px;
+  }
+}

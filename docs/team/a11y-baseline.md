@@ -89,8 +89,16 @@
 - 对比测试改为从 `styles.css` 读取 `--text/--muted/--bg/--panel` token，而不是硬编码 hex。
 - 新增交互测试：`SeparatorControl.test.tsx`（aria/clamp/Arrow/Home）、`SkipLink.test.tsx`、`Toast.test.tsx`（focus pause）、Chat tabs Home/End。
 
-### 验证范围声明（需产品确认）
+### 验证范围声明（Captain t297 裁决）
 
-- 200% 证据使用真实 Electron + CDP **CSS 视口 480**，不是 OS 级 200%/DPR2 真机设置；DPR2/真实系统缩放、读屏软件（NVDA/VoiceOver）仍应在发布前走查。
-- 本 PR 的验收按“CSS 视口基线”成立；若要对外宣称 OS 200% 通过，需产品确认后再补一次真实系统缩放/DPR2 截图。
+- 本 PR 的 200% 验收明确按 **真实 Electron 480 CSS 视口基线**，不是 OS 级 200%/DPR2；不宣称 OS 200% 全通过。
+- Captain t297 已接受该基线范围；真实系统缩放/DPR2、读屏软件（NVDA/VoiceOver）真机走查列为 P1 后续，不阻塞本 PR。
 - CI 保留 extended/单跑宽限；plain 全量 5s 并发问题为既有 openai/watchdog/git flake，不归因本 PR。
+
+## t298 补强：480 Tasks 详情与证据
+
+- **Tasks 详情可用高度**：容器 ≤640 时 `.tasks-layout` 改为 `auto / minmax(120px,180px) list / minmax(240px,1fr) detail` 且 `overflow-y:auto`；`.task-detail-panel min-height:240px`，不再被压成 0。真实 Electron 480 选中任务后实测 detail clientHeight=238、top=447、tabs（概览/运行/评审/Git/历史）均在 DOM，字段/描述/验收/Review/Run 文本可达；整行纵向滚动可达详情。
+- **证据**：`t292-a11y-480-tasks-detail.png`（详情/字段）、`t292-a11y-480-team-scrolled.png`（滚动后团队/星图，members=2、star-map=true）、`t292-a11y-resizer-960.png`。
+- **200% 裁决**：Captain t297 明确接受真实 Electron 480 CSS 视口基线；文档已写“非 OS 200%/DPR2，真机/读屏为 P1 后续”，不虚报 OS 全通过。
+- **快速连按**：`stepSidebarWidth` 用 `sidebarWidthRef/displayedSidebarWidth` 串行，`stepListWidth` 用 `listWidthRef/layoutWidthRef`；30 次快速 Arrow 测试仍停在 394/280，不超界。
+- **DOM 断言**：Separator/Skip/Toast/Chat tabs 交互测试 + 480 detail CSS/可见性证据；对比 token 测试保留。

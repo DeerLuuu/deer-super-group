@@ -936,16 +936,21 @@ export default function App() {
   }
 
   function stepSidebarWidth(delta: number) {
+    const state = {
+      preferred: sidebarWidthRef.current,
+      displayed: sidebarDisplayWidthRef.current,
+    };
+    const current = displayedSidebarWidth(state, viewportWidthRef.current);
     const next = resizeSidebarWidth(
-      { preferred: sidebarWidth, displayed: sidebarDisplayWidth },
-      viewportWidth,
-      effectiveSidebarWidth + delta,
+      state,
+      viewportWidthRef.current,
+      current + delta,
     );
     sidebarWidthRef.current = next.preferred;
     sidebarDisplayWidthRef.current = next.displayed;
     setSidebarWidth(next.preferred);
     setSidebarDisplayWidth(next.displayed);
-    if (viewportWidth > 1100) {
+    if (viewportWidthRef.current > 1100) {
       localStorage.setItem("deer.sidebarWidth", String(next.preferred));
     }
   }
@@ -4173,6 +4178,7 @@ function TasksView({
   );
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const listWidthRef = useRef(listWidth);
+  const listLayoutWidthRef = useRef(0);
   const resizingListRef = useRef(false);
   const [listLayoutWidth, setListLayoutWidth] = useState(0);
 
@@ -4182,7 +4188,11 @@ function TasksView({
       setListLayoutWidth(0);
       return;
     }
-    const measure = () => setListLayoutWidth(node.getBoundingClientRect().width);
+    const measure = () => {
+      const width = node.getBoundingClientRect().width;
+      listLayoutWidthRef.current = width;
+      setListLayoutWidth(width);
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
@@ -4235,7 +4245,8 @@ function TasksView({
   }
 
   function stepListWidth(delta: number) {
-    const next = clampTaskListWidth(actualListWidth + delta, listLayoutWidth);
+    const actual = clampTaskListWidth(listWidthRef.current, listLayoutWidthRef.current);
+    const next = clampTaskListWidth(actual + delta, listLayoutWidthRef.current);
     listWidthRef.current = next;
     setListWidth(next);
     localStorage.setItem("deer.taskListWidth", String(next));

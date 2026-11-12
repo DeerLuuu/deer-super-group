@@ -2,7 +2,7 @@
 import TestRenderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
 import SeparatorControl from "./SeparatorControl.js";
-import { clampSidebarWidth, sidebarMaxWidth } from "./dock/narrowWindow.js";
+import { clampSidebarWidth, resizeSidebarWidth, sidebarMaxWidth } from "./dock/narrowWindow.js";
 import { clampTaskListWidth, taskListMaxWidth } from "./taskListWidth.js";
 
 const { act, create } = TestRenderer as {
@@ -66,5 +66,22 @@ describe("t296 keyboard resizer", () => {
     expect(taskListMaxWidth(760)).toBe(395);
     expect(taskListMaxWidth(480)).toBe(280);
     expect(clampTaskListWidth(520, 480)).toBe(280);
+  });
+
+  it("serial rapid key steps do not overshoot", () => {
+    let sidebar: { preferred: number; displayed: number | null } = {
+      preferred: 205,
+      displayed: 205,
+    };
+    for (let index = 0; index < 30; index += 1) {
+      const current = sidebar.displayed ?? sidebar.preferred;
+      sidebar = resizeSidebarWidth(sidebar, 960, current + 16);
+    }
+    expect(sidebar.displayed).toBe(394);
+    let taskWidth = 380;
+    for (let index = 0; index < 30; index += 1) {
+      taskWidth = clampTaskListWidth(taskWidth + 16, 400);
+    }
+    expect(taskWidth).toBe(280);
   });
 });

@@ -54,6 +54,8 @@ describe("t292 accessibility baseline", () => {
     expect(css).toContain("prefers-reduced-motion: reduce");
     expect(css).toContain("@media (max-width: 560px)");
     expect(css).toContain("grid-template-columns: minmax(0, 1fr) !important");
+    expect(css).toContain("minmax(240px, 1fr)");
+    expect(css).toContain("min-height: 240px");
     expect(css).toContain(".skip-link:focus");
   });
 
