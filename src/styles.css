@@ -8886,3 +8886,15 @@ body li {
     animation: none;
   }
 }
+/* t329：历史分页入口 */
+.chat-history-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 8px;
+}
+
+.chat-messages {
+  overflow-anchor: none;
+}
