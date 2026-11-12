@@ -37,6 +37,8 @@ export type Route = {
   taskReview: boolean;
   /** 是否由旧深链（如 #/router）重定向而来。 */
   redirected: boolean;
+  /** 打开只读版本图（#/git）。 */
+  gitGraph: boolean;
 };
 
 export const DEFAULT_ROUTE: Route = {
@@ -51,6 +53,7 @@ export const DEFAULT_ROUTE: Route = {
   taskVcs: false,
   taskReview: false,
   redirected: false,
+  gitGraph: false,
 };
 
 function isRouteTab(value: string): value is RouteTab {
@@ -62,8 +65,9 @@ export function parseHash(hash: string): Route {
   const [path = "", query = ""] = raw.split("?");
   const segment = (path.split("/")[0] ?? "").toLowerCase();
   const params = new URLSearchParams(query);
-  const redirected = !isRouteTab(segment) && segment in TAB_ALIASES;
-  const tab = isRouteTab(segment) ? segment : (TAB_ALIASES[segment] ?? "tasks");
+  const gitGraph = segment === "git";
+  const redirected = gitGraph || (!isRouteTab(segment) && segment in TAB_ALIASES);
+  const tab = gitGraph ? "tasks" : isRouteTab(segment) ? segment : (TAB_ALIASES[segment] ?? "tasks");
   return {
     tab,
     task: params.get("t"),
@@ -76,6 +80,7 @@ export function parseHash(hash: string): Route {
     taskVcs: params.get("vcs") === "1",
     taskReview: params.get("review") === "1",
     redirected,
+    gitGraph,
   };
 }
 
@@ -90,9 +95,11 @@ export type RouteSelection = {
   gitSettings?: boolean;
   taskVcs?: boolean;
   taskReview?: boolean;
+  gitGraph?: boolean;
 };
 
 export function buildHash(tab: RouteTab, selection: RouteSelection = {}): string {
+  if (selection.gitGraph) return "#/git";
   const params = new URLSearchParams();
   if (tab === "tasks" || tab === "team") {
     if (selection.task) params.set("t", selection.task);

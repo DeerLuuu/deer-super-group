@@ -165,5 +165,6 @@ export function buildPanelDeps(input: PanelDepsInput): PanelDeps {
     polls: [input.workspaceId, input.agents, input.pollIntent],
     watchdog: [input.watchdogSnapshot, input.watchdogCosts, input.selectedTaskId],
     settings: [input.settings],
+    gitGraph: [input.workspaceId],
   };
 }

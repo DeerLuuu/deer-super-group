@@ -96,6 +96,8 @@ export function validateGitArgs(
         "--git-common-dir",
         "--git-path",
         "--is-inside-work-tree",
+        "--is-bare-repository",
+        "--is-shallow-repository",
       ]);
       if (!allowed.has(first)) return { ok: false, reason: "rev-parse flag" };
       if (first === "--git-path") {
@@ -120,7 +122,7 @@ export function validateGitArgs(
   if (command === "status") {
     if (rest[0] === "--porcelain" || rest[0] === "--porcelain=v1" || rest[0] === "--porcelain=v2") {
       const extra = rest.slice(1);
-      if (extra.every((item) => item === "-z")) return { ok: true, args: argv };
+      if (extra.every((item) => item === "-z" || item === "--untracked-files=all" || item === "--ignore-submodules=none")) return { ok: true, args: argv };
     }
     return { ok: false, reason: "status shape" };
   }
@@ -140,10 +142,20 @@ export function validateGitArgs(
       "--find-copies",
       "-M",
       "-C",
+      "--no-renames",
       "-z",
     ]);
     let unified = false;
+    let paths = false;
     for (const item of rest) {
+      if (paths) {
+        if (!isSafePath(item)) return { ok: false, reason: "unsafe diff path" };
+        continue;
+      }
+      if (item === "--") {
+        paths = true;
+        continue;
+      }
       if (item.startsWith("--unified=")) {
         if (!/^--unified=\d+$/.test(item)) return { ok: false, reason: "unified" };
         unified = true;
@@ -161,14 +173,82 @@ export function validateGitArgs(
     void unified;
     return { ok: true, args: argv };
   }
-  if (command === "log") {    if (rest[0] === "-n" && rest[1] === "1" && rest[2]?.startsWith("--format=")) {
+  if (command === "log") {
+    if (rest[0] === "-n" && rest[1] === "1" && rest[2]?.startsWith("--format=")) return { ok: true, args: argv };
+    const allowed = new Set(["--no-color", "--no-decorate", "--topo-order", "--parents", "--all", "--oneline"]);
+    let hasFormat = false;
+    let maxCount = false;
+    let skip = false;
+    for (let index = 0; index < rest.length; index += 1) {
+      const item = rest[index];
+      if (item === "-n" && index === 0 && rest[index + 1] === "1" && rest[index + 2]?.startsWith("--format=")) {
+        hasFormat = true;
+        break;
+      }
+      if (item.startsWith("--format=")) {
+        hasFormat = true;
+        continue;
+      }
+      if (item.startsWith("--max-count=")) {
+        const value = Number(item.slice("--max-count=".length));
+        if (!Number.isInteger(value) || value < 1 || value > 501) return { ok: false, reason: "log max-count" };
+        maxCount = true;
+        continue;
+      }
+      if (item.startsWith("--skip=")) {
+        const value = Number(item.slice("--skip=".length));
+        if (!Number.isInteger(value) || value < 0 || value > 2000) return { ok: false, reason: "log skip" };
+        skip = true;
+        continue;
+      }
+      if (item.startsWith("-")) {
+        if (!allowed.has(item)) return { ok: false, reason: `log flag: ${item}` };
+        continue;
+      }
+      if (!isSafeRef(item)) return { ok: false, reason: "unsafe log ref" };
+    }
+    if (!hasFormat || !maxCount) return { ok: false, reason: "log shape" };
+    void skip;
+    return { ok: true, args: argv };
+  }
+  if (command === "for-each-ref") {
+    if (
+      rest[0]?.startsWith("--format=") &&
+      rest.slice(1).every((item) => item === "--sort=refname" || /^refs\/(heads|remotes|tags)$/.test(item)) &&
+      rest.slice(1).some((item) => item.startsWith("refs/"))
+    ) {
       return { ok: true, args: argv };
     }
-    return { ok: false, reason: "log shape" };
+    return { ok: false, reason: "for-each-ref shape" };
+  }
+  if (command === "rev-list") {
+    if (rest[0] === "--left-right" && rest[1] === "--count" && rest.length === 4 && isSafeRef(rest[2]) && isSafeRef(rest[3])) {
+      return { ok: true, args: argv };
+    }
+    return { ok: false, reason: "rev-list shape" };
   }
   if (command === "show") {
-    if (rest.length === 0 || (rest.length === 1 && isSafeRef(rest[0]))) return { ok: true, args: argv };
-    return { ok: false, reason: "show shape" };
+    const allowed = new Set(["--no-color", "--no-ext-diff", "--no-textconv", "--name-status", "--numstat", "-s", "-z"]);
+    let ref: string | null = null;
+    let paths = false;
+    for (const item of rest) {
+      if (paths) {
+        if (!isSafePath(item)) return { ok: false, reason: "unsafe show path" };
+        continue;
+      }
+      if (item === "--") {
+        paths = true;
+        continue;
+      }
+      if (item.startsWith("--format=") || item.startsWith("--unified=")) continue;
+      if (item.startsWith("-")) {
+        if (!allowed.has(item)) return { ok: false, reason: `show flag: ${item}` };
+        continue;
+      }
+      if (ref || !isSafeRef(item)) return { ok: false, reason: "show shape" };
+      ref = item;
+    }
+    return ref || rest.length === 0 ? { ok: true, args: argv } : { ok: false, reason: "show shape" };
   }
   if (command === "cat-file") {
     if (rest[0] !== "-p" || !rest[1]) return { ok: false, reason: "cat-file shape" };

@@ -15,6 +15,7 @@ describe("parseHash（C12 深链解析）", () => {
       taskVcs: false,
       taskReview: false,
       redirected: false,
+      gitGraph: false,
     });
   });
 
@@ -75,6 +76,14 @@ describe("parseHash（C12 深链解析）", () => {
     });
     // 非 1 值不误开
     expect(parseHash("#/tasks?t=t3&vcs=0").taskVcs).toBe(false);
+  });
+
+  it("解析 #/git 版本图深链", () => {
+    const route = parseHash("#/git");
+    expect(route.tab).toBe("tasks");
+    expect(route.gitGraph).toBe(true);
+    expect(route.redirected).toBe(true);
+    expect(buildHash("tasks", { gitGraph: true })).toBe("#/git");
   });
 
   it("旧 #/router 深链重定向到任务页（C10 合并 7→6）", () => {

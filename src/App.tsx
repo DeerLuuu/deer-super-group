@@ -64,6 +64,7 @@ import type {
 import KernelAnnouncer from "./KernelAnnouncer";
 import ChatContent from "./ChatContent";
 import { MergeQueueModal, TaskVcsPanel } from "./git/ui/GitPanels";
+import GitGraphPanel from "./git/ui/GitGraphPanel";
 import MemoryWorkbench from "./shell/MemoryWorkbench";
 import ReviewSection from "./review/ui/ReviewSection";
 import PollPanel from "./shell/PollPanel";
@@ -202,6 +203,7 @@ export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "chat",
   "tasks",
   "planDraft",
+  "gitGraph",
   "team",
   "runs",
   "mailbox",
@@ -379,13 +381,15 @@ export default function App() {
   const [bootPanel] = useState<PanelKey | null>(() =>
     initialRoute.run
       ? "runs"
-      : window.location.hash.startsWith("#/") && initialRoute.tab !== "settings"
-        ? initialRoute.tab
-        : null,
+      : initialRoute.gitGraph
+        ? "gitGraph"
+        : window.location.hash.startsWith("#/") && initialRoute.tab !== "settings"
+          ? initialRoute.tab
+          : null,
   );
   const [tab, setTab] = useState<Tab>(() => {
     if (initialRoute.tab === "settings") return "settings";
-    if (initialRoute.run) return "tasks";
+    if (initialRoute.run || initialRoute.gitGraph) return "tasks";
     if (!bootPanel) return "chat";
     return bootPanel === "runs" ? "tasks" : (bootPanel as Tab);
   });
@@ -1358,6 +1362,13 @@ export default function App() {
       }
       const route = parseHash(window.location.hash);
       lastTabRef.current = route.tab;
+      if (route.gitGraph) {
+        setTab("tasks");
+        setActivePanelKey("gitGraph");
+        dockRef.current?.openPanel("gitGraph");
+        setSelectedTaskId(null);
+        return;
+      }
       if (route.tab === "settings") {
         setSettingsOpen(true);
         setTab("settings");
@@ -2776,6 +2787,10 @@ export default function App() {
       handleOpenGitSettings();
       return;
     }
+    if (action === "open-git-graph") {
+      openPanel("gitGraph");
+      return;
+    }
     if (action === "open-task-vcs") {
       handleOpenTaskVcs();
       return;
@@ -3054,6 +3069,8 @@ export default function App() {
                       }}
                     />
                   );
+                case "gitGraph":
+                  return <GitGraphPanel workspaceId={snapshot.workspace.id} />;
                 case "tasks":
                   return (
                     <TasksView
@@ -3124,6 +3141,7 @@ export default function App() {
                       watchdogHandoffs={watchdogHandoffs}
                       workspaceSource={taskWorkspaceSource}
                       onReturnSource={() => openPanel("team")}
+                      onOpenGitGraph={() => openPanel("gitGraph")}
                     />
                   );
                 case "team":
@@ -3537,6 +3555,16 @@ export default function App() {
           >
             <span className="sidebar-action-icon">↻</span>
             <span className="sidebar-action-label">刷新</span>
+          </button>
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={() => openPanel("gitGraph")}
+            aria-label="版本图"
+            title="打开只读版本图"
+          >
+            <span className="sidebar-action-icon">◈</span>
+            <span className="sidebar-action-label">版本图</span>
           </button>
           <div className="panel-menu-wrap">
             <button
@@ -4109,6 +4137,7 @@ function TasksView({
   watchdogHandoffs,
   workspaceSource,
   onReturnSource,
+  onOpenGitGraph,
 }: {
   snapshot: Snapshot;
   selectedTask: Task | null;
@@ -4154,6 +4183,7 @@ function TasksView({
   watchdogHandoffs?: Record<string, RunHandoff>;
   workspaceSource: "tasks" | "team";
   onReturnSource: () => void;
+  onOpenGitGraph: () => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -4849,7 +4879,7 @@ function TasksView({
                 tabIndex={0}
               >
                 <div className="task-git-section" id="task-git-section">
-                  <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} />
+                  <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} onOpenGraph={onOpenGitGraph} />
                 </div>
                 <div className="muted tiny" role="note" aria-label="合并确认说明">
                   Git / PR / worktree 与入队准备不是合并确认；合并确认只在合并队列中执行。

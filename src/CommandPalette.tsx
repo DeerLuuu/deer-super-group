@@ -34,6 +34,7 @@ export type PanelAction =
   | "open-merge-queue"
   | "open-git-settings"
   | "open-task-vcs"
+  | "open-git-graph"
   | "open-task-review";
 
 type PaletteAction = {
@@ -164,6 +165,7 @@ export default function CommandPalette({
       const gitCommands: Array<{ id: PanelAction; label: string; hint: string }> = [
         { id: "open-merge-queue", label: "打开 合并队列", hint: "#/tasks?merge=1 · 串行合并与检查" },
         { id: "open-git-settings", label: "打开 Git 设置", hint: "#/settings?git=1 · 仓库/分支/PR 配置" },
+        { id: "open-git-graph", label: "打开版本图", hint: "#/git · 只读提交图/分支/工作区" },
         { id: "open-task-vcs", label: "打开 当前任务 Git 状态", hint: "#/tasks?t=&vcs=1 · 分支/PR/检查/合并" },
         { id: "open-task-review", label: "打开 当前任务行级评审", hint: "#/tasks?t=&review=1 · diff/评论/blocker" },
       ];
