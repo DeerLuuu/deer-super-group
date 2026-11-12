@@ -1,0 +1,461 @@
+/* t391：SourceTree 风格 Git 面板四区布局 */
+.git-graph-panel.git-st-panel {
+  container-type: inline-size;
+  container-name: git-panel;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  gap: 0;
+}
+
+.git-st-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.git-st-toolbar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.git-st-toolbar-title h3 {
+  margin: 0;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.git-st-toolbar-title .muted {
+  min-width: 0;
+  max-width: 320px;
+}
+
+.git-st-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.git-st-field select,
+.git-st-search input {
+  height: 24px;
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.git-st-search input {
+  width: 150px;
+}
+
+.git-st-nav-toggle {
+  display: none;
+}
+
+.git-st-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: minmax(220px, 1fr) 30px 300px;
+  grid-template-areas:
+    "nav history"
+    "nav filter"
+    "nav workspace";
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.git-st-nav {
+  grid-area: nav;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  padding: 4px 6px;
+}
+
+.git-st-nav-links {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.git-st-nav-links button,
+.git-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.git-st-nav-links button.active,
+.git-ref-row.active,
+.git-ref-row:hover {
+  background: var(--panel-2);
+}
+
+.git-ref-row.current {
+  font-weight: 700;
+}
+
+.git-ref-dot {
+  color: var(--accent-2);
+  font-size: 9px;
+}
+
+.git-ref-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.git-st-nav details {
+  margin: 2px 0;
+}
+
+.git-st-nav summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 3px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.git-st-stash {
+  margin-top: auto;
+  padding: 8px 5px;
+  border-top: 1px dashed var(--border);
+}
+
+.git-st-history {
+  grid-area: history;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.git-st-history-head,
+.git-st-row {
+  display: grid;
+  grid-template-columns: 56px minmax(160px, 1fr) 132px 150px 76px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 6px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.git-st-history-head {
+  height: 24px;
+  color: var(--muted);
+  font-size: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+
+.git-st-history-body {
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.git-st-row {
+  height: 22px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.git-st-row:hover,
+.git-st-row.selected {
+  background: var(--panel-2);
+}
+
+.git-st-rows {
+  position: relative;
+  min-height: 0;
+}
+
+.git-st-lanes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.git-st-rows-list {
+  position: relative;
+  z-index: 1;
+}
+
+.git-st-lane {
+  color: var(--muted);
+  font-size: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.git-st-subject {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.git-st-col-date,
+.git-st-col-author,
+.git-st-col-commit {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.git-st-working-row {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.git-st-filter {
+  grid-area: filter;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.git-st-filter .git-st-search {
+  margin-left: auto;
+}
+
+.git-st-workspace {
+  grid-area: workspace;
+  display: grid;
+  grid-template-columns: minmax(0, 55%) minmax(0, 45%);
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+}
+
+.git-st-working,
+.git-st-inspector {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 6px 8px;
+}
+
+.git-st-working {
+  border-right: 1px solid var(--border);
+}
+
+.git-st-inspector {
+  background: var(--bg-2);
+}
+
+.git-st-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.git-st-inspector-head h3 {
+  margin: 4px 0;
+}
+
+.git-st-empty {
+  padding: 12px;
+}
+
+.git-st-commit-detail {
+  display: grid;
+  gap: 6px;
+}
+
+.git-working-tree {
+  display: grid;
+  gap: 8px;
+}
+
+.git-working-tree.compact .git-status-files .git-file-row {
+  min-height: 22px;
+}
+
+.git-working-tree.compact .git-file-row .badge {
+  font-size: 9px;
+}
+
+.git-st-tabs {
+  display: none;
+}
+
+@container git-panel (max-width: 1099px) {
+  .git-st-layout {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .git-st-history-head,
+  .git-st-row {
+    grid-template-columns: 48px minmax(0, 1fr) 76px;
+  }
+
+  .git-st-col-date,
+  .git-st-col-author {
+    display: none;
+  }
+
+  .git-st-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 42%);
+  }
+}
+
+@container git-panel (min-width: 1100px) {
+  .git-st-history-head,
+  .git-st-row {
+    grid-template-columns: 72px minmax(160px, 1fr) 132px 150px 76px;
+  }
+}
+
+@container git-panel (max-width: 719px) {
+  .git-st-layout {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .git-st-nav,
+  .git-st-filter,
+  .git-st-history,
+  .git-st-workspace {
+    display: none;
+  }
+
+  .git-st-nav {
+    position: absolute;
+    inset: 36px auto 0 0;
+    width: 220px;
+    max-height: calc(100% - 36px);
+    z-index: 20;
+    background: var(--panel);
+    box-shadow: var(--shadow, 0 8px 24px rgba(0, 0, 0, 0.35));
+  }
+
+  .git-st-layout.nav-open .git-st-nav {
+    display: flex;
+  }
+
+  .git-st-tabs {
+    display: flex;
+    order: -1;
+  }
+
+  .git-st-tabs button {
+    flex: 1;
+    min-height: 28px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .git-st-tabs button.active {
+    border-bottom: 2px solid var(--accent);
+  }
+
+  .mobile-view-graph .git-st-history,
+  .mobile-view-workspace .git-st-workspace,
+  .mobile-view-detail .git-st-workspace {
+    display: flex;
+  }
+
+  .mobile-view-workspace .git-st-working {
+    display: block;
+  }
+
+  .mobile-view-workspace .git-st-inspector {
+    display: none;
+  }
+
+  .mobile-view-detail .git-st-working {
+    display: none;
+  }
+
+  .mobile-view-detail .git-st-inspector {
+    display: block;
+  }
+
+  .git-st-workspace {
+    flex: 1;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .git-st-nav-toggle {
+    display: inline-flex;
+  }
+
+  .git-st-toolbar-title .muted {
+    display: none;
+  }
+
+  .git-st-toolbar-controls .git-st-field:first-of-type,
+  .git-st-toolbar-controls .git-st-field:nth-of-type(2) {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .git-st-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .git-st-toolbar-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .git-st-search input {
+    width: 120px;
+  }
+}
