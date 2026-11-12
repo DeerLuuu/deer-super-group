@@ -721,6 +721,57 @@ export interface CreateAgentInput {
   model: string | null;
 }
 
+/** t272：Router 推荐成员只返回候选 DTO，不写 agent 表。 */
+export type MemberRecommendationMode = "team-gap" | "description";
+
+export interface RecommendMembersRequest {
+  workspaceId: Id;
+  mode: MemberRecommendationMode;
+  /** description mode only，1–2000 字符。 */
+  description?: string;
+}
+
+export interface MemberCandidate {
+  candidateId: string;
+  name: string;
+  role: string;
+  responsibilities: string;
+  reason: string;
+  suggestedModelProfileId: string | null;
+  suggestedModelLabel: string | null;
+  permission: "read_only";
+  skills: string[];
+  risks: string[];
+  systemPrompt?: string;
+  persona?: string;
+  agentsMd?: string;
+  /** 服务端按现有成员计算的提示；仅 UI 展示，不参与创建。 */
+  nameConflict?: boolean;
+  roleConflict?: boolean;
+}
+
+export interface RecommendMembersResult {
+  candidates: MemberCandidate[];
+  generatedAt: string;
+  modelLabel: string;
+  context: { memberCount: number; taskCount: number; hasDescription: boolean };
+}
+
+export type RecommendMembersErrorCode =
+  | "MOCK_UNSUPPORTED"
+  | "NO_MODEL_CONFIGURED"
+  | "MODEL_NOT_CONFIGURED"
+  | "RECOMMEND_TIMEOUT"
+  | "RECOMMEND_INVALID_SCHEMA"
+  | "RECOMMEND_EMPTY"
+  | "RECOMMEND_RATE_LIMITED"
+  | "RECOMMEND_AUTH_FAILED"
+  | "RECOMMEND_FAILED";
+
+export type RecommendMembersResponse =
+  | { ok: true; result: RecommendMembersResult }
+  | { ok: false; code: RecommendMembersErrorCode; message: string };
+
 export interface UpdateAgentInput {
   id: Id;
   name?: string;

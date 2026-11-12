@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type {
   Agent,
   AnswerChatQuestionInput,
@@ -32,6 +33,8 @@ import type {
   ModelListResult,
   PermissionMode,
   PostBoardInput,
+  RecommendMembersRequest,
+  RecommendMembersResponse,
   RiskApprovalRequest,
   Run,
   SchedulerSnapshot,
@@ -59,6 +62,11 @@ import {
   type LlmMessage,
 } from "./model.js";
 import { resolveModelProfile, resolveProvider } from "../shared/models.js";
+import {
+  buildMemberRecommendationUserPrompt,
+  MEMBER_RECOMMENDATION_SYSTEM_PROMPT,
+  parseCandidateResponse,
+} from "../shared/memberRecommendation.js";
 import { safeErrorSummary, sanitizeErrorText } from "../shared/errorRedaction.js";
 import {
   buildPlanDraftPrompt,
@@ -470,15 +478,165 @@ export class AppService {
     );
   }
 
+  async recommendMembers(input: RecommendMembersRequest): Promise<RecommendMembersResponse> {
+    const workspace = this.store.getWorkspace(input.workspaceId);
+    if (!workspace) {
+      return { ok: false, code: "RECOMMEND_FAILED", message: "工作区不存在" };
+    }
+    if (input.mode !== "team-gap" && input.mode !== "description") {
+      return { ok: false, code: "RECOMMEND_INVALID_SCHEMA", message: "推荐模式无效" };
+    }
+    const description = input.description?.trim() ?? "";
+    if (input.mode === "description" && (!description || description.length > 2000)) {
+      return {
+        ok: false,
+        code: "RECOMMEND_INVALID_SCHEMA",
+        message: "成员描述需为 1–2000 字符",
+      };
+    }
+    const settings = this.store.getLlmSettings();
+    if (settings.mock) {
+      return {
+        ok: false,
+        code: "MOCK_UNSUPPORTED",
+        message: "Mock 模式不提供真实推荐，请手填或切换模型",
+      };
+    }
+    if (settings.models.length === 0) {
+      return {
+        ok: false,
+        code: "NO_MODEL_CONFIGURED",
+        message: "尚未配置模型；请先在设置中添加模型",
+      };
+    }
+    const agents = this.store.listAgents(input.workspaceId);
+    const router = agents.find((agent) => agent.isRouter);
+    const profile = resolveModelProfile(settings, router?.model ?? settings.model);
+    if (!profile || !settings.models.some((model) => model.id === profile.id)) {
+      return {
+        ok: false,
+        code: "MODEL_NOT_CONFIGURED",
+        message: "当前模型未配置；请先在设置中配置模型",
+      };
+    }
+    const tasks = this.store.listTasks(input.workspaceId);
+    const history = router
+      ? this.store.listChatMessages(input.workspaceId, router.id, 8)
+      : [];
+    const allowedModels = settings.models.map((model) => ({
+      id: model.id,
+      label: model.label,
+    }));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const client = createLlmClientForModel(settings, profile);
+      const completion = await client.complete({
+        model: profile.modelId,
+        messages: [
+          { role: "system", content: MEMBER_RECOMMENDATION_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: buildMemberRecommendationUserPrompt({
+              mode: input.mode,
+              description: input.mode === "description" ? description : undefined,
+              workspaceName: workspace.name,
+              workspacePath: workspace.path,
+              overview: workspace.overview ?? undefined,
+              members: agents.map((agent) => ({
+                name: agent.name,
+                role: agent.role,
+                modelLabel:
+                  settings.models.find((model) => model.id === agent.model)?.label ?? null,
+              })),
+              tasks: tasks.map((task) => ({
+                title: task.title,
+                description: task.description,
+                status: task.status,
+                ownerName: agents.find((agent) => agent.id === task.ownerId)?.name ?? null,
+              })),
+              recentContext: history
+                .filter((message) => message.role !== "system")
+                .map((message) => ({ role: message.role, content: message.content })),
+              allowedModels,
+            }),
+          },
+        ],
+        temperature: 0.2,
+        maxOutputTokens: 1600,
+        signal: controller.signal,
+      });
+      const parsed = parseCandidateResponse(completion.text, settings.models);
+      if (!parsed.ok) {
+        return {
+          ok: false,
+          code: "RECOMMEND_INVALID_SCHEMA",
+          message: `候选未通过安全校验：${parsed.issue}`,
+        };
+      }
+      if (parsed.candidates.length === 0) {
+        return {
+          ok: false,
+          code: "RECOMMEND_EMPTY",
+          message: "Router 没有给出候选",
+        };
+      }
+      const existingNames = new Set(agents.map((agent) => agent.name.toLowerCase()));
+      const existingRoles = new Set(agents.map((agent) => agent.role.toLowerCase()));
+      return {
+        ok: true,
+        result: {
+          candidates: parsed.candidates.map((candidate) => ({
+            ...candidate,
+            candidateId: randomUUID(),
+            nameConflict: existingNames.has(candidate.name.toLowerCase()),
+            roleConflict: existingRoles.has(candidate.role.toLowerCase()),
+          })),
+          generatedAt: new Date().toISOString(),
+          modelLabel: profile.label,
+          context: {
+            memberCount: agents.filter((agent) => !agent.isRouter).length,
+            taskCount: tasks.length,
+            hasDescription: Boolean(description),
+          },
+        },
+      };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return {
+          ok: false,
+          code: "RECOMMEND_TIMEOUT",
+          message: "Router 推荐超时，请重试或自己设定成员",
+        };
+      }
+      const message = sanitizeErrorText(
+        error instanceof Error ? error.message : String(error),
+        300,
+      );
+      if (/\b429\b|rate.?limit|quota|too many requests|1308|额度|限额/i.test(message)) {
+        return { ok: false, code: "RECOMMEND_RATE_LIMITED", message };
+      }
+      if (/\b401\b|unauthorized|invalid api.?key|authentication|认证|鉴权/i.test(message)) {
+        return { ok: false, code: "RECOMMEND_AUTH_FAILED", message };
+      }
+      return { ok: false, code: "RECOMMEND_FAILED", message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   createAgent(input: CreateAgentInput): Agent {
     const existing = this.store
       .listAgents(input.workspaceId)
       .find((agent) => agent.name.toLowerCase() === input.name.trim().toLowerCase());
     if (existing) throw new Error(`member already exists: ${input.name}`);
     if (!input.name.trim()) throw new Error("member name is required");
+    const settings = this.store.getLlmSettings();
+    if (settings.models.length === 0) {
+      throw new Error("model is not configured; configure a model before hiring a member");
+    }
     let model = input.model;
     if (model) {
-      const settings = this.store.getLlmSettings();
       const profile =
         settings.models.find((item) => item.id === model) ??
         settings.models.find((item) => item.modelId === model);

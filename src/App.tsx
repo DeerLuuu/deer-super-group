@@ -28,6 +28,8 @@ import type {
   LlmSettings,
   MailboxMessage,
   PermissionMode,
+  RecommendMembersRequest,
+  RecommendMembersResponse,
   RiskApprovalRequest,
   Run,
   SchedulerSnapshot,
@@ -1752,25 +1754,51 @@ export default function App() {
     systemPrompt: string;
     persona: string;
     agentsMd: string;
-  }) {
+  }): Promise<boolean> {
     const current = snapshotRef.current;
-    if (!current) return;
+    if (!current) return false;
     setBusy(true);
     setError(null);
     try {
-      await window.deer.createAgent({ workspaceId: current.workspace.id, ...input });
-      await refresh(current.workspace.id);
-      // C26：成功 toast。
-      pushToast({
-        kind: "success",
-        message: `已创建成员 ${input.name}`,
-        action: { label: "查看", onClick: () => openPanel("team") },
-      });
+      const { postError } = await writeThenRefresh(
+        () => window.deer.createAgent({ workspaceId: current.workspace.id, ...input }),
+        async () => {
+          await refresh(current.workspace.id);
+        },
+      );
+      if (postError) {
+        pushToast({
+          kind: "error",
+          message: `成员已创建，但刷新失败：${formatError(postError)}`,
+        });
+      } else {
+        pushToast({
+          kind: "success",
+          message: `已创建成员 ${input.name}`,
+          action: { label: "查看", onClick: () => openPanel("team") },
+        });
+      }
+      return true;
     } catch (error) {
       setError(errorText(error));
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleRecommendMembers(
+    input: Omit<RecommendMembersRequest, "workspaceId">,
+  ): Promise<RecommendMembersResponse> {
+    const current = snapshotRef.current;
+    if (!current) {
+      return Promise.resolve({
+        ok: false,
+        code: "RECOMMEND_FAILED",
+        message: "工作区尚未加载",
+      });
+    }
+    return window.deer.recommendMembers({ ...input, workspaceId: current.workspace.id });
   }
 
   async function handleUpdateAgent(input: UpdateAgentInput) {
@@ -2927,6 +2955,8 @@ export default function App() {
                       autoOpenMemberDialog={createIntent === "member"}
                       onAutoOpenHandled={() => setCreateIntent(null)}
                       onCreate={handleCreateAgent}
+                      onRecommend={handleRecommendMembers}
+                      onOpenSettings={() => openSettingsSection("models")}
                       onUpdate={handleUpdateAgent}
                       onDelete={handleDeleteAgent}
                       onOpenTask={(taskId) => handleShowTaskContext(taskId, "team")}

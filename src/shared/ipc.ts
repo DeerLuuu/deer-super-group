@@ -17,6 +17,8 @@ import type {
   ContextSnapshot,
   CreateAgentInput,
   CreateTaskInput,
+  RecommendMembersRequest,
+  RecommendMembersResponse,
   DeleteAgentResult,
   DeleteTaskResult,
   BoardKind,
@@ -100,6 +102,8 @@ export interface DeerApi {
   openWorkspace(): Promise<Workspace | null>;
   getSnapshot(workspaceId: string): Promise<Snapshot>;
   createAgent(input: CreateAgentInput): Promise<Agent>;
+  /** t272：只读推荐，不创建成员；createAgent 仍是唯一创建入口。 */
+  recommendMembers(input: RecommendMembersRequest): Promise<RecommendMembersResponse>;
   updateAgent(input: UpdateAgentInput): Promise<Agent>;
   /** t167：删除成员；需要二级确认。Router/活跃 Run 会被拒绝。 */
   deleteAgent(agentId: string): Promise<DeleteAgentResult>;

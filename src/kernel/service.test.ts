@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ChatEvent } from "../shared/types.js";
+import type { ChatEvent, CreateAgentInput } from "../shared/types.js";
 import { defaultModelProfile, defaultProviderProfile } from "../shared/models.js";
 import { AppService } from "./service.js";
 
@@ -219,5 +219,37 @@ describe("AppService", () => {
     const trace = service.getTaskTrace(task.id);
     expect(trace.some((event) => event.type === "tool.call")).toBe(true);
     expect(trace.some((event) => event.type === "run.completed")).toBe(true);
+  });
+
+  it("recommendMembers does not fabricate candidates in mock mode", async () => {
+    const { service, workspacePath } = setup();
+    const workspace = await service.openWorkspace(workspacePath);
+    expect(service.getSnapshot(workspace.id).agents.length).toBe(1);
+    const result = await service.recommendMembers({
+      workspaceId: workspace.id,
+      mode: "team-gap",
+    });
+    expect(result).toMatchObject({ ok: false, code: "MOCK_UNSUPPORTED" });
+    expect(service.getSnapshot(workspace.id).agents).toHaveLength(1);
+  });
+
+  it("createAgent always stores read_only even if a caller smuggles permission", async () => {
+    const { service, workspacePath } = setup();
+    const workspace = await service.openWorkspace(workspacePath);
+    const input = {
+      workspaceId: workspace.id,
+      name: "Sneaky",
+      role: "engineer",
+      systemPrompt: "",
+      persona: "",
+      agentsMd: "",
+      model: null,
+      permission: "full_access",
+    } as unknown as CreateAgentInput;
+    const created = service.createAgent(input);
+    expect(created.permission).toBe("read_only");
+    expect(
+      service.getSnapshot(workspace.id).agents.find((agent) => agent.id === created.id)?.permission,
+    ).toBe("read_only");
   });
 });
