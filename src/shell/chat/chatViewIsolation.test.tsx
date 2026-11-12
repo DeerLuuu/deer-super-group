@@ -38,10 +38,12 @@ function ChatViewProbe({
   store,
   onViewChange = () => {},
   loadEarlierMessages,
+  onLoadEarlierHistory,
 }: {
   store: ChatLiveStore;
   onViewChange?: (view: "chat" | "trajectory") => void;
   loadEarlierMessages?: () => Promise<void>;
+  onLoadEarlierHistory?: () => Promise<boolean>;
 }) {
   viewRenders += 1;
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -57,6 +59,7 @@ function ChatViewProbe({
       view="chat"
       onViewChange={onViewChange}
       loadEarlierMessages={loadEarlierMessages}
+      onLoadEarlierHistory={onLoadEarlierHistory}
       trajectory={[]}
       trajectoryLoading={false}
       onRefreshTrajectory={() => {}}
@@ -199,5 +202,28 @@ describe("t260 R1 actual ChatView isolation", () => {
     expect(failed).toContain("加载失败");
     expect(failed).toContain("可重试");
     expect(loadEarlierMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not advance visible messages when server pagination rejects", async () => {
+    const store = new ChatLiveStore(WS);
+    const onLoadEarlierHistory = vi.fn(async () => false);
+    const treeRef: { current?: ReturnType<typeof create> } = {};
+    await act(async () => {
+      treeRef.current = create(
+        <ChatViewProbe store={store} onLoadEarlierHistory={onLoadEarlierHistory} />,
+      );
+    });
+    const renderer = treeRef.current!;
+    const more = renderer.root
+      .findAllByType("button")
+      .find((button) => JSON.stringify(button.children).includes("加载更早"))!;
+    await act(async () => {
+      await (more.props.onClick as () => Promise<void>)();
+    });
+    const output = JSON.stringify(renderer.toJSON());
+    expect(onLoadEarlierHistory).toHaveBeenCalledTimes(1);
+    expect(output).not.toContain("fixture message 0");
+    expect(output).toContain("加载失败");
+    expect(output).toContain("重试");
   });
 });

@@ -50,3 +50,10 @@
 - 仅 renderer 分页/翻译 UI/CSS；无 schema、IPC、kernel、权限/gate 变更。
 - 回滚 `ChatView` 的 visible slice/加载按钮与重试按钮即可；消息数据不变。
 - 服务端分页 API 已存在，未新增契约。
+
+## t333 修复
+
+- **F1 已挂载译文失效**：App 增加 `translationRevision`；翻译设置保存成功/设置指纹变化时 clear 并 bump。`ChatTurnHistoryReasoning`/`ChatMessageReasoning` 监听 revision：清除旧译文，展开状态重新请求新设置译文。`chatTurnUi` 新增 revision 0→1 后 translate 第二次调用断言。
+- **F2 scrollTop 补偿**：`applyHistoryScrollPreservation(node, prev)` 直接设置真实滚动容器 `scrollTop`；`chatHistory.test` 用带 `scrollTop/scrollHeight` 的容器形状断言 120+300=420。
+- **F3 server 分页失败不前进**：`loadEarlierChatTurns(): Promise<boolean>` 仅在成功时合并 nextBefore/turns；ChatView 先 await `onLoadEarlierHistory`，false/异常不增加 visible，显示「更早历史加载失败，可重试」，保留缓存/可见范围。`chatViewIsolation` 注入 false 分页断言 message 0 未出现且可重试。
+- 1440/960 截图沿用 `t329-history-translation-1440/960.png`。

@@ -48,7 +48,10 @@ import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
 import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
 import { translationCacheNeedsInvalidation } from "./shared/translationCache";
-import { nextVisibleMessageCount, scrollTopAfterPrepend } from "./shared/chatHistory";
+import {
+  applyHistoryScrollPreservation,
+  nextVisibleMessageCount,
+} from "./shared/chatHistory";
 import {
   BudgetBar,
   WatchdogAlertBanner,
@@ -461,6 +464,7 @@ export default function App() {
   const [chatTurns, setChatTurns] = useState<ChatTurnHistoryPage | null>(null);
   const [chatTurnsLoading, setChatTurnsLoading] = useState(false);
   const [chatTurnsError, setChatTurnsError] = useState<string | null>(null);
+  const [translationRevision, setTranslationRevision] = useState(0);
   const chatComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const historyTranslationMemo = useMemo(
     () => createChatTranslationMemo((text) => window.deer.translateText(text)),
@@ -1153,12 +1157,12 @@ export default function App() {
     }
   }, [contextTaskId, pushToast]);
 
-  const loadEarlierChatTurns = useCallback(async () => {
+  const loadEarlierChatTurns = useCallback(async (): Promise<boolean> => {
     const current = snapshotRef.current;
     const page = chatTurns;
-    if (!current || !page?.hasMore || !page.nextBefore || chatTurnsLoading) return;
+    if (!current || !page?.hasMore || !page.nextBefore || chatTurnsLoading) return false;
     const router = current.agents.find((agent) => agent.isRouter);
-    if (!router) return;
+    if (!router) return false;
     setChatTurnsLoading(true);
     setChatTurnsError(null);
     try {
@@ -1182,8 +1186,10 @@ export default function App() {
           generatedAt: earlier.generatedAt,
         };
       });
+      return true;
     } catch (error) {
       setChatTurnsError(errorText(error));
+      return false;
     } finally {
       setChatTurnsLoading(false);
     }
@@ -1741,6 +1747,7 @@ export default function App() {
       }
       if (translationCacheNeedsInvalidation(translationSettingsKeyRef.current, settingsKey)) {
         historyTranslationMemo.clear();
+        setTranslationRevision((value) => value + 1);
       }
       if (settingsKey !== null) translationSettingsKeyRef.current = settingsKey;
       return historyTranslationMemo.translate(text);
@@ -3038,6 +3045,10 @@ export default function App() {
     setBusy(true);
     try {
       await window.deer.saveSettings(settings);
+      // 翻译设置/目标语言可能变化：清空已挂载译文，并通知 reasoning 重新请求。
+      historyTranslationMemo.clear();
+      translationSettingsKeyRef.current = null;
+      setTranslationRevision((value) => value + 1);
       const current = snapshotRef.current;
       if (current) await refresh(current.workspace.id);
       // t190：保存反馈由 SettingsView 内部呈现；不把错误丢到全局 banner。
@@ -3369,10 +3380,11 @@ export default function App() {
                       onRetryTurn={handleRetryTurn}
                       composerRef={chatComposerRef}
                       translateHistoryText={translateHistoryText}
+                      translationRevision={translationRevision}
                       historyHasMore={Boolean(chatTurns?.hasMore)}
                       historyLoading={chatTurnsLoading}
                       historyError={chatTurnsError}
-                      onLoadEarlierHistory={() => void loadEarlierChatTurns()}
+                      onLoadEarlierHistory={loadEarlierChatTurns}
                       view={chatView}
                       onViewChange={setChatView}
                       trajectory={chatTrajectory}
@@ -5816,6 +5828,7 @@ export function ChatView({
   onRetryTurn,
   composerRef,
   translateHistoryText,
+  translationRevision,
   historyHasMore,
   historyLoading,
   historyError,
@@ -5867,10 +5880,11 @@ export function ChatView({
   onRetryTurn: (content: string) => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   translateHistoryText: (text: string) => Promise<string>;
+  translationRevision?: number;
   historyHasMore?: boolean;
   historyLoading?: boolean;
   historyError?: string | null;
-  onLoadEarlierHistory?: () => void;
+  onLoadEarlierHistory?: () => Promise<boolean> | boolean | void;
   loadEarlierMessages?: () => Promise<void>;
   view: "chat" | "trajectory";
   onViewChange: (view: "chat" | "trajectory") => void;
@@ -5955,11 +5969,7 @@ export function ChatView({
     if (!node) return;
     const preserve = preserveScrollRef.current;
     if (preserve) {
-      node.scrollTop = scrollTopAfterPrepend(
-        preserve.top,
-        preserve.height,
-        node.scrollHeight,
-      );
+      applyHistoryScrollPreservation(node, preserve);
       preserveScrollRef.current = null;
       return;
     }
@@ -5979,12 +5989,19 @@ export function ChatView({
     setMessagePageError(null);
     try {
       if (loadEarlierMessages) await loadEarlierMessages();
+      if (onLoadEarlierHistory) {
+        const committed = await onLoadEarlierHistory();
+        if (committed === false) {
+          preserveScrollRef.current = null;
+          setMessagePageError("更早历史加载失败，可重试");
+          return;
+        }
+      }
       if (hasEarlierMessages) {
         setVisibleMessageCount((current) =>
           nextVisibleMessageCount(current, messages.length, CHAT_MESSAGE_PAGE),
         );
       }
-      onLoadEarlierHistory?.();
     } catch (error) {
       preserveScrollRef.current = null;
       setMessagePageError(error instanceof Error ? error.message : String(error));
@@ -6219,11 +6236,13 @@ export function ChatView({
                   content={message.content}
                   reasoning={historical ? "" : message.reasoning}
                   translate={translateHistoryText}
+                  translationRevision={translationRevision}
                   process={
                     historical && historical.steps.length > 0 ? (
                       <ChatTurnHistoryProcess
                         assistant={historical}
                         translate={translateHistoryText}
+                        translationRevision={translationRevision}
                       />
                     ) : undefined
                   }
@@ -6719,9 +6738,11 @@ function ChatTurnTerminalBubble({
 export function ChatTurnHistoryProcess({
   assistant,
   translate,
+  translationRevision = 0,
 }: {
   assistant: ChatAssistantTurn;
   translate: (text: string) => Promise<string>;
+  translationRevision?: number;
 }) {
   const [open, setOpen] = useState(false);
   const toolCount = assistant.steps.reduce((count, step) => count + step.tools.length, 0);
@@ -6742,7 +6763,12 @@ export function ChatTurnHistoryProcess({
       {open && (
         <div className="chat-turn-process-body">
           {assistant.steps.map((step) => (
-            <ChatTurnHistoryStep key={step.step} step={step} translate={translate} />
+            <ChatTurnHistoryStep
+              key={step.step}
+              step={step}
+              translate={translate}
+              translationRevision={translationRevision}
+            />
           ))}
         </div>
       )}
@@ -6753,9 +6779,11 @@ export function ChatTurnHistoryProcess({
 function ChatTurnHistoryStep({
   step,
   translate,
+  translationRevision,
 }: {
   step: ChatAssistantTurn["steps"][number];
   translate: (text: string) => Promise<string>;
+  translationRevision: number;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -6782,6 +6810,7 @@ function ChatTurnHistoryStep({
               key={reasoning.id}
               reasoning={reasoning}
               translate={translate}
+              translationRevision={translationRevision}
             />
           ))}
           {step.tools.map((tool) => (
@@ -6796,9 +6825,11 @@ function ChatTurnHistoryStep({
 function ChatTurnHistoryReasoning({
   reasoning,
   translate,
+  translationRevision = 0,
 }: {
   reasoning: ChatTurnReasoning;
   translate: (text: string) => Promise<string>;
+  translationRevision?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [segment, setSegment] = useState<ChatReasoningSegment>(() => ({
@@ -6808,6 +6839,7 @@ function ChatTurnHistoryReasoning({
     status: "done",
   }));
   const requested = useRef(false);
+  const revisionRef = useRef(translationRevision);
 
   function requestTranslation() {
     if (!reasoning.text.trim()) return;
@@ -6827,6 +6859,19 @@ function ChatTurnHistoryReasoning({
     requestTranslation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, reasoning.text, translate]);
+
+  useEffect(() => {
+    if (revisionRef.current === translationRevision) return;
+    revisionRef.current = translationRevision;
+    requested.current = false;
+    setSegment((prev) => ({ ...prev, translation: undefined, status: "done" }));
+    if (open) {
+      requested.current = true;
+      requestTranslation();
+    }
+    // t333：设置指纹变化必须让已挂载译文失效并重新请求。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [translationRevision]);
 
   return (
     <ChatReasoningBlock
@@ -7044,10 +7089,12 @@ function ChatMessageReasoning({
   text,
   streaming,
   translate,
+  translationRevision = 0,
 }: {
   text: string;
   streaming: boolean;
   translate?: (text: string) => Promise<string>;
+  translationRevision?: number;
 }) {
   const [open, setOpen] = useState(streaming);
   const [segment, setSegment] = useState<ChatReasoningSegment>(() => ({
@@ -7057,6 +7104,7 @@ function ChatMessageReasoning({
     status: "loading",
   }));
   const requested = useRef(false);
+  const revisionRef = useRef(translationRevision);
 
   function requestTranslation() {
     if (!text.trim()) return;
@@ -7079,6 +7127,19 @@ function ChatMessageReasoning({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, text, translate]);
 
+  useEffect(() => {
+    if (revisionRef.current === translationRevision) return;
+    revisionRef.current = translationRevision;
+    requested.current = false;
+    setSegment((prev) => ({ ...prev, translation: undefined, status: "done" }));
+    if (open) {
+      requested.current = true;
+      requestTranslation();
+    }
+    // t333：设置指纹变化必须让已挂载译文失效并重新请求。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [translationRevision]);
+
   return (
     <ChatReasoningBlock
       segment={segment}
@@ -7095,6 +7156,7 @@ function ChatBubble({
   content,
   reasoning,
   translate,
+  translationRevision,
   process,
   createdAt,
   streaming,
@@ -7108,6 +7170,7 @@ function ChatBubble({
   content: string;
   reasoning?: string;
   translate?: (text: string) => Promise<string>;
+  translationRevision?: number;
   /** t177：思考段 + 工具调用，和最终回复放在同一个 bubble 内。 */
   process?: ReactNode;
   createdAt?: string;
@@ -7131,6 +7194,7 @@ function ChatBubble({
             text={reasoning}
             streaming={Boolean(streaming)}
             translate={translate}
+            translationRevision={translationRevision}
           />
         )}
         {process}
