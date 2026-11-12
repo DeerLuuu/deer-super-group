@@ -1486,10 +1486,6 @@ export default function TaskStarMap({
         </button>
       )}
 
-      <div className="star-hint">
-        拖动空白平移 · 滚轮缩放 · 单击浮窗 · 双击会话 · Tab 键盘浏览 · Esc 退出聚焦
-      </div>
-
       {/* S10：帮助面板（复用 C25 Modal） */}
       {helpOpen && (
         <Modal

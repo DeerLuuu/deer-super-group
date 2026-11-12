@@ -314,7 +314,6 @@ export default function TeamDashboard({
                 {memberFilterName ? ` · ${memberFilterName} 的任务` : " · 全部任务"}
               </div>
             </div>
-            <div className="muted tiny">拖动空白平移 · 滚轮缩放</div>
           </div>
           <TaskStarMap
             tasks={visibleTasks}

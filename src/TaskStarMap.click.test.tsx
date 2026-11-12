@@ -299,6 +299,37 @@ describe("t419 G6 星图单击/双击语义", () => {
     expect(String(node.props.title)).toContain("单击查看概览，双击打开任务");
     await act(async () => renderer!.unmount());
   });
+
+  it("已移除底部 star-hint，保留 ? 帮助与 sr-only 状态", async () => {
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <TaskStarMap
+          {...noopMap}
+          tasks={[taskA, taskB]}
+          agents={[owner]}
+          onSelect={() => {}}
+          onOpen={() => {}}
+          onOpenTaskPage={() => {}}
+        />,
+      );
+      await Promise.resolve();
+    });
+    const hintNodes = renderer!.root.findAll((node) =>
+      String(node.props.className ?? "").split(/\s+/).includes("star-hint"),
+    );
+    expect(hintNodes).toHaveLength(0);
+    expect(String(renderer!.toJSON())).not.toContain("拖动空白平移");
+    const help = renderer!.root
+      .findAllByType("button")
+      .find((button) => button.props.title === "星图帮助");
+    expect(help).toBeTruthy();
+    const srOnly = renderer!.root.findAll((node) =>
+      String(node.props.className ?? "").split(/\s+/).includes("sr-only"),
+    );
+    expect(srOnly.length).toBeGreaterThan(0);
+    await act(async () => renderer!.unmount());
+  });
 });
 
 describe("t419 G6 TeamDashboard 布线（单击不导航）", () => {
@@ -353,6 +384,7 @@ describe("t419 G6 TeamDashboard 布线（单击不导航）", () => {
     expect(onSelectTask).toHaveBeenCalledWith("t1");
     expect(onOpenTaskPage).not.toHaveBeenCalled();
     expect(onOpenTask).not.toHaveBeenCalled();
+    expect(String(renderer!.toJSON())).not.toContain("拖动空白平移 · 滚轮缩放");
     await act(async () => renderer!.unmount());
   });
 });
