@@ -1,0 +1,145 @@
+{
+  "results": [
+    {
+      "id": "wide-1440-default: splitter exists",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: role/aria",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: visibility(visible)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: aria min/max/now/text",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: grid 4 rows with var height",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: panel rendered (toolbar+commits)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: key Home → 160",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: key End → max(605)",
+      "ok": true,
+      "detail": "valuemax=605 rows=484.859px 30px 6px 300px"
+    },
+    {
+      "id": "wide-1440-default: key ArrowDown → max-16",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: drag +60 → 605",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: dblclick 持久化值=605",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "wide-1440-default: screenshot saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: splitter exists",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: role/aria",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: visibility(visible)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: aria min/max/now/text",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: grid 4 rows with var height",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: panel rendered (toolbar+commits)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: key Home → 160",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: key End → max(375)",
+      "ok": true,
+      "detail": "valuemax=375 rows=180px 30px 6px 375px"
+    },
+    {
+      "id": "mid-960-dragged: key ArrowDown → max-16",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: drag +60 → 375",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: dblclick 持久化值=375",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mid-960-dragged: screenshot saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mobile-480-tabs: splitter exists",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mobile-480-tabs: role/aria",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mobile-480-tabs: visibility(hidden)",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "mobile-480-tabs: screenshot saved",
+      "ok": true,
+      "detail": null
+    }
+  ],
+  "failures": []
+}

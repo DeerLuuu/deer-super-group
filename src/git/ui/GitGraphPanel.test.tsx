@@ -686,7 +686,8 @@ describe("GitGraphPanel", () => {
       expect(json).toContain("git-ws-sections");
       expect(json).toContain("git-ws-resizer");
       const root = renderer!.root;
-      const separator = root.findByProps({ role: "separator" });
+      // t432：面板现有两个 role=separator（暂存区分隔 + 历史/工作区分隔），旧断言改按 testid 定位。
+      const separator = root.findByProps({ "data-testid": "git-ws-resizer" });
       expect(separator.props["aria-valuenow"]).toBe(38);
       const sections = root.findByProps({ className: "git-ws-sections" });
       expect(sections).toBeTruthy();
@@ -700,43 +701,43 @@ describe("GitGraphPanel", () => {
         });
         await Promise.resolve();
       });
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(43);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(43);
       await act(async () => {
-        (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+        (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
           key: "Home",
           preventDefault() {},
         });
         await Promise.resolve();
       });
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(38);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(38);
       for (let index = 0; index < 20; index += 1) {
         await act(async () => {
-          (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+          (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
             key: "ArrowDown",
             preventDefault() {},
           });
           await Promise.resolve();
         });
       }
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(80);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(80);
       for (let index = 0; index < 20; index += 1) {
         await act(async () => {
-          (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+          (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
             key: "ArrowUp",
             preventDefault() {},
           });
           await Promise.resolve();
         });
       }
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(20);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(20);
       await act(async () => {
-        (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+        (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
           key: "Home",
           preventDefault() {},
         });
         await Promise.resolve();
       });
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(38);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(38);
       expect(
         root
           .findAllByProps({ role: "tab" })
@@ -920,6 +921,136 @@ describe("GitGraphPanel", () => {
       renderer!.unmount();
     } finally {
       (globalThis as { window?: unknown }).window = previous;
+    }
+  });
+});
+
+describe("t452 G9 splitter：双击恢复默认 300（F1）", () => {
+  it("double-click → 恢复 300 并持久化；普通 pointerdown 不触发恢复", async () => {
+    const sha = "c".repeat(40);
+    const commit = {
+      sha,
+      shortSha: "cccccccc",
+      parents: [],
+      authorName: "Read",
+      authorTime: "2026-01-01T00:00:00Z",
+      committerTime: "2026-01-01T00:00:00Z",
+      subject: "one",
+      refs: [],
+      lane: 0,
+      color: 0,
+      parentLanes: [],
+      openEdges: [],
+    };
+    const repo = {
+      workspaceId: "ws-dbl",
+      workspacePath: "/tmp/repo",
+      root: "/tmp/repo",
+      headSha: sha,
+      branch: "main",
+      detached: false,
+      ahead: 0,
+      behind: 0,
+      baseBranch: "main",
+      remote: null,
+      shallow: false,
+      bare: false,
+      gitVersion: "2.40.0",
+      generatedAt: "2026-01-01T00:00:00Z",
+    };
+    const graph = {
+      repo,
+      commits: [commit],
+      refs: [],
+      graphVersion: "v1",
+      offset: 0,
+      limit: 200,
+      hasMore: false,
+      nextOffset: null,
+      totalLoaded: 1,
+      truncated: false,
+      layout: { laneCount: 1, maxLanes: 16, truncatedLanes: false },
+    };
+    const working = {
+      repo,
+      staged: [],
+      unstaged: [],
+      untracked: [{ path: "work.txt", status: "?", staged: false }],
+      conflicts: [],
+      submodules: [],
+      truncated: false,
+    };
+
+    const store = new Map<string, string>();
+    const localStorageStub = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    };
+    const previousWindow = (globalThis as { window?: unknown }).window;
+    const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+    (globalThis as { window?: unknown }).window = {
+      deer: {
+        gitRepo: async () => ({ ok: true, value: repo }),
+        gitGraph: async () => ({ ok: true, value: graph }),
+        gitRefs: async () => ({ ok: true, value: { refs: [], worktrees: [], truncated: false } }),
+        gitCommit: async () => ({
+          ok: true,
+          value: {
+            node: commit,
+            body: "",
+            changedFiles: [],
+            stats: { files: 0, insertions: 0, deletions: 0 },
+            diff: { files: [], bytes: 0, truncated: false, binary: false, submodule: false },
+          },
+        }),
+        gitStatus: async () => ({ ok: true, value: working }),
+        gitDiff: async () => ({ ok: true, value: { files: [], bytes: 0, truncated: false, binary: false, submodule: false } }),
+      },
+    };
+    (globalThis as { localStorage?: unknown }).localStorage = localStorageStub;
+    try {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws-dbl" />);
+        await Promise.resolve();
+      });
+      const root = renderer!.root;
+      const splitter = () => root.findByProps({ className: "git-st-splitter" });
+      expect(splitter().props["aria-valuenow"]).toBe(300);
+
+      // detail=1（普通按下，无拖拽容器）不应重置。
+      await act(async () => {
+        splitter().props.onPointerDown({
+          button: 0,
+          detail: 1,
+          preventDefault() {},
+          currentTarget: { setPointerCapture() {} },
+        });
+        await Promise.resolve();
+      });
+      // 键盘先把高度调离 300（containerHeight=0 时 clamp 仅下限，End 回默认——用 ArrowUp 两次）。
+      await act(async () => {
+        splitter().props.onKeyDown({ key: "ArrowUp", preventDefault() {} });
+        await Promise.resolve();
+      });
+      await act(async () => {
+        splitter().props.onKeyDown({ key: "ArrowUp", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(splitter().props["aria-valuenow"]).toBe(332);
+
+      // 真实双击由浏览器发出 dblclick；组件只绑定 onDoubleClick，不再依赖 pointerdown.detail。
+      await act(async () => {
+        (splitter().props.onDoubleClick as () => void)();
+        await Promise.resolve();
+      });
+      expect(splitter().props["aria-valuenow"]).toBe(300);
+      expect(store.get("deer.git.workspaceHeight.ws-dbl")).toBe("300");
+      renderer!.unmount();
+    } finally {
+      (globalThis as { window?: unknown }).window = previousWindow;
+      (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
     }
   });
 });
