@@ -59,6 +59,8 @@ describe("GitReadService with a real repository", () => {
       const refsValue = refs.value!;
       expect(refsValue.refs.some((ref) => ref.name === "feature")).toBe(true);
       expect(refsValue.refs.some((ref) => ref.name === "v1" && ref.kind === "tag")).toBe(true);
+      expect(refsValue.worktrees.length).toBeGreaterThan(0);
+      expect(refsValue.worktrees[0].path).toBeTruthy();
     }
 
     const graph = await reader.graph({ limit: 20, offset: 0 });

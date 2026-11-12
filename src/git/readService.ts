@@ -13,6 +13,7 @@ import {
   type GitGraphPage,
   type GitReadRef,
   type GitReadRepo,
+  type GitReadWorktree,
   type GitRefsSnapshot,
   type GitWorkingFile,
   type GitWorkingStatus,
@@ -184,7 +185,7 @@ export class GitReadService {
   private readonly git: GitExec;
   private readonly root: string;
   private readonly repo: RepoInfo & { root: string };
-  private refCache: { refs: GitReadRef[]; at: number } | null = null;
+  private refCache: { refs: GitReadRef[]; worktrees: GitReadWorktree[]; at: number } | null = null;
 
   constructor(repo: RepoInfo & { root: string }, git: GitExec) {
     this.repo = repo;
@@ -234,7 +235,7 @@ export class GitReadService {
 
   async refs(limit = 200): Promise<GitResult<GitRefsSnapshot>> {
     if (Date.now() - (this.refCache?.at ?? 0) < 10_000 && this.refCache) {
-      return result({ refs: this.refCache.refs.slice(0, limit), truncated: this.refCache.refs.length > limit });
+      return result({ refs: this.refCache.refs.slice(0, limit), worktrees: this.refCache.worktrees, truncated: this.refCache.refs.length > limit });
     }
     const output = await this.run(
       ["for-each-ref", `--format=${REF_FORMAT}`, "--sort=refname", "refs/heads", "refs/remotes", "refs/tags"],
@@ -262,8 +263,34 @@ export class GitReadService {
       });
     }
     refs.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
-    this.refCache = { refs, at: Date.now() };
-    return result({ refs: refs.slice(0, limit), truncated: refs.length > limit });
+    const worktrees = await this.readWorktrees();
+    this.refCache = { refs, worktrees, at: Date.now() };
+    return result({ refs: refs.slice(0, limit), worktrees, truncated: refs.length > limit });
+  }
+
+  private async readWorktrees(): Promise<GitReadWorktree[]> {
+    const output = await this.run(["worktree", "list", "--porcelain"], 8_000, 1024 * 1024);
+    if (output.code !== 0) return [];
+    const worktrees: GitReadWorktree[] = [];
+    let current: GitReadWorktree | null = null;
+    for (const line of output.stdout.split(/\r?\n/)) {
+      if (line.startsWith("worktree ")) {
+        if (current) worktrees.push(current);
+        current = { path: line.slice("worktree ".length), head: null, branch: null, bare: false, detached: false, prunable: false };
+      } else if (current && line.startsWith("HEAD ")) {
+        current.head = line.slice("HEAD ".length);
+      } else if (current && line.startsWith("branch ")) {
+        current.branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+      } else if (current && line === "bare") {
+        current.bare = true;
+      } else if (current && line === "detached") {
+        current.detached = true;
+      } else if (current && line.startsWith("prunable")) {
+        current.prunable = true;
+      }
+    }
+    if (current) worktrees.push(current);
+    return worktrees.slice(0, 50);
   }
 
   async graph(params: { limit: number; offset: number; ref?: string }): Promise<GitResult<GitGraphPage>> {

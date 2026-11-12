@@ -65,6 +65,15 @@
 .git-ref-row.active,
 .git-commit-row.selected { background: var(--hover, rgba(0, 0, 0, 0.06)); }
 .git-ref-kind { font-size: 9px; letter-spacing: 0.04em; color: var(--muted); min-width: 42px; }
+.git-worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .git-graph-list-wrap { position: relative; min-height: 200px; overflow: auto; }
 .git-graph-svg { position: absolute; left: 0; top: 0; pointer-events: none; }
 .git-edge { stroke: currentColor; stroke-width: 1.5; opacity: 0.45; }

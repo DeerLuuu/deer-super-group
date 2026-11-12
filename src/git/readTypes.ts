@@ -15,7 +15,17 @@ export interface GitReadRef {
 
 export interface GitRefsSnapshot {
   refs: GitReadRef[];
+  worktrees: GitReadWorktree[];
   truncated: boolean;
+}
+
+export interface GitReadWorktree {
+  path: string;
+  head: string | null;
+  branch: string | null;
+  bare: boolean;
+  detached: boolean;
+  prunable: boolean;
 }
 
 export interface GitReadRepo {

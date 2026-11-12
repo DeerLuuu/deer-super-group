@@ -7,6 +7,7 @@ import type {
   GitGraphPage,
   GitReadRef,
   GitReadRepo,
+  GitReadWorktree,
   GitWorkingFile,
   GitWorkingStatus,
 } from "../readTypes.js";
@@ -40,6 +41,7 @@ export default function GitGraphPanel({
   const [repo, setRepo] = useState<GitReadRepo | null>(null);
   const [graph, setGraph] = useState<GitGraphPage | null>(null);
   const [refs, setRefs] = useState<GitReadRef[]>([]);
+  const [worktrees, setWorktrees] = useState<GitReadWorktree[]>([]);
   const [selectedSha, setSelectedSha] = useState<string | null>(initialSha ?? null);
   const [detail, setDetail] = useState<GitCommitDetail | null>(null);
   const [working, setWorking] = useState<GitWorkingStatus | null>(null);
@@ -86,6 +88,7 @@ export default function GitGraphPanel({
         setRepo(repoValue);
         setGraph(graphValue);
         setRefs(refsValue.refs);
+        setWorktrees(refsValue.worktrees);
         const nextSha =
           sha && graphValue.commits.some((commit) => commit.sha === sha)
             ? sha
@@ -267,6 +270,13 @@ export default function GitGraphPanel({
             </button>
           ))}
           {refs.length === 0 && !loading ? <p className="muted tiny">没有分支或标签。</p> : null}
+          <h4>工作树 ({worktrees.length})</h4>
+          {worktrees.map((worktree) => (
+            <div key={worktree.path} className="git-worktree-row" title={worktree.path}>
+              <span className="git-ref-kind">{worktree.bare ? "BARE" : worktree.detached ? "DETACHED" : "WORKTREE"}</span>
+              <span className="ellipsis">{worktree.branch ?? worktree.path}</span>
+            </div>
+          ))}
         </aside>
 
         <div className="git-graph-center" role="tabpanel" aria-label="提交图">

@@ -35,7 +35,7 @@
 `src/git/ui/GitGraphPanel.tsx`：
 
 - 顶部：repo 路径/当前分支/ahead-behind/只读/刷新/引用栏开关。
-- 左栏：筛选、local/remote/tags/head 引用；点击按 ref 重新加载。
+- 左栏：筛选、local/remote/tags/head 引用 + worktree 列表（path/branch/bare/detached，来自 `git worktree list --porcelain`）；点击按 ref 重新加载。
 - 中栏：SVG lane 装饰（`aria-hidden`）+ 提交 DOM 列表（button row、`aria-selected`、Arrow/Home/End/Enter）；500/页、最多 2000、加载更早。
 - 右栏：commit metadata/refs/changed files/diff/复制 SHA；工作区 tab 展示 staged/unstaged/untracked/conflicts 与文件 diff。
 - 响应式：1440 三栏；≤960 详情下沉；≤720 顶部“图/详情/工作区”tab 单栏。
