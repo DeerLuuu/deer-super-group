@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHash, parseHash } from "./deeplink";
+import { buildHash, normalizeHash, parseHash } from "./deeplink";
 
 describe("parseHash（C12 深链解析）", () => {
   it("空 hash 落到任务页", () => {
@@ -19,10 +19,29 @@ describe("parseHash（C12 深链解析）", () => {
     });
   });
 
-  it("解析 6 个合法 tab", () => {
-    for (const tab of ["tasks", "team", "chat", "mailbox", "board", "settings"] as const) {
+  it("解析 9 个合法 tab（含辅助面板）", () => {
+    for (const tab of [
+      "tasks",
+      "team",
+      "chat",
+      "mailbox",
+      "board",
+      "settings",
+      "context",
+      "polls",
+      "watchdog",
+    ] as const) {
       expect(parseHash(`#/${tab}`).tab).toBe(tab);
     }
+  });
+
+  it("解析辅助面板深链并生成相同 hash", () => {
+    expect(parseHash("#/context").tab).toBe("context");
+    expect(parseHash("#/polls").tab).toBe("polls");
+    expect(parseHash("#/watchdog").tab).toBe("watchdog");
+    expect(buildHash("context")).toBe("#/context");
+    expect(buildHash("polls")).toBe("#/polls");
+    expect(buildHash("watchdog")).toBe("#/watchdog");
   });
 
   it("解析任务深链 #/tasks?t=t3", () => {
@@ -90,6 +109,15 @@ describe("parseHash（C12 深链解析）", () => {
     const route = parseHash("#/router");
     expect(route.tab).toBe("tasks");
     expect(route.redirected).toBe(true);
+  });
+
+  it("无效 route 回退到 #/tasks，空 hash 保持默认启动", () => {
+    expect(normalizeHash("#/nope")).toBe("#/tasks");
+    expect(normalizeHash("#/router")).toBe("#/tasks");
+    expect(normalizeHash("")).toBe("");
+    expect(normalizeHash("#/")).toBe("#/");
+    expect(normalizeHash("#/context")).toBe("#/context");
+    expect(parseHash(normalizeHash("#/nope")).tab).toBe("tasks");
   });
 
   it("未知 tab 回退到任务页且不标记重定向", () => {

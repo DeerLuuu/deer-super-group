@@ -150,7 +150,7 @@ import {
   TASK_STATUS_LABEL,
   formatError,
 } from "./shared/copy";
-import { buildHash, parseHash, type RouteTab } from "./shared/deeplink";
+import { buildHash, normalizeHash, parseHash, type RouteTab } from "./shared/deeplink";
 import { hasOpenModal } from "./shared/modalStack";
 import { RISK_APPROVAL_TIMEOUT_MS } from "./shared/approval";
 import type { TaskStatus } from "./shared/types";
@@ -214,6 +214,22 @@ export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "watchdog",
   "context",
 ];
+
+export const PANEL_LAUNCHER_GROUPS: Array<{ label: string; keys: PanelKey[] }> = [
+  { label: "主面板", keys: ["chat", "tasks", "team", "mailbox", "board"] },
+  { label: "辅助面板", keys: ["context", "polls", "watchdog", "runs"] },
+  { label: "工作流", keys: ["planDraft", "gitGraph", "mergeQueue"] },
+];
+
+export function filterPanelLauncherKeys(search: string): PanelKey[] {
+  const needle = search.trim().toLowerCase();
+  if (!needle) return PANEL_LAUNCHER_KEYS;
+  return PANEL_LAUNCHER_KEYS.filter(
+    (key) =>
+      PANEL_DEFS[key].title.toLowerCase().includes(needle) ||
+      key.toLowerCase().includes(needle),
+  );
+}
 
 // C10：Router 页并入对话（概述）与任务（规划），导航 7→6。
 const TABS: Array<{ id: Tab; label: string; hint: string }> = [
@@ -376,8 +392,13 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   // C12：初始 tab 来自 hash 深链（旧 #/router 由 parseHash 重定向到 tasks）。
   const [initialRoute] = useState(() => {
-    const route = parseHash(window.location.hash);
-    return /^#\/merge(?:\?|$)/.test(window.location.hash)
+    const originalHash = window.location.hash;
+    const normalizedHash = normalizeHash(originalHash);
+    if (normalizedHash !== originalHash) {
+      window.history.replaceState(null, "", normalizedHash);
+    }
+    const route = parseHash(normalizedHash);
+    return /^#\/merge(?:\?|$)/.test(normalizedHash)
       ? { ...route, tab: "tasks" as const, mergeQueue: true }
       : route;
   });
@@ -495,6 +516,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [panelMenuOpen, setPanelMenuOpen] = useState(false);
+  const [panelSearch, setPanelSearch] = useState("");
   const [openPanelKeys, setOpenPanelKeys] = useState<PanelKey[]>([]);
   const [createIntent, setCreateIntent] = useState<CreateIntent | null>(null);
   // t136：从任务/黑板发起 Poll 时带入来源并自动打开创建弹窗。
@@ -701,6 +723,7 @@ export default function App() {
   function togglePanelMenu() {
     if (!panelMenuOpen) {
       setOpenPanelKeys(dockRef.current?.getOpenPanelKeys() ?? []);
+      setPanelSearch("");
     }
     setCreateMenuOpen(false);
     setPanelMenuOpen((open) => !open);
@@ -2988,7 +3011,10 @@ export default function App() {
   // 原实现放在提前返回之后：首屏（无快照）少调一个 hook，快照就绪后的渲染多调一个，
   // React 会抛 "Rendered more hooks than during the previous render"（开发构建）。
   useEffect(() => {
-    const pageLabel = TABS.find((item) => item.id === tab)?.label ?? "";
+    const pageLabel =
+    TABS.find((item) => item.id === tab)?.label ??
+    PANEL_DEFS[tab as PanelKey]?.title ??
+    "";
     document.title = snapshot
       ? `${snapshot.workspace.name} · ${pageLabel} — DeerSuperGroup`
       : "DeerSuperGroup";
@@ -3638,27 +3664,55 @@ export default function App() {
                   <span>面板</span>
                   <span className="muted tiny">点击打开 / 聚焦</span>
                 </div>
-                {PANEL_LAUNCHER_KEYS.map((key) => {
-                  const def = PANEL_DEFS[key];
-                  const isOpen = openPanelKeys.includes(key);
+                <input
+                  className="panel-menu-search"
+                  type="search"
+                  value={panelSearch}
+                  onChange={(event) => setPanelSearch(event.target.value)}
+                  placeholder="搜索面板…"
+                  aria-label="搜索面板"
+                />
+                {PANEL_LAUNCHER_GROUPS.map((group) => {
+                  const visible = filterPanelLauncherKeys(panelSearch);
+                  const keys = group.keys.filter((key) => visible.includes(key));
+                  if (keys.length === 0) return null;
                   return (
-                    <button
-                      key={key}
-                      type="button"
-                      role="menuitem"
-                      className={`panel-menu-item ${isOpen ? "is-open" : ""}`}
-                      onClick={() => {
-                        if (key === "planDraft" && !planSource) handlePlanDraftEntry();
-                        else openPanel(key);
-                      }}
+                    <div
+                      className="panel-menu-group"
+                      role="group"
+                      aria-label={group.label}
+                      key={group.label}
                     >
-                      <span className="panel-menu-title">{def.title}</span>
-                      <span className="panel-menu-state">
-                        {isOpen ? "已打开" : "打开"}
-                      </span>
-                    </button>
+                      <div className="panel-menu-group-title">{group.label}</div>
+                      {keys.map((key) => {
+                        const def = PANEL_DEFS[key];
+                        const isOpen = openPanelKeys.includes(key);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            role="menuitem"
+                            className={`panel-menu-item ${isOpen ? "is-open" : ""}`}
+                            onClick={() => {
+                              if (key === "planDraft" && !planSource) handlePlanDraftEntry();
+                              else openPanel(key);
+                            }}
+                          >
+                            <span className="panel-menu-title">{def.title}</span>
+                            <span className="panel-menu-state">
+                              {isOpen ? "已打开" : "打开"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   );
                 })}
+                {filterPanelLauncherKeys(panelSearch).length === 0 ? (
+                  <div className="muted tiny" role="status">
+                    没有匹配的面板
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
