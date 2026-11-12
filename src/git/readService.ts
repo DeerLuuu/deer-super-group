@@ -60,12 +60,21 @@ function parseRemote(remote: string | null): string | null {
 function parseFiles(output: string): GitWorkingFile[] {
   const parts = output.split("\0");
   const files: GitWorkingFile[] = [];
-  for (const part of parts) {
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
     if (!part || part.length < 3) continue;
     const xy = part.slice(0, 2);
     let filePath = part.slice(3);
-    if (xy[0] === "R" || xy[0] === "C" || xy[1] === "R" || xy[1] === "C") {
-      // porcelain v1 -z appends the destination as a separate NUL field
+    if (xy[0] === "R" || xy[0] === "C") {
+      // porcelain v1 -z stores the source path as the next NUL field.
+      const otherPath = parts[index + 1];
+      if (otherPath) index += 1;
+      files.push({
+        path: filePath,
+        oldPath: otherPath ?? filePath,
+        status: xy.trim() || "R",
+        staged: true,
+      });
       continue;
     }
     if (filePath.startsWith('"') && filePath.endsWith('"')) {
@@ -313,7 +322,7 @@ export class GitReadService {
       `--max-count=${limit + 1}`,
       `--skip=${offset}`,
       `--format=${GRAPH_FORMAT}`,
-      ...(params.ref ? [params.ref] : ["--all"]),
+      ...(params.ref ? [params.ref] : repoValue.detached ? ["--all", "HEAD"] : ["--all"]),
     ];
     const output = await this.run(args, 20_000, 8 * 1024 * 1024);
     if (output.code !== 0) {
@@ -362,6 +371,21 @@ export class GitReadService {
     );
     if (output.code !== 0) return fail("GIT_READ_INTERNAL", output.stderr || "cannot read status");
     const files = parseFiles(output.stdout);
+    const subOutput = await this.run(["submodule", "status", "--recursive"], 8_000, 4 * 1024 * 1024);
+    const submodules: GitWorkingFile[] = [];
+    if (subOutput.code === 0) {
+      for (const line of subOutput.stdout.split(/\r?\n/)) {
+        // "<sha> <path> (<describe>)" / "-<sha> <path>" / "+<sha> <path>"
+        const match = /^[-+ ]?[0-9a-f]{7,64}\s+(.+?)(?:\s+\(.+\))?$/.exec(line.trim());
+        if (!match) continue;
+        submodules.push({ path: match[1], status: "S", staged: false, submodule: true });
+      }
+    }
+    for (const file of files) {
+      if (submodules.some((sub) => file.path === sub.path || file.path.startsWith(`${sub.path}/`))) {
+        file.submodule = true;
+      }
+    }
     const staged = files.filter((file) => file.staged && file.status !== "U");
     const unstaged = files.filter((file) => !file.staged && file.status !== "?" && file.status !== "U");
     const untracked = files.filter((file) => file.status === "?");
@@ -373,7 +397,8 @@ export class GitReadService {
       unstaged: unstaged.slice(0, STATUS_LIMIT),
       untracked: untracked.slice(0, STATUS_LIMIT),
       conflicts: conflicts.slice(0, STATUS_LIMIT),
-      submodules: [],
+      submodules: submodules.slice(0, STATUS_LIMIT),
+      submodulesUnsupported: subOutput.code !== 0,
       truncated: files.length > STATUS_LIMIT,
     });
   }
@@ -450,6 +475,10 @@ export class GitReadService {
     const output = await this.run(args, 15_000, 8 * 1024 * 1024);
     if (output.code !== 0) {
       if (/unknown revision|bad object/i.test(output.stderr)) return fail("GIT_REF_NOT_FOUND", "commit not found");
+      if (/maxBuffer|ERR_CHILD_PROCESS_STDIO_MAXBUFFER|stdout maxBuffer/i.test(output.stderr)) {
+        return fail("GIT_READ_TOO_LARGE", "diff exceeds 8MB stdout limit");
+      }
+      if (/timed out|ETIMEDOUT/i.test(output.stderr)) return fail("GIT_READ_TIMEOUT", "diff timed out");
       return fail("GIT_READ_INTERNAL", output.stderr || "cannot read diff");
     }
     return result(parseDiff(output.stdout, maxBytes));

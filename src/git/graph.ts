@@ -117,9 +117,19 @@ function avoidCollision(
   maxLanes: number,
   markTruncated: () => void,
 ): number {
+  const existing = lanes.findIndex((value, index) => index !== lane && value === parent);
+  if (existing >= 0) {
+    const target = Math.min(lane, existing);
+    if (target === lane) {
+      lanes[lane] = parent;
+      lanes[existing] = null;
+    } else {
+      lanes[lane] = null;
+      lanes[existing] = parent;
+    }
+    return target;
+  }
   if (lanes[lane] === parent) return lane;
-  const existing = lanes.indexOf(parent);
-  if (existing >= 0) return existing;
   if (lane < maxLanes) {
     lanes[lane] = parent;
     return lane;

@@ -76,6 +76,7 @@ export interface GitGraphPage {
 
 export interface GitWorkingFile {
   path: string;
+  oldPath?: string;
   status: string;
   staged: boolean;
   sizeBytes?: number | null;
@@ -90,6 +91,7 @@ export interface GitWorkingStatus {
   untracked: GitWorkingFile[];
   conflicts: GitWorkingFile[];
   submodules: GitWorkingFile[];
+  submodulesUnsupported?: boolean;
   truncated: boolean;
 }
 

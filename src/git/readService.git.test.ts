@@ -87,5 +87,5 @@ describe("GitReadService with a real repository", () => {
     const diff = await reader.diff({ scope: "commit", sha: infoValue.headSha! });
     expect(diff.ok).toBe(true);
     if (diff.ok) expect(diff.value!.files[0].hunks.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 });

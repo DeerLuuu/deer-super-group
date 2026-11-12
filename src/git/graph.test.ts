@@ -38,14 +38,28 @@ describe("git graph lane layout", () => {
     expect(graph.rows[0].openEdges).toEqual([{ lane: 0, kind: "missing-parent" }]);
   });
 
-  it("caps lanes at 16 and marks truncation", () => {
-    const commits = Array.from({ length: 20 }, (_, index) => ({
-      sha: `c${index}`,
-      parents: [] as string[],
-    }));
-    // Force distinct roots to occupy more than 16 lanes.
-    const graph = layoutGraph({ commits: [{ sha: "root", parents: [] }, ...commits], maxLanes: 16 });
-    expect(graph.maxLanes).toBe(16);
-    expect(graph.laneCount).toBeLessThanOrEqual(16);
+  it("forks a second tip and converges the shared parent to the left lane", () => {
+    const graph = layoutGraph({
+      commits: [
+        { sha: "tipA", parents: ["root"] },
+        { sha: "tipB", parents: ["root"] },
+        { sha: "root", parents: [] },
+      ],
+    });
+    expect(graph.rows[0].lane).toBe(0);
+    expect(graph.rows[1].lane).toBe(1);
+    expect(graph.rows[1].parentLanes[0]).toMatchObject({ sha: "root", lane: 0 });
+    expect(graph.rows[2].lane).toBe(0);
+  });
+
+  it("caps an octopus merge at 16 live lanes and marks truncation", () => {
+    const parents = Array.from({ length: 20 }, (_, index) => `p${index}`);
+    const graph = layoutGraph({
+      commits: [{ sha: "octopus", parents }],
+    });
+    expect(graph.rows[0].parentLanes).toHaveLength(20);
+    expect(graph.laneCount).toBe(16);
+    expect(graph.truncatedLanes).toBe(true);
+    expect(graph.rows[0].parentLanes.some((parent) => parent.lane === 15)).toBe(true);
   });
 });

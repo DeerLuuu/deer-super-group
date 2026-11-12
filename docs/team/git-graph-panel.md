@@ -51,21 +51,39 @@
 
 ## 5. 测试
 
-- `src/git/graph.test.ts`：线性/merge/fork/openEdges/16 lane。
+- `src/git/graph.test.ts`：线性/merge/fork/openEdges/octopus >16 lane。
 - `src/git/readService.git.test.ts`：真实临时 repo 覆盖 repo/graph/refs/status/commit/diff（不写工作区）。
-- `src/git/ui/GitGraphPanel.test.tsx`：无 bridge 降级、存在 bridge 的只读 shell。
+- `src/git/readService.edge.test.ts`：非法 sha/path/ref、offset+limit、空仓库、detached HEAD、rename、submodule、大 diff too_large。
+- `src/git/ui/GitGraphPanel.test.tsx`：无 bridge 降级、只读 shell、工作区文件选中后显示 diff、tablist/listbox 键盘与 aria、Enter 不双触发。
 - `src/shared/deeplink.test.ts`：`#/git` 解析与 build 往返。
 - 回归：现有 Git/PR/merge queue/TaskVcs 测试、panelHost deps、CommandPalette/rail。
 
+## 5.1 t305 修复
+
+- F2：`openWorkingFile` 保持 workspace 视图；`WorkingTree` 渲染 `workingDiff`，文件选中后显示“文件 diff”。
+- F3：`status.submodules` 解析 `git submodule status --recursive`；失败时 `submodulesUnsupported`；detached HEAD graph 额外带 `HEAD`。
+- F4：tabs `id/aria-controls/roving tabIndex/Arrow/Home/End`；提交列表 `role=listbox` + `option`，Arrow/Home/End 移动焦点，Enter 只由原生按钮触发一次。
+- F5/F6：octopus >16 lane、fork 收敛、API 边界/空仓库/detached/rename/submodule/大 diff 测试。
+- F7：diff stdout 超 8MB 映射 `GIT_READ_TOO_LARGE`；F8 rename 显示 `old → new`。
+- F10：Command Palette 入口仍不在 inScope，docs 明确后续补。
+
 ## 6. 降级
 
-非 git/非 root → `GIT_READ_NOT_REPO/NOT_ROOT` 显式错误；空/unborn → `NO_COMMITS`；bare/shallow/detached 在 repo 信息中标记；二进制/子模块 diff 返回 metadata + `reason`，不展示 hunk；大 diff 截断 `maxBytes`；大提交/工作区文件上限截断。
+非 git/非 root → `GIT_READ_NOT_REPO/NOT_ROOT` 显式错误；空/unborn → `NO_COMMITS`；bare/shallow/detached 在 repo 信息中标记；二进制/子模块 diff 返回 metadata + `reason`，不展示 hunk；大 diff 截断 `maxBytes` 或 `GIT_READ_TOO_LARGE`；大提交/工作区文件上限截断。
 
-## 7. 限制/P1
+## 7. 真实 Electron 截图
+
+在 Electron 45 / 1440×920 实际窗口中抓取（数据源：本仓库 main）：
+
+- [1440 面板 + 选中提交](t305-1440-panel.png)：三栏、lane、提交详情/diff。
+- [1440 工作区文件 diff](t305-1440-workspace-diff.png)：选中 tracked 文件后显示 `@@` diff。
+- [960 布局](t305-960.png)：详情下沉。
+- [480 布局](t305-480.png)：图/详情/工作区 tab、无横向溢出（bodyWidth=480）。
+
+## 8. 限制/P1
 
 - 不做写操作（checkout/merge/commit/push/stage）与多选提交操作。
 - graph 只读 `--all`/单 ref，跨 ref 过滤在 UI 端；无 commit 搜索后端。
 - 大仓库/长历史分页上限 2000；无虚拟列表（设计 P1）。
 - 工作区文件 size/binary 未逐文件探测；二进制以 diff 判断为主。
-- UI 暂无真实 Electron 截图（构建/SSR/单测证据；发布前补 1440/960/480 真机）。
-- 当前 CSS 断点：>960 三栏；≤960 详情下沉；≤720 顶部图/详情/工作区 tab；本次未用真机截图验证像素级布局。
+- Command Palette 入口待后续 inScope 任务补。

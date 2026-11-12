@@ -54,6 +54,12 @@ export default function GitGraphPanel({
   const [error, setError] = useState<string | null>(null);
   const [showRefs, setShowRefs] = useState(true);
   const requestRef = useRef(0);
+  const tabRefs = useRef<Record<"graph" | "detail" | "workspace", HTMLButtonElement | null>>({
+    graph: null,
+    detail: null,
+    workspace: null,
+  });
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const loadCommit = useCallback(
     async (sha: string) => {
@@ -146,13 +152,32 @@ export default function GitGraphPanel({
     }
   };
 
+  function selectView(next: "graph" | "detail" | "workspace", focus = false) {
+    setView(next);
+    if (next === "workspace") void loadWorking();
+    if (focus) tabRefs.current[next]?.focus();
+  }
+
+  function onTabKey(event: React.KeyboardEvent<HTMLDivElement>) {
+    const order = ["graph", "detail", "workspace"] as const;
+    const index = order.indexOf(view);
+    let next = index;
+    if (event.key === "ArrowRight") next = (index + 1) % order.length;
+    else if (event.key === "ArrowLeft") next = (index - 1 + order.length) % order.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = order.length - 1;
+    else return;
+    event.preventDefault();
+    selectView(order[next], true);
+  }
+
   const openWorkingFile = async (file: GitWorkingFile) => {
     if (!api || busy) return;
     setBusy(true);
     try {
       const scope = file.staged ? "staged" as const : "working" as const;
       setWorkingDiff(unwrap(await api.gitDiff(workspaceId, { scope, path: file.path, context: 3 })));
-      setView("detail");
+      setView("workspace");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -181,8 +206,6 @@ export default function GitGraphPanel({
     return all;
   }, [graph]);
 
-  const selectedIndex = Math.max(0, rows.findIndex((row) => row.sha === selectedSha));
-  void selectedIndex;
   const onGraphKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!graph) return;
     const index = Math.max(0, graph.commits.findIndex((commit) => commit.sha === selectedSha));
@@ -191,13 +214,13 @@ export default function GitGraphPanel({
     else if (event.key === "ArrowUp") next = Math.max(0, index - 1);
     else if (event.key === "Home") next = 0;
     else if (event.key === "End") next = graph.commits.length - 1;
-    else if (event.key === "Enter") {
-      if (graph.commits[index]) void loadCommit(graph.commits[index].sha);
-      return;
-    } else return;
+    else return;
     event.preventDefault();
     const commit = graph.commits[next];
-    if (commit) void loadCommit(commit.sha);
+    if (commit) {
+      setSelectedSha(commit.sha);
+      rowRefs.current.get(commit.sha)?.focus();
+    }
   };
 
   if (!api) {
@@ -230,18 +253,19 @@ export default function GitGraphPanel({
       {error ? <div className="git-graph-error" role="alert">{error} <button className="ghost tiny" onClick={() => void load()}>重试</button></div> : null}
       {loading && !graph ? <p className="git-graph-loading" role="status">加载版本图…</p> : null}
 
-      <div className="git-graph-tabs" role="tablist" aria-label="版本视图">
+      <div className="git-graph-tabs" role="tablist" aria-label="版本视图" onKeyDown={onTabKey}>
         {(["graph", "detail", "workspace"] as const).map((item) => (
           <button
             key={item}
+            ref={(node) => { tabRefs.current[item] = node; }}
+            id={`git-graph-tab-${item}`}
             type="button"
             role="tab"
             aria-selected={view === item}
+            aria-controls={`git-graph-panel-${item}`}
+            tabIndex={view === item ? 0 : -1}
             className={view === item ? "active" : ""}
-            onClick={() => {
-              setView(item);
-              if (item === "workspace") void loadWorking();
-            }}
+            onClick={() => selectView(item)}
           >
             {item === "graph" ? "图" : item === "detail" ? "详情" : "工作区"}
           </button>
@@ -279,8 +303,20 @@ export default function GitGraphPanel({
           ))}
         </aside>
 
-        <div className="git-graph-center" role="tabpanel" aria-label="提交图">
-          <div className="git-graph-list-wrap" tabIndex={0} onKeyDown={onGraphKey} aria-label="提交列表">
+        <div
+          className="git-graph-center"
+          id="git-graph-panel-graph"
+          role="tabpanel"
+          aria-labelledby="git-graph-tab-graph"
+          aria-label="提交图"
+        >
+          <div
+            className="git-graph-list-wrap"
+            role="listbox"
+            aria-label="提交列表"
+            aria-activedescendant={selectedSha ? `git-commit-${selectedSha}` : undefined}
+            onKeyDown={onGraphKey}
+          >
             <svg
               className="git-graph-svg"
               aria-hidden="true"
@@ -314,9 +350,15 @@ export default function GitGraphPanel({
                 return (
                   <button
                     key={commit.sha}
+                    ref={(node) => {
+                      if (node) rowRefs.current.set(commit.sha, node);
+                      else rowRefs.current.delete(commit.sha);
+                    }}
+                    id={`git-commit-${commit.sha}`}
                     type="button"
-                    role="row"
+                    role="option"
                     aria-selected={commit.sha === selectedSha}
+                    tabIndex={commit.sha === selectedSha ? 0 : -1}
                     className={`git-commit-row ${commit.sha === selectedSha ? "selected" : ""}`}
                     onClick={() => { setSelectedSha(commit.sha); void loadCommit(commit.sha); }}
                   >
@@ -339,15 +381,23 @@ export default function GitGraphPanel({
           {graph?.truncated ? <p className="muted tiny">仅显示最近 2000 条提交 / 超过 16 lane 已折叠。</p> : null}
         </div>
 
-        <aside className="git-graph-detail" role="tabpanel" aria-label="提交详情">
+        <aside
+          className="git-graph-detail"
+          id="git-graph-panel-detail"
+          role="tabpanel"
+          aria-labelledby="git-graph-tab-detail"
+          aria-label="提交详情"
+        >
           {view === "workspace" ? (
-            <WorkingTree
-              status={working}
-              loading={busy && !working}
-              onRefresh={() => void loadWorking()}
-              onOpen={openWorkingFile}
-              diff={workingDiff}
-            />
+            <div id="git-graph-panel-workspace" role="tabpanel" aria-labelledby="git-graph-tab-workspace">
+              <WorkingTree
+                status={working}
+                loading={busy && !working}
+                onRefresh={() => void loadWorking()}
+                onOpen={openWorkingFile}
+                diff={workingDiff}
+              />
+            </div>
           ) : detail ? (
             <>
               <h2 className="git-detail-title">{detail.node.subject}</h2>
@@ -408,13 +458,27 @@ function WorkingTree({
                 {status[key].map((file) => (
                   <li key={`${key}-${file.path}`}>
                     <button type="button" className="ghost tiny" onClick={() => onOpen(file)}>
-                      <span className="badge">{statusLabel(file)}</span> <span className="ellipsis">{file.path}</span>
+                      <span className="badge">{statusLabel(file)}</span>{" "}
+                      <span className="ellipsis" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
+                        {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                      </span>
                     </button>
                   </li>
                 ))}
               </ul>
             </section>
           ))}
+          <section>
+            <h4>子模块 ({status.submodules.length})</h4>
+            {status.submodulesUnsupported ? <p className="muted tiny">子模块状态不可用（git submodule 读取失败）。</p> : null}
+            <ul className="git-status-files">
+              {status.submodules.map((file) => (
+                <li key={`submodule-${file.path}`}>
+                  <span className="badge">S</span> <span className="ellipsis">{file.path}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
           {status.truncated ? <p className="muted tiny">工作区文件过多，仅显示部分。</p> : null}
         </>
       ) : !loading ? <p className="muted small">没有工作区变更，或尚未读取。</p> : null}

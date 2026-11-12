@@ -271,6 +271,10 @@ export function validateGitArgs(
     if (rest[0] === "--branch" && rest[1] && isSafeRef(rest[1])) return { ok: true, args: argv };
     return { ok: false, reason: "check-ref-format shape" };
   }
+  if (command === "submodule") {
+    if (rest[0] === "status" && rest.length === 2 && rest[1] === "--recursive") return { ok: true, args: argv };
+    return { ok: false, reason: "submodule shape" };
+  }
   if (command === "worktree") {
     const sub = rest[0];
     if (sub === "list" && rest[1] === "--porcelain") return { ok: true, args: argv };
@@ -417,7 +421,7 @@ export class GitExec {
       const err = error as { stdout?: string; stderr?: string; code?: number | string; message?: string };
       return {
         stdout: redactSecrets(err.stdout ?? ""),
-        stderr: redactSecrets(err.stderr ?? err.message ?? "git failed"),
+        stderr: redactSecrets(err.stderr || err.message || "git failed"),
         code: typeof err.code === "number" ? err.code : 1,
       };
     }
