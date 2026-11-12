@@ -1,0 +1,41 @@
+{
+  "at": "2026-11-12T20:59:42.672Z",
+  "workspaceId": "ws_mwe13wjd_4feec6e242",
+  "results": [
+    {
+      "id": "1440 real splitter visible",
+      "ok": true,
+      "detail": "{\"display\":\"block\",\"x\":301,\"y\":584.1875,\"w\":1114,\"h\":6,\"now\":269,\"max\":427}"
+    },
+    {
+      "id": "keyboard End -> max",
+      "ok": true,
+      "detail": "{\"now\":427,\"stored\":\"427\"}"
+    },
+    {
+      "id": "1440 actual CDP double-click -> 300/persist",
+      "ok": true,
+      "detail": "{\"now\":300,\"stored\":\"300\",\"events\":[{\"t\":\"pointerdown\",\"detail\":0,\"prevented\":false},{\"t\":\"mousedown\",\"detail\":1,\"prevented\":false},{\"t\":\"click\",\"detail\":1,\"prevented\":false},{\"t\":\"pointerdown\",\"detail\":0,\"prevented\":false},{\"t\":\"mousedown\",\"detail\":2,\"prevented\":false},{\"t\":\"click\",\"detail\":2,\"prevented\":false},{\"t\":\"dblclick\",\"detail\":2,\"prevented\":false}]}"
+    },
+    {
+      "id": "960 screenshot",
+      "ok": true,
+      "detail": "{\"display\":\"block\",\"now\":297}"
+    },
+    {
+      "id": "480 tabs/splitter hidden",
+      "ok": true,
+      "detail": "{\"display\":\"none\",\"tabs\":[\"历史\",\"工作区\",\"Diff\"]}"
+    },
+    {
+      "id": "1372x328 short splitter hidden/not focusable",
+      "ok": true,
+      "detail": "{\"teamClosed\":true,\"state\":{\"display\":\"none\",\"focusable\":false,\"history\":\"none\",\"workspace\":true,\"width\":1266,\"height\":70.859375}}"
+    },
+    {
+      "id": "1372x560 short splitter hidden/not focusable",
+      "ok": true,
+      "detail": "{\"teamClosed\":false,\"state\":{\"display\":\"none\",\"focusable\":false,\"history\":\"none\",\"workspace\":true,\"width\":1266,\"height\":302.859375}}"
+    }
+  ]
+}
