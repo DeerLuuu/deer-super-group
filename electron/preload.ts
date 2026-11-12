@@ -141,6 +141,13 @@ const api: DeerApi = {
   gitStatus: (workspaceId: string) => ipcRenderer.invoke("git:status", workspaceId),
   gitCommit: (workspaceId: string, sha: string) => ipcRenderer.invoke("git:commit", workspaceId, sha),
   gitDiff: (workspaceId: string, params: unknown) => ipcRenderer.invoke("git:diff", workspaceId, params),
+  // t352 G1：版本图本地写闭环（无 push/force/remote）
+  gitStage: (workspaceId: string, paths: string[]) => ipcRenderer.invoke("git:stage", workspaceId, paths),
+  gitUnstage: (workspaceId: string, paths: string[]) => ipcRenderer.invoke("git:unstage", workspaceId, paths),
+  gitCreateCommit: (workspaceId: string, title: string, body?: string) =>
+    ipcRenderer.invoke("git:commit-create", workspaceId, title, body),
+  gitIgnorePreview: (workspaceId: string) => ipcRenderer.invoke("git:ignore-preview", workspaceId),
+  gitIgnoreApply: (workspaceId: string) => ipcRenderer.invoke("git:ignore-apply", workspaceId),
   // t154：行级评审
   getReviewSummary: (taskId: string) => ipcRenderer.invoke("review:summary", taskId),
   getReviewDiff: (input: { taskId: string; file?: string; offset?: number; limit?: number }) =>

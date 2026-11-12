@@ -308,8 +308,27 @@ export function validateGitArgs(
     return { ok: false, reason: "branch shape" };
   }
   if (command === "add") {
+    // t352 G1：版本图写闭环——只允许 `add -A`（任务收尾）或
+    // `add -- <paths>`（用户显式勾选暂存），路径必须逐一通过 isSafePath。
     if (rest[0] === "-A" && rest.length === 1) return { ok: true, args: argv };
+    if (rest[0] === "--" && rest.length >= 2) {
+      const paths = rest.slice(1);
+      if (paths.length <= 500 && paths.every((item) => isSafePath(item))) {
+        return { ok: true, args: argv };
+      }
+    }
     return { ok: false, reason: "add shape" };
+  }
+  if (command === "reset") {
+    // t352 G1：unstage——仅允许 `reset -- <paths>`（把索引条目还原到 HEAD）。
+    // 不允许 reset --hard / --soft / <commit> 等任何分支移动形态。
+    if (rest[0] === "--" && rest.length >= 2) {
+      const paths = rest.slice(1);
+      if (paths.length <= 500 && paths.every((item) => isSafePath(item))) {
+        return { ok: true, args: argv };
+      }
+    }
+    return { ok: false, reason: "reset shape (only `reset -- <paths>` for unstage)" };
   }
   if (command === "commit") {
     if (rest[0] === "--no-verify" && rest[1] === "-m" && rest.length === 3) return { ok: true, args: argv };

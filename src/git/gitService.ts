@@ -1,4 +1,5 @@
 import path from "node:path";
+import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import type { Store } from "../kernel/store.js";
 import type { Task } from "../shared/types.js";
 import type { TaskVcs, GitSettings, MergeQueueItem, MergeQueueSnapshot, PrInfo, PrProvider, PrepareRunInput, PrepareRunResult, RepoDiagnostics, RepoInfo, FinalizeRunInput, TaskVcsSnapshot, GitResult } from "./types.js";
@@ -16,8 +17,17 @@ import { emitGitEvent } from "./events.js";
 import { RepoLock } from "./gitExec.js";
 import { GitReadService } from "./readService.js";
 import type { GitCommitDetail, GitDiffParams, GitGraphPage, GitReadRepo, GitWorkingStatus, GitDiffPage, GitRefsSnapshot } from "./readTypes.js";
+import { isReadPath } from "./readTypes.js";
 import { initializeGitRepo, probeGitInit } from "./gitInit.js";
 import type { GitInitProbe, GitInitResult } from "./initTypes.js";
+import {
+  GITIGNORE_TEMPLATE,
+  writeFail,
+  type GitCommitCreateResult,
+  type GitIgnoreApplyResult,
+  type GitIgnorePreview,
+  type GitWritePathsResult,
+} from "./writeTypes.js";
 
 export interface GitServiceOptions {
   dataDir: string;
@@ -54,6 +64,8 @@ export class GitService {
   private readonly repoCache = new Map<string, { repo: RepoInfo; at: number }>();
   private readonly prLock = new RepoLock();
   private readonly initLock = new RepoLock();
+  /** t352 G1：版本图写操作（stage/unstage/commit/.gitignore）按工作区串行。 */
+  private readonly graphWriteLock = new RepoLock();
 
   constructor(private readonly options: GitServiceOptions) {
     this.gitStore = new GitStore(path.join(options.dataDir, "git.db"));
@@ -781,8 +793,341 @@ export class GitService {
     });
   }
 
-  async readRepo(workspaceId: string): Promise<import("./types.js").GitResult<GitReadRepo>> {
-    const context = await this.readContext(workspaceId);
+  // ---------------------------------------------------------------------
+  // t352 G1：Git Graph 写闭环（stage / unstage / commit / .gitignore）。
+  // 全部为本地仓库操作：execFile 无 shell、argv 白名单、超时、RepoLock
+  // 按工作区串行、路径必须解析在仓库根内、审计事件；无 push/force/remote。
+  // ---------------------------------------------------------------------
+
+  private async graphWriteContext(
+    workspaceId: string,
+  ): Promise<
+    | { ok: true; git: GitExec; root: string; workspaceId: string }
+    | { ok: false; result: import("./types.js").GitResult<never> }
+  > {
+    const workspace = this.options.store.getWorkspace(workspaceId);
+    if (!workspace) {
+      return {
+        ok: false,
+        result: writeFail("GIT_WRITE_NOT_REPO", "工作区不存在"),
+      };
+    }
+    const repo = await this.repoFor(workspaceId);
+    if (!repo.ok || !repo.root) {
+      return {
+        ok: false,
+        result: writeFail("GIT_WRITE_NOT_REPO", repo.reason ?? "工作区不是 Git 仓库", true),
+      };
+    }
+    ensureHooksDir(repo);
+    const hooks = runtimeHooksPath(repo);
+    if (!hooks) {
+      return { ok: false, result: writeFail("GIT_WRITE_INTERNAL", "git 运行时不可用", true) };
+    }
+    return { ok: true, git: new GitExec(hooks), root: repo.root, workspaceId };
+  }
+
+  /** 路径白名单校验：相对路径、无控制字符/穿越、不指向 .git，且解析后仍在仓库根内。 */
+  private resolveRepoPaths(root: string, paths: string[]): string[] | null {
+    if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500) return null;
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of paths) {
+      if (typeof item !== "string" || !isReadPath(item) || seen.has(item)) return null;
+      const resolved = path.resolve(root, item);
+      if (!resolved.startsWith(root + path.sep)) return null;
+      seen.add(item);
+      out.push(item);
+    }
+    return out;
+  }
+
+  /** 解析 porcelain 输出中「已暂存」的仓库相对路径（xy 首字符非空格且非 `??`）。 */
+  private parseStagedPaths(porcelain: string): Array<{ path: string; oldPath?: string }> {
+    const parts = porcelain.split("\0");
+    const staged: Array<{ path: string; oldPath?: string }> = [];
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (!part || part.length < 3) continue;
+      const xy = part.slice(0, 2);
+      const filePath = part.slice(3);
+      if (xy[0] === "R" || xy[0] === "C") {
+        const otherPath = parts[index + 1];
+        if (otherPath) index += 1;
+        staged.push({ path: filePath, ...(otherPath ? { oldPath: otherPath } : {}) });
+        continue;
+      }
+      if (xy === "??") continue;
+      if (xy[0] !== " ") staged.push({ path: filePath });
+    }
+    return staged;
+  }
+
+  /**
+   * t395 F2：.gitignore 必须是仓库根内普通文件；symlink/junction 直接拒绝，
+   * 非链接文件的 realpath 也必须在仓库根内。预览与应用写前都会调用。
+   */
+  private inspectIgnoreTarget(
+    root: string,
+  ): { path: string; exists: boolean; size: number } | { error: string } {
+    const ignorePath = path.join(root, ".gitignore");
+    let link;
+    try {
+      link = lstatSync(ignorePath);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
+        return { path: ignorePath, exists: false, size: 0 };
+      }
+      return { error: "无法检查 .gitignore" };
+    }
+    if (link.isSymbolicLink()) {
+      return { error: ".gitignore 不能是 symlink/junction" };
+    }
+    if (!link.isFile()) {
+      return { error: ".gitignore 不是普通文件" };
+    }
+    try {
+      const real = realpathSync(ignorePath);
+      const rootReal = realpathSync(root);
+      const relative = path.relative(rootReal, real);
+      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+        return { error: ".gitignore 真实路径不在仓库根内" };
+      }
+    } catch {
+      return { error: "无法解析 .gitignore 真实路径" };
+    }
+    return { path: ignorePath, exists: true, size: link.size };
+  }
+
+  private audit(event: {
+    aggregateId: string;
+    type: "git.staged" | "git.unstaged" | "git.committed" | "git.ignore_updated";
+    payload: unknown;
+  }): void {
+    try {
+      emitGitEvent(this.options.store, {
+        aggregateType: "workspace",
+        aggregateId: event.aggregateId,
+        type: event.type,
+        actor: "git-graph",
+        payload: event.payload,
+      });
+    } catch {
+      // 审计失败不能让已成功的本地写操作变成错误。
+    }
+  }
+
+  async stage(workspaceId: string, paths: string[]): Promise<import("./types.js").GitResult<GitWritePathsResult>> {
+    return this.graphWriteLock.withLock(workspaceId, async () => {
+      const context = await this.graphWriteContext(workspaceId);
+      if (!context.ok) return context.result;
+      const safePaths = this.resolveRepoPaths(context.root, paths);
+      if (!safePaths) {
+        return writeFail("GIT_WRITE_BAD_PARAM", "无效的文件路径（仅支持仓库内相对路径）");
+      }
+      const output = await context.git.run(["add", "--", ...safePaths], { cwd: context.root, timeoutMs: 30_000 });
+      if (output.code !== 0) {
+        return writeFail("GIT_WRITE_STAGE_FAILED", output.stderr || "git add 失败", true);
+      }
+      this.audit({
+        aggregateId: workspaceId,
+        type: "git.staged",
+        payload: { workspaceId, paths: safePaths, count: safePaths.length },
+      });
+      return { ok: true, value: { paths: safePaths } };
+    });
+  }
+
+  async unstage(workspaceId: string, paths: string[]): Promise<import("./types.js").GitResult<GitWritePathsResult>> {
+    return this.graphWriteLock.withLock(workspaceId, async () => {
+      const context = await this.graphWriteContext(workspaceId);
+      if (!context.ok) return context.result;
+      const safePaths = this.resolveRepoPaths(context.root, paths);
+      if (!safePaths) {
+        return writeFail("GIT_WRITE_BAD_PARAM", "无效的文件路径（仅支持仓库内相对路径）");
+      }
+      const output = await context.git.run(["reset", "--", ...safePaths], { cwd: context.root, timeoutMs: 30_000 });
+      if (output.code !== 0) {
+        return writeFail("GIT_WRITE_UNSTAGE_FAILED", output.stderr || "git reset 失败", true);
+      }
+      this.audit({
+        aggregateId: workspaceId,
+        type: "git.unstaged",
+        payload: { workspaceId, paths: safePaths, count: safePaths.length },
+      });
+      return { ok: true, value: { paths: safePaths } };
+    });
+  }
+
+  /**
+   * 只提交用户已暂存的文件：绝不 `add -A`；提交信息 = 标题（必填）+ 可选正文；
+   * CommitGuard 只检查已暂存路径（敏感路径/秘密/超大拒绝）。
+   */
+  async commitFiles(
+    workspaceId: string,
+    input: { title: string; body?: string },
+  ): Promise<import("./types.js").GitResult<GitCommitCreateResult>> {
+    return this.graphWriteLock.withLock(workspaceId, async () => {
+      const context = await this.graphWriteContext(workspaceId);
+      if (!context.ok) return context.result;
+      const title = input.title.trim();
+      if (!title || title.length > 100 || /[\r\n]/.test(title)) {
+        return writeFail("GIT_WRITE_BAD_PARAM", "提交标题必填（1–100 字符，不含换行）");
+      }
+      const body = (input.body ?? "").replace(/\r\n/g, "\n").trim();
+      if (body.length > 5_000) {
+        return writeFail("GIT_WRITE_BAD_PARAM", "提交正文过长（≤5000 字符）");
+      }
+      const status = await context.git.run(["status", "--porcelain", "-z", "--untracked-files=all", "--ignore-submodules=none"], {
+        cwd: context.root,
+      });
+      if (status.code !== 0) {
+        return writeFail("GIT_WRITE_INTERNAL", "无法读取 git status", true);
+      }
+      const stagedEntries = this.parseStagedPaths(status.stdout);
+      if (stagedEntries.length === 0) {
+        return writeFail("GIT_WRITE_NOTHING_STAGED", "没有已暂存的文件；请先勾选并暂存要提交的文件");
+      }
+      // t395 F1：R/C 必须同时把旧路径与新路径交给 CommitGuard；否则
+      // `.env → app.txt`、`.ssh/id_rsa → safe.txt` 可绕过敏感路径检查。
+      const stagedPaths: string[] = [];
+      const renames: Array<{ oldPath: string; newPath: string }> = [];
+      for (const entry of stagedEntries) {
+        if (entry.oldPath && entry.oldPath !== entry.path) {
+          renames.push({ oldPath: entry.oldPath, newPath: entry.path });
+          stagedPaths.push(entry.oldPath);
+        }
+        stagedPaths.push(entry.path);
+      }
+      const uniqueStagedPaths = Array.from(new Set(stagedPaths));
+      const guardReason = new CommitGuard(context.git).checkPaths(context.root, uniqueStagedPaths);
+      if (guardReason) {
+        return writeFail("GIT_WRITE_GUARD_BLOCKED", `提交被安全守卫拒绝：${guardReason}`);
+      }
+      const message = body ? `${title}\n\n${body}` : title;
+      const output = await context.git.run(["commit", "--no-verify", "-m", message], {
+        cwd: context.root,
+        timeoutMs: 60_000,
+      });
+      if (output.code !== 0) {
+        return writeFail("GIT_WRITE_COMMIT_FAILED", output.stderr || "git commit 失败", true);
+      }
+      const head = await context.git.run(["rev-parse", "HEAD"], { cwd: context.root });
+      const branchRaw = await context.git.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: context.root });
+      const sha = head.code === 0 ? head.stdout.trim() : "";
+      const branch = branchRaw.code === 0 && branchRaw.stdout.trim() !== "HEAD" ? branchRaw.stdout.trim() : null;
+      this.repoCache.delete(workspaceId);
+      if (sha) {
+        this.audit({
+          aggregateId: workspaceId,
+          type: "git.committed",
+          payload: {
+            workspaceId,
+            sha,
+            branch,
+            files: uniqueStagedPaths,
+            ...(renames.length ? { renames } : {}),
+            title,
+          },
+        });
+      }
+      return {
+        ok: true,
+        value: {
+          sha,
+          branch,
+          files: uniqueStagedPaths,
+          ...(renames.length ? { renames } : {}),
+          title,
+        },
+      };
+    });
+  }
+
+  /** .gitignore 预览：内置模板仅列出缺失行，绝不覆盖现有内容。 */
+  async ignorePreview(workspaceId: string): Promise<import("./types.js").GitResult<GitIgnorePreview>> {
+    const context = await this.graphWriteContext(workspaceId);
+    if (!context.ok) return context.result;
+    const target = this.inspectIgnoreTarget(context.root);
+    if ("error" in target) {
+      return writeFail("GIT_WRITE_BAD_PARAM", target.error);
+    }
+    const ignorePath = target.path;
+    const exists = target.exists;
+    let existing = "";
+    if (exists) {
+      try {
+        if (target.size > 256 * 1024) {
+          return writeFail("GIT_WRITE_BAD_PARAM", ".gitignore 过大（>256KB），请手动编辑");
+        }
+        existing = readFileSync(ignorePath, "utf8");
+      } catch {
+        return writeFail("GIT_WRITE_INTERNAL", "无法读取现有 .gitignore", true);
+      }
+    }
+    const existingLines = new Set(
+      existing
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    );
+    const additions = GITIGNORE_TEMPLATE.filter((line) => !existingLines.has(line.trim()));
+    const base = existing
+      ? existing.endsWith("\n")
+        ? existing
+        : `${existing}\n`
+      : "";
+    const preview = additions.length ? `${base}${additions.join("\n")}\n` : existing;
+    return { ok: true, value: { exists, existing, additions, preview } };
+  }
+
+  /** 应用 .gitignore：仅追加缺失行；应用后作为未跟踪文件出现在工作区。 */
+  async ignoreApply(workspaceId: string): Promise<import("./types.js").GitResult<GitIgnoreApplyResult>> {
+    return this.graphWriteLock.withLock(workspaceId, async () => {
+      const context = await this.graphWriteContext(workspaceId);
+      if (!context.ok) return context.result;
+      const preview = await this.ignorePreview(workspaceId);
+      if (!preview.ok || !preview.value) {
+        return {
+          ok: false,
+          errorCode: preview.errorCode ?? "GIT_WRITE_INTERNAL",
+          message: preview.message ?? "无法预览 .gitignore",
+          retryable: preview.retryable ?? true,
+        };
+      }
+      if (preview.value.additions.length === 0) {
+        return { ok: true, value: { addedLines: [], created: false } };
+      }
+      // t395 F2：写前再次 lstat/realpath 校验，防止 preview 后路径被替换为 symlink/junction。
+      const target = this.inspectIgnoreTarget(context.root);
+      if ("error" in target) {
+        return writeFail("GIT_WRITE_BAD_PARAM", target.error);
+      }
+      if (preview.value.exists !== target.exists) {
+        return writeFail("GIT_WRITE_BAD_PARAM", ".gitignore 状态已变化，请重新预览", true);
+      }
+      const ignorePath = target.path;
+      try {
+        if (preview.value.exists && preview.value.existing && !preview.value.existing.endsWith("\n")) {
+          appendFileSync(ignorePath, "\n", "utf8");
+        }
+        appendFileSync(ignorePath, `${preview.value.additions.join("\n")}\n`, "utf8");
+      } catch {
+        return writeFail("GIT_WRITE_INTERNAL", "写入 .gitignore 失败", true);
+      }
+      this.audit({
+        aggregateId: workspaceId,
+        type: "git.ignore_updated",
+        payload: { workspaceId, path: ".gitignore", addedLines: preview.value.additions },
+      });
+      return {
+        ok: true,
+        value: { addedLines: preview.value.additions, created: !preview.value.exists },
+      };
+    });
+  }
+
+  async readRepo(workspaceId: string): Promise<import("./types.js").GitResult<GitReadRepo>> {    const context = await this.readContext(workspaceId);
     if (!context.ok) return context.result as import("./types.js").GitResult<GitReadRepo>;
     const value = await context.reader.repoInfo();
     return value.ok && value.value ? { ok: true, value: { ...value.value, workspaceId } } : value;

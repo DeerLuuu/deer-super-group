@@ -11,11 +11,16 @@ import type {
   GitWorkingFile,
   GitWorkingStatus,
 } from "../readTypes.js";
+import type { GitIgnorePreview } from "../writeTypes.js";
 import type { GitResult } from "../types.js";
 import type { GitInitProbe } from "../initTypes.js";
 import { GitInitModal } from "./GitInitModal.js";
+import Modal from "../../Modal.js";
 
 type Api = NonNullable<Window["deer"]>;
+
+/** t389：按 workspaceId 记忆最后视图，Dock 视口切换重挂面板后恢复（防暂存上下文丢失）。 */
+const lastViewByWorkspace = new Map<string, "graph" | "detail" | "workspace">();
 
 function unwrap<T>(result: GitResult<T>): T {
   if (!result.ok || result.value === undefined) {
@@ -48,7 +53,12 @@ export default function GitGraphPanel({
   const [detail, setDetail] = useState<GitCommitDetail | null>(null);
   const [working, setWorking] = useState<GitWorkingStatus | null>(null);
   const [workingDiff, setWorkingDiff] = useState<GitDiffPage | null>(null);
-  const [view, setView] = useState<"graph" | "detail" | "workspace">("graph");
+  // t389 走查修复：Dock 在视口切换（wide/single 变体往返）时会重挂本面板，
+  // view 状态丢失导致用户暂存上下文消失。按 workspaceId 记忆最后视图，
+  // 重挂时恢复到离开前的 tab。
+  const [view, setView] = useState<"graph" | "detail" | "workspace">(
+    () => lastViewByWorkspace.get(workspaceId) ?? "graph",
+  );
   const [filter, setFilter] = useState("");
   const [refFilter, setRefFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,6 +70,20 @@ export default function GitGraphPanel({
   const [initBusy, setInitBusy] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [initSuccess, setInitSuccess] = useState(false);
+  // t352 G1：写闭环状态（stage/unstage/commit/.gitignore）。
+  const [writeBusy, setWriteBusy] = useState(false);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const [lastCommitSha, setLastCommitSha] = useState<string | null>(null);
+  const [ignorePreviewData, setIgnorePreviewData] = useState<GitIgnorePreview | null>(null);
+  const [ignoreOpen, setIgnoreOpen] = useState(false);
+  const [ignoreBusy, setIgnoreBusy] = useState(false);
+
+  // 提交成功提示 8 秒后自动消失，避免残留旧信息。
+  useEffect(() => {
+    if (!lastCommitSha) return;
+    const timer = setTimeout(() => setLastCommitSha(null), 8_000);
+    return () => clearTimeout(timer);
+  }, [lastCommitSha]);
   const requestRef = useRef(0);
   const commitRequestRef = useRef(0);
   const tabRefs = useRef<Record<"graph" | "detail" | "workspace", HTMLButtonElement | null>>({
@@ -136,6 +160,12 @@ export default function GitGraphPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
+  // t389：重挂时若恢复的是「工作区」视图，需主动拉取工作区状态（selectView 不会再触发）。
+  useEffect(() => {
+    if (lastViewByWorkspace.get(workspaceId) === "workspace") void loadWorking();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
   const loadMore = async () => {
     if (!api || !graph || graph.nextOffset == null || busy) return;
     setBusy(true);
@@ -173,6 +203,7 @@ export default function GitGraphPanel({
 
   function selectView(next: "graph" | "detail" | "workspace", focus = false) {
     setView(next);
+    lastViewByWorkspace.set(workspaceId, next);
     if (next === "workspace") void loadWorking();
     if (focus) tabRefs.current[next]?.focus();
   }
@@ -203,6 +234,96 @@ export default function GitGraphPanel({
       setBusy(false);
     }
   };
+
+  // t352 G1：写操作统一入口——失败保留 inline 错误（可重试），成功后刷新状态与图。
+  const runWrite = useCallback(
+    async (fn: () => Promise<GitResult<unknown> | undefined>, opts?: { reloadGraph?: boolean }) => {
+      if (!api || writeBusy) return;
+      setWriteBusy(true);
+      setWriteError(null);
+      try {
+        const result = await fn();
+        if (result && !result.ok) {
+          setWriteError(`${result.message ?? result.errorCode}`);
+          return;
+        }
+        await loadWorking();
+        if (opts?.reloadGraph !== false) {
+          await load(null, selectedSha);
+        }
+      } catch (cause) {
+        setWriteError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setWriteBusy(false);
+      }
+    },
+    [api, writeBusy, load, loadWorking, selectedSha],
+  );
+
+  const handleStage = useCallback(
+    (paths: string[]) => {
+      if (!api?.gitStage || paths.length === 0) return;
+      // t389 走查修复：stage 只影响工作区状态，不改变提交图；
+      // 重载整图会长时间阻塞写按钮（writeBusy >1 分钟），故仅刷新 status。
+      void runWrite(() => api.gitStage!(workspaceId, paths), { reloadGraph: false });
+    },
+    [api, runWrite, workspaceId],
+  );
+
+  const handleUnstage = useCallback(
+    (paths: string[]) => {
+      if (!api?.gitUnstage || paths.length === 0) return;
+      // t389 走查修复：同 stage——unstage 不改图，只刷新工作区状态。
+      void runWrite(() => api.gitUnstage!(workspaceId, paths), { reloadGraph: false });
+    },
+    [api, runWrite, workspaceId],
+  );
+
+  const handleCommit = useCallback(
+    async (title: string, body: string) => {
+      if (!api?.gitCreateCommit) return;
+      await runWrite(async () => {
+        const result = await api.gitCreateCommit!(workspaceId, title, body || undefined);
+        if (result.ok && result.value) setLastCommitSha(result.value.sha);
+        return result;
+      });
+    },
+    [api, runWrite, workspaceId],
+  );
+
+  const handleIgnorePreview = useCallback(async () => {
+    if (!api?.gitIgnorePreview || writeBusy) return;
+    setWriteBusy(true);
+    setWriteError(null);
+    try {
+      const preview = unwrap(await api.gitIgnorePreview(workspaceId));
+      setIgnorePreviewData(preview);
+      setIgnoreOpen(true);
+    } catch (cause) {
+      setWriteError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setWriteBusy(false);
+    }
+  }, [api, writeBusy, workspaceId]);
+
+  const handleIgnoreApply = useCallback(async () => {
+    if (!api?.gitIgnoreApply) return;
+    setIgnoreBusy(true);
+    try {
+      const result = await api.gitIgnoreApply(workspaceId);
+      if (!result.ok) {
+        setWriteError(result.message ?? "应用 .gitignore 失败");
+        return;
+      }
+      setIgnoreOpen(false);
+      setIgnorePreviewData(null);
+      await runWrite(async () => ({ ok: true as const, value: undefined }), { reloadGraph: false });
+    } catch (cause) {
+      setWriteError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIgnoreBusy(false);
+    }
+  }, [api, runWrite, workspaceId]);
 
   const commits = useMemo(() => {
     if (!graph) return [];
@@ -327,7 +448,7 @@ export default function GitGraphPanel({
               {repo.ahead > 0 ? `↑${repo.ahead}` : "↑0"} {repo.behind > 0 ? `↓${repo.behind}` : "↓0"}
             </span>
           )}
-          <span className="badge">只读</span>
+          <span className="badge" title="查看/暂存/提交均写入本地仓库；不提供 push">本地可写</span>
           <button type="button" className="ghost small" onClick={() => void load()}>刷新</button>
           <button type="button" className="ghost small" aria-pressed={showRefs} onClick={() => setShowRefs((value) => !value)}>
             {showRefs ? "收起引用" : "显示引用"}
@@ -494,6 +615,16 @@ export default function GitGraphPanel({
                 onRefresh={() => void loadWorking()}
                 onOpen={openWorkingFile}
                 diff={workingDiff}
+                isFirstCommit={!loading && repo !== null && !repo.headSha}
+                writeBusy={writeBusy}
+                writeError={writeError}
+                onDismissWriteError={() => setWriteError(null)}
+                onStage={handleStage}
+                onUnstage={handleUnstage}
+                onCommit={(title, body) => void handleCommit(title, body)}
+                onIgnorePreview={() => void handleIgnorePreview()}
+                lastCommitSha={lastCommitSha}
+                canWrite={Boolean(api?.gitStage && api?.gitUnstage && api?.gitCreateCommit)}
               />
             </div>
           ) : detail ? (
@@ -522,7 +653,54 @@ export default function GitGraphPanel({
           )}
         </aside>
       </div>
-      {graph && <footer className="git-graph-footer muted tiny">已加载 {graph.totalLoaded} / 2000 · 只读快照 · {repo?.remote ? "远程已配置" : "无远程"}</footer>}
+      {graph && <footer className="git-graph-footer muted tiny">已加载 {graph.totalLoaded} / 2000 · 本地快照 · 提交仅写入本地（无 push） · {repo?.remote ? "远程已配置" : "无远程"}</footer>}
+
+      {/* t352 G1：.gitignore 预览 Modal（仅追加缺失行，不覆盖现有文件） */}
+      {ignoreOpen && ignorePreviewData ? (
+        <Modal
+          title="生成 .gitignore"
+          description={
+            ignorePreviewData.exists
+              ? "仅追加缺失的模板行，现有内容保持不变"
+              : "将创建 .gitignore 并仅写入下列模板行；后续再生成也只追加缺失行，不覆盖任何现有文件"
+          }
+          onClose={() => setIgnoreOpen(false)}
+        >
+          <div className="git-ignore-preview">
+            {ignorePreviewData.additions.length === 0 ? (
+              <p className="muted small">模板条目已全部存在，无需追加（不会修改文件）。</p>
+            ) : (
+              <>
+                <p className="muted small">
+                  {ignorePreviewData.exists
+                    ? `仅追加缺失的 ${ignorePreviewData.additions.length} 行模板条目（node_modules/、dist/、dist-electron/、branches/ 等），现有内容保持不变。`
+                    : `将创建 .gitignore 并写入 ${ignorePreviewData.additions.length} 行常见忽略条目（node_modules/、dist/、dist-electron/、branches/ 等）；不会覆盖任何现有文件。`}
+                </p>
+                <pre className="git-ignore-diff" aria-label="将追加的内容"><code>{`+ ${ignorePreviewData.additions.join("\n+ ")}`}</code></pre>
+                {ignorePreviewData.exists && ignorePreviewData.existing ? (
+                  <details>
+                    <summary className="muted small">查看现有 .gitignore（保持不变）</summary>
+                    <pre className="git-ignore-existing"><code>{ignorePreviewData.existing}</code></pre>
+                  </details>
+                ) : null}
+              </>
+            )}
+            <div className="modal-foot">
+              <button type="button" className="ghost" onClick={() => setIgnoreOpen(false)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={ignoreBusy || ignorePreviewData.additions.length === 0}
+                onClick={() => void handleIgnoreApply()}
+              >
+                {ignoreBusy ? "应用中…" : "追加缺失行"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </section>
   );
 }
@@ -533,39 +711,290 @@ function WorkingTree({
   onRefresh,
   onOpen,
   diff,
+  isFirstCommit,
+  writeBusy,
+  writeError,
+  onDismissWriteError,
+  onStage,
+  onUnstage,
+  onCommit,
+  onIgnorePreview,
+  lastCommitSha,
+  canWrite,
 }: {
   status: GitWorkingStatus | null;
   loading: boolean;
   onRefresh: () => void;
   onOpen: (file: GitWorkingFile) => void;
   diff: GitDiffPage | null;
+  /** 空仓库（一键 init 后尚无提交）：显示首次提交引导。 */
+  isFirstCommit: boolean;
+  writeBusy: boolean;
+  writeError: string | null;
+  onDismissWriteError: () => void;
+  onStage: (paths: string[]) => void;
+  onUnstage: (paths: string[]) => void;
+  onCommit: (title: string, body: string) => void;
+  onIgnorePreview: () => void;
+  lastCommitSha: string | null;
+  canWrite: boolean;
 }) {
+  const [selectedUnstaged, setSelectedUnstaged] = useState<Set<string>>(new Set());
+  const [selectedStaged, setSelectedStaged] = useState<Set<string>>(new Set());
+  const [commitTitle, setCommitTitle] = useState("");
+  const [commitBody, setCommitBody] = useState("");
+
+  // 状态刷新后清掉已失效的勾选。
+  useEffect(() => {
+    const valid = new Set(
+      [...(status?.unstaged ?? []), ...(status?.untracked ?? [])].map((file) => file.path),
+    );
+    setSelectedUnstaged((prev) => new Set([...prev].filter((path) => valid.has(path))));
+  }, [status]);
+  useEffect(() => {
+    const valid = new Set((status?.staged ?? []).map((file) => file.path));
+    setSelectedStaged((prev) => new Set([...prev].filter((path) => valid.has(path))));
+  }, [status]);
+
+  function toggle(set: Set<string>, path: string): Set<string> {
+    const next = new Set(set);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    return next;
+  }
+
+  function submitCommit(event: React.FormEvent) {
+    event.preventDefault();
+    const title = commitTitle.trim();
+    if (!title || writeBusy) return;
+    onCommit(title, commitBody);
+    setCommitTitle("");
+    setCommitBody("");
+  }
+
+  const stagedCount = status?.staged.length ?? 0;
+  const unstagedFiles = useMemo(
+    () => [...(status?.unstaged ?? []), ...(status?.untracked ?? [])],
+    [status],
+  );
+
   return (
     <div>
       <div className="row between">
         <h3>工作区</h3>
-        <button type="button" className="ghost tiny" onClick={onRefresh}>刷新</button>
+        <div className="row gap">
+          {canWrite ? (
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={onIgnorePreview}
+              disabled={writeBusy}
+              title="预览并追加常见忽略条目（node_modules/、dist/ 等）"
+            >
+              生成 .gitignore
+            </button>
+          ) : null}
+          <button type="button" className="ghost tiny" onClick={onRefresh}>刷新</button>
+        </div>
       </div>
+
+      {isFirstCommit && canWrite ? (
+        <div className="git-first-commit" role="note" aria-label="首次提交引导">
+          <strong>首次提交</strong>
+          <p className="muted small">
+            这是全新仓库，还没有任何提交。三步完成首次提交：
+            ① 在下方勾选文件并点「暂存选中」；② 填写提交标题；③ 点「提交（N 个文件）」。
+            可先生成 .gitignore 忽略 node_modules/ 等目录。
+          </p>
+        </div>
+      ) : null}
+
+      {writeError ? (
+        <div className="git-write-error" role="alert">
+          {writeError}
+          <div className="row gap">
+            <button type="button" className="ghost tiny" onClick={onRefresh} disabled={writeBusy}>
+              重试刷新
+            </button>
+            <button type="button" className="ghost tiny" onClick={onDismissWriteError}>关闭</button>
+          </div>
+        </div>
+      ) : null}
+
+      {lastCommitSha ? (
+        <p className="git-write-ok" role="status">已提交 <code>{lastCommitSha.slice(0, 8)}</code>（仅本地，未推送）。</p>
+      ) : null}
+
       {loading ? <p role="status">读取工作区…</p> : null}
+
       {status ? (
         <>
-          {(["staged", "unstaged", "untracked", "conflicts"] as const).map((key) => (
-            <section key={key}>
-              <h4>{key === "staged" ? "已暂存" : key === "unstaged" ? "未暂存" : key === "untracked" ? "未跟踪" : "冲突"} ({status[key].length})</h4>
-              <ul className="git-status-files">
-                {status[key].map((file) => (
-                  <li key={`${key}-${file.path}`}>
-                    <button type="button" className="ghost tiny" onClick={() => onOpen(file)}>
-                      <span className="badge">{statusLabel(file)}</span>{" "}
-                      <span className="ellipsis" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
-                        {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+          {/* 已暂存：可勾选批量取消暂存 */}
+          <section>
+            <div className="row between git-group-head">
+              <h4>
+                <label className="git-check">
+                  <input
+                    type="checkbox"
+                    aria-label="全选已暂存文件"
+                    checked={stagedCount > 0 && selectedStaged.size === stagedCount}
+                    onChange={(event) =>
+                      setSelectedStaged(
+                        event.target.checked
+                          ? new Set((status.staged ?? []).map((file) => file.path))
+                          : new Set(),
+                      )
+                    }
+                    disabled={!canWrite || writeBusy || stagedCount === 0}
+                  />
+                  已暂存 ({stagedCount})
+                </label>
+              </h4>
+              {canWrite ? (
+                <button
+                  type="button"
+                  className="ghost tiny"
+                  disabled={writeBusy || selectedStaged.size === 0}
+                  onClick={() => {
+                    onUnstage([...selectedStaged]);
+                    setSelectedStaged(new Set());
+                  }}
+                >
+                  取消暂存选中 ({selectedStaged.size})
+                </button>
+              ) : null}
+            </div>
+            <ul className="git-status-files">
+              {(status.staged ?? []).map((file) => (
+                <li key={`staged-${file.path}`} className="git-file-row">
+                  <label className="git-check ellipsis" title={file.path}>
+                    <input
+                      type="checkbox"
+                      checked={selectedStaged.has(file.path)}
+                      onChange={() => setSelectedStaged((prev) => toggle(prev, file.path))}
+                      disabled={!canWrite || writeBusy}
+                    />
+                    <span className="badge">{statusLabel(file)}</span>
+                    <span className="ellipsis">{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</span>
+                  </label>
+                  <button type="button" className="ghost tiny git-file-open" onClick={() => onOpen(file)}>
+                    diff
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {/* 未暂存 / 未跟踪：可勾选批量暂存 */}
+          <section>
+            <div className="row between git-group-head">
+              <h4>
+                <label className="git-check">
+                  <input
+                    type="checkbox"
+                    aria-label="全选未暂存文件"
+                    checked={unstagedFiles.length > 0 && selectedUnstaged.size === unstagedFiles.length}
+                    onChange={(event) =>
+                      setSelectedUnstaged(
+                        event.target.checked
+                          ? new Set(unstagedFiles.map((file) => file.path))
+                          : new Set(),
+                      )
+                    }
+                    disabled={!canWrite || writeBusy || unstagedFiles.length === 0}
+                  />
+                  未暂存 / 未跟踪 ({unstagedFiles.length})
+                </label>
+              </h4>
+              {canWrite ? (
+                <div className="row gap">
+                  <button
+                    type="button"
+                    className="ghost tiny"
+                    disabled={writeBusy || selectedUnstaged.size === 0}
+                    onClick={() => {
+                      onStage([...selectedUnstaged]);
+                      setSelectedUnstaged(new Set());
+                    }}
+                  >
+                    暂存选中 ({selectedUnstaged.size})
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <ul className="git-status-files">
+              {unstagedFiles.map((file) => (
+                <li key={`unstaged-${file.path}`} className="git-file-row">
+                  <label className="git-check ellipsis" title={file.path}>
+                    <input
+                      type="checkbox"
+                      checked={selectedUnstaged.has(file.path)}
+                      onChange={() => setSelectedUnstaged((prev) => toggle(prev, file.path))}
+                      disabled={!canWrite || writeBusy}
+                    />
+                    <span className="badge">{statusLabel(file)}</span>
+                    <span className="ellipsis">{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</span>
+                  </label>
+                  <button type="button" className="ghost tiny git-file-open" onClick={() => onOpen(file)}>
+                    diff
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {/* 冲突（不可暂存/提交） */}
+          <section>
+            <h4>冲突 ({status.conflicts.length})</h4>
+            <ul className="git-status-files">
+              {status.conflicts.map((file) => (
+                <li key={`conflict-${file.path}`}>
+                  <span className="badge">U</span> <span className="ellipsis">{file.path}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {/* 提交框：只提交已暂存文件，绝不自动 add */}
+          {canWrite ? (
+            <form className="git-commit-box" onSubmit={submitCommit} aria-label="提交已暂存文件">
+              <label>
+                提交标题（必填）
+                <input
+                  value={commitTitle}
+                  onChange={(event) => setCommitTitle(event.target.value)}
+                  placeholder="例如：feat: 补齐健康检查接口"
+                  maxLength={100}
+                  disabled={writeBusy}
+                  required
+                />
+              </label>
+              <label>
+                正文（可选）
+                <textarea
+                  value={commitBody}
+                  onChange={(event) => setCommitBody(event.target.value)}
+                  rows={2}
+                  maxLength={5000}
+                  placeholder="背景、改动点、验证方式…"
+                  disabled={writeBusy}
+                />
+              </label>
+              <div className="row between">
+                <span className="muted tiny">
+                  将提交已暂存的 {stagedCount} 个文件（不自动暂存其余改动；仅本地提交，无推送）。
+                </span>
+                <button
+                  type="submit"
+                  className="primary small"
+                  disabled={writeBusy || stagedCount === 0 || !commitTitle.trim()}
+                >
+                  {writeBusy ? "提交中…" : `提交（${stagedCount} 个文件）`}
+                </button>
+              </div>
+            </form>
+          ) : null}
+
           <section>
             <h4>子模块 ({status.submodules.length})</h4>
             {status.submodulesUnsupported ? <p className="muted tiny">子模块状态不可用（git submodule 读取失败）。</p> : null}

@@ -24,6 +24,11 @@ import {
   gitRefsParamsSchema,
   gitWorkspaceIdSchema,
 } from "../src/git/readTypes.js";
+import {
+  gitCommitBodySchema,
+  gitCommitTitleSchema,
+  gitWritePathsSchema,
+} from "../src/git/writeTypes.js";
 import type { SetBudgetInput, SetFallbackChainInput, WatchdogHoldReason } from "../src/shared/watchdog.js";
 import type {
   CreateMemoryBoardInput,
@@ -376,6 +381,36 @@ app.whenReady().then(() => {
     const body = gitDiffParamsSchema.safeParse(params);
     if (!ws.success || !body.success) return readBadParam();
     return getService().git.readDiff(ws.data, body.data);
+  });
+  // t352 G1：版本图本地写闭环。通道名 git:commit-create（git:commit 已被只读详情占用）。
+  handle("git:stage", (workspaceId: string, paths?: unknown) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    const body = gitWritePathsSchema.safeParse(paths ?? []);
+    if (!ws.success || !body.success) return readBadParam();
+    return getService().git.stage(ws.data, body.data);
+  });
+  handle("git:unstage", (workspaceId: string, paths?: unknown) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    const body = gitWritePathsSchema.safeParse(paths ?? []);
+    if (!ws.success || !body.success) return readBadParam();
+    return getService().git.unstage(ws.data, body.data);
+  });
+  handle("git:commit-create", (workspaceId: string, title?: unknown, body?: unknown) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    const titleParsed = gitCommitTitleSchema.safeParse(title ?? "");
+    const bodyParsed = gitCommitBodySchema.safeParse(body ?? undefined);
+    if (!ws.success || !titleParsed.success || !bodyParsed.success) return readBadParam();
+    return getService().git.commitFiles(ws.data, { title: titleParsed.data, body: bodyParsed.data });
+  });
+  handle("git:ignore-preview", (workspaceId: string) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    if (!ws.success) return readBadParam();
+    return getService().git.ignorePreview(ws.data);
+  });
+  handle("git:ignore-apply", (workspaceId: string) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    if (!ws.success) return readBadParam();
+    return getService().git.ignoreApply(ws.data);
   });
   // t154：行级评审
   handle("review:summary", (taskId: string) => getReview().getSummary(taskId));

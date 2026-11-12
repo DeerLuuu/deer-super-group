@@ -1,0 +1,116 @@
+{
+  "mode": "normal",
+  "at": "2026-11-12T16:12:17.680Z",
+  "results": [
+    {
+      "id": "app-ready",
+      "ok": true,
+      "detail": "版本图入口已挂载"
+    },
+    {
+      "id": "aria-select-all",
+      "ok": true,
+      "detail": "全选 checkbox 具备 aria-label"
+    },
+    {
+      "id": "aria-commit-form",
+      "ok": true,
+      "detail": "提交表单 aria-label"
+    },
+    {
+      "id": "aria-ignore-button",
+      "ok": true,
+      "detail": ".gitignore 按钮带 title 说明"
+    },
+    {
+      "id": "tabs-roving",
+      "ok": true,
+      "detail": "版本视图 tablist 存在（roving tabindex 基线）"
+    },
+    {
+      "id": "keyboard-tab",
+      "ok": true,
+      "detail": "Tab 后焦点位于 BUTTON.ghost tiny sidebar-toggle"
+    },
+    {
+      "id": "submit-disabled-no-staged",
+      "ok": true,
+      "detail": "{\"disabled\":true,\"text\":\"提交（0 个文件）\"}"
+    },
+    {
+      "id": "fixture-has-changes",
+      "ok": true,
+      "detail": "fixture 工作区改动出现在未暂存分组"
+    },
+    {
+      "id": "checkbox-toggles",
+      "ok": true,
+      "detail": "勾选 feature.ts 生效"
+    },
+    {
+      "id": "group-migration",
+      "ok": true,
+      "detail": "文件迁移到已暂存分组（已暂存 (1)）"
+    },
+    {
+      "id": "no-overflow-960",
+      "ok": true,
+      "detail": "960 档 scrollWidth=960"
+    },
+    {
+      "id": "no-overflow-480",
+      "ok": true,
+      "detail": "480 档 scrollWidth=480"
+    },
+    {
+      "id": "env-staged",
+      "ok": true,
+      "detail": ".env 进入已暂存分组（已暂存 (2)）"
+    },
+    {
+      "id": "guard-inline-alert",
+      "ok": true,
+      "detail": "fill=true echo=true alert=提交被安全守卫拒绝：sensitive file: .env重试刷新关闭"
+    },
+    {
+      "id": "ignore-modal",
+      "ok": true,
+      "detail": ".gitignore 预览 Modal 打开"
+    },
+    {
+      "id": "ignore-modal-append-only",
+      "ok": true,
+      "detail": "Modal 含「不覆盖现有文件」声明与模板行"
+    },
+    {
+      "id": "ignore-modal-esc",
+      "ok": true,
+      "detail": "Esc 关闭 Modal（C25 焦点路径）"
+    },
+    {
+      "id": "keyboard-enter-focusable",
+      "ok": true,
+      "detail": "已勾选文件且「暂存选中」可聚焦未禁用"
+    },
+    {
+      "id": "keyboard-enter-activate",
+      "ok": true,
+      "detail": "Enter 前后已暂存组：已暂存 (2) → 已暂存 (5)"
+    },
+    {
+      "id": "unstage-env",
+      "ok": true,
+      "detail": ".env 取消暂存回到未暂存分组（已暂存 (3)）"
+    },
+    {
+      "id": "real-commit-ok",
+      "ok": true,
+      "detail": "fill=true err=none HEAD=4201cb11 subject=feat: real electron commit"
+    },
+    {
+      "id": "ignore-applied-untracked",
+      "ok": true,
+      "detail": ".gitignore 应用后出现在未跟踪分组"
+    }
+  ]
+}

@@ -60,7 +60,16 @@ export type GitErrorCode =
   | "GIT_INIT_PARTIAL"
   | "GIT_INIT_WORKSPACE_MISSING"
   | "GIT_INIT_FAILED"
-  | "GIT_READ_INTERNAL";
+  | "GIT_READ_INTERNAL"
+  // t352 G1：版本图本地写闭环（stage/unstage/commit/.gitignore）
+  | "GIT_WRITE_BAD_PARAM"
+  | "GIT_WRITE_NOT_REPO"
+  | "GIT_WRITE_STAGE_FAILED"
+  | "GIT_WRITE_UNSTAGE_FAILED"
+  | "GIT_WRITE_NOTHING_STAGED"
+  | "GIT_WRITE_GUARD_BLOCKED"
+  | "GIT_WRITE_COMMIT_FAILED"
+  | "GIT_WRITE_INTERNAL";
 
 export interface GitResult<T> {
   ok: boolean;
