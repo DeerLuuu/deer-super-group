@@ -48,10 +48,15 @@ afterEach(() => {
   else (globalThis as { window?: unknown }).window = originalWindow;
 });
 
-function harness(active: boolean, onItems: (items: MergeQueueItem[] | null) => void) {
+function harness(
+  active: boolean,
+  onItems: (items: MergeQueueItem[] | null) => void,
+  onStale?: (stale: boolean) => void,
+) {
   function Harness() {
-    const { items, reload } = useMergeQueue("ws", active, "key");
+    const { items, reload, stale } = useMergeQueue("ws", active, "key");
     onItems(items);
+    onStale?.(stale);
     return (
       <button type="button" onClick={() => void reload()}>
         reload
@@ -62,7 +67,7 @@ function harness(active: boolean, onItems: (items: MergeQueueItem[] | null) => v
 }
 
 describe("t226 useMergeQueue unknown/empty/refresh", () => {
-  it("keeps unknown null on failure and distinguishes empty from pending", async () => {
+  it("keeps last-good on failure and marks stale", async () => {
     const mergeQueue = vi
       .fn()
       .mockResolvedValueOnce({ items: [], activeMerge: null })
@@ -74,9 +79,10 @@ describe("t226 useMergeQueue unknown/empty/refresh", () => {
       clearInterval: () => {},
     };
     let items: MergeQueueItem[] | null = null;
+    let stale = false;
     let renderer: ReturnType<typeof create> | null = null;
     await act(async () => {
-      renderer = create(harness(false, (next) => (items = next)));
+      renderer = create(harness(false, (next) => (items = next), (next) => (stale = next)));
       await Promise.resolve();
     });
     expect(items).toEqual([]); // known empty, not null
@@ -88,12 +94,15 @@ describe("t226 useMergeQueue unknown/empty/refresh", () => {
     });
     expect(items).toHaveLength(1); // pending
     expect((items as unknown as MergeQueueItem[])[0]?.state).toBe("ready");
+    expect(stale).toBe(false);
 
     await act(async () => {
       (reload.props.onClick as () => void)();
       await Promise.resolve();
     });
-    expect(items).toBeNull(); // failure is unknown
+    // R3：失败保留 last-good，不伪造 unknown/空。
+    expect(items).toHaveLength(1);
+    expect(stale).toBe(true);
   });
 
   it("polls while active and reloads on demand/refresh key", async () => {
@@ -122,16 +131,16 @@ describe("t226 useMergeQueue unknown/empty/refresh", () => {
     expect(mergeQueue.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("background refresh picks up an enqueue while queue is closed", async () => {
-    let background: (() => void) | null = null;
-    const mergeQueue = vi
-      .fn()
-      .mockResolvedValueOnce({ items: [] as MergeQueueItem[], activeMerge: null })
-      .mockResolvedValueOnce({ items: [queueItem()], activeMerge: null });
+  it("does not poll while inactive (R3 event-driven)", async () => {
+    let intervals = 0;
+    const mergeQueue = vi.fn(async () => ({
+      items: [] as MergeQueueItem[],
+      activeMerge: null,
+    }));
     (globalThis as { window?: unknown }).window = {
       deer: { mergeQueue },
-      setInterval: (callback: () => void) => {
-        background = callback;
+      setInterval: () => {
+        intervals += 1;
         return 1;
       },
       clearInterval: () => {},
@@ -142,14 +151,8 @@ describe("t226 useMergeQueue unknown/empty/refresh", () => {
       await Promise.resolve();
     });
     expect(items).toEqual([]);
-    expect(background).not.toBeNull();
-    await act(async () => {
-      background?.();
-      await Promise.resolve();
-    });
-    expect(
-      (items as unknown as MergeQueueItem[]).some((item) => item.state === "ready"),
-    ).toBe(true);
+    expect(intervals).toBe(0);
+    expect(mergeQueue).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a stale response after a newer request", async () => {

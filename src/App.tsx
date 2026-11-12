@@ -94,6 +94,11 @@ import CommandPalette, {
 } from "./CommandPalette";
 import WorkflowRail from "./shell/WorkflowRail";
 import { useMergeQueue } from "./shell/useMergeQueue";
+import {
+  ALL_REFRESH_DOMAINS,
+  RefreshCoordinator,
+  type RefreshDomain,
+} from "./shell/refreshCoordinator";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
 import FirstRunCard from "./shell/FirstRunCard";
 import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
@@ -539,9 +544,10 @@ export default function App() {
   const [dockWidth, setDockWidth] = useState(() =>
     Math.max(320, window.innerWidth - 300),
   );
+  const [refreshStale, setRefreshStale] = useState(false);
   const snapshotRef = useRef<Snapshot | null>(null);
   const selectedTaskRef = useRef<string | null>(null);
-  const refreshTimer = useRef<number | null>(null);
+  const refreshCoordinatorRef = useRef<RefreshCoordinator | null>(null);
   const handoffFetchedRef = useRef<Set<string>>(new Set());
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarDisplayWidthRef = useRef<number | null>(sidebarDisplayWidth);
@@ -918,7 +924,7 @@ export default function App() {
     }
   }, []);
 
-  /** t69：调度器快照；silent 用于事件刷新，避免每 220ms 出现骨架闪烁。 */
+  /** t69/R3：调度器快照；silent 用于事件批次刷新，避免出现骨架闪烁。 */
   const loadScheduler = useCallback(
     async (workspaceId: string, silent = false) => {
       const requestId = ++schedulerRequestRef.current;
@@ -1048,24 +1054,39 @@ export default function App() {
       if (snapshotResult.ok) setWatchdogSnapshot(snapshotResult.value);
       if (costsResult.ok) setWatchdogCosts(costsResult.value);
     } catch {
-      // watchdog 不可用时不影响主界面
+      // watchdog 不可用时保留 last-good，不影响主界面
     }
   }, []);
 
-  const refresh = useCallback(
-    async (workspaceId: string) => {
-      const next = await window.deer.getSnapshot(workspaceId);
-      setSnapshot(next);
-      // t69：事件刷新同时更新调度快照与当前任务 Run（静默，不闪骨架）。
-      void loadScheduler(workspaceId, true);
-      void loadWatchdog(workspaceId);
-      void loadMergeQueue();
-      if (selectedTaskRef.current) {
+  /** R3：只读取本次事件涉及的域，避免一次事件固定打 5–7 路 IPC。 */
+  const refreshDomains = useCallback(
+    async (workspaceId: string, domains: ReadonlySet<RefreshDomain>) => {
+      if (domains.has("snapshot")) {
+        const next = await window.deer.getSnapshot(workspaceId);
+        setSnapshot(next);
+      }
+      if (domains.has("scheduler")) {
+        void loadScheduler(workspaceId, true);
+      }
+      if (domains.has("watchdog")) {
+        void loadWatchdog(workspaceId);
+      }
+      if (domains.has("mergeQueue")) {
+        void loadMergeQueue();
+      }
+      if ((domains.has("runs") || domains.has("trace")) && selectedTaskRef.current) {
         await loadTrace(selectedTaskRef.current);
         void loadRuns(selectedTaskRef.current, true);
       }
     },
     [loadTrace, loadScheduler, loadRuns, loadWatchdog, loadMergeQueue],
+  );
+
+  const refresh = useCallback(
+    async (workspaceId: string) => {
+      await refreshDomains(workspaceId, ALL_REFRESH_DOMAINS);
+    },
+    [refreshDomains],
   );
 
   const refreshWatchdog = useCallback(async () => {
@@ -1125,15 +1146,11 @@ export default function App() {
     [holdReasonForAlert, loadRuns, pushToast, refreshWatchdog],
   );
 
-  // t69：工作区切换/首屏就绪后加载调度快照（与 snapshot 解耦，避免每次 refresh 重载）。
+  // t69/R3：工作区切换/首屏就绪后加载调度与 watchdog；之后由事件域驱动，不做 15s 常驻轮询。
   useEffect(() => {
     if (!snapshot) return;
     void loadScheduler(snapshot.workspace.id);
     void loadWatchdog(snapshot.workspace.id);
-    const timer = window.setInterval(() => {
-      if (snapshotRef.current) void loadWatchdog(snapshotRef.current.workspace.id);
-    }, 15_000);
-    return () => window.clearInterval(timer);
   }, [snapshot?.workspace.id, loadScheduler, loadWatchdog]);
 
   // t157：RunHistory 的交接卡按需加载，避免触碰 Run 事件契约。
@@ -1271,18 +1288,39 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const off = window.deer.onEvent(() => {
-      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
-      refreshTimer.current = window.setTimeout(() => {
+    const coordinator = new RefreshCoordinator({
+      onFlush: async ({ domains }) => {
         const current = snapshotRef.current;
-        if (current) void refresh(current.workspace.id);
-      }, 220);
+        if (!current) return;
+        await refreshDomains(current.workspace.id, domains);
+        setRefreshStale(false);
+      },
+      onStale: () => setRefreshStale(true),
     });
+    refreshCoordinatorRef.current = coordinator;
+    const off = window.deer.onEvent((event: EventRecord) => {
+      coordinator.notify({ seq: event.seq, type: event.type });
+    });
+    const onOnline = () => coordinator.invalidateAll();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") coordinator.invalidateAll();
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       off();
-      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisibility);
+      coordinator.dispose();
+      refreshCoordinatorRef.current = null;
     };
-  }, [refresh]);
+  }, [refreshDomains]);
+
+  // 工作区切换：seq 从新 workspace 重新起算，强制下一次事件按新域刷新。
+  useEffect(() => {
+    refreshCoordinatorRef.current?.reset();
+    setRefreshStale(false);
+  }, [snapshot?.workspace.id]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -3493,6 +3531,12 @@ export default function App() {
               setErrorRetry(null);
             }}
           />
+        )}
+
+        {refreshStale && (
+          <div className="notice small" role="status">
+            实时刷新暂不可用，当前显示上次成功的数据；连接恢复后会自动对齐。
+          </div>
         )}
 
         {watchdogSnapshot && (
