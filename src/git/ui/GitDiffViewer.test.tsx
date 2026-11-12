@@ -150,6 +150,12 @@ describe("t401 GitDiffViewer", () => {
     const root = renderer.root.findAll(
       (node: any) => node.props.className === "git-diff-viewer",
     )[0];
+    const actualRows = renderer.root.findAllByProps({ role: "row" });
+    expect(actualRows.length).toBeGreaterThan(0);
+    for (const row of actualRows) {
+      expect(row.props.tabIndex).toBe(0);
+      expect(String(row.props["aria-label"])).toContain("旧行");
+    }
     const rows = [
       { classList: { contains: (name: string) => name === "git-diff-row" }, focus: vi.fn() },
       { classList: { contains: (name: string) => name === "git-diff-row" }, focus: vi.fn() },

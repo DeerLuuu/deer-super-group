@@ -1409,6 +1409,7 @@ function WorkingTree({
                 required
               />
             </label>
+            <span className="git-ws-staged-count">已暂存 {stagedCount} 文件</span>
             <button
               type="submit"
               className="primary small"
@@ -1426,9 +1427,7 @@ function WorkingTree({
             >
               {commitBodyOpen ? "收起正文" : "正文（可选）"}
             </button>
-            <span className="muted tiny">
-              <strong className="git-ws-staged-count">已暂存 {stagedCount} 文件</strong> · 仅本地提交，无推送。
-            </span>
+            <span className="muted tiny">仅本地提交，无推送。</span>
           </div>
           {commitBodyOpen ? (
             <label>

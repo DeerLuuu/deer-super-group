@@ -146,6 +146,8 @@
 .git-ws-staged-count {
   color: var(--accent-2);
   font-weight: 600;
+  white-space: nowrap;
+  font-size: 10px;
 }
 
 .git-file-row {
@@ -182,7 +184,7 @@
 
 .git-ws-commit-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
   align-items: end;
 }
@@ -472,5 +474,50 @@
 
   .git-diff-search {
     width: 100%;
+  }
+}
+
+/* t411：短高面板 1372×328 的紧凑密度；保留两段、文件行与 sticky footer。 */
+@container git-panel (max-height: 560px) {
+  .git-ws-status {
+    display: none;
+  }
+
+  .git-ws-section-head {
+    min-height: 22px;
+    height: 22px;
+    padding: 0 4px;
+  }
+
+  .git-ws-section:not(.is-empty) {
+    min-height: 47px;
+  }
+
+  .git-ws-commit {
+    padding: 1px 4px;
+    gap: 2px;
+  }
+
+  .git-ws-commit-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 4px;
+  }
+
+  .git-ws-commit-title {
+    gap: 2px;
+    font-size: 9px;
+  }
+
+  .git-ws-commit-title input {
+    height: 22px;
+    font-size: 10px;
+  }
+
+  .git-ws-commit-foot {
+    display: none;
+  }
+
+  .git-ws-staged-count {
+    font-size: 9px;
   }
 }

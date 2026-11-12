@@ -5,12 +5,15 @@ describe("t391 SourceTree responsive contract", () => {
   const css = readFileSync(new URL("./gitSourceTree.css", import.meta.url), "utf8");
 
   it("defines four-region, 960 and 480 container breakpoints", () => {
-    expect(css).toContain("container-type: inline-size");
+    expect(css).toContain("container-type: size");
     expect(css).toContain("grid-template-columns: 220px minmax(0, 1fr)");
     expect(css).toContain("grid-template-areas:");
     expect(css).toContain("@container git-panel (max-width: 1099px)");
     expect(css).toContain("@container git-panel (max-width: 719px)");
     expect(css).toContain(".git-st-tabs");
+    expect(css).toContain("@container git-panel (max-height: 560px)");
+    expect(css).toContain("grid-template-areas:");
+    expect(css).toContain('"nav workspace"');
   });
 
   it("keeps a fixed diff inspector and scrollable regions", () => {

@@ -126,3 +126,28 @@
 
 执行签名：2026-11-13 02:18 +08:00 / ren / Electron + CDP / 1440×1000、960×1000、480×900。
 
+## t411：1372×328 短高布局证据
+
+- **尺寸说明**：Electron 窗口有最小高度限制，无法把真实窗口内容区压到 328；按任务允许，在真实 Electron/CDP 中把 Git 面板容器固定为 **1372×328**（`position:fixed;width:1372px;height:328px`），截图 `t411-short-1372x328.png` 与用户截图同尺寸。
+- **短高策略**（`@container git-panel (max-height:560px)` + `container-type:size`）：隐藏历史表，保留筛选 30px + 工作区；两段各 47px（段头 22px、列表 24/25px、文件行 24px），隐藏状态条，提交框压到 36.75px。
+- **DOM metrics（1372×328）**：panel 1372×328；footer top **242.86**、bottom **279.61**（viewport 328 内可见）；已暂存 section top 121.14/h 47/list 24/row 24；未暂存 section h 47/list 25，31 行列表 `scrollHeight 752 / clientHeight 25`；`scrollWidth 1372 = innerWidth`，无横向滚动；操作按钮 24px 固定列。
+- **F2**：短高截图中已暂存 `small.txt` 完整可见，未暂存 `huge.txt` 完整可见，footer 显示「已暂存 1 文件」且不遮列表。
+- **F3**：960×1000 与 480×900 真实截图 `t411-side-disabled-960/480.png`，diff 工具栏「并排」disabled，unified 生效。
+- **F4**：真实 Electron 下 diff 行 `role=row`、`tabIndex=0`、`aria-label` 含旧/新行；Tab 从新行 1 移到新行 2，focus outline 2px；截图 `t411-tab-focus-1372x328.png`。新增测试断言所有 diff 行 role/tabIndex/aria-label。
+- **短高 diff**：`t411-short-diff-1372x328.png`（1.24MB 截断 diff + sticky footer）。
+- **无回归**：G1 handlers/IPC、#git、LazyPanel、RefreshCoordinator 未改；无新依赖。
+
+### t411 截图
+
+| 截图 | 尺寸 | 内容 |
+|---|---|---|
+| `docs/team/t411-short-1372x328.png` | 1372×328 | 短高双段/staged 可见/sticky footer |
+| `docs/team/t411-short-workarea-close-1372x328.png` | 520×200 近景 | 段头、两行文件、操作列、footer |
+| `docs/team/t411-short-diff-1372x328.png` | 1372×328 | 短高 diff + footer |
+| `docs/team/t411-tab-focus-1372x328.png` | 1372×328 | Tab 行 focus/aria |
+| `docs/team/t411-side-disabled-960.png` | 960×1000 | 并排 disabled |
+| `docs/team/t411-side-disabled-480.png` | 480×900 | 并排 disabled |
+
+执行签名：2026-11-13 02:28 +08:00 / ren / Electron + CDP / 固定面板容器 1372×328，960×1000，480×900。
+
+
