@@ -163,6 +163,11 @@ import {
 } from "./shared/kernelUi";
 import DockShell, { type DockHandle } from "./shell/dock/DockShell";
 import {
+  PanelHostProvider,
+  type PanelDeps,
+  type PanelRender,
+} from "./shell/panel/PanelHost";
+import {
   PANEL_DEFS,
   routeTabFromPanel,
   type PanelKey,
@@ -527,6 +532,8 @@ export default function App() {
   // t50：Dock 布局（对话/团队双主面板）。
   const dockRef = useRef<DockHandle | null>(null);
   const dockHostRef = useRef<HTMLDivElement | null>(null);
+  // R2：Dock 不再接收 renderPanel 闭包；只通过稳定 ref 读取最新面板内容。
+  const panelRenderRef = useRef<PanelRender>(() => null);
   const [dockWidth, setDockWidth] = useState(() =>
     Math.max(320, window.innerWidth - 300),
   );
@@ -2813,312 +2820,7 @@ export default function App() {
     watchdog: watchdogSnapshot,
   });
 
-  return (
-    <div className="app">
-      <ChatLiveBridge
-        store={chatLiveStore}
-        workspaceId={snapshot.workspace.id}
-        onSettled={handleChatLiveSettled}
-      />
-      <aside
-        className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
-        style={sidebarCollapsed ? undefined : { width: `${effectiveSidebarWidth}px` }}
-      >
-        <div className="brand">
-          <div className="brand-mark small">DG</div>
-          {!sidebarCollapsed && (
-            <div className="brand-text">
-              <div className="brand-name">DeerSuperGroup</div>
-              <div className="muted tiny">AI team workspace</div>
-            </div>
-          )}
-          <button
-            type="button"
-            className="ghost tiny sidebar-toggle"
-            onClick={toggleSidebarCollapsed}
-            title={sidebarCollapsed ? "展开侧栏（Ctrl/⌘+B）" : "折叠侧栏（Ctrl/⌘+B）"}
-            aria-label={sidebarCollapsed ? "展开侧栏" : "折叠侧栏"}
-            aria-expanded={!sidebarCollapsed}
-          >
-            {sidebarCollapsed ? "»" : "«"}
-          </button>
-        </div>
-
-        {sidebarCollapsed ? (
-          <div className="sidebar-rail-workspace">
-            <button
-              type="button"
-              className="ghost small sidebar-action"
-              onClick={handleOpenWorkspace}
-              disabled={busy}
-              title={`切换工作区：${snapshot.workspace.name}`}
-              aria-label="切换工作区"
-            >
-              <span className="sidebar-action-icon">⇄</span>
-            </button>
-          </div>
-        ) : (
-          <div className="workspace-box">
-            <div className="section-label">工作区</div>
-            <div className="workspace-name">{snapshot.workspace.name}</div>
-            <div className="muted mono tiny ellipsis">{snapshot.workspace.path}</div>
-            <button className="ghost small" onClick={handleOpenWorkspace} disabled={busy}>
-              切换工作区
-            </button>
-          </div>
-        )}
-
-        <PrimaryRail
-          activeKey={activeRailKey}
-          collapsed={sidebarCollapsed}
-          onOpen={openPrimaryPanel}
-        />
-
-        <div className="sidebar-actions">
-          {!sidebarCollapsed && <div className="section-label">操作</div>}
-          {(createMenuOpen || panelMenuOpen) && (
-            <div
-              className="menu-backdrop"
-              onClick={() => {
-                setCreateMenuOpen(false);
-                setPanelMenuOpen(false);
-              }}
-            />
-          )}
-          <button
-            type="button"
-            className="ghost small sidebar-action"
-            onClick={() => setPaletteOpen(true)}
-            title="全局搜索与命令面板（Ctrl/⌘+K）"
-          >
-            <span className="sidebar-action-icon">⌘</span>
-            <span className="sidebar-action-label">⌘K 搜索</span>
-          </button>
-          <div className="create-menu-wrap">
-            <button
-              type="button"
-              className="primary small sidebar-action"
-              onClick={() => {
-                setPanelMenuOpen(false);
-                setCreateMenuOpen((open) => !open);
-              }}
-              aria-expanded={createMenuOpen}
-              aria-haspopup="menu"
-              title="新建"
-            >
-              <span className="sidebar-action-icon">＋</span>
-              <span className="sidebar-action-label">＋ 新建 ▾</span>
-            </button>
-            {createMenuOpen && (
-              <div className="create-menu" role="menu" aria-label="新建">
-                {(Object.keys(CREATE_LABELS) as CreateIntent[]).map((intent) => (
-                  <button
-                    key={intent}
-                    type="button"
-                    role="menuitem"
-                    className="create-menu-item"
-                    onClick={() => startCreate(intent)}
-                  >
-                    {CREATE_LABELS[intent]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            className="ghost small sidebar-action"
-            onClick={() => void refresh(snapshot.workspace.id)}
-            title="刷新"
-          >
-            <span className="sidebar-action-icon">↻</span>
-            <span className="sidebar-action-label">刷新</span>
-          </button>
-          <div className="panel-menu-wrap">
-            <button
-              type="button"
-              className="ghost small sidebar-action"
-              onClick={togglePanelMenu}
-              aria-expanded={panelMenuOpen}
-              aria-haspopup="menu"
-              title="面板：打开或聚焦面板"
-            >
-              <span className="sidebar-action-icon">▦</span>
-              <span className="sidebar-action-label">面板</span>
-            </button>
-            {panelMenuOpen && (
-              <div className="panel-menu" role="menu" aria-label="面板">
-                <div className="panel-menu-head">
-                  <span>面板</span>
-                  <span className="muted tiny">点击打开 / 聚焦</span>
-                </div>
-                {PANEL_LAUNCHER_KEYS.map((key) => {
-                  const def = PANEL_DEFS[key];
-                  const isOpen = openPanelKeys.includes(key);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      role="menuitem"
-                      className={`panel-menu-item ${isOpen ? "is-open" : ""}`}
-                      onClick={() => {
-                        if (key === "planDraft" && !planSource) handlePlanDraftEntry();
-                        else openPanel(key);
-                      }}
-                    >
-                      <span className="panel-menu-title">{def.title}</span>
-                      <span className="panel-menu-state">
-                        {isOpen ? "已打开" : "打开"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            className="ghost small sidebar-action"
-            onClick={() => openPanel("settings")}
-            title="设置"
-          >
-            <span className="sidebar-action-icon">⚙</span>
-            <span className="sidebar-action-label">设置</span>
-          </button>
-          {!sidebarCollapsed && (
-            <div className="sidebar-actions-row">
-              <span className="topbar-live" aria-live="polite">
-                {busy && <span className="pill busy">运行中…</span>}
-              </span>
-            </div>
-          )}
-          {!sidebarCollapsed && failedCount > 0 && (
-            <button
-              type="button"
-              className="pill pill-failed sidebar-failed"
-              onClick={jumpToFailedTasks}
-              title="跳到任务页并过滤失败任务"
-            >
-              失败 {failedCount}
-            </button>
-          )}
-        </div>
-
-        {!sidebarCollapsed && (
-          <div className="sidebar-panel-hint">
-            <div className="section-label">导航提示</div>
-            <p className="muted tiny">
-              Dock 标签切换面板；拖动标签可拆分或合并分栏。
-            </p>
-            <p className="muted tiny">
-              <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 搜索与命令 ·{" "}
-              <kbd>Ctrl B</kbd> 折叠侧栏 · <kbd>Alt 1–6</kbd> 快速切换。
-            </p>
-            <p className="muted tiny">
-              设置已独立为弹窗：点击左侧 <kbd>⚙</kbd> 打开；关闭的面板可从{" "}
-              <kbd>▦</kbd> 面板按钮重新打开。
-            </p>
-          </div>
-        )}
-
-        {!sidebarCollapsed && (
-          <div className="sidebar-footer">
-            <div className="muted tiny">
-              {snapshot.settings.mock
-                ? "Mock 模式"
-                : snapshot.settings.providers[0]?.apiKeySource === "env"
-                  ? `Key: ${snapshot.settings.providers[0]?.apiKeyEnvActive ?? ""}`
-                  : snapshot.settings.providers[0]?.apiKeySource === "local"
-                    ? "Key: 本地保存"
-                    : "未配置 Key"}
-            </div>
-            <div className="muted tiny">{workers.length} 位成员</div>
-          </div>
-        )}
-      </aside>
-
-      <div
-        className="resizer"
-        role="separator"
-        aria-orientation="vertical"
-        title="拖动调整侧栏宽度，双击恢复默认"
-        onMouseDown={startResize}
-        onDoubleClick={resetSidebarWidth}
-      />
-
-      <main className="main">
-        <WorkflowRail
-          projection={workflowProjection}
-          needs={needsMe}
-          onStage={handleWorkflowStage}
-          onNeedsMe={handleNeedsMeItem}
-        />
-        {firstRunState.show ? (
-          <FirstRunCard
-            state={firstRunState}
-            collapsed={firstRunCollapsed}
-            onToggle={() => setFirstRunCollapsed((value) => !value)}
-            onAction={handleFirstRunAction}
-          />
-        ) : null}
-        {error && (
-          <ErrorRecoveryBar
-            message={formatError(error)}
-            retryAction={
-              errorRetry?.message === error
-                ? { label: errorRetry.label, run: errorRetry.run }
-                : undefined
-            }
-            onOpenSettings={() => openSettingsSection("models")}
-            onOpenModels={() => openSettingsSection("models")}
-            onRetry={handleRetryAfterError}
-            onClose={() => {
-              setError(null);
-              setErrorRetry(null);
-            }}
-          />
-        )}
-
-        {watchdogSnapshot && (
-          <div className="watchdog-topbar" role="region" aria-label="看门狗与预算">
-            <button
-              type="button"
-              className="ghost tiny watchdog-topbar-open"
-              onClick={() => openPanel("watchdog")}
-            >
-              看门狗
-            </button>
-            <BudgetBar
-              spentUsd={watchdogSnapshot.budgets.workspaceDay.spentUsd}
-              limitUsd={watchdogSnapshot.budgets.workspaceDay.limitUsd}
-              ratio={watchdogSnapshot.budgets.workspaceDay.ratio}
-              softRatio={watchdogSnapshot.budgets.softRatio}
-              label="今日预算"
-              onOpen={() => openPanel("watchdog")}
-            />
-            {watchdogSnapshot.alerts.some((alert) => alert.status === "open") && (
-              <span className="pill pill-warning">
-                告警 {watchdogSnapshot.alerts.filter((alert) => alert.status === "open").length}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* t50：VSCode 风格 Dock 布局——对话/团队双主面板，其余视图为可拖动面板 */}
-        <div className="dock-host" ref={dockHostRef}>
-          <DockShell
-            ref={dockRef}
-            workspaceId={snapshot.workspace.id}
-            dockWidth={dockWidth}
-            windowWidth={viewportWidth}
-            maxGroups={snapshot.settings.layout?.maxDockGroups ?? DEFAULT_MAX_DOCK_GROUPS}
-            initialPanelKey={bootPanel}
-            onActivePanelChange={handleDockActivePanel}
-            onPanelClose={(key) => {
-              if (key === "planDraft") handlePlanDraftPanelClosed();
-            }}
-            onNotify={(message) => pushToast({ kind: "success", message })}
-            renderPanel={(key) => {
+  const renderPanelContent = (key: PanelKey): ReactNode => {
               switch (key) {
                 case "planDraft":
                   return (
@@ -3434,8 +3136,406 @@ export default function App() {
                 default:
                   return null;
               }
+  };
+  panelRenderRef.current = renderPanelContent;
+
+  // R2：每个 panel 的 domain deps；引用未变则 PanelHost 不 render。
+  // 这里只列 panel 自身消费的 slice/selection，不把 App 的无关 state 混进来。
+  const panelDepsByKey: PanelDeps = {
+    planDraft: [
+      planDraft,
+      planSource,
+      planIssues,
+      planBusy,
+      planError,
+      planConfirming,
+      snapshot.agents,
+    ],
+    tasks: [
+      snapshot.tasks,
+      snapshot.agents,
+      snapshot.workspace,
+      selectedTask,
+      selectedTaskId,
+      trace,
+      busy,
+      taskStatusFilter,
+      createIntent,
+      scheduler,
+      schedulerLoading,
+      schedulerError,
+      taskRuns,
+      runsLoading,
+      runsError,
+      selectedRunId,
+      actionBusy,
+      actionError,
+      watchdogSnapshot?.alerts,
+      watchdogHandoffs,
+      taskWorkspaceSource,
+    ],
+    team: [
+      snapshot.tasks,
+      snapshot.agents,
+      snapshot.runs,
+      snapshot.workspace,
+      busy,
+      scheduler,
+      starmapFocus,
+      createIntent,
+    ],
+    runs: [
+      snapshot.tasks,
+      snapshot.runs,
+      snapshot.agents,
+      scheduler,
+      schedulerLoading,
+      schedulerError,
+      taskRuns,
+      runsLoading,
+      runsError,
+      trace,
+      selectedTaskId,
+      selectedRunId,
+      actionBusy,
+      taskWorkspaceSource,
+    ],
+    chat: [
+      chatMessages,
+      chatTurnsByAssistant,
+      chatTurnByUser,
+      questionsByKey,
+      questionsLoaded,
+      pendingQuestions,
+      chatBusy,
+      chatInput,
+      chatView,
+      chatTrajectory,
+      chatTrajectoryLoading,
+      contextTaskId,
+      contextSource,
+      chatContextBusy,
+      chatFullThrottle,
+      snapshot.agents,
+      snapshot.settings,
+      snapshot.workspace.overview,
+    ],
+    context: [context, contextTaskId],
+    mailbox: [snapshot.messages, busy, selectedMessageId, createIntent],
+    board: [snapshot.boardEntries, snapshot.agents, selectedBoard, createIntent],
+    polls: [snapshot.workspace.id, snapshot.agents, pollIntent],
+    watchdog: [watchdogSnapshot, watchdogCosts, selectedTaskId],
+    settings: [snapshot.settings],
+  };
+
+  return (
+    <div className="app">
+      <ChatLiveBridge
+        store={chatLiveStore}
+        workspaceId={snapshot.workspace.id}
+        onSettled={handleChatLiveSettled}
+      />
+      <aside
+        className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}
+        style={sidebarCollapsed ? undefined : { width: `${effectiveSidebarWidth}px` }}
+      >
+        <div className="brand">
+          <div className="brand-mark small">DG</div>
+          {!sidebarCollapsed && (
+            <div className="brand-text">
+              <div className="brand-name">DeerSuperGroup</div>
+              <div className="muted tiny">AI team workspace</div>
+            </div>
+          )}
+          <button
+            type="button"
+            className="ghost tiny sidebar-toggle"
+            onClick={toggleSidebarCollapsed}
+            title={sidebarCollapsed ? "展开侧栏（Ctrl/⌘+B）" : "折叠侧栏（Ctrl/⌘+B）"}
+            aria-label={sidebarCollapsed ? "展开侧栏" : "折叠侧栏"}
+            aria-expanded={!sidebarCollapsed}
+          >
+            {sidebarCollapsed ? "»" : "«"}
+          </button>
+        </div>
+
+        {sidebarCollapsed ? (
+          <div className="sidebar-rail-workspace">
+            <button
+              type="button"
+              className="ghost small sidebar-action"
+              onClick={handleOpenWorkspace}
+              disabled={busy}
+              title={`切换工作区：${snapshot.workspace.name}`}
+              aria-label="切换工作区"
+            >
+              <span className="sidebar-action-icon">⇄</span>
+            </button>
+          </div>
+        ) : (
+          <div className="workspace-box">
+            <div className="section-label">工作区</div>
+            <div className="workspace-name">{snapshot.workspace.name}</div>
+            <div className="muted mono tiny ellipsis">{snapshot.workspace.path}</div>
+            <button className="ghost small" onClick={handleOpenWorkspace} disabled={busy}>
+              切换工作区
+            </button>
+          </div>
+        )}
+
+        <PrimaryRail
+          activeKey={activeRailKey}
+          collapsed={sidebarCollapsed}
+          onOpen={openPrimaryPanel}
+        />
+
+        <div className="sidebar-actions">
+          {!sidebarCollapsed && <div className="section-label">操作</div>}
+          {(createMenuOpen || panelMenuOpen) && (
+            <div
+              className="menu-backdrop"
+              onClick={() => {
+                setCreateMenuOpen(false);
+                setPanelMenuOpen(false);
+              }}
+            />
+          )}
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={() => setPaletteOpen(true)}
+            title="全局搜索与命令面板（Ctrl/⌘+K）"
+          >
+            <span className="sidebar-action-icon">⌘</span>
+            <span className="sidebar-action-label">⌘K 搜索</span>
+          </button>
+          <div className="create-menu-wrap">
+            <button
+              type="button"
+              className="primary small sidebar-action"
+              onClick={() => {
+                setPanelMenuOpen(false);
+                setCreateMenuOpen((open) => !open);
+              }}
+              aria-expanded={createMenuOpen}
+              aria-haspopup="menu"
+              title="新建"
+            >
+              <span className="sidebar-action-icon">＋</span>
+              <span className="sidebar-action-label">＋ 新建 ▾</span>
+            </button>
+            {createMenuOpen && (
+              <div className="create-menu" role="menu" aria-label="新建">
+                {(Object.keys(CREATE_LABELS) as CreateIntent[]).map((intent) => (
+                  <button
+                    key={intent}
+                    type="button"
+                    role="menuitem"
+                    className="create-menu-item"
+                    onClick={() => startCreate(intent)}
+                  >
+                    {CREATE_LABELS[intent]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={() => void refresh(snapshot.workspace.id)}
+            title="刷新"
+          >
+            <span className="sidebar-action-icon">↻</span>
+            <span className="sidebar-action-label">刷新</span>
+          </button>
+          <div className="panel-menu-wrap">
+            <button
+              type="button"
+              className="ghost small sidebar-action"
+              onClick={togglePanelMenu}
+              aria-expanded={panelMenuOpen}
+              aria-haspopup="menu"
+              title="面板：打开或聚焦面板"
+            >
+              <span className="sidebar-action-icon">▦</span>
+              <span className="sidebar-action-label">面板</span>
+            </button>
+            {panelMenuOpen && (
+              <div className="panel-menu" role="menu" aria-label="面板">
+                <div className="panel-menu-head">
+                  <span>面板</span>
+                  <span className="muted tiny">点击打开 / 聚焦</span>
+                </div>
+                {PANEL_LAUNCHER_KEYS.map((key) => {
+                  const def = PANEL_DEFS[key];
+                  const isOpen = openPanelKeys.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      role="menuitem"
+                      className={`panel-menu-item ${isOpen ? "is-open" : ""}`}
+                      onClick={() => {
+                        if (key === "planDraft" && !planSource) handlePlanDraftEntry();
+                        else openPanel(key);
+                      }}
+                    >
+                      <span className="panel-menu-title">{def.title}</span>
+                      <span className="panel-menu-state">
+                        {isOpen ? "已打开" : "打开"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="ghost small sidebar-action"
+            onClick={() => openPanel("settings")}
+            title="设置"
+          >
+            <span className="sidebar-action-icon">⚙</span>
+            <span className="sidebar-action-label">设置</span>
+          </button>
+          {!sidebarCollapsed && (
+            <div className="sidebar-actions-row">
+              <span className="topbar-live" aria-live="polite">
+                {busy && <span className="pill busy">运行中…</span>}
+              </span>
+            </div>
+          )}
+          {!sidebarCollapsed && failedCount > 0 && (
+            <button
+              type="button"
+              className="pill pill-failed sidebar-failed"
+              onClick={jumpToFailedTasks}
+              title="跳到任务页并过滤失败任务"
+            >
+              失败 {failedCount}
+            </button>
+          )}
+        </div>
+
+        {!sidebarCollapsed && (
+          <div className="sidebar-panel-hint">
+            <div className="section-label">导航提示</div>
+            <p className="muted tiny">
+              Dock 标签切换面板；拖动标签可拆分或合并分栏。
+            </p>
+            <p className="muted tiny">
+              <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> 搜索与命令 ·{" "}
+              <kbd>Ctrl B</kbd> 折叠侧栏 · <kbd>Alt 1–6</kbd> 快速切换。
+            </p>
+            <p className="muted tiny">
+              设置已独立为弹窗：点击左侧 <kbd>⚙</kbd> 打开；关闭的面板可从{" "}
+              <kbd>▦</kbd> 面板按钮重新打开。
+            </p>
+          </div>
+        )}
+
+        {!sidebarCollapsed && (
+          <div className="sidebar-footer">
+            <div className="muted tiny">
+              {snapshot.settings.mock
+                ? "Mock 模式"
+                : snapshot.settings.providers[0]?.apiKeySource === "env"
+                  ? `Key: ${snapshot.settings.providers[0]?.apiKeyEnvActive ?? ""}`
+                  : snapshot.settings.providers[0]?.apiKeySource === "local"
+                    ? "Key: 本地保存"
+                    : "未配置 Key"}
+            </div>
+            <div className="muted tiny">{workers.length} 位成员</div>
+          </div>
+        )}
+      </aside>
+
+      <div
+        className="resizer"
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整侧栏宽度，双击恢复默认"
+        onMouseDown={startResize}
+        onDoubleClick={resetSidebarWidth}
+      />
+
+      <main className="main">
+        <WorkflowRail
+          projection={workflowProjection}
+          needs={needsMe}
+          onStage={handleWorkflowStage}
+          onNeedsMe={handleNeedsMeItem}
+        />
+        {firstRunState.show ? (
+          <FirstRunCard
+            state={firstRunState}
+            collapsed={firstRunCollapsed}
+            onToggle={() => setFirstRunCollapsed((value) => !value)}
+            onAction={handleFirstRunAction}
+          />
+        ) : null}
+        {error && (
+          <ErrorRecoveryBar
+            message={formatError(error)}
+            retryAction={
+              errorRetry?.message === error
+                ? { label: errorRetry.label, run: errorRetry.run }
+                : undefined
+            }
+            onOpenSettings={() => openSettingsSection("models")}
+            onOpenModels={() => openSettingsSection("models")}
+            onRetry={handleRetryAfterError}
+            onClose={() => {
+              setError(null);
+              setErrorRetry(null);
             }}
           />
+        )}
+
+        {watchdogSnapshot && (
+          <div className="watchdog-topbar" role="region" aria-label="看门狗与预算">
+            <button
+              type="button"
+              className="ghost tiny watchdog-topbar-open"
+              onClick={() => openPanel("watchdog")}
+            >
+              看门狗
+            </button>
+            <BudgetBar
+              spentUsd={watchdogSnapshot.budgets.workspaceDay.spentUsd}
+              limitUsd={watchdogSnapshot.budgets.workspaceDay.limitUsd}
+              ratio={watchdogSnapshot.budgets.workspaceDay.ratio}
+              softRatio={watchdogSnapshot.budgets.softRatio}
+              label="今日预算"
+              onOpen={() => openPanel("watchdog")}
+            />
+            {watchdogSnapshot.alerts.some((alert) => alert.status === "open") && (
+              <span className="pill pill-warning">
+                告警 {watchdogSnapshot.alerts.filter((alert) => alert.status === "open").length}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* t50：VSCode 风格 Dock 布局——对话/团队双主面板，其余视图为可拖动面板 */}
+        <div className="dock-host" ref={dockHostRef}>
+          <PanelHostProvider renderRef={panelRenderRef} depsByKey={panelDepsByKey}>
+            <DockShell
+              ref={dockRef}
+              workspaceId={snapshot.workspace.id}
+              dockWidth={dockWidth}
+              windowWidth={viewportWidth}
+              maxGroups={snapshot.settings.layout?.maxDockGroups ?? DEFAULT_MAX_DOCK_GROUPS}
+              initialPanelKey={bootPanel}
+              onActivePanelChange={handleDockActivePanel}
+              onPanelClose={(key) => {
+                if (key === "planDraft") handlePlanDraftPanelClosed();
+              }}
+              onNotify={(message) => pushToast({ kind: "success", message })}
+            />
+          </PanelHostProvider>
         </div>
       </main>
 
