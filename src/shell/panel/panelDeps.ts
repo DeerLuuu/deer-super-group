@@ -9,6 +9,7 @@ import type { PanelDeps } from "./PanelHost";
  */
 export type PanelDepsInput = {
   agents?: unknown;
+  chatRouter?: unknown;
   tasks?: unknown;
   workspace?: unknown;
   workspaceId?: unknown;
@@ -145,7 +146,7 @@ export function buildPanelDeps(input: PanelDepsInput): PanelDeps {
       input.contextSource,
       input.chatContextBusy,
       input.chatFullThrottle,
-      input.agents,
+      input.chatRouter,
       input.settings,
       input.workspaceOverview,
     ],

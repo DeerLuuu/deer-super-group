@@ -17,6 +17,7 @@ const mounted: PanelKey[] = ["chat", "tasks", "team", "mailbox", "context", "wat
 function fixture(overrides: Partial<PanelDepsInput> = {}): PanelDepsInput {
   return {
     agents: [{ id: "a1", name: "Alice" }],
+    chatRouter: { id: "router", name: "Router", isRouter: true },
     tasks: [],
     workspace: { id: "w1", name: "Workspace" },
     workspaceId: "w1",
@@ -141,7 +142,7 @@ describe("t265 R2 PanelHost + t270 real panelDepsByKey", () => {
     });
 
     // t270 F1：成员变化（agents 新引用）必须 bump mailbox。
-    // chat/tasks/team 也消费 agents，属于合理更新；context/watchdog 不得误触发。
+    // tasks/team 消费 agents，属于合理更新；chat 只消费 router，context/watchdog 不得误触发。
     const agentsNext = [
       { id: "a1", name: "Alice" },
       { id: "a2", name: "Bob" },
@@ -150,7 +151,7 @@ describe("t265 R2 PanelHost + t270 real panelDepsByKey", () => {
       renderer.update(mountedTree(renderRef, { ...base, agents: agentsNext }));
     });
     expect(counts).toEqual({
-      chat: 2,
+      chat: 1,
       tasks: 2,
       team: 2,
       mailbox: 3,

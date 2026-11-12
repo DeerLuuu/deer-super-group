@@ -3143,6 +3143,7 @@ export default function App() {
   // 这里只列 panel 自身消费的 slice/selection，不把 App 的无关 state 混进来。
   const panelDepsByKey = buildPanelDeps({
     agents: snapshot.agents,
+    chatRouter: snapshot.agents.find((agent) => agent.isRouter) ?? null,
     tasks: snapshot.tasks,
     workspace: snapshot.workspace,
     workspaceId: snapshot.workspace.id,
