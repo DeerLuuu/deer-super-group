@@ -6,13 +6,14 @@ import type { GitSettings, MergeQueueItem, TaskVcsSnapshot } from "../types.js";
 export interface TaskVcsPanelProps {
   taskId: string;
   onClose?: () => void;
+  onOpenGraph?: () => void;
 }
 
 /**
  * Task-details VCS panel. Rendered in the task drawer by the integration layer;
  * keeps all network/IPC access behind window.deer and never receives tokens.
  */
-export function TaskVcsPanel({ taskId, onClose }: TaskVcsPanelProps) {
+export function TaskVcsPanel({ taskId, onClose, onOpenGraph }: TaskVcsPanelProps) {
   const [snapshot, setSnapshot] = useState<TaskVcsSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -95,6 +96,11 @@ export function TaskVcsPanel({ taskId, onClose }: TaskVcsPanelProps) {
         <button type="button" disabled={busy || !vcs?.branch} onClick={() => void act(() => window.deer.gitCleanup(taskId))}>
           清理工作树
         </button>
+        {onOpenGraph ? (
+          <button type="button" className="ghost" onClick={onOpenGraph}>
+            在版本图中查看
+          </button>
+        ) : null}
       </div>
     </section>
   );

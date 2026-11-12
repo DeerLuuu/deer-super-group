@@ -47,12 +47,22 @@ import type {
 } from "./planDraft.js";
 import type {
   GitSettings,
+  GitResult,
   MergeQueueItem,
   MergeQueueSnapshot,
   RepoDiagnostics,
   TaskVcs,
   TaskVcsSnapshot,
 } from "../git/types.js";
+import type {
+  GitCommitDetail,
+  GitDiffParams,
+  GitDiffPage,
+  GitGraphPage,
+  GitReadRepo,
+  GitRefsSnapshot,
+  GitWorkingStatus,
+} from "../git/readTypes.js";
 import type {
   ReviewConfig,
   ReviewConfigPatch,
@@ -185,6 +195,13 @@ export interface DeerApi {
   mergeStart(taskId: string): Promise<MergeQueueItem>;
   mergeProcess(workspaceId: string): Promise<MergeQueueItem>;
   gitRecover(workspaceId: string): Promise<number>;
+  // t301：只读版本图
+  gitRepo(workspaceId: string): Promise<GitResult<GitReadRepo>>;
+  gitGraph(workspaceId: string, params: { limit?: number; offset?: number; ref?: string }): Promise<GitResult<GitGraphPage>>;
+  gitRefs(workspaceId: string, limit?: number): Promise<GitResult<GitRefsSnapshot>>;
+  gitStatus(workspaceId: string): Promise<GitResult<GitWorkingStatus>>;
+  gitCommit(workspaceId: string, sha: string): Promise<GitResult<GitCommitDetail>>;
+  gitDiff(workspaceId: string, params: GitDiffParams): Promise<GitResult<GitDiffPage>>;
   // t154：行级评审与合并门禁
   getReviewSummary(taskId: string): Promise<ReviewSummary>;
   getReviewDiff(input: { taskId: string; file?: string; offset?: number; limit?: number }): Promise<ReviewDiffPage>;

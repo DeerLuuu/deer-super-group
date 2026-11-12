@@ -132,6 +132,13 @@ const api: DeerApi = {
   mergeStart: (taskId: string) => ipcRenderer.invoke("git:merge-start", taskId),
   mergeProcess: (workspaceId: string) => ipcRenderer.invoke("git:merge-process", workspaceId),
   gitRecover: (workspaceId: string) => ipcRenderer.invoke("git:recover", workspaceId),
+  // t301：只读版本图
+  gitRepo: (workspaceId: string) => ipcRenderer.invoke("git:repo", workspaceId),
+  gitGraph: (workspaceId: string, params?: unknown) => ipcRenderer.invoke("git:graph", workspaceId, params),
+  gitRefs: (workspaceId: string, limit?: number) => ipcRenderer.invoke("git:refs", workspaceId, limit),
+  gitStatus: (workspaceId: string) => ipcRenderer.invoke("git:status", workspaceId),
+  gitCommit: (workspaceId: string, sha: string) => ipcRenderer.invoke("git:commit", workspaceId, sha),
+  gitDiff: (workspaceId: string, params: unknown) => ipcRenderer.invoke("git:diff", workspaceId, params),
   // t154：行级评审
   getReviewSummary: (taskId: string) => ipcRenderer.invoke("review:summary", taskId),
   getReviewDiff: (input: { taskId: string; file?: string; offset?: number; limit?: number }) =>

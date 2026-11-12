@@ -1,0 +1,134 @@
+.git-graph-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: 10px 12px;
+  gap: 8px;
+}
+.git-graph-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.git-graph-top h3 { margin: 0; }
+.git-graph-top-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.git-graph-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--danger, #b42318);
+  color: var(--danger, #b42318);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+.git-graph-loading { margin: 0; }
+.git-graph-tabs { display: none; gap: 4px; }
+.git-graph-body {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(320px, 1fr) minmax(300px, 0.9fr);
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+.git-graph-body:not(.with-refs) { grid-template-columns: 0 minmax(320px, 1.2fr) minmax(300px, 1fr); }
+.git-graph-body:not(.with-refs) .git-graph-refs { display: none; }
+.git-graph-refs,
+.git-graph-center,
+.git-graph-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border, #d9dde3);
+  border-radius: 6px;
+  padding: 6px;
+}
+.git-graph-filter { display: block; margin-bottom: 4px; }
+.git-graph-filter input { width: 100%; box-sizing: border-box; }
+.git-ref-row,
+.git-commit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 5px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.git-ref-row:hover,
+.git-commit-row:hover,
+.git-ref-row.active,
+.git-commit-row.selected { background: var(--hover, rgba(0, 0, 0, 0.06)); }
+.git-ref-kind { font-size: 9px; letter-spacing: 0.04em; color: var(--muted); min-width: 42px; }
+.git-worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.git-graph-list-wrap { position: relative; min-height: 200px; overflow: auto; }
+.git-graph-svg { position: absolute; left: 0; top: 0; pointer-events: none; }
+.git-edge { stroke: currentColor; stroke-width: 1.5; opacity: 0.45; }
+.git-node { fill: currentColor; stroke: var(--bg, #fff); stroke-width: 1; }
+.git-node.selected { r: 5; stroke-width: 2; }
+.git-graph-rows { position: relative; display: flex; flex-direction: column; }
+.git-commit-row { min-height: 30px; }
+.git-sha { flex: 0 0 auto; }
+.git-subject { flex: 1 1 auto; min-width: 80px; }
+.git-graph-more { margin-top: 6px; }
+.git-graph-detail h2 { font-size: 14px; margin: 0 0 4px; }
+.git-detail-meta { display: flex; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+.git-detail-files,
+.git-status-files { list-style: none; margin: 0 0 8px; padding: 0; }
+.git-detail-files li,
+.git-status-files li { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.git-status-files button { display: flex; gap: 6px; min-width: 0; text-align: left; }
+.git-graph-detail h3 { font-size: 13px; margin: 10px 0 4px; }
+.git-graph-detail h4 { font-size: 12px; margin: 8px 0 3px; }
+.git-diff { max-height: 40vh; overflow: auto; }
+.git-hunk {
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--code-bg, rgba(0, 0, 0, 0.04));
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+}
+.git-graph-footer { display: flex; justify-content: flex-end; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 960px) {
+  .git-graph-body { grid-template-columns: minmax(160px, 190px) minmax(280px, 1fr); }
+  .git-graph-detail { grid-column: 1 / -1; max-height: 42vh; }
+  .git-graph-body:not(.with-refs) { grid-template-columns: minmax(280px, 1fr); }
+}
+@media (max-width: 720px) {
+  .git-graph-tabs { display: flex; }
+  .git-graph-body { grid-template-columns: minmax(0, 1fr); }
+  .git-graph-body.with-refs .git-graph-refs { display: none; }
+  .git-graph-body.view-graph .git-graph-detail { display: none; }
+  .git-graph-body.view-detail .git-graph-center,
+  .git-graph-body.view-detail .git-graph-refs { display: none; }
+  .git-graph-body.view-workspace .git-graph-center,
+  .git-graph-body.view-workspace .git-graph-refs { display: none; }
+  .git-graph-body .git-graph-detail { grid-column: auto; max-height: none; }
+  .git-graph-panel { padding: 6px; }
+}

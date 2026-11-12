@@ -35,7 +35,20 @@ export type GitErrorCode =
   | "MERGE_UNKNOWN_STATE"
   | "MERGE_LOCKED"
   | "MERGE_CANCELLED"
-  | "MERGE_LIMIT";
+  | "MERGE_LIMIT"
+  | "GIT_READ_NOT_REPO"
+  | "GIT_READ_NOT_ROOT"
+  | "GIT_READ_NO_COMMITS"
+  | "GIT_READ_BAD_PARAM"
+  | "GIT_READ_BAD_REF"
+  | "GIT_READ_BAD_PATH"
+  | "GIT_REF_NOT_FOUND"
+  | "GIT_READ_TIMEOUT"
+  | "GIT_READ_TOO_LARGE"
+  | "GIT_READ_DIFF_BINARY"
+  | "GIT_READ_DIFF_SUBMODULE"
+  | "GIT_READ_DEGRADED"
+  | "GIT_READ_INTERNAL";
 
 export interface GitResult<T> {
   ok: boolean;

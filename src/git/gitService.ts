@@ -14,6 +14,8 @@ import { commitAll, pushBranch, revParse } from "./branchOps.js";
 import { pickProvider, compareUrl } from "./providers.js";
 import { emitGitEvent } from "./events.js";
 import { RepoLock } from "./gitExec.js";
+import { GitReadService } from "./readService.js";
+import type { GitCommitDetail, GitDiffParams, GitGraphPage, GitReadRepo, GitWorkingStatus, GitDiffPage, GitRefsSnapshot } from "./readTypes.js";
 
 export interface GitServiceOptions {
   dataDir: string;
@@ -706,6 +708,61 @@ export class GitService {
 
   getSettings(workspaceId: string): GitSettings {
     return this.gitStore.getConfig(workspaceId);
+  }
+
+  private async readContext(
+    workspaceId: string,
+  ): Promise<{ ok: true; reader: GitReadService } | { ok: false; result: import("./types.js").GitResult<never> }> {
+    const repo = await this.repoFor(workspaceId);
+    if (!repo.ok || !repo.root) {
+      const code = repo.errorCode === "GIT_NOT_ROOT" ? "GIT_READ_NOT_ROOT" : "GIT_READ_NOT_REPO";
+      return { ok: false, result: { ok: false, errorCode: code, message: repo.reason ?? "not a git repository", retryable: false } };
+    }
+    ensureHooksDir(repo);
+    const hooks = runtimeHooksPath(repo);
+    if (!hooks) {
+      return { ok: false, result: { ok: false, errorCode: "GIT_READ_DEGRADED", message: "git runtime unavailable", retryable: true } };
+    }
+    return { ok: true, reader: new GitReadService(repo as RepoInfo & { root: string }, new GitExec(hooks)) };
+  }
+
+  async readRepo(workspaceId: string): Promise<import("./types.js").GitResult<GitReadRepo>> {
+    const context = await this.readContext(workspaceId);
+    if (!context.ok) return context.result as import("./types.js").GitResult<GitReadRepo>;
+    const value = await context.reader.repoInfo();
+    return value.ok && value.value ? { ok: true, value: { ...value.value, workspaceId } } : value;
+  }
+
+  async readGraph(workspaceId: string, params: { limit: number; offset: number; ref?: string }): Promise<import("./types.js").GitResult<GitGraphPage>> {
+    const context = await this.readContext(workspaceId);
+    if (!context.ok) return context.result as import("./types.js").GitResult<GitGraphPage>;
+    const value = await context.reader.graph(params);
+    if (value.ok && value.value) value.value.repo.workspaceId = workspaceId;
+    return value;
+  }
+
+  async readRefs(workspaceId: string, limit = 200): Promise<import("./types.js").GitResult<GitRefsSnapshot>> {
+    const context = await this.readContext(workspaceId);
+    if (!context.ok) return context.result as import("./types.js").GitResult<GitRefsSnapshot>;
+    return context.reader.refs(limit);
+  }
+
+  async readStatus(workspaceId: string): Promise<import("./types.js").GitResult<GitWorkingStatus>> {
+    const context = await this.readContext(workspaceId);
+    if (!context.ok) return context.result as import("./types.js").GitResult<GitWorkingStatus>;
+    return context.reader.status();
+  }
+
+  async readCommit(workspaceId: string, sha: string): Promise<import("./types.js").GitResult<GitCommitDetail>> {
+    const context = await this.readContext(workspaceId);
+    if (!context.ok) return context.result as import("./types.js").GitResult<GitCommitDetail>;
+    return context.reader.commit(sha);
+  }
+
+  async readDiff(workspaceId: string, params: GitDiffParams): Promise<import("./types.js").GitResult<GitDiffPage>> {
+    const context = await this.readContext(workspaceId);
+    if (!context.ok) return context.result as import("./types.js").GitResult<GitDiffPage>;
+    return context.reader.diff(params);
   }
 
   saveSettings(workspaceId: string, patch: Partial<GitSettings>): GitSettings {

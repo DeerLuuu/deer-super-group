@@ -23,7 +23,8 @@ export type PanelKey =
   | "polls"
   | "watchdog"
   | "settings"
-  | "planDraft";
+  | "planDraft"
+  | "gitGraph";
 
 export type PanelDef = {
   key: PanelKey;
@@ -169,6 +170,18 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     minHeight: 400,
     closable: false, // §7.4：设置本地草稿保护，v1 不可关闭
     defaultGroup: "main",
+  },
+  gitGraph: {
+    key: "gitGraph",
+    title: "版本图",
+    component: "gitGraph",
+    routeTab: null,
+    renderer: "onlyWhenVisible",
+    minWidth: 360,
+    minHeight: 300,
+    closable: true,
+    defaultGroup: "main",
+    defaultClosed: true,
   },
 };
 

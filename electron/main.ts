@@ -16,7 +16,14 @@ import type {
   PostBoardInput,
   SendMessageInput,
 } from "../src/shared/types.js";
-import type { GitSettings } from "../src/git/types.js";
+import type { GitSettings, GitResult } from "../src/git/types.js";
+import {
+  gitCommitParamsSchema,
+  gitDiffParamsSchema,
+  gitGraphParamsSchema,
+  gitRefsParamsSchema,
+  gitWorkspaceIdSchema,
+} from "../src/git/readTypes.js";
 import type { SetBudgetInput, SetFallbackChainInput, WatchdogHoldReason } from "../src/shared/watchdog.js";
 import type {
   CreateMemoryBoardInput,
@@ -30,6 +37,10 @@ import type { ReviewConfigPatch, ReviewDecision, ReviewSeverity } from "../src/r
 let win: BrowserWindow | null = null;
 let service: AppService | null = null;
 let reviewService: ReviewService | null = null;
+
+function readBadParam(): GitResult<never> {
+  return { ok: false, errorCode: "GIT_READ_BAD_PARAM", message: "invalid git read params", retryable: false };
+}
 
 function getService(): AppService {
   if (!service) {
@@ -320,6 +331,41 @@ app.whenReady().then(() => {
     return getService().git.processQueue(workspaceId);
   });
   handle("git:recover", (workspaceId: string) => getService().git.recover(workspaceId));
+  // t301：只读版本图；参数先经 zod strict 校验
+  handle("git:repo", (workspaceId: string) => {
+    const parsed = gitWorkspaceIdSchema.safeParse(workspaceId);
+    if (!parsed.success) return readBadParam();
+    return getService().git.readRepo(parsed.data);
+  });
+  handle("git:graph", (workspaceId: string, params?: unknown) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    const body = gitGraphParamsSchema.safeParse(params ?? {});
+    if (!ws.success || !body.success) return readBadParam();
+    return getService().git.readGraph(ws.data, body.data);
+  });
+  handle("git:refs", (workspaceId: string, limit?: unknown) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    const body = gitRefsParamsSchema.safeParse({ limit: typeof limit === "number" ? limit : 200 });
+    if (!ws.success || !body.success) return readBadParam();
+    return getService().git.readRefs(ws.data, body.data.limit);
+  });
+  handle("git:status", (workspaceId: string) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    if (!ws.success) return readBadParam();
+    return getService().git.readStatus(ws.data);
+  });
+  handle("git:commit", (workspaceId: string, sha: string) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    const body = gitCommitParamsSchema.safeParse({ sha });
+    if (!ws.success || !body.success) return readBadParam();
+    return getService().git.readCommit(ws.data, body.data.sha);
+  });
+  handle("git:diff", (workspaceId: string, params?: unknown) => {
+    const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
+    const body = gitDiffParamsSchema.safeParse(params);
+    if (!ws.success || !body.success) return readBadParam();
+    return getService().git.readDiff(ws.data, body.data);
+  });
   // t154：行级评审
   handle("review:summary", (taskId: string) => getReview().getSummary(taskId));
   handle("review:diff", (input: { taskId: string; file?: string; offset?: number; limit?: number }) =>
