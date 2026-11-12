@@ -686,7 +686,8 @@ describe("GitGraphPanel", () => {
       expect(json).toContain("git-ws-sections");
       expect(json).toContain("git-ws-resizer");
       const root = renderer!.root;
-      const separator = root.findByProps({ role: "separator" });
+      // t432：面板现有两个 role=separator（暂存区分隔 + 历史/工作区分隔），旧断言改按 testid 定位。
+      const separator = root.findByProps({ "data-testid": "git-ws-resizer" });
       expect(separator.props["aria-valuenow"]).toBe(38);
       const sections = root.findByProps({ className: "git-ws-sections" });
       expect(sections).toBeTruthy();
@@ -700,43 +701,43 @@ describe("GitGraphPanel", () => {
         });
         await Promise.resolve();
       });
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(43);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(43);
       await act(async () => {
-        (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+        (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
           key: "Home",
           preventDefault() {},
         });
         await Promise.resolve();
       });
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(38);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(38);
       for (let index = 0; index < 20; index += 1) {
         await act(async () => {
-          (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+          (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
             key: "ArrowDown",
             preventDefault() {},
           });
           await Promise.resolve();
         });
       }
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(80);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(80);
       for (let index = 0; index < 20; index += 1) {
         await act(async () => {
-          (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+          (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
             key: "ArrowUp",
             preventDefault() {},
           });
           await Promise.resolve();
         });
       }
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(20);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(20);
       await act(async () => {
-        (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+        (root.findByProps({ "data-testid": "git-ws-resizer" }).props.onKeyDown as (event: unknown) => void)({
           key: "Home",
           preventDefault() {},
         });
         await Promise.resolve();
       });
-      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(38);
+      expect(root.findByProps({ "data-testid": "git-ws-resizer" }).props["aria-valuenow"]).toBe(38);
       expect(
         root
           .findAllByProps({ role: "tab" })

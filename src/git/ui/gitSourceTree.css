@@ -63,14 +63,47 @@
 .git-st-layout {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  grid-template-rows: minmax(220px, 1fr) 30px 300px;
+  /* t432（G9）：工作区高度由 --git-workspace-h 驱动（默认 300px），分隔条 6px。 */
+  grid-template-rows: minmax(180px, 1fr) 30px 6px var(--git-workspace-h, 300px);
   grid-template-areas:
     "nav history"
     "nav filter"
+    "nav splitter"
     "nav workspace";
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+
+/* t432（G9）：历史/工作区水平分隔条（可拖拽 + 键盘）。 */
+.git-st-splitter {
+  grid-area: splitter;
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: row-resize;
+}
+
+.git-st-splitter::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 2px;
+  background: var(--border);
+  transition: background 0.12s ease;
+}
+
+.git-st-splitter:hover::after,
+.git-st-splitter:focus-visible::after {
+  background: var(--accent);
+}
+
+.git-st-splitter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .git-st-nav {
@@ -383,6 +416,7 @@
   .git-st-nav,
   .git-st-filter,
   .git-st-history,
+  .git-st-splitter,
   .git-st-workspace {
     display: none;
   }
@@ -486,7 +520,8 @@
       "nav workspace";
   }
 
-  .git-st-history {
+  .git-st-history,
+  .git-st-splitter {
     display: none;
   }
 

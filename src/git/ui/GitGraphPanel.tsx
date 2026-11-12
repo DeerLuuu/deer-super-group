@@ -25,6 +25,18 @@ import type { GitResult } from "../types.js";
 import type { GitInitProbe } from "../initTypes.js";
 import { GitInitModal } from "./GitInitModal.js";
 import Modal from "../../Modal.js";
+import {
+  GIT_WS_DEFAULT,
+  GIT_WS_MIN,
+  clampWorkspaceHeight,
+  loadWorkspaceHeight,
+  maxWorkspaceHeight,
+  saveWorkspaceHeight,
+  splitterUsable,
+  workspaceHeightAfterKey,
+  workspaceHeightFromPointer,
+  workspaceHeightStyle,
+} from "./gitWorkspaceSplit.js";
 
 type Api = NonNullable<Window["deer"]>;
 
@@ -112,6 +124,77 @@ export default function GitGraphPanel({
     workspace: null,
   });
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  // t432（G9）：历史/工作区水平分隔条——工作区高度状态 + 容器高度观察（resize 时重新 clamp）。
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [workspaceHeight, setWorkspaceHeight] = useState(() =>
+    loadWorkspaceHeight(workspaceId),
+  );
+
+  useEffect(() => {
+    const element = layoutRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      setContainerHeight(element.getBoundingClientRect().height);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // 容器高度变化（窗口/面板 resize）→ 重新 clamp 当前高度。
+  useEffect(() => {
+    if (!splitterUsable(containerHeight)) return;
+    setWorkspaceHeight((prev) => {
+      const next = clampWorkspaceHeight(prev, containerHeight);
+      return next === prev ? prev : next;
+    });
+  }, [containerHeight]);
+
+  function commitWorkspaceHeight(next: number) {
+    const clamped = clampWorkspaceHeight(next, containerHeight);
+    setWorkspaceHeight(clamped);
+    saveWorkspaceHeight(workspaceId, clamped);
+  }
+
+  function onSplitterPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const element = event.currentTarget;
+    element.setPointerCapture(event.pointerId);
+    const container = layoutRef.current;
+    if (!container) return;
+    const move = (moveEvent: PointerEvent) => {
+      const rect = container.getBoundingClientRect();
+      commitWorkspaceHeight(workspaceHeightFromPointer(rect.height, moveEvent.clientY - rect.top));
+    };
+    const up = () => {
+      element.removeEventListener("pointermove", move);
+      element.removeEventListener("pointerup", up);
+    };
+    element.addEventListener("pointermove", move);
+    element.addEventListener("pointerup", up);
+  }
+
+  function onSplitterKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const keyMap = {
+      ArrowUp: true,
+      ArrowDown: true,
+      Home: true,
+      End: true,
+    } as const;
+    if (!(event.key in keyMap)) return;
+    event.preventDefault();
+    if (event.key === "Home" || event.key === "End" || event.key === "ArrowUp" || event.key === "ArrowDown") {
+      commitWorkspaceHeight(
+        workspaceHeightAfterKey(
+          workspaceHeight,
+          event.key as "ArrowUp" | "ArrowDown" | "Home" | "End",
+          containerHeight,
+        ),
+      );
+    }
+  }
 
   const loadCommit = useCallback(
     async (sha: string) => {
@@ -599,7 +682,11 @@ export default function GitGraphPanel({
       ) : null}
       {loading && !graph ? <p className="git-graph-loading" role="status">加载版本图…</p> : null}
 
-      <div className={`git-st-layout ${navOpen ? "nav-open" : ""} ${showLanes ? "" : "table-only"}`}>
+      <div
+        ref={layoutRef}
+        className={`git-st-layout ${navOpen ? "nav-open" : ""} ${showLanes ? "" : "table-only"}`}
+        style={workspaceHeightStyle(workspaceHeight)}
+      >
         <aside
           className="git-st-nav"
           id="git-st-nav"
@@ -846,6 +933,27 @@ export default function GitGraphPanel({
             />
           </label>
         </div>
+
+        {/* t432（G9）：历史与工作区之间的水平分隔条——可拖拽/键盘调整，双击恢复默认 300px。 */}
+        <div
+          className="git-st-splitter"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="调整历史与工作区高度"
+          aria-valuemin={GIT_WS_MIN}
+          aria-valuemax={
+            splitterUsable(containerHeight)
+              ? Math.round(maxWorkspaceHeight(containerHeight))
+              : GIT_WS_MIN
+          }
+          aria-valuenow={Math.round(workspaceHeight)}
+          aria-valuetext={`工作区高度 ${Math.round(workspaceHeight)} 像素`}
+          tabIndex={0}
+          title="拖动调整历史与工作区高度；方向键 ±16px；Home/End 最小/最大；双击恢复默认"
+          onPointerDown={onSplitterPointerDown}
+          onKeyDown={onSplitterKeyDown}
+          onDoubleClick={() => commitWorkspaceHeight(GIT_WS_DEFAULT)}
+        />
 
         <section className="git-st-workspace" aria-label="工作区与 Diff">
           <div className="git-st-working">
