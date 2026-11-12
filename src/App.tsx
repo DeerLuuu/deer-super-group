@@ -4258,7 +4258,7 @@ function KernelConfirmModal({
         )}
         {intent.kind === "resume" && (
           <div className="notice small">
-            恢复不是危险操作，此处确认用于避免误触；运行中的 Run 不受影响。
+            恢复不是危险操作，此处确认用于避免误触；运行中的任务执行不受影响。
           </div>
         )}
         <div className="modal-foot">
@@ -4890,7 +4890,7 @@ function TasksView({
                       actionBusy === `task:cancel:${selectedTask.id}`
                     }
                     onClick={() => onCancelTask(selectedTask)}
-                    title={actionState?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
+                    title={actionState?.cancel.reason || "取消任务：正在执行的任务会中止，取消是终态"}
                     aria-describedby={
                       actionState?.cancel.enabled ? undefined : "task-action-hint"
                     }
@@ -5218,11 +5218,11 @@ function TasksView({
       {deleteOpen && selectedTask && (
         <DangerConfirmModal
           title="删除任务？"
-          description="任务、Run 历史与摘要会被永久删除；事件日志保留。"
+          description="任务、运行记录与摘要会被永久删除；事件日志保留。"
           subject={selectedTask.title}
           subjectLabel="任务标题"
           impact={[
-            "任务及其 Run 历史、摘要、行级评审数据会被清理。",
+            "任务及其运行记录、摘要、行级评审数据会被清理。",
             "事件日志保留，但任务不再出现在任务列表/星图。",
             "仍有其他任务依赖它时，删除会被拒绝。",
             "运行中/排队中的任务需先取消。",

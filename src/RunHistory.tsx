@@ -272,10 +272,10 @@ export default function RunHistory({
   const retryBusy = busy === "task:retry";
 
   return (
-    <section className="run-history" aria-label="Run 历史">
+    <section className="run-history" aria-label="运行记录" title="Run 历史">
       <div className="run-history-head">
         <div>
-          <div className="panel-title">Run 历史</div>
+          <div className="panel-title">运行记录</div>
           <div className="muted tiny">
             {runs.length === 0
               ? "还没有执行记录"

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation.js";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models.js";
 import type { LlmSettings, Snapshot } from "./shared/types.js";
-import SettingsView, { type SettingsSection } from "./SettingsView.js";
+import SettingsView, { validateModelSetup, type SettingsSection } from "./SettingsView.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -224,5 +224,45 @@ describe("t190 Settings draft/save safety", () => {
     expect(text).toContain("这里只设置默认模型");
     expect(text).not.toContain("新建成员");
     expect(text).not.toContain("删除成员");
+  });
+
+  it("t341 validates the 5-minute model path inline and keeps advanced fields collapsed", async () => {
+    expect(validateModelSetup([], [model], model.id)).toContain("供应商");
+    expect(validateModelSetup([provider], [], model.id)).toContain("模型");
+    expect(
+      validateModelSetup([{ ...provider, baseUrl: "" }], [model], model.id),
+    ).toContain("Base URL");
+    expect(validateModelSetup([provider], [model], "")).toContain("默认模型");
+    expect(validateModelSetup([provider], [model], model.id)).toBeNull();
+
+    const onSave = vi.fn(async () => ({ ok: true as const }));
+    const { renderer } = await renderSettings(onSave, vi.fn(), {}, "models");
+    const text = textOf(renderer.toJSON());
+    expect(text).toContain("1 供应商");
+    expect(text).toContain("2 Key");
+    expect(text).toContain("3 模型");
+    expect(text).toContain("4 保存");
+    expect(text).toContain("测试连接并获取模型");
+    expect(text).toContain("高级：环境变量（可选）");
+    expect(renderer.root.findAllByType("details").length).toBeGreaterThanOrEqual(1);
+
+    const nameInput = renderer.root
+      .findAllByType("input")
+      .find((input) => input.props["aria-label"] === "供应商名称")!;
+    await act(async () => {
+      (nameInput.props.onChange as (event: unknown) => void)({
+        target: { value: "" },
+      });
+      await Promise.resolve();
+    });
+    const save = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("保存"))!;
+    await act(async () => {
+      (save.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    expect(onSave).not.toHaveBeenCalled();
+    expect(textOf(renderer.toJSON())).toContain("请填写供应商名称");
   });
 });

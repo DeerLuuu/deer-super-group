@@ -167,7 +167,7 @@ describe("t69 调度/Run UI 静态渲染", () => {
         onRetryTask={noop}
       />,
     );
-    expect(html).toContain("Run 历史");
+    expect(html).toContain("运行记录");
     expect(html).toContain("#1");
     expect(html).toContain("失败");
     expect(html).toContain("租约过期");

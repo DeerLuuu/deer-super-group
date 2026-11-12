@@ -347,7 +347,7 @@ export default function TeamDashboard({
               ? `${deleteMember.owned} 个归属任务会变为未分配，需要重新指派。`
               : "当前没有归属任务。",
             "该成员的历史聊天、邮件和事件记录会保留。",
-            "有排队/运行中的 Run 时，删除会被拒绝。",
+            "有排队/运行中的任务执行时，删除会被拒绝。",
             "Router 不能删除。",
           ]}
           confirmLabel="永久删除成员"
@@ -428,7 +428,7 @@ function ProgressHeader({
               type="button"
               className="ghost tiny"
               onClick={onOpenRuns}
-              title="打开运行面板：调度队列、Run 历史与时间线"
+              title="打开运行面板：调度队列、运行记录与时间线"
             >
               运行面板
             </button>

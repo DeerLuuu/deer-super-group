@@ -34,6 +34,22 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string }> = [
   { id: "team", label: "团队", hint: "默认模型与成员" },
 ];
 
+/** P1-6：模型配置 5 分钟路径的必填/保存前置校验；不改变 settings schema。 */
+export function validateModelSetup(
+  providers: ProviderProfile[],
+  models: ModelProfile[],
+  defaultModel: string,
+): string | null {
+  if (providers.length === 0) return "请先添加一个模型供应商";
+  const unnamed = providers.find((provider) => !provider.name.trim());
+  if (unnamed) return "请填写供应商名称";
+  const noBase = providers.find((provider) => !provider.baseUrl.trim());
+  if (noBase) return "请填写 Base URL";
+  if (models.length === 0) return "请至少添加一个模型（可先测试连接并获取）";
+  if (!defaultModel.trim()) return "请选择默认模型";
+  return null;
+}
+
 function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1000) return `${Math.round(value / 1000)}k`;
@@ -77,6 +93,7 @@ export default function SettingsView({
   const [translationBusy, setTranslationBusy] = useState(false);
   const [translationStatus, setTranslationStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [modelValidationError, setModelValidationError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<{ kind: "success" | "error"; message: string } | null>(
     null,
   );
@@ -312,6 +329,17 @@ export default function SettingsView({
 
   async function save() {
     if (saving) return;
+    const validation = validateModelSetup(
+      providers,
+      models,
+      defaultModel || models[0]?.id || "",
+    );
+    if (validation) {
+      setModelValidationError(validation);
+      setSaveStatus({ kind: "error", message: validation });
+      return;
+    }
+    setModelValidationError(null);
     const first = providers[0] ?? defaultProviderProfile();
     const nextMaxDockGroups = normalizeMaxDockGroups(maxDockGroups);
     const payload: LlmSettings = {
@@ -399,6 +427,31 @@ export default function SettingsView({
               </button>
             </div>
 
+            <ol className="settings-model-path" aria-label="模型配置路径（约 5 分钟）">
+              <li>
+                <strong>1 供应商</strong>
+                <span>选择或添加供应商</span>
+              </li>
+              <li>
+                <strong>2 Key</strong>
+                <span>填 API Key 或环境变量</span>
+              </li>
+              <li>
+                <strong>3 模型</strong>
+                <span>测试连接并添加模型</span>
+              </li>
+              <li>
+                <strong>4 保存</strong>
+                <span>选默认模型并保存</span>
+              </li>
+            </ol>
+
+            {modelValidationError && (
+              <div className="settings-inline-error" role="alert">
+                {modelValidationError}
+              </div>
+            )}
+
             <section className="panel settings-block">
               <div className="panel-head">
                 <div>
@@ -432,9 +485,13 @@ export default function SettingsView({
                     <input
                       className="provider-name"
                       value={activeProvider.name}
-                      onChange={(event) =>
-                        updateProvider(activeProvider.id, { name: event.target.value })
+                      aria-invalid={
+                        Boolean(modelValidationError) && !activeProvider.name.trim()
                       }
+                      onChange={(event) => {
+                        setModelValidationError(null);
+                        updateProvider(activeProvider.id, { name: event.target.value });
+                      }}
                       aria-label="供应商名称"
                     />
                     <button
@@ -449,46 +506,57 @@ export default function SettingsView({
 
                   <div className="provider-grid">
                     <label>
-                      Base URL
+                      Base URL（必填）
                       <input
                         value={activeProvider.baseUrl}
-                        onChange={(event) =>
-                          updateProvider(activeProvider.id, { baseUrl: event.target.value })
+                        aria-invalid={
+                          Boolean(modelValidationError) && !activeProvider.baseUrl.trim()
                         }
+                        onChange={(event) => {
+                          setModelValidationError(null);
+                          updateProvider(activeProvider.id, { baseUrl: event.target.value });
+                        }}
                       />
                     </label>
                     <label>
-                      Base URL 环境变量
-                      <input
-                        value={activeProvider.baseUrlEnv}
-                        onChange={(event) =>
-                          updateProvider(activeProvider.id, { baseUrlEnv: event.target.value })
-                        }
-                        placeholder="DEEPSEEK_BASE_URL"
-                      />
-                    </label>
-                    <label>
-                      API Key
+                      API Key（或使用下方环境变量）
                       <input
                         type="password"
                         value={activeProvider.apiKey}
-                        onChange={(event) =>
-                          updateProvider(activeProvider.id, { apiKey: event.target.value })
-                        }
+                        onChange={(event) => {
+                          setModelValidationError(null);
+                          updateProvider(activeProvider.id, { apiKey: event.target.value });
+                        }}
                         placeholder="sk-..."
                       />
                     </label>
-                    <label>
-                      API Key 环境变量
-                      <input
-                        value={activeProvider.apiKeyEnv}
-                        onChange={(event) =>
-                          updateProvider(activeProvider.id, { apiKeyEnv: event.target.value })
-                        }
-                        placeholder="DEEPSEEK_API_KEY"
-                      />
-                    </label>
                   </div>
+
+                  <details className="settings-advanced">
+                    <summary>高级：环境变量（可选）</summary>
+                    <div className="provider-grid">
+                      <label>
+                        Base URL 环境变量
+                        <input
+                          value={activeProvider.baseUrlEnv}
+                          onChange={(event) =>
+                            updateProvider(activeProvider.id, { baseUrlEnv: event.target.value })
+                          }
+                          placeholder="DEEPSEEK_BASE_URL"
+                        />
+                      </label>
+                      <label>
+                        API Key 环境变量
+                        <input
+                          value={activeProvider.apiKeyEnv}
+                          onChange={(event) =>
+                            updateProvider(activeProvider.id, { apiKeyEnv: event.target.value })
+                          }
+                          placeholder="DEEPSEEK_API_KEY"
+                        />
+                      </label>
+                    </div>
+                  </details>
 
                   <div className="row between wrap">
                     <button
@@ -497,7 +565,7 @@ export default function SettingsView({
                       onClick={() => void loadProviderModels(activeProvider)}
                       disabled={loadingProvider === activeProvider.id || busy}
                     >
-                      {loadingProvider === activeProvider.id ? "获取中…" : "获取该供应商模型"}
+                      {loadingProvider === activeProvider.id ? "测试中…" : "测试连接并获取模型"}
                     </button>
                     <span className="muted tiny">
                       {snapshot.settings.providers.find(
@@ -571,6 +639,15 @@ export default function SettingsView({
                       <tr>
                         <td colSpan={6} className="muted">
                           还没有模型。先在上方获取某个供应商的模型列表。
+                          {activeProvider ? (
+                            <button
+                              type="button"
+                              className="ghost tiny"
+                              onClick={() => void loadProviderModels(activeProvider)}
+                            >
+                              测试连接并获取模型
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     )}

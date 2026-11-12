@@ -16,7 +16,7 @@ export interface MergeQueuePanelProps {
 function stateLabel(state: MergeQueueItem["state"]): string {
   return {
     queued: "排队中",
-    waiting_checks: "等待 checks",
+    waiting_checks: "等待检查",
     waiting_review: "等待评审",
     ready: "可合并",
     updating: "更新中",
@@ -109,7 +109,7 @@ export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, l
                     <span>{item.provider}{item.prNumber ? ` #${item.prNumber}` : ""}</span>
                     <span className="mono">{item.branch ?? "无分支"}</span>
                     <span>位置 {item.position}</span>
-                    <span>checks: {item.checksWaived ? "已豁免" : `${item.checks.state}${item.checks.summary ? ` · ${item.checks.summary}` : ""}`}</span>
+                    <span title="checks">检查：{item.checksWaived ? "已豁免" : `${item.checks.state}${item.checks.summary ? ` · ${item.checks.summary}` : ""}`}</span>
                   </div>
                   {item.lastError ? <p className="merge-queue-error-text" role="alert">{item.lastError}</p> : null}
                   {conflict ? <p className="muted tiny">检测到冲突，已生成冲突任务 {item.conflictTaskId}；请先处理后再合并。</p> : null}
@@ -136,12 +136,12 @@ export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, l
                     合并…
                   </button>
                   <label className="merge-queue-waive">
-                    <span className="sr-only">豁免 checks 原因</span>
+                    <span className="sr-only">豁免检查原因</span>
                     <input
                       value={reason}
                       onChange={(event) => setReasons((current) => ({ ...current, [key]: event.target.value }))}
-                      placeholder="豁免 checks 原因（≥8 字）"
-                      aria-label={`${item.taskTitle} 豁免 checks 原因`}
+                      placeholder="豁免检查原因（≥8 字）"
+                      aria-label={`${item.taskTitle} 豁免检查原因`}
                     />
                   </label>
                   <button

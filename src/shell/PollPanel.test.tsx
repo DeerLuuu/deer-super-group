@@ -88,7 +88,7 @@ describe("PollPanel helpers", () => {
     const html = renderToStaticMarkup(<PollResults poll={poll} />);
     expect(html).toContain("Poll");
     expect(html).toContain("Review");
-    expect(html).toContain("达到 quorum");
+    expect(html).toContain("达到投票门槛");
     expect(html).toContain("采纳");
     expect(html).toContain('role="progressbar"');
     expect(html).toContain('aria-valuenow="100"');
@@ -111,7 +111,7 @@ describe("PollPanel helpers", () => {
       decision: { ...poll.decision!, adoptedOptionIds: [], insufficientQuorum: true, boardEntryId: null, summary: "No quorum" },
     };
     const html = renderToStaticMarkup(<PollResults poll={insufficient} />);
-    expect(html).toContain("未达 quorum");
+    expect(html).toContain("未达投票门槛");
     expect(html).toContain("不产生采纳项");
     expect(html).not.toContain("已写入黑板");
   });
