@@ -703,4 +703,150 @@ describe("GitGraphPanel", () => {
       (globalThis as { window?: unknown }).window = previous;
     }
   });
+
+  it("t398 hides lanes under date sort and navigates only visible filtered commits", async () => {
+    const repo = {
+      workspaceId: "ws1",
+      workspacePath: "/tmp/repo",
+      root: "/tmp/repo",
+      headSha: "c".repeat(40),
+      branch: "main",
+      detached: false,
+      ahead: 0,
+      behind: 0,
+      baseBranch: "main",
+      remote: null,
+      shallow: false,
+      bare: false,
+      gitVersion: "2.40.0",
+      generatedAt: "2026-04-03T00:00:00Z",
+    };
+    const makeCommit = (shaChar: string, author: string, subject: string, time: string, parents: string[] = []) => ({
+      sha: shaChar.repeat(40),
+      shortSha: shaChar.repeat(8),
+      parents,
+      authorName: author,
+      authorTime: time,
+      committerTime: time,
+      subject,
+      refs: [],
+      lane: 0,
+      color: 0,
+      parentLanes: parents.map((sha, index) => ({ sha, lane: index + 1, kind: "merge" as const })),
+      openEdges: [],
+    });
+    const commits = [
+      makeCommit("a", "Mika", "feat: merge branch", "2026-04-03T10:00:00Z", ["b".repeat(40), "d".repeat(40)]),
+      makeCommit("b", "Ren", "fix: older", "2026-04-02T10:00:00Z"),
+      makeCommit("c", "Mika", "docs: newest", "2026-04-04T10:00:00Z"),
+    ];
+    const previous = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      deer: {
+        gitRepo: async () => ({ ok: true, value: repo }),
+        gitGraph: async () => ({
+          ok: true,
+          value: {
+            repo,
+            commits,
+            refs: [],
+            graphVersion: "v1",
+            offset: 0,
+            limit: 200,
+            hasMore: false,
+            nextOffset: null,
+            totalLoaded: commits.length,
+            truncated: false,
+            layout: { laneCount: 3, maxLanes: 16, truncatedLanes: false },
+          },
+        }),
+        gitRefs: async () => ({ ok: true, value: { refs: [], worktrees: [], truncated: false } }),
+        gitCommit: async (_ws: string, sha: string) => ({
+          ok: true,
+          value: {
+            node: commits.find((commit) => commit.sha === sha) ?? commits[0],
+            body: "",
+            changedFiles: [],
+            stats: { files: 0, insertions: 0, deletions: 0 },
+            diff: { files: [], bytes: 0, truncated: false, binary: false, submodule: false },
+          },
+        }),
+        gitStatus: async () => ({
+          ok: true,
+          value: {
+            repo,
+            staged: [],
+            unstaged: [],
+            untracked: [],
+            conflicts: [],
+            submodules: [],
+            truncated: false,
+          },
+        }),
+        gitDiff: async () => ({ ok: false }),
+      },
+    };
+    try {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws1" />);
+        for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      });
+      const root = renderer!.root;
+      const sort = root.findByProps({ "aria-label": "提交排序" });
+      await act(async () => {
+        (sort.props.onChange as (event: unknown) => void)({ target: { value: "date" } });
+        await Promise.resolve();
+      });
+      const dateJson = JSON.stringify(renderer!.toJSON());
+      expect(dateJson).not.toContain("git-st-lanes");
+      expect(dateJson).not.toMatch(/L[1-9]/);
+      const author = root
+        .findAllByType("input")
+        .find((input: any) => String(input.props["aria-label"]).includes("Author Name"));
+      await act(async () => {
+        (author!.props.onChange as (event: unknown) => void)({ target: { value: "Mika" } });
+        await Promise.resolve();
+      });
+      const listbox = root.findByProps({ role: "listbox" });
+      const options = () => root.findAllByProps({ role: "option" });
+      expect(options()).toHaveLength(2);
+      const selectedLabel = () =>
+        options().find((option: any) => option.props["aria-selected"])?.props["aria-label"];
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "Home", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("docs: newest");
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "ArrowDown", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("feat: merge branch");
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "End", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("feat: merge branch");
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "ArrowDown", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("feat: merge branch");
+
+      const search = root
+        .findAllByType("input")
+        .find((input: any) => input.props["aria-label"] === "搜索描述或提交");
+      await act(async () => {
+        (author!.props.onChange as (event: unknown) => void)({ target: { value: "" } });
+        (search!.props.onChange as (event: unknown) => void)({ target: { value: "older" } });
+        await Promise.resolve();
+      });
+      expect(JSON.stringify(renderer!.toJSON())).toContain("fix: older");
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("feat: merge branch");
+      renderer!.unmount();
+    } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
+  });
 });

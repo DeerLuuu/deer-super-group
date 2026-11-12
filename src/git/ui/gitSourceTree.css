@@ -201,6 +201,24 @@
   background: var(--panel-2);
 }
 
+/* t398：非拓扑排序只保留表格；不渲染假 lane / 行号。 */
+.git-st-layout.table-only .git-st-col-lane,
+.git-st-layout.table-only .git-st-lane {
+  display: none;
+}
+
+.git-st-layout.table-only .git-st-history-head,
+.git-st-layout.table-only .git-st-row {
+  grid-template-columns: minmax(160px, 1fr) 132px 150px 76px;
+}
+
+@container git-panel (max-width: 1099px) {
+  .git-st-layout.table-only .git-st-history-head,
+  .git-st-layout.table-only .git-st-row {
+    grid-template-columns: minmax(0, 1fr) 76px;
+  }
+}
+
 .git-st-rows {
   position: relative;
   min-height: 0;

@@ -19,4 +19,10 @@ describe("t391 SourceTree responsive contract", () => {
     expect(css).toContain("overflow: auto;");
     expect(css).toContain(".mobile-view-workspace .git-st-inspector");
   });
+
+  it("t398 renders table-only layout without fake lanes under non-topology sort", () => {
+    expect(css).toContain(".git-st-layout.table-only .git-st-col-lane");
+    expect(css).toContain(".git-st-layout.table-only .git-st-history-head");
+    expect(css).toContain("grid-template-columns: minmax(160px, 1fr) 132px 150px 76px");
+  });
 });

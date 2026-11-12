@@ -72,6 +72,7 @@ export default function GitGraphPanel({
   const [navOpen, setNavOpen] = useState(false);
   const [refSearch, setRefSearch] = useState("");
   const filterInputRef = useRef<HTMLInputElement | null>(null);
+  const commitSearchRef = useRef<HTMLInputElement | null>(null);
   const [refFilter, setRefFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -368,29 +369,37 @@ export default function GitGraphPanel({
     return result;
   }, [graph, filter, authorSearch, sortMode]);
 
-  const commitBySha = useMemo(() => {
-    const map = new Map<string, (NonNullable<typeof graph>["commits"][number])>();
-    for (const commit of graph?.commits ?? []) map.set(commit.sha, commit);
-    return map;
-  }, [graph]);
+  // t398：过滤/排序后若选中提交已不可见，Inspector 跟随第一个可见提交，避免显示被过滤内容。
+  useEffect(() => {
+    if (commits.length === 0) return;
+    if (commits.some((commit) => commit.sha === selectedSha)) return;
+    const first = commits[0];
+    setSelectedSha(first.sha);
+    setJumpSha(first.sha);
+    void loadCommit(first.sha);
+  }, [commits, selectedSha, loadCommit]);
 
   const rows = useMemo(() => {
     return layoutGraph({ commits, maxLanes: 16 }).rows;
   }, [commits]);
+  // t398：日期排序不是拓扑顺序，lane 坐标无意义；只保留表格，不渲染假 lane。
+  const showLanes = sortMode === "topology";
 
   const onGraphKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!graph) return;
-    const index = Math.max(0, graph.commits.findIndex((commit) => commit.sha === selectedSha));
+    if (!graph || commits.length === 0) return;
+    const found = commits.findIndex((commit) => commit.sha === selectedSha);
+    const index = found >= 0 ? found : 0;
     let next = index;
-    if (event.key === "ArrowDown") next = Math.min(graph.commits.length - 1, index + 1);
+    if (event.key === "ArrowDown") next = Math.min(commits.length - 1, index + 1);
     else if (event.key === "ArrowUp") next = Math.max(0, index - 1);
     else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = graph.commits.length - 1;
+    else if (event.key === "End") next = commits.length - 1;
     else return;
     event.preventDefault();
-    const commit = graph.commits[next];
+    const commit = commits[next];
     if (commit) {
       setSelectedSha(commit.sha);
+      setJumpSha(commit.sha);
       rowRefs.current.get(commit.sha)?.focus();
     }
   };
@@ -522,6 +531,17 @@ export default function GitGraphPanel({
             </select>
           </label>
           <label className="git-st-search">
+            <span className="sr-only">搜索描述或提交</span>
+            <input
+              ref={commitSearchRef}
+              type="search"
+              value={filter}
+              placeholder="搜索描述 / 提交"
+              aria-label="搜索描述或提交"
+              onChange={(event) => setFilter(event.target.value)}
+            />
+          </label>
+          <label className="git-st-search">
             <span className="sr-only">Author Name 搜索</span>
             <input
               type="search"
@@ -570,7 +590,7 @@ export default function GitGraphPanel({
       ) : null}
       {loading && !graph ? <p className="git-graph-loading" role="status">加载版本图…</p> : null}
 
-      <div className={`git-st-layout ${navOpen ? "nav-open" : ""}`}>
+      <div className={`git-st-layout ${navOpen ? "nav-open" : ""} ${showLanes ? "" : "table-only"}`}>
         <aside
           className="git-st-nav"
           id="git-st-nav"
@@ -594,7 +614,7 @@ export default function GitGraphPanel({
             <button
               type="button"
               className={navFocus === "search" ? "active" : ""}
-              onClick={() => { setNavFocus("search"); filterInputRef.current?.focus(); }}
+              onClick={() => { setNavFocus("search"); commitSearchRef.current?.focus(); }}
             >
               Search
             </button>
@@ -697,37 +717,39 @@ export default function GitGraphPanel({
               <span className="git-st-col-author muted tiny">—</span>
               <span className="git-st-col-commit mono">WC</span>
             </button>
-            <div className="git-st-rows">
-              <svg
-                className="git-st-lanes"
-                aria-hidden="true"
-                width={Math.max(40, (graph?.layout.laneCount ?? 1) * 16 + 12)}
-                height={Math.max(0, rows.length * 22)}
-              >
-                {rows.map((row, rowIndex) => (
-                  <g key={row.sha}>
-                    {row.parentLanes.map((parent) => {
-                      const parentIndex = rows.findIndex((item) => item.sha === parent.sha);
-                      return (
-                        <line
-                          key={`${row.sha}-${parent.sha}`}
-                          x1={8 + row.lane * 16}
-                          y1={rowIndex * 22 + 11}
-                          x2={8 + parent.lane * 16}
-                          y2={parentIndex >= 0 ? parentIndex * 22 + 11 : rows.length * 22}
-                          className={`git-edge color-${row.color % 10}`}
-                        />
-                      );
-                    })}
-                    <circle
-                      cx={8 + row.lane * 16}
-                      cy={rowIndex * 22 + 11}
-                      r={3.5}
-                      className={`git-node color-${row.color % 10} ${row.sha === selectedSha ? "selected" : ""}`}
-                    />
-                  </g>
-                ))}
-              </svg>
+            <div className={`git-st-rows ${showLanes ? "" : "is-table-only"}`}>
+              {showLanes ? (
+                <svg
+                  className="git-st-lanes"
+                  aria-hidden="true"
+                  width={Math.max(40, (graph?.layout.laneCount ?? 1) * 16 + 12)}
+                  height={Math.max(0, rows.length * 22)}
+                >
+                  {rows.map((row, rowIndex) => (
+                    <g key={row.sha}>
+                      {row.parentLanes.map((parent) => {
+                        const parentIndex = rows.findIndex((item) => item.sha === parent.sha);
+                        return (
+                          <line
+                            key={`${row.sha}-${parent.sha}`}
+                            x1={8 + row.lane * 16}
+                            y1={rowIndex * 22 + 11}
+                            x2={8 + parent.lane * 16}
+                            y2={parentIndex >= 0 ? parentIndex * 22 + 11 : rows.length * 22}
+                            className={`git-edge color-${row.color % 10}`}
+                          />
+                        );
+                      })}
+                      <circle
+                        cx={8 + row.lane * 16}
+                        cy={rowIndex * 22 + 11}
+                        r={3.5}
+                        className={`git-node color-${row.color % 10} ${row.sha === selectedSha ? "selected" : ""}`}
+                      />
+                    </g>
+                  ))}
+                </svg>
+              ) : null}
               <div className="git-st-rows-list">
                 {commits.map((commit, index) => (
                   <button
@@ -752,7 +774,7 @@ export default function GitGraphPanel({
                     title={`${commit.subject}\n${commit.authorName} · ${commit.authorTime}`}
                   >
                     <span className="git-st-lane" aria-hidden="true">
-                      {rows[index] ? `L${rows[index]!.lane + 1}` : "·"}
+                      {showLanes && rows[index] ? `L${rows[index]!.lane + 1}` : ""}
                     </span>
                     <span className="git-st-subject ellipsis">
                       {commit.subject}

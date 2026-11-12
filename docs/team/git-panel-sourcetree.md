@@ -76,3 +76,26 @@
 
 - 仅 Git 面板 UI/CSS + 测试；无 IPC/schema/命令/权限/gate 变更。
 - 回滚 `GitGraphPanel` 布局与 `gitSourceTree.css` 即恢复旧三栏；G1 handlers 未改。
+
+## t398 repair round 2
+
+- **日期排序无假 lane**：`sortMode !== "topology"` 时不渲染 `.git-st-lanes` SVG 与 `Lx` 行号，历史退化为纯表格（`.git-st-layout.table-only`）；拓扑排序仍显示 lane。测试覆盖含 merge parentLanes 的日期排序 DOM。
+- **键盘使用可见列表**：`onGraphKey` 改用过滤/排序后的 `commits`，索引 clamp 到 0..length-1；过滤后选中项不可见时 Inspector 自动跟随第一个可见提交。测试覆盖 Author=Mika + 日期排序下 Home/ArrowDown/End/ArrowDown 与 `aria-selected`。
+- **commit 搜索**：原孤儿 `filter` 绑定到工具栏「搜索描述 / 提交」输入框（`aria-label`），测试验证过滤并自动更新 Inspector。
+- **480 导航打开态截图**：`docs/team/t391-git-panel-480-nav.png`。
+
+### 执行签名
+
+| 项 | 值 |
+|---|---|
+| 执行时间 | 2026-11-13 01:12 +08:00 |
+| 执行人 | ren |
+| 运行环境 | Electron + CDP，workspace = `branches/t391-git-panel-sourcetree` |
+| 1440 | 1440×1000 |
+| 960 | 960×1000 |
+| 480 | 480×900（历史 tab + 导航 popover 480×900） |
+| 产物 | t391-git-panel-1440.png / -960.png / -480.png / -480-nav.png |
+
+验证（HEAD 见 PR）：typecheck 0；build 0（449 modules）；test 串行 125 文件/895 用例。
+
+- `docs/team/t391-git-panel-480-nav.png`（480 导航 popover 打开态）
