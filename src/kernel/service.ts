@@ -608,11 +608,17 @@ export class AppService {
           message: "Router 推荐超时，请重试或自己设定成员",
         };
       }
-      return {
-        ok: false,
-        code: "RECOMMEND_FAILED",
-        message: sanitizeErrorText(error instanceof Error ? error.message : String(error), 300),
-      };
+      const message = sanitizeErrorText(
+        error instanceof Error ? error.message : String(error),
+        300,
+      );
+      if (/\b429\b|rate.?limit|quota|too many requests|1308|额度|限额/i.test(message)) {
+        return { ok: false, code: "RECOMMEND_RATE_LIMITED", message };
+      }
+      if (/\b401\b|unauthorized|invalid api.?key|authentication|认证|鉴权/i.test(message)) {
+        return { ok: false, code: "RECOMMEND_AUTH_FAILED", message };
+      }
+      return { ok: false, code: "RECOMMEND_FAILED", message };
     } finally {
       clearTimeout(timer);
     }

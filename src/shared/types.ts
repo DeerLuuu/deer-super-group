@@ -764,6 +764,8 @@ export type RecommendMembersErrorCode =
   | "RECOMMEND_TIMEOUT"
   | "RECOMMEND_INVALID_SCHEMA"
   | "RECOMMEND_EMPTY"
+  | "RECOMMEND_RATE_LIMITED"
+  | "RECOMMEND_AUTH_FAILED"
   | "RECOMMEND_FAILED";
 
 export type RecommendMembersResponse =

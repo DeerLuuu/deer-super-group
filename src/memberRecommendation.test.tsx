@@ -94,6 +94,7 @@ function dashboard(
       context: { memberCount: 0, taskCount: 0, hasDescription: false },
     },
   })),
+  autoOpen = true,
 ) {
   const noop = () => {};
   return (
@@ -103,7 +104,7 @@ function dashboard(
       selectedTaskId={null}
       onSelectTask={noop}
       starmapFocus={null}
-      autoOpenMemberDialog
+      autoOpenMemberDialog={autoOpen}
       onAutoOpenHandled={noop}
       onCreate={onCreate}
       onRecommend={onRecommend}
@@ -125,12 +126,12 @@ async function renderDashboard(
   s: Snapshot,
   onCreate = vi.fn(async (_draft: unknown) => true),
   onRecommend?: any,
+  autoOpen = true,
 ) {
   let renderer: ReturnType<typeof create> | null = null;
   await act(async () => {
-    renderer = create(dashboard(s, onCreate, onRecommend));
-  });
-  return { renderer: renderer!, onCreate, onRecommend };
+    renderer = create(dashboard(s, onCreate, onRecommend, autoOpen));
+  });  return { renderer: renderer!, onCreate, onRecommend };
 }
 
 function button(renderer: ReturnType<typeof create>, label: string) {
@@ -199,6 +200,30 @@ describe("t272 member recommendation dialog", () => {
     expect(renderer.root.findAllByProps({ className: "member-candidate" })).toHaveLength(0);
   });
 
+  it("shows explicit fallback for timeout/429/401/empty without creating", async () => {
+    for (const [code, expected] of [
+      ["RECOMMEND_TIMEOUT", "超时"],
+      ["RECOMMEND_RATE_LIMITED", "限流"],
+      ["RECOMMEND_AUTH_FAILED", "认证失败"],
+      ["RECOMMEND_EMPTY", "没有给出候选"],
+    ] as const) {
+      const onCreate = vi.fn(async (_draft: unknown) => true);
+      const onRecommend = vi.fn(async () => ({
+        ok: false as const,
+        code,
+        message: "test",
+      }));
+      const { renderer } = await renderDashboard(snapshot(), onCreate, onRecommend);
+      await act(async () => {
+        (button(renderer, "让 Router 推荐").props.onClick as () => void)();
+      });
+      const alert = renderer.root.findAllByProps({ role: "alert" })[0];
+      expect(textOf(alert!.props.children)).toContain(expected);
+      expect(button(renderer, "重试")).toBeTruthy();
+      expect(onCreate).not.toHaveBeenCalled();
+    }
+  });
+
   it("description generation sends mode=description and edit pre-fills manual form", async () => {
     const onRecommend = vi.fn(async () => ({
       ok: true as const,
@@ -246,5 +271,58 @@ describe("t272 member recommendation dialog", () => {
     });
     expect(renderer.root.findAllByType("textarea").length).toBeGreaterThan(0);
     expect(button(renderer, "创建成员").props.disabled).toBe(true);
+  });
+
+  it("editing an existing member has no recommendation tabs/CTA", async () => {
+    const s = snapshot();
+    s.agents = [
+      {
+        id: "a1",
+        workspaceId: "w1",
+        name: "Builder",
+        role: "engineer",
+        systemPrompt: "secret prompt",
+        persona: "",
+        agentsMd: "",
+        model: null,
+        permission: "workspace_write",
+        isRouter: false,
+        status: "idle",
+        createdAt: "2026-11-12T00:00:00.000Z",
+      },
+    ] as Snapshot["agents"];
+    const { renderer } = await renderDashboard(s, vi.fn(async () => true), undefined, false);
+    const edit = renderer.root
+      .findAllByType("button")
+      .find((item) => item.props.title === "编辑成员")!;
+    await act(() => {
+      (edit.props.onClick as () => void)();
+    });
+    expect(renderer.root.findAllByProps({ role: "tablist" })).toHaveLength(0);
+    expect(renderer.root.findAllByProps({ role: "tab" })).toHaveLength(0);
+    expect(renderer.root.findAllByProps({ id: "member-panel-manual" })).toHaveLength(1);
+    expect(renderer.root.findAllByType("textarea").length).toBeGreaterThan(0);
+  });
+
+  it("manual creation submits only read_only permission", async () => {
+    const onCreate = vi.fn(async (_draft: unknown) => true);
+    const { renderer } = await renderDashboard(snapshot(), onCreate);
+    await act(() => {
+      (button(renderer, "自己设定").props.onClick as () => void)();
+    });
+    const name = renderer.root.findAllByType("input")[0]!;
+    await act(() => {
+      (name.props.onChange as (event: unknown) => void)({ target: { value: "Manual" } });
+    });
+    const form = renderer.root.findAllByType("form")[0]!;
+    await act(async () => {
+      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+        preventDefault: vi.fn(),
+      });
+    });
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({
+      name: "Manual",
+      permission: "read_only",
+    });
   });
 });

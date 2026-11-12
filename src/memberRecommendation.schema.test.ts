@@ -103,12 +103,23 @@ describe("t272 recommendation schema", () => {
       overview: "overview",
       members: [{ name: "Builder", role: "engineer", modelLabel: "GLM 5.3" }],
       tasks: [{ title: "Fix", status: "ready", ownerName: "Builder" }],
-      recentContext: [{ role: "user", content: "最近上下文" }],
+      recentContext: [
+        {
+          role: "user",
+          content:
+            "sk-live-ABC123456 Authorization: Bearer abc.def token=secret123 https://api.internal.corp/v1?token=querysecret",
+        },
+      ],
       allowedModels: [{ id: "p1:glm", label: "GLM 5.3" }],
     });
     expect(prompt).toContain("ALLOWED_PERMISSION: read_only");
     expect(prompt).toContain("p1:glm");
     expect(prompt).not.toContain("sk-");
+    expect(prompt).not.toContain("Bearer abc.def");
+    expect(prompt).not.toContain("secret123");
+    expect(prompt).not.toContain("querysecret");
+    expect(prompt).not.toContain("api.internal.corp");
+    expect(prompt).toContain("[REDACTED]");
     expect(prompt).not.toContain("system prompt:");
     expect(prompt).not.toContain("baseUrl");
   });

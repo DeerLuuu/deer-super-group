@@ -1,4 +1,5 @@
 import type { ModelProfile } from "./types.js";
+import { sanitizeErrorText } from "./errorRedaction.js";
 
 export const MEMBER_RECOMMENDATION_SYSTEM_PROMPT = `ROUTER_MEMBER_RECOMMENDER
 You are Router, the coordinator of DeerSuperGroup.
@@ -181,7 +182,9 @@ export function buildMemberRecommendationUserPrompt(input: {
       (task) => `- ${task.title} [${task.status}] ${task.ownerName ?? "unassigned"}`,
     ),
     "RECENT_CONTEXT:",
-    ...input.recentContext.slice(-8).map((message) => `- ${message.role}: ${message.content}`),
+    ...input.recentContext
+      .slice(-8)
+      .map((message) => `- ${message.role}: ${sanitizeErrorText(message.content, 500)}`),
     `MODE: ${input.mode}`,
     input.mode === "description" ? `DESCRIPTION: ${input.description ?? ""}` : "",
     `ALLOWED_MODEL_IDS: ${JSON.stringify(input.allowedModels.map((model) => model.id))}`,
@@ -205,6 +208,10 @@ export function recommendationErrorMessage(code: string): string {
       return "Router 返回的候选不符合安全 schema；已整份拒绝，请重试或手填。";
     case "RECOMMEND_EMPTY":
       return "Router 没有给出候选；可以补充描述或自己设定成员。";
+    case "RECOMMEND_RATE_LIMITED":
+      return "Router 推荐触发限流（429）；请稍后重试或自己设定成员。";
+    case "RECOMMEND_AUTH_FAILED":
+      return "Router 模型认证失败（401）；请检查模型 Key 或自己设定成员。";
     default:
       return "Router 推荐失败；请重试或自己设定成员。";
   }

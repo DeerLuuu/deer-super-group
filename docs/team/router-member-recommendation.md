@@ -67,3 +67,11 @@
 - 960：`docs/team/t272-member-recommend-960.png`
 
 截图从真实 Electron + 现有工作区打开「新建成员」；默认 Router 推荐 tab，960 下 modal 无横向滚动、tab 保持单行。
+
+## t278 补强
+
+- recentContext 每条复用 `sanitizeErrorText(500)` 后再进 provider prompt；覆盖 `sk-live-*`、Bearer、Authorization、Cookie、token/secret/password/client_secret/accessToken/private_key、URL query、内部 URL、provider body；单条 cap 500、最多 8 条。
+- 推荐失败补充 `RECOMMEND_RATE_LIMITED`（429/限额）、`RECOMMEND_AUTH_FAILED`（401/认证）；timeout/empty 保持明确 code。
+- 服务测试断言 429/401/timeout/empty 不新增 agent；UI 测试断言限流/认证/超时/空状态与重试/手动 fallback。
+- 编辑已有成员组件测试：无 tabs/推荐 CTA，仅手动表单。
+- 推荐/手动聘用均提交 permission=read_only；`CreateAgentInput` 无 permission 字段（`@ts-expect-error` guard），service 对运行时夹带 permission 仍固定 read_only。
