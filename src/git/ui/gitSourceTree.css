@@ -1,6 +1,6 @@
 /* t391：SourceTree 风格 Git 面板四区布局 */
 .git-graph-panel.git-st-panel {
-  container-type: inline-size;
+  container-type: size;
   container-name: git-panel;
   display: flex;
   flex-direction: column;
@@ -288,7 +288,7 @@
 .git-st-workspace {
   grid-area: workspace;
   display: grid;
-  grid-template-columns: minmax(0, 55%) minmax(0, 45%);
+  grid-template-columns: minmax(0, 44%) minmax(0, 56%);
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid var(--border);
@@ -363,7 +363,7 @@
   }
 
   .git-st-workspace {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 42%);
+    grid-template-columns: minmax(0, 58%) minmax(0, 42%);
   }
 }
 
@@ -374,8 +374,7 @@
   }
 }
 
-@container git-panel (max-width: 719px) {
-  .git-st-layout {
+@container git-panel (max-width: 719px) {  .git-st-layout {
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -477,3 +476,30 @@
     width: 120px;
   }
 }
+
+/* t411：短高面板（用户 1372×328）优先保留工作区与 sticky 提交框，隐藏历史表。 */
+@container git-panel (max-height: 560px) {
+  .git-st-layout {
+    grid-template-rows: 30px minmax(0, 1fr);
+    grid-template-areas:
+      "nav filter"
+      "nav workspace";
+  }
+
+  .git-st-history {
+    display: none;
+  }
+
+  .git-st-workspace {
+    min-height: 0;
+  }
+
+  .git-st-working {
+    min-height: 0;
+  }
+
+  .git-st-filter {
+    align-self: center;
+  }
+}
+
