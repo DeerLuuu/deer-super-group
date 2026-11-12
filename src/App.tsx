@@ -82,6 +82,9 @@ import CommandPalette, {
 import WorkflowRail from "./shell/WorkflowRail";
 import { useMergeQueue } from "./shell/useMergeQueue";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
+import FirstRunCard from "./shell/FirstRunCard";
+import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
+import { deriveFirstRunState } from "./shell/firstRunData";
 import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
 import {
   resolveTaskWorkspaceSource,
@@ -433,6 +436,7 @@ export default function App() {
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [firstRunCollapsed, setFirstRunCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem("deer.sidebarWidth"));
     return Number.isFinite(saved) && saved >= 180 && saved <= 480 ? saved : 250;
@@ -2464,6 +2468,34 @@ export default function App() {
     openPanel("runs");
   }
 
+  function handleRetryAfterError() {
+    setError(null);
+    const current = snapshotRef.current;
+    if (current) void refresh(current.workspace.id);
+    void loadChat().catch((cause) => setError(errorText(cause)));
+  }
+
+  function handleFirstRunAction() {    switch (firstRunState.action.kind) {
+      case "workspace":
+        void handleOpenWorkspace();
+        return;
+      case "settings-model":
+      case "settings-key":
+        openPanel("settings");
+        return;
+      case "team":
+        startCreate("member");
+        return;
+      case "plan":
+        handlePlanDraftEntry();
+        return;
+      case "chat":
+        openPanel("chat");
+        window.setTimeout(() => chatComposerRef.current?.focus(), 0);
+        return;
+    }
+  }
+
   function handleOpenTaskWorkspace(taskId: string, source: "tasks" | "team" = "tasks") {
     setTaskWorkspaceSource(source);
     setSelectedTaskId(taskId);
@@ -2790,6 +2822,27 @@ export default function App() {
 
   const selectedTask = snapshot.tasks.find((task) => task.id === selectedTaskId) ?? null;
   const workers = snapshot.agents.filter((agent) => !agent.isRouter);
+  const firstRunModel = snapshot.settings.models.find(
+    (profile) => profile.id === snapshot.settings.model,
+  );
+  const firstRunProvider = firstRunModel
+    ? snapshot.settings.providers.find((provider) => provider.id === firstRunModel.providerId)
+    : undefined;
+  const firstRunState = deriveFirstRunState({
+    workspaceName: snapshot.workspace.name,
+    workspacePath: snapshot.workspace.path,
+    tasksCount: snapshot.tasks.length,
+    messagesCount: chatMessages.length,
+    workerCount: workers.filter((worker) => worker.status !== "offline").length,
+    modelCount: snapshot.settings.models.length,
+    modelId: snapshot.settings.model,
+    modelLabel: firstRunModel
+      ? `${firstRunModel.label} · ${firstRunProvider?.name ?? firstRunModel.providerId}`
+      : "",
+    mock: snapshot.settings.mock,
+    keyReady: snapshot.settings.providers.some((provider) => provider.apiKeySource !== "none"),
+    dismissed: firstRunCollapsed,
+  });
   const failedCount = snapshot.tasks.filter((task) => task.status === "failed").length;
   // t194：显示宽度而不是改写保存宽度；回到宽屏后恢复用户原始 250/480。
   const effectiveSidebarWidth = displayedSidebarWidth(
@@ -3046,24 +3099,22 @@ export default function App() {
           onStage={handleWorkflowStage}
           onNeedsMe={handleNeedsMeItem}
         />
+        {firstRunState.show ? (
+          <FirstRunCard
+            state={firstRunState}
+            collapsed={firstRunCollapsed}
+            onToggle={() => setFirstRunCollapsed((value) => !value)}
+            onAction={handleFirstRunAction}
+          />
+        ) : null}
         {error && (
-          <div className="error banner" role="alert">
-            {/* C26/t190：格式化 + 共享脱敏后的错误文案；复制详情同样脱敏。 */}
-            <span className="error-banner-text">{formatError(error)}</span>
-            <div className="row gap">
-              <button
-                className="ghost tiny"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(formatError(error)).catch(() => {});
-                }}
-              >
-                复制详情
-              </button>
-              <button className="ghost tiny" onClick={() => setError(null)}>
-                关闭
-              </button>
-            </div>
-          </div>
+          <ErrorRecoveryBar
+            message={formatError(error)}
+            onOpenSettings={() => openPanel("settings")}
+            onOpenModels={() => openPanel("settings")}
+            onRetry={handleRetryAfterError}
+            onClose={() => setError(null)}
+          />
         )}
 
         {watchdogSnapshot && (
@@ -4083,7 +4134,6 @@ function TasksView({
                 title="还没有任务"
                 description="直接创建一个任务，或让 Router 把目标拆成任务 DAG。"
                 actions={[
-                  { label: "规划任务", onClick: () => onPlanDraft() },
                   { label: "+ 新建任务", onClick: () => setComposeOpen(true), primary: true },
                 ]}
               />
@@ -4498,6 +4548,9 @@ function TasksView({
                 <div className="task-git-section" id="task-git-section">
                   <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} />
                 </div>
+                <div className="muted tiny" role="note" aria-label="合并确认说明">
+                  Git / PR / worktree 与入队准备不是合并确认；合并确认只在合并队列中执行。
+                </div>
                 <div className="row gap task-workspace-git-actions">
                   <button
                     type="button"
@@ -4527,6 +4580,7 @@ function TasksView({
                     }
                     onClick={() => onReviewTask(selectedTask, "approve")}
                     title={actionState?.review.reason || "批准任务交付"}
+                    aria-label="批准任务交付（任务交付 gate；不是代码评审通过）"
                   >
                     批准任务交付
                   </button>
@@ -4538,11 +4592,12 @@ function TasksView({
                     }
                     onClick={() => onReviewTask(selectedTask, "reject")}
                     title={actionState?.review.reason || "拒绝任务交付（REVIEW_REJECTED）"}
+                    aria-label="拒绝任务交付（任务交付 gate；不是代码评审拒绝）"
                   >
                     拒绝任务交付
                   </button>
-                  <span className="muted tiny">
-                    代码评审通过不等于任务交付批准；未通过 review 不能 merge。
+                  <span className="muted tiny" role="note" aria-label="批准术语说明">
+                    任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。
                   </span>
                 </div>
                 <div id="task-review-section" className="task-review-section">
@@ -5470,16 +5525,9 @@ export function ChatView({
               description="讨论目标、澄清需求，Router 会给出建议。"
               actions={[
                 {
-                  label: "这个项目怎么跑起来？",
-                  onClick: () => onInput("这个项目怎么跑起来？"),
-                },
-                {
-                  label: "帮我加一个健康检查接口",
-                  onClick: () => onInput("帮我加一个健康检查接口"),
-                },
-                {
-                  label: "总结当前任务进展",
-                  onClick: () => onInput("总结当前任务进展"),
+                  label: "开始对话",
+                  onClick: () => composerRef.current?.focus(),
+                  primary: true,
                 },
               ]}
             />
