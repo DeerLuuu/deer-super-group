@@ -1,0 +1,272 @@
+[
+  {
+    "step": "1440-list",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox",
+    "width": 1440,
+    "height": 900,
+    "rows": 3,
+    "rowLabels": [
+      "线程：独立通知，1 封未读，1 封",
+      "线程：评审意见汇总，2 封未读，2 封",
+      "线程：发布检查清单，3 封未读，3 封"
+    ],
+    "activeThread": "线程：独立通知，1 封未读，1 封",
+    "unread": "6 未读",
+    "chainMessages": 1,
+    "chainText": "Builder\n→ Router\n01:27:03\n未读\n独立通知\n这是一封没有回复的存量邮件。",
+    "modal": null,
+    "layout": {
+      "x": 269,
+      "y": 284.46875,
+      "width": 660,
+      "height": 603,
+      "top": 284.46875,
+      "right": 929,
+      "bottom": 887.46875,
+      "left": 269
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "1440-selected",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox?m=msg_mwdtln9t_a679081d4e",
+    "width": 1440,
+    "height": 900,
+    "rows": 3,
+    "rowLabels": [
+      "线程：独立通知，0 封未读，1 封",
+      "线程：评审意见汇总，2 封未读，2 封",
+      "线程：发布检查清单，3 封未读，3 封"
+    ],
+    "activeThread": "线程：独立通知，0 封未读，1 封",
+    "unread": "5 未读",
+    "chainMessages": 1,
+    "chainText": "Builder\n→ Router\n01:27:03\n独立通知\n这是一封没有回复的存量邮件。",
+    "modal": null,
+    "layout": {
+      "x": 269,
+      "y": 284.46875,
+      "width": 660,
+      "height": 603,
+      "top": 284.46875,
+      "right": 929,
+      "bottom": 887.46875,
+      "left": 269
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "1440-all-read",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox?m=msg_mwdtln9t_a679081d4e",
+    "width": 1440,
+    "height": 900,
+    "rows": 3,
+    "rowLabels": [
+      "线程：独立通知，0 封未读，1 封",
+      "线程：评审意见汇总，2 封未读，2 封",
+      "线程：发布检查清单，3 封未读，3 封"
+    ],
+    "activeThread": "线程：独立通知，0 封未读，1 封",
+    "unread": "5 未读",
+    "chainMessages": 1,
+    "chainText": "Builder\n→ Router\n01:27:03\n独立通知\n这是一封没有回复的存量邮件。",
+    "modal": null,
+    "layout": {
+      "x": 269,
+      "y": 284.46875,
+      "width": 660,
+      "height": 603,
+      "top": 284.46875,
+      "right": 929,
+      "bottom": 887.46875,
+      "left": 269
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "1440-search",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox?m=msg_mwdtln9t_a679081d4e",
+    "width": 1440,
+    "height": 900,
+    "rows": 1,
+    "rowLabels": [
+      "线程：评审意见汇总，2 封未读，2 封"
+    ],
+    "activeThread": "线程：评审意见汇总，2 封未读，2 封",
+    "unread": "5 未读",
+    "chainMessages": 2,
+    "chainText": "Reviewer\n→ Router\n01:27:03\n未读\n评审意见汇总\n发现两个 medium 问题：空态文案和键盘焦点。\nRouter\n→ Reviewer, Builder\n01:27:03\n未读\n已安排修复，请下午复审。",
+    "modal": null,
+    "layout": {
+      "x": 269,
+      "y": 284.46875,
+      "width": 660,
+      "height": 603,
+      "top": 284.46875,
+      "right": 929,
+      "bottom": 887.46875,
+      "left": 269
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "1440-member-filter",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox?m=msg_mwdtln9t_a679081d4e",
+    "width": 1440,
+    "height": 900,
+    "rows": 1,
+    "rowLabels": [
+      "线程：评审意见汇总，2 封未读，2 封"
+    ],
+    "activeThread": "线程：评审意见汇总，2 封未读，2 封",
+    "unread": "5 未读",
+    "chainMessages": 2,
+    "chainText": "Reviewer\n→ Router\n01:27:03\n未读\n评审意见汇总\n发现两个 medium 问题：空态文案和键盘焦点。\nRouter\n→ Reviewer, Builder\n01:27:03\n未读\n已安排修复，请下午复审。",
+    "modal": null,
+    "layout": {
+      "x": 269,
+      "y": 284.46875,
+      "width": 660,
+      "height": 603,
+      "top": 284.46875,
+      "right": 929,
+      "bottom": 887.46875,
+      "left": 269
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "1440-reply-modal",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox?m=msg_mwdtln9t_a679081d4e",
+    "width": 1440,
+    "height": 900,
+    "rows": 3,
+    "rowLabels": [
+      "线程：独立通知，0 封未读，1 封",
+      "线程：评审意见汇总，2 封未读，2 封",
+      "线程：发布检查清单，3 封未读，3 封"
+    ],
+    "activeThread": "线程：独立通知，0 封未读，1 封",
+    "unread": "5 未读",
+    "chainMessages": 1,
+    "chainText": "Builder\n→ Router\n01:27:03\n独立通知\n这是一封没有回复的存量邮件。",
+    "modal": {
+      "text": "回复邮件\n回复线程：独立通知（沿用现有 thread_id，不新增数据源）\n关闭\n收件人（逗号分隔，也可以点选成员）\n主题\n类型\n请求\n汇报\n提问\n决策\n产物\n评审\n正文\n取消\n发送回复",
+      "subject": "Re: 独立通知",
+      "to": "Builder, Router"
+    },
+    "layout": {
+      "x": 269,
+      "y": 284.46875,
+      "width": 660,
+      "height": 603,
+      "top": 284.46875,
+      "right": 929,
+      "bottom": 887.46875,
+      "left": 269
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "1440-keyboard-arrow",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox?m=msg_mwdtln9k_ded996b298",
+    "width": 1440,
+    "height": 900,
+    "rows": 3,
+    "rowLabels": [
+      "线程：独立通知，0 封未读，1 封",
+      "线程：评审意见汇总，0 封未读，2 封",
+      "线程：发布检查清单，0 封未读，3 封"
+    ],
+    "activeThread": "线程：评审意见汇总，0 封未读，2 封",
+    "unread": "全部已读",
+    "chainMessages": 2,
+    "chainText": "Reviewer\n→ Router\n01:27:03\n评审意见汇总\n发现两个 medium 问题：空态文案和键盘焦点。\nRouter\n→ Reviewer, Builder\n01:27:03\n已安排修复，请下午复审。",
+    "modal": null,
+    "layout": {
+      "x": 269,
+      "y": 284.46875,
+      "width": 660,
+      "height": 603,
+      "top": 284.46875,
+      "right": 929,
+      "bottom": 887.46875,
+      "left": 269
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "960",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox",
+    "width": 960,
+    "height": 800,
+    "rows": 3,
+    "rowLabels": [
+      "线程：独立通知，0 封未读，1 封",
+      "线程：评审意见汇总，0 封未读，2 封",
+      "线程：发布检查清单，0 封未读，3 封"
+    ],
+    "activeThread": "线程：独立通知，0 封未读，1 封",
+    "unread": "全部已读",
+    "chainMessages": 1,
+    "chainText": "Builder\n→ Router\n01:27:03\n独立通知\n这是一封没有回复的存量邮件。",
+    "modal": null,
+    "layout": {
+      "x": 69,
+      "y": 288.46875,
+      "width": 878,
+      "height": 499,
+      "top": 288.46875,
+      "right": 947,
+      "bottom": 787.46875,
+      "left": 69
+    },
+    "scrollWidth": 960,
+    "innerWidth": 960
+  },
+  {
+    "step": "480",
+    "title": "邮箱线程演示 · 邮箱 — DeerSuperGroup",
+    "hash": "#/mailbox",
+    "width": 480,
+    "height": 800,
+    "rows": 3,
+    "rowLabels": [
+      "线程：独立通知，0 封未读，1 封",
+      "线程：评审意见汇总，0 封未读，2 封",
+      "线程：发布检查清单，0 封未读，3 封"
+    ],
+    "activeThread": "线程：独立通知，0 封未读，1 封",
+    "unread": "全部已读",
+    "chainMessages": 1,
+    "chainText": "Builder\n→ Router\n01:27:03\n独立通知\n这是一封没有回复的存量邮件。",
+    "modal": null,
+    "layout": {
+      "x": 69,
+      "y": 440.25,
+      "width": 398,
+      "height": 347,
+      "top": 440.25,
+      "right": 467,
+      "bottom": 787.25,
+      "left": 69
+    },
+    "scrollWidth": 480,
+    "innerWidth": 480
+  }
+]
