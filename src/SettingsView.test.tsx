@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation.js";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models.js";
 import type { LlmSettings, Snapshot } from "./shared/types.js";
-import SettingsView from "./SettingsView.js";
+import SettingsView, { type SettingsSection } from "./SettingsView.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -45,7 +45,7 @@ const settings: LlmSettings = {
 };
 
 function makeSnapshot(): Snapshot {
-  return { settings } as Snapshot;
+  return { settings, agents: [] } as unknown as Snapshot;
 }
 
 const originalWindow = (globalThis as { window?: unknown }).window;
@@ -58,7 +58,7 @@ async function renderSettings(
   onSave: (next: LlmSettings) => Promise<{ ok: true } | { ok: false; error: string }>,
   onDirtyChange = vi.fn(),
   windowApi: Record<string, unknown> = {},
-  initialSection?: "models" | "git",
+  initialSection?: SettingsSection,
 ) {
   (globalThis as { window?: unknown }).window = {
     deer: {
@@ -210,5 +210,19 @@ describe("t190 Settings draft/save safety", () => {
       .find((button) => (button.props.className as string).includes("active"));
     expect(active).toBeTruthy();
     expect(textOf(active!.children)).toContain("模型");
+  });
+
+  it("t337 keeps member editing read-only in Settings and points to Team", async () => {
+    const { renderer } = await renderSettings(
+      vi.fn(async () => ({ ok: true as const })),
+      vi.fn(),
+      {},
+      "team",
+    );
+    const text = textOf(renderer.toJSON());
+    expect(text).toContain("成员的提示词、人格与模型在「团队」页点击成员编辑");
+    expect(text).toContain("这里只设置默认模型");
+    expect(text).not.toContain("新建成员");
+    expect(text).not.toContain("删除成员");
   });
 });

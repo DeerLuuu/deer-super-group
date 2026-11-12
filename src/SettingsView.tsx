@@ -13,7 +13,7 @@ import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation";
 import { formatError } from "./shared/copy";
 import { GitSettingsPanel } from "./git/ui/GitPanels";
 
-type SettingsSection =
+export type SettingsSection =
   | "models"
   | "interface"
   | "translation"
