@@ -8825,3 +8825,64 @@ body li {
     padding: 8px;
   }
 }
+
+/* t323：重面板懒加载 fallback/错误态；占满 panel，避免 Dock 高度跳动。 */
+.lazy-panel-fallback,
+.lazy-panel-error {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 320px;
+  height: 100%;
+  padding: 20px;
+}
+
+.lazy-panel-fallback {
+  justify-content: flex-start;
+}
+
+.lazy-panel-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+  width: 100%;
+}
+
+.lazy-panel-skeleton span {
+  display: block;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--panel), var(--panel-2), var(--panel));
+  background-size: 200% 100%;
+  animation: lazy-panel-shimmer 1.2s ease-in-out infinite;
+}
+
+.lazy-panel-skeleton span:nth-child(1) { width: 42%; }
+.lazy-panel-skeleton span:nth-child(2) { width: 88%; }
+.lazy-panel-skeleton span:nth-child(3) { width: 64%; }
+
+.lazy-panel-error {
+  align-items: flex-start;
+  justify-content: center;
+}
+
+@keyframes lazy-panel-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (max-width: 480px) {
+  .lazy-panel-fallback,
+  .lazy-panel-error {
+    min-height: 240px;
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lazy-panel-skeleton span {
+    animation: none;
+  }
+}
