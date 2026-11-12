@@ -264,52 +264,7 @@ describe("GitGraphPanel", () => {
     }
   });
 
-  // t389：repo 探测尚未返回时不能把「未知」误当成 unborn，闪出首提引导。
-  it("does not show the first-commit guide while repo status is still loading", async () => {
-    const previous = (globalThis as { window?: unknown }).window;
-    let resolveRepo!: (value: unknown) => void;
-    const pendingRepo = new Promise<unknown>((resolve) => {
-      resolveRepo = resolve;
-    });
-    (globalThis as { window?: unknown }).window = {
-      deer: {
-        gitRepo: () => pendingRepo,
-        gitGraph: async () => ({ ok: false }),
-        gitRefs: async () => ({ ok: false }),
-        gitCommit: async () => ({ ok: false }),
-        gitStatus: async () => ({ ok: false }),
-        gitDiff: async () => ({ ok: false }),
-      },
-    };
-    let renderer: ReturnType<typeof TestRenderer.create> | null = null;
-    try {
-      await act(async () => {
-        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws-loading-first-commit" />);
-        await Promise.resolve();
-      });
-      const root = renderer!.root;
-      const workspaceTab = root
-        .findAllByType("button")
-        .find((button: { props: { children?: unknown } }) => {
-          const children = button.props.children;
-          return Array.isArray(children)
-            ? children.some((child) => (typeof child === "string" ? child.trim() === "工作区" : false))
-            : children === "工作区";
-        });
-      expect(workspaceTab).toBeTruthy();
-      await act(async () => {
-        (workspaceTab!.props.onClick as () => void)();
-        await Promise.resolve();
-      });
-      expect(JSON.stringify(renderer!.toJSON())).not.toContain("首次提交");
-      resolveRepo({ ok: false });
-    } finally {
-      renderer?.unmount();
-      (globalThis as { window?: unknown }).window = previous;
-    }
-  });
-
-  // t352 G1：写闭环——勾选暂存、提交框、guard 错误 inline 提示、首次提交引导。
+  // t352 G1：写闭环——勾选暂存、提交框、guard 错误 inline 提示。
   it("stages selected files, submits commit, and shows guard errors inline", async () => {
     const sha = "c".repeat(40);
     const repo = {
@@ -510,7 +465,7 @@ describe("GitGraphPanel", () => {
     }
   });
 
-  it("shows the first-commit guide and disables commit without staged files on an unborn repo", async () => {
+  it("keeps workspace controls but shows no first-commit guide on an unborn repo", async () => {
     const repo = {
       workspaceId: "ws1",
       workspacePath: "/tmp/repo",
@@ -577,7 +532,7 @@ describe("GitGraphPanel", () => {
         for (let index = 0; index < 8; index += 1) await Promise.resolve();
       });
       const json = JSON.stringify(renderer!.toJSON());
-      expect(json).toContain("首次提交");
+      expect(json).not.toContain("首次提交");
       expect(json).toContain("尚无提交"); // graph 空态文案
       const submit = root.findAllByType("button").find((node: any) =>
         String(node.props.children ?? "").includes("提交（0 个文件）"),
