@@ -58,6 +58,7 @@ async function renderSettings(
   onSave: (next: LlmSettings) => Promise<{ ok: true } | { ok: false; error: string }>,
   onDirtyChange = vi.fn(),
   windowApi: Record<string, unknown> = {},
+  initialSection?: "models" | "git",
 ) {
   (globalThis as { window?: unknown }).window = {
     deer: {
@@ -74,6 +75,7 @@ async function renderSettings(
         onSave={onSave}
         onDirtyChange={onDirtyChange}
         onReload={() => {}}
+        initialSection={initialSection}
       />,
     );
     await Promise.resolve();
@@ -193,5 +195,20 @@ describe("t190 Settings draft/save safety", () => {
     ).toBe(8);
     expect(textOf(renderer.toJSON())).toContain("已保存");
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("t251 opens the models section when requested by recovery/first-run", async () => {
+    const { renderer } = await renderSettings(
+      vi.fn(async () => ({ ok: true as const })),
+      vi.fn(),
+      {},
+      "models",
+    );
+    const active = renderer.root
+      .findAllByType("button")
+      .filter((button) => (button.props.className as string)?.includes("settings-nav-item"))
+      .find((button) => (button.props.className as string).includes("active"));
+    expect(active).toBeTruthy();
+    expect(textOf(active!.children)).toContain("模型");
   });
 });

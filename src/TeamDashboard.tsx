@@ -197,6 +197,22 @@ export default function TeamDashboard({
               <span className="team-member-count">{snapshot.tasks.length}</span>
             </button>
 
+            {members.filter((member) => !member.isRouter).length === 0 ? (
+              <EmptyState
+                compact
+                icon="✦"
+                title="还没有团队成员"
+                description="创建一位执行成员，Router 才能把任务交给它运行。"
+                actions={[
+                  {
+                    label: "新建成员",
+                    onClick: () => openAgentDialog(null),
+                    primary: true,
+                  },
+                ]}
+              />
+            ) : null}
+
             {members.map((member) => {
               const owned = snapshot.tasks.filter(
                 (task) => task.ownerId === member.id,
@@ -369,6 +385,7 @@ function ProgressHeader({
               className="ghost tiny"
               onClick={onOpenMergeQueue}
               title="打开合并队列（串行合并、检查与冲突处理）"
+              aria-label="打开合并队列（合并确认在此执行）"
             >
               合并队列
             </button>

@@ -8212,6 +8212,148 @@ body li {
 
 /* Team 统一进入 Task Workspace；不再渲染任务详情副本。 */
 
+/* P0-7 首用就绪 / 错误恢复 / 空态 */
+.first-run-card {
+  display: grid;
+  gap: 8px;
+  margin: 8px 10px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.first-run-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.first-run-card-content {
+  display: grid;
+  gap: 8px;
+}
+
+.first-run-checks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.first-run-checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 10px;
+}
+
+.first-run-checks li > span[aria-hidden="true"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  font-size: 9px;
+}
+
+.first-run-checks li.is-ok > span[aria-hidden="true"] {
+  background: color-mix(in srgb, var(--status-done) 20%, transparent);
+  color: var(--status-done);
+}
+
+.first-run-checks li.is-missing > span[aria-hidden="true"] {
+  background: color-mix(in srgb, var(--status-queued) 22%, transparent);
+  color: var(--status-queued);
+}
+
+.first-run-checks .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.first-run-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.first-run-ready {
+  color: var(--status-done);
+  font-size: 11px;
+}
+
+.first-run-blocked {
+  color: var(--status-queued);
+  font-size: 11px;
+}
+
+.first-run-collapsed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 10px 0;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.error-recovery {
+  display: grid;
+  gap: 6px;
+  margin: 8px 10px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--status-failed) 36%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--status-failed) 7%, var(--panel));
+}
+
+.error-recovery-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.error-recovery-summary {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.error-recovery-detail {
+  margin: 0;
+  padding: 6px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 960px) {
+  .first-run-checks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .first-run-card {
+    margin: 6px 8px 0;
+  }
+}
+
 /* P0-4 Plan Draft */
 .plan-draft-panel {
   display: grid;
