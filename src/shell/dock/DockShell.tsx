@@ -1,12 +1,10 @@
 import {
-  createContext,
   forwardRef,
   useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import {
   DockviewApi,
@@ -41,6 +39,7 @@ import {
   dockGroupLimitMessage,
   effectiveMaxDockGroups,
 } from "./dockGroups";
+import { PanelHost } from "../panel/PanelHost";
 
 /**
  * t50 VSCode 风格 Dock 容器（dockview-react 8.9.0，按 docs/team/dock-layout-design.md）。
@@ -106,19 +105,11 @@ export function reconcileSingleLayout(
   }
 }
 
-const PanelContentContext = createContext<(key: PanelKey) => ReactNode>(
-  () => null,
-);
-
 function DockPanelBody(props: IDockviewPanelProps) {
   return (
-    <PanelContentContext.Consumer>
-      {(render) => (
-        <div className="dock-panel-body" data-panel={props.api.id} tabIndex={-1}>
-          {render(props.api.id as PanelKey)}
-        </div>
-      )}
-    </PanelContentContext.Consumer>
+    <div className="dock-panel-body" data-panel={props.api.id} tabIndex={-1}>
+      <PanelHost panelKey={props.api.id as PanelKey} />
+    </div>
   );
 }
 
@@ -141,7 +132,6 @@ export default forwardRef<DockHandle, {
   /** t208：全局最大分栏数（2–8，默认 6），来自 LayoutSettings。 */
   maxGroups: number;
   initialPanelKey: PanelKey | null;
-  renderPanel: (key: PanelKey) => ReactNode;
   onActivePanelChange: (key: PanelKey) => void;
   /** t237：计划草案面板被 X 关闭时通知 App 做 dirty 确认/恢复。 */
   onPanelClose?: (key: PanelKey) => void;
@@ -153,7 +143,6 @@ export default forwardRef<DockHandle, {
     windowWidth,
     maxGroups,
     initialPanelKey,
-    renderPanel,
     onActivePanelChange,
     onPanelClose,
     onNotify,
@@ -573,15 +562,13 @@ export default forwardRef<DockHandle, {
 
   return (
     <div className="dock-shell" ref={hostRef}>
-      <PanelContentContext.Provider value={renderPanel}>
-        <DockviewReact
-          components={PANEL_COMPONENTS}
-          defaultTabComponent={DockTab}
-          onReady={onReady}
-          onWillDrop={onWillDrop}
-          className="dock-root"
-        />
-      </PanelContentContext.Provider>
+      <DockviewReact
+        components={PANEL_COMPONENTS}
+        defaultTabComponent={DockTab}
+        onReady={onReady}
+        onWillDrop={onWillDrop}
+        className="dock-root"
+      />
       {panelCount === 0 && (
         <div className="dock-watermark">
           <div className="panel-title">所有面板已关闭</div>
