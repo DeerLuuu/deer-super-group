@@ -1958,7 +1958,7 @@ export default function App() {
         await executeKernelAction(
           `run:${intent.run.id}`,
           () => window.deer.cancelRun(intent.run.id),
-          `已取消 Run #${intent.run.attempt ?? 1}（${intent.taskTitle}）`,
+          `已取消执行 #${intent.run.attempt ?? 1}（${intent.taskTitle}）`,
         );
         break;
       case "pause":
@@ -2156,7 +2156,7 @@ export default function App() {
       pushToast({
         kind: "success",
         message: `已删除任务「${task.title}」${
-          result.removedRuns > 0 ? `，清理 ${result.removedRuns} 条 Run` : ""
+          result.removedRuns > 0 ? `，清理 ${result.removedRuns} 条运行记录` : ""
         }`,
       });
       return true;
@@ -4248,17 +4248,17 @@ function KernelConfirmModal({
         )}
         {intent.kind === "cancelTask" && (
           <div className="notice small">
-            取消不会删除任务与已有 Run 记录；需要重跑请新建任务或使用「重试」（仅失败任务）。
+            取消不会删除任务与已有运行记录；需要重跑请新建任务或使用「重试」（仅失败任务）。
           </div>
         )}
         {intent.kind === "cancelRun" && (
           <div className="notice small">
-            Run 级取消只影响本次执行；任务可选择「重试」重新入队。
+            本次执行级取消只影响这一轮；任务可选择「重试」重新入队。
           </div>
         )}
         {intent.kind === "resume" && (
           <div className="notice small">
-            恢复不是危险操作，此处确认用于避免误触；运行中的 Run 不受影响。
+            恢复不是危险操作，此处确认用于避免误触；运行中的任务执行不受影响。
           </div>
         )}
         <div className="modal-foot">
@@ -4831,7 +4831,7 @@ function TasksView({
                   <div className="muted tiny task-workspace-meta">
                     <span>负责人：{selectedOwner?.name ?? "未分配"}</span>
                     <span>优先级：{selectedTask.priority ?? 50}</span>
-                    <span>当前 Run：{currentRun ? currentRun.id.slice(0, 10) : "无"}</span>
+                    <span>当前执行：{currentRun ? currentRun.id.slice(0, 10) : "无"}</span>
                   </div>
                   <TaskContractChips
                     contract={contract}
@@ -4890,7 +4890,7 @@ function TasksView({
                       actionBusy === `task:cancel:${selectedTask.id}`
                     }
                     onClick={() => onCancelTask(selectedTask)}
-                    title={actionState?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
+                    title={actionState?.cancel.reason || "取消任务：正在执行的任务会中止，取消是终态"}
                     aria-describedby={
                       actionState?.cancel.enabled ? undefined : "task-action-hint"
                     }
@@ -5169,9 +5169,9 @@ function TasksView({
                 tabIndex={0}
               >
                 <div className="task-history-runs">
-                  <div className="section-label">最近 Run（{runs.length}）</div>
+                  <div className="section-label">最近执行（{runs.length}）</div>
                   {runs.length === 0 ? (
-                    <div className="empty small">还没有 Run。</div>
+                    <div className="empty small">还没有执行记录。</div>
                   ) : (
                     <ul className="task-history-run-list">
                       {runs.slice(0, 8).map((run) => (
@@ -5218,11 +5218,11 @@ function TasksView({
       {deleteOpen && selectedTask && (
         <DangerConfirmModal
           title="删除任务？"
-          description="任务、Run 历史与摘要会被永久删除；事件日志保留。"
+          description="任务、运行记录与摘要会被永久删除；事件日志保留。"
           subject={selectedTask.title}
           subjectLabel="任务标题"
           impact={[
-            "任务及其 Run 历史、摘要、行级评审数据会被清理。",
+            "任务及其运行记录、摘要、行级评审数据会被清理。",
             "事件日志保留，但任务不再出现在任务列表/星图。",
             "仍有其他任务依赖它时，删除会被拒绝。",
             "运行中/排队中的任务需先取消。",

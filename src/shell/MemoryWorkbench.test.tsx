@@ -7,7 +7,7 @@ vi.mock("../Modal", () => ({
   default: ({ children }: { children: unknown }) => children,
 }));
 
-import MemoryWorkbench from "./MemoryWorkbench.js";
+import MemoryWorkbench, { MEMORY_TAB_HELP } from "./MemoryWorkbench.js";
 
 const agent: Agent = {
   id: "a1",
@@ -240,6 +240,10 @@ describe("MemoryWorkbench", () => {
     expect(html).toContain("黑板");
     expect(html).toContain("备忘录");
     expect(html).toContain("归档审批");
+    expect(html).toContain("黑板：团队共享的长期记忆");
+    expect(MEMORY_TAB_HELP.board.body).toContain("发布事实");
+    expect(MEMORY_TAB_HELP.memo.body).toContain("成员");
+    expect(MEMORY_TAB_HELP.archive.body).toContain("下线提案");
     expect(html).toContain('aria-label="检索记忆"');
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
@@ -383,6 +387,73 @@ describe("MemoryWorkbench", () => {
       expect(textOf(root.findAllByType("div").map((node) => node.props.children))).toContain("memory down");
       expect(buttonByText(root, "重试")).toBeTruthy();
       expect(root.findAllByType("div").filter((node) => node.props.role === "alert").length).toBeGreaterThan(0);
+    } finally {
+      if (renderer) await rtr.act(async () => renderer!.unmount());
+    }
+  });
+
+  it("t341 explains tabs and shows empty-state CTAs", async () => {
+    // @ts-expect-error react-test-renderer 19.x ships without type declarations
+    const rtr = (await import("react-test-renderer")) as {
+      default: {
+        create: (node: React.ReactElement) => {
+          root: { findAllByType: (type: string) => Array<{ props: Record<string, unknown> }> };
+          unmount: () => void;
+        };
+      };
+      act: (fn: () => Promise<void> | void) => Promise<void>;
+    };
+    const deer = installWindow();
+    const empty = snapshot();
+    deer.getMemorySnapshot.mockResolvedValue({
+      ...empty,
+      entries: [],
+      memos: [],
+      proposals: [],
+      counts: {
+        ...empty.counts,
+        boardActive: 0,
+        boardArchived: 0,
+        memosActive: 0,
+        proposalsPending: 0,
+      },
+    });
+    let renderer: { root: { findAllByType: (type: string) => Array<{ props: Record<string, unknown> }> }; unmount: () => void } | null = null;
+    try {
+      await rtr.act(async () => {
+        renderer = rtr.default.create(
+          <MemoryWorkbench
+            workspaceId="w1"
+            agents={[agent]}
+            selectedBoard={null}
+            onSelectBoard={() => undefined}
+            autoOpenPublish={false}
+            onAutoOpenHandled={() => undefined}
+            onNotify={() => undefined}
+          />,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const root = renderer!.root;
+      const memoTab = buttonByText(root, "备忘录");
+      await rtr.act(async () => {
+        (memoTab!.props.onClick as () => void)();
+        await Promise.resolve();
+      });
+      expect(buttonByText(root, "新建备忘录")).toBeTruthy();
+      expect(buttonByText(root, "去黑板发布")).toBeTruthy();
+      const archiveTab = buttonByText(root, "归档审批");
+      await rtr.act(async () => {
+        (archiveTab!.props.onClick as () => void)();
+        await Promise.resolve();
+      });
+      expect(buttonByText(root, "去黑板查看条目")).toBeTruthy();
+      expect(
+        root.findAllByType("p").some((node) =>
+          textOf(node.props.children).includes("归档审批：让过时记忆退出"),
+        ),
+      ).toBe(true);
     } finally {
       if (renderer) await rtr.act(async () => renderer!.unmount());
     }

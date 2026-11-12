@@ -153,7 +153,7 @@ export default function RunPanel({
               className="ghost small"
               onClick={onPause}
               disabled={pauseBusy || !scheduler}
-              title="暂停调度：运行中的 Run 继续，队列不启动"
+              title="暂停调度：运行中的任务继续，队列不启动"
             >
               {busy === "scheduler:pause" ? "暂停中…" : "暂停调度"}
             </button>
@@ -167,7 +167,7 @@ export default function RunPanel({
       {paused && (
         <div className="notice small run-panel-paused" role="status">
           调度已暂停{scheduler?.pausedReason ? `（${scheduler.pausedReason}）` : ""}
-          ；运行中的 Run 会继续，排队的任务不会启动。
+          ；运行中的任务会继续，排队的任务不会启动。
         </div>
       )}
       {schedulerError && (
@@ -180,7 +180,7 @@ export default function RunPanel({
       )}
 
       <div className="run-panel-body">
-        <section className="run-panel-list" aria-label="活跃 Run、队列与历史">
+        <section className="run-panel-list" aria-label="活跃任务执行、队列与历史">
           {schedulerLoading ? (
             <div className="run-panel-skeleton" role="status" aria-live="polite">
               正在加载调度队列…
@@ -188,11 +188,16 @@ export default function RunPanel({
           ) : (
             <>
               <div className="run-section-head">
-                <span className="section-label">活跃 Run</span>
+                <span className="section-label">活跃执行</span>
                 <span className="muted tiny">{scheduler?.activeRuns.length ?? 0} 个</span>
               </div>
               {(scheduler?.activeRuns.length ?? 0) === 0 ? (
-                <div className="empty small">当前没有运行中的 Run。</div>
+                <div className="empty small">
+                  当前没有运行中的任务执行。
+                  <button type="button" className="ghost tiny" onClick={onOpenTasks}>
+                    去任务页运行
+                  </button>
+                </div>
               ) : (
                 <ul className="run-list">
                   {scheduler?.activeRuns.map((run) => {
@@ -278,7 +283,7 @@ export default function RunPanel({
                   compact
                   icon="▷"
                   title="选择一个任务"
-                  description="从上方活跃 Run/队列选择，或去任务页选择任务；这里会展示它的全部 Run 与时间线。"
+                  description="从上方活跃执行/队列选择，或去任务页选择任务；这里会展示它的全部执行记录与时间线。"
                   actions={[{ label: "打开任务页", onClick: onOpenTasks, primary: true }]}
                 />
               ) : (
@@ -379,7 +384,7 @@ export default function RunPanel({
                       disabled={
                         !actions?.cancel.enabled || busy === `task:cancel:${selectedTask.id}`
                       }
-                      title={actions?.cancel.reason || "取消任务：运行中的 Run 会中止，取消是终态"}
+                      title={actions?.cancel.reason || "取消任务：正在执行的任务会中止，取消是终态"}
                       aria-describedby={
                         actions?.cancel.enabled ? undefined : "run-panel-action-hint"
                       }
@@ -407,7 +412,7 @@ export default function RunPanel({
                   )}
                   {runsError && (
                     <div className="run-panel-error" role="alert">
-                      <span>Run 记录读取失败：{runsError}</span>
+                      <span>运行记录读取失败：{runsError}</span>
                       <button type="button" className="ghost tiny" onClick={onReloadRuns}>
                         重试
                       </button>
@@ -415,7 +420,7 @@ export default function RunPanel({
                   )}
                   {runsLoading && sortedRuns.length === 0 ? (
                     <div className="run-panel-skeleton" role="status" aria-live="polite">
-                      正在加载 Run 历史…
+                      正在加载运行记录…
                     </div>
                   ) : sortedRuns.length === 0 ? (
                     <div className="empty small">该任务还没有执行记录。</div>
@@ -441,7 +446,7 @@ export default function RunPanel({
           )}
         </section>
 
-        <section className="run-panel-detail" aria-label="Run 详情与时间线">
+        <section className="run-panel-detail" aria-label="执行详情与时间线" title="Run 详情与时间线">
           {selectedRun ? (
             <RunDetail
               run={selectedRun}
@@ -453,8 +458,8 @@ export default function RunPanel({
           ) : (
             <EmptyState
               icon="▷"
-              title="没有选中的 Run"
-              description="选择左侧的活跃 Run / 历史 Run，或从任务页「在运行面板打开」带 Run id 跳转。"
+              title="没有选中的执行记录"
+              description="选择左侧的活跃执行 / 历史执行，或从任务页「在运行面板打开」带执行 id 跳转（技术字段 Run）。"
               actions={[{ label: "打开任务页", onClick: onOpenTasks }]}
             />
           )}

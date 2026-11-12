@@ -167,12 +167,12 @@ describe("t69 调度/Run UI 静态渲染", () => {
         onRetryTask={noop}
       />,
     );
-    expect(html).toContain("Run 历史");
+    expect(html).toContain("运行记录");
     expect(html).toContain("#1");
     expect(html).toContain("失败");
     expect(html).toContain("租约过期");
     expect(html).toContain("1.2k / 340");
-    expect(html).toContain("Run 事件");
+    expect(html).toContain("执行事件");
     expect(html).toContain("重试任务");
   });
 
@@ -212,7 +212,7 @@ describe("t69 调度/Run UI 静态渲染", () => {
         onRetryTask={noop}
       />,
     );
-    expect(loading).toContain("正在加载 Run 记录");
+    expect(loading).toContain("正在加载运行记录");
   });
 });
 
@@ -400,9 +400,9 @@ describe("t107 SSR 交互断言", () => {
         onRetryTask={noop}
       />,
     );
-    expect(html).toContain("取消 Run");
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>[^<]*取消 Run/);
-    expect(html).toContain("仅运行中（running）的 Run 可以取消");
+    expect(html).toContain("取消执行");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>[^<]*取消执行/);
+    expect(html).toContain("仅运行中（running）的执行可以取消");
   });
 
   // t113 F4：同一树中两个 RunDetail（双面板同屏）的 hint id 不冲突。

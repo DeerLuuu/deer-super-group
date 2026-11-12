@@ -35,6 +35,21 @@ const MEMO_KIND_LABEL: Record<MemoKind, string> = {
 };
 const CONFIDENCE_LABEL: Record<Confidence, string> = { low: "低", medium: "中", high: "高" };
 
+export const MEMORY_TAB_HELP: Record<MemoryTab, { title: string; body: string }> = {
+  board: {
+    title: "黑板：团队共享的长期记忆",
+    body: "发布事实、决策、警告与产物，让成员和下一轮任务都能检索；任务完成后先来这里沉淀。",
+  },
+  memo: {
+    title: "备忘录：成员自己的经验",
+    body: "查看当前成员在任务中写下的教训、失败与捷径；适合复盘个人方法，不替代团队黑板。",
+  },
+  archive: {
+    title: "归档审批：让过时记忆退出",
+    body: "处理系统按 TTL/陈旧度生成的下线提案；批准前请确认条目已过时，避免误删仍有效的决策。",
+  },
+};
+
 function formatTime(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -379,6 +394,11 @@ export default function MemoryWorkbench({
           ))}
         </div>
 
+        <p className="memory-tab-help" role="note" aria-live="polite">
+          <strong>{MEMORY_TAB_HELP[tab].title}</strong>
+          <span>{MEMORY_TAB_HELP[tab].body}</span>
+        </p>
+
         <div className="memory-search-row">
           <label className="memory-search">
             <span className="muted tiny">检索记忆</span>
@@ -487,6 +507,7 @@ export default function MemoryWorkbench({
               onMemoSearch={setMemoSearch}
               onToggleKind={toggleMemoKind}
               onNew={() => setMemoOpen(true)}
+              onGoBoard={() => switchTab("board")}
               onDialog={setDialog}
               loading={loading}
               privacyNote={
@@ -500,6 +521,7 @@ export default function MemoryWorkbench({
               proposals={snapshot?.proposals ?? []}
               archivedEntries={(snapshot?.entries ?? []).filter((entry) => entry.status === "archived")}
               onDecide={(proposal) => setDialog({ kind: "decide", proposal })}
+              onGoBoard={() => switchTab("board")}
               onRestore={(entry) =>
                 act(() => window.deer.restoreBoardEntry({ workspaceId, entryId: entry.id }), "已恢复归档条目")
               }
@@ -822,6 +844,7 @@ function MemoTab({
   onMemoSearch,
   onToggleKind,
   onNew,
+  onGoBoard,
   onDialog,
   loading,
   privacyNote,
@@ -835,6 +858,7 @@ function MemoTab({
   onMemoSearch: (value: string) => void;
   onToggleKind: (kind: MemoKind) => void;
   onNew: () => void;
+  onGoBoard: () => void;
   onDialog: (dialog: { kind: "memoVerify" | "memoArchive" | "memoPromote"; memo: Memo }) => void;
   loading: boolean;
   privacyNote: string;
@@ -883,7 +907,15 @@ function MemoTab({
       </div>
       {loading && memos.length === 0 ? <p className="muted">加载中…</p> : null}
       {!loading && memos.length === 0 ? (
-        <EmptyState compact title="该成员还没有备忘录" description="Agent 可通过 memo.write 写入自己的经验；人类也可显式代写。" />
+        <EmptyState
+          compact
+          title="该成员还没有备忘录"
+          description="Agent 可通过 memo.write 写入自己的经验；人类也可显式代写。"
+          actions={[
+            { label: "新建备忘录", onClick: onNew, primary: true },
+            { label: "去黑板发布", onClick: onGoBoard },
+          ]}
+        />
       ) : null}
       <div className="memory-list">
         {memos.map((memo) => (
@@ -925,6 +957,7 @@ function ArchiveTab({
   onDecide,
   onRestore,
   onMaintenance,
+  onGoBoard,
   busy,
 }: {
   proposals: BoardArchiveProposal[];
@@ -932,6 +965,7 @@ function ArchiveTab({
   onDecide: (proposal: BoardArchiveProposal) => void;
   onRestore: (entry: BoardEntry) => Promise<boolean>;
   onMaintenance: () => void;
+  onGoBoard: () => void;
   busy: boolean;
 }) {
   const pending = proposals.filter((proposal) => proposal.status === "pending");
@@ -947,7 +981,12 @@ function ArchiveTab({
         </button>
       </div>
       {pending.length === 0 ? (
-        <EmptyState compact title="没有待归档提案" description="系统会按 TTL/stale 生成建议；也可在条目上手动建议归档。" />
+        <EmptyState
+          compact
+          title="没有待归档提案"
+          description="系统会按 TTL/陈旧度生成建议；也可在条目上手动建议归档。"
+          actions={[{ label: "去黑板查看条目", onClick: onGoBoard, primary: true }]}
+        />
       ) : (
         <div className="memory-list">
           {pending.map((proposal) => {

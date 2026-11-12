@@ -208,7 +208,7 @@ export default function PollPanel({
               compact
               icon="◇"
               title={filter === "open" ? "还没有进行中的投票" : "没有匹配的投票"}
-              description="创建单选/多选投票，设置阈值、quorum 与截止时间。"
+              description="创建单选/多选投票，设置阈值、投票门槛与截止时间。"
               actions={[{ label: "新建投票", primary: true, onClick: () => setShowCreate(true) }]}
             />
           ) : (
@@ -275,7 +275,7 @@ function PollCard({ poll, active, onSelect }: { poll: Poll; active: boolean; onS
         {poll.mode === "single" ? "单选" : `多选${poll.maxSelections ? ` · 最多 ${poll.maxSelections}` : ""}`}
         {" · "}
         {poll.result.totalBallots} 票
-        {poll.quorum > 0 ? ` · quorum ${poll.quorum}` : ""}
+        {poll.quorum > 0 ? ` · 投票门槛 ${poll.quorum}` : ""}
       </span>
       <span className="poll-card-meta">
         {formatRemaining(poll.closesAt, Date.now())} · {thresholdLabel(poll.thresholdRule, poll.thresholdValue)}
@@ -369,7 +369,7 @@ function PollDetail({
             <span className={`badge poll-badge-${poll.status}`}>{pollStatusLabel(poll.status)}</span>
             <span>{poll.mode === "single" ? "单选" : "多选"}</span>
             <span>{thresholdLabel(poll.thresholdRule, poll.thresholdValue)}</span>
-            <span>{poll.quorum > 0 ? `quorum ${poll.quorum}` : "无 quorum"}</span>
+            <span>{poll.quorum > 0 ? `投票门槛 ${poll.quorum}` : "无投票门槛"}</span>
             <span>{formatRemaining(poll.closesAt, nowMs)}</span>
             {poll.anonymous && <span className="badge muted">匿名展示</span>}
           </div>
@@ -457,7 +457,7 @@ export function PollResults({ poll }: { poll: Poll }) {
       <div className="poll-results-head">
         <strong>结果</strong>
         <span className="muted">
-          {poll.result.totalBallots} 票 · {poll.result.quorumMet ? "达到 quorum" : `未达 quorum（${poll.quorum}）`}
+          {poll.result.totalBallots} 票 · {poll.result.quorumMet ? "达到投票门槛" : `未达投票门槛（${poll.quorum}）`}
         </span>
       </div>
       <ul className="poll-result-list" role="list">
@@ -484,8 +484,8 @@ export function PollResults({ poll }: { poll: Poll }) {
       </ul>
       <div className="poll-threshold-note">
         采纳规则：{thresholdLabel(poll.thresholdRule, poll.thresholdValue)}
-        {poll.quorum > 0 ? ` · quorum ${poll.quorum}` : ""}
-        {poll.result.insufficientQuorum ? " · quorum 未达到，不产生采纳项" : ""}
+        {poll.quorum > 0 ? ` · 投票门槛 ${poll.quorum}` : ""}
+        {poll.result.insufficientQuorum ? " · 投票门槛未达到，不产生采纳项" : ""}
       </div>
     </section>
   );
@@ -593,7 +593,7 @@ function CreatePollModal({
   return (
     <Modal
       title="新建团队投票"
-      description="明确问题、候选、阈值、quorum 和截止时间；关闭后生成 decision。"
+      description="明确问题、候选、阈值、投票门槛和截止时间；关闭后生成 decision。"
       onClose={onClose}
       confirmClose={dirty}
       className="poll-create-modal"

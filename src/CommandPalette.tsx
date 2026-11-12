@@ -142,8 +142,8 @@ export default function CommandPalette({
     if (onPanelAction) {
       const panelCommands: Array<{ id: PanelAction; label: string; hint: string }> = [
         { id: "open-context", label: "打开 上下文面板", hint: "对话的上下文可视化" },
-        { id: "open-runs", label: "打开 运行面板", hint: "调度队列、Run 历史与时间线" },
-        { id: "open-polls", label: "打开 团队投票", hint: "单选/多选、阈值/quorum/decision" },
+        { id: "open-runs", label: "打开 运行面板", hint: "调度队列、运行记录与时间线" },
+        { id: "open-polls", label: "打开 团队投票", hint: "单选/多选、投票门槛/采纳结果" },
         { id: "close-active", label: "关闭当前面板", hint: "Ctrl+Alt+W · 设置面板不可关闭" },
         { id: "move-left", label: "移动当前面板：向左", hint: "Ctrl+Shift+Alt+←" },
         { id: "move-right", label: "移动当前面板：向右", hint: "Ctrl+Shift+Alt+→" },
@@ -165,7 +165,7 @@ export default function CommandPalette({
         { id: "open-merge-queue", label: "打开 合并队列", hint: "#/tasks?merge=1 · 串行合并与检查" },
         { id: "open-git-settings", label: "打开 Git 设置", hint: "#/settings?git=1 · 仓库/分支/PR 配置" },
         { id: "open-task-vcs", label: "打开 当前任务 Git 状态", hint: "#/tasks?t=&vcs=1 · 分支/PR/检查/合并" },
-        { id: "open-task-review", label: "打开 当前任务行级评审", hint: "#/tasks?t=&review=1 · diff/评论/blocker" },
+        { id: "open-task-review", label: "打开 当前任务行级评审", hint: "#/tasks?t=&review=1 · diff/评论/阻塞项" },
       ];
       for (const command of gitCommands) {
         list.push({

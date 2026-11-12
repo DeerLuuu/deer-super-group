@@ -8984,3 +8984,78 @@ button.task-contract-chip:focus-visible {
     max-width: 100% !important;
   }
 }
+
+/* t341：模型配置 5 分钟路径与记忆 tab 说明 */
+.settings-model-path {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-model-path li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  font-size: 12px;
+}
+
+.settings-model-path li span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-inline-error {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  color: var(--red);
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.settings-advanced {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.settings-advanced > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-advanced .provider-grid {
+  margin-top: 8px;
+}
+
+@media (max-width: 720px) {
+  .settings-model-path {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.memory-tab-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.memory-tab-help strong {
+  color: var(--text);
+}

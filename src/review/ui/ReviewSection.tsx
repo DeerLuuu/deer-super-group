@@ -285,7 +285,7 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
                 ) : null}
               </span>
             ))}
-            <span className="muted tiny">审批 {summary.target.approvalCount}/1 · blocker {blockers}</span>
+            <span className="muted tiny" title="blocker">审批 {summary.target.approvalCount}/1 · 阻断项 {blockers}</span>
           </div>
 
           <div className="review-layout">
@@ -526,7 +526,7 @@ export default function ReviewSection({ taskId, onNotify }: ReviewSectionProps) 
               </button>
               {!canDecide ? (
                 <span id="review-decision-hint" className="muted tiny">
-                  存在 blocker、无评审人或评审已过期，不能通过
+                  存在阻断项、无评审人或评审已过期，不能通过
                 </span>
               ) : null}
             </div>

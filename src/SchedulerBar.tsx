@@ -120,7 +120,7 @@ export default function SchedulerBar({
               onClick={onPause}
               disabled={pauseBusy || !scheduler}
               aria-pressed={false}
-              title="暂停调度：运行中的 Run 继续，新的排队任务不会启动"
+              title="暂停调度：运行中的任务继续，新的排队任务不会启动"
             >
               {busy === "scheduler:pause" ? "暂停中…" : "暂停调度"}
             </button>
