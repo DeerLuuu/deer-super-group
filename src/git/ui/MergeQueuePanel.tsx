@@ -82,7 +82,10 @@ export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, l
           </div>
       ) : null}
       {items !== null && loadError ? (
-        <p className="merge-queue-stale-note" role="status">最近刷新失败：{loadError}（保留上次成功快照）</p>
+        <div className="merge-queue-stale-note" role="status">
+          最近刷新失败：{loadError}（保留上次成功快照）
+          <button type="button" className="ghost tiny" onClick={() => void onReload()}>重试</button>
+        </div>
       ) : null}
       {actionError ? <div className="merge-queue-error" role="alert">{actionError} <button type="button" className="ghost tiny" onClick={() => void onReload()}>重试</button></div> : null}
       {items !== null && queue.length === 0 ? <p className="merge-queue-empty" role="status">队列为空。任务交付后可以在任务 Git 页加入合并队列。</p> : null}

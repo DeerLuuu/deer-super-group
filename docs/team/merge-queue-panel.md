@@ -36,7 +36,7 @@
 - `src/git/ui/MergeQueueLayer.test.tsx`：确认 Modal 进入公共 modal stack；Esc 只关闭顶层；focus 归还；设置 Modal 不被误关。
 - `src/shell/mergeQueuePanel.test.ts`：PanelKey/defaultClosed/closable、`mergeQueue` launcher、`?merge=1`、CSS 1440/960/720 contract。
 - 现有 `parseHash` mergeQueue 测试、team/workflow/needsMe 投影、useMergeQueue token/stale 测试保持。
-- 验证：typecheck 0；build 0（441 modules）；extended test 109 files/825 tests 全绿。
+- 验证：typecheck 0；build 0（441 modules）；extended test 110 files/827 tests 全绿。
 
 ## 4.1 t313 复验修复
 
@@ -45,6 +45,14 @@
 - F3：`useMergeQueue` 测试覆盖首次失败→重试→关闭→重新 active 再加载；App source contract 断言 `openPanel("mergeQueue")` 与 `onPanelClose` 复位。
 - F4：480 使用真实 480 viewport 截图（非 720 继承）。
 - F5：摘要等待包含 `queued`；冲突数按 `conflictTaskId` 汇总，面板测试断言。
+
+## 4.2 t315 复验修复
+
+- F1：冲突态真实 Electron 截图 [960](t315-960-conflict.png)、[480](t315-480-conflict.png)；1440 列表（含冲突行）见 `t313-1440-list.png`。失败态由 `MergeQueuePanel.test` 与 `useMergeQueue.test` 覆盖（真实 IPC 失败无法在不破坏用户数据下稳定注入）。
+- F2：新增 `MergeQueueRecovery.test`，对 sidebar/Team/launcher 按钮执行真实点击，关闭后三种入口均可恢复；hook/App 边界测试保留。
+- F3：`openPanel("mergeQueue")` 直接 `setMergeQueueOpen(true)` 并 reload，不再只依赖 `activePanelKey` 变化；关闭经 `onPanelClose` 复位。
+- F4：items 非空 + 刷新失败时显示 inline “最近刷新失败 + 重试”，测试覆盖。
+- F5/F6：等待含 queued、冲突汇总保持不变；既有 flake 不归因。
 
 ## 5. 回归与限制
 

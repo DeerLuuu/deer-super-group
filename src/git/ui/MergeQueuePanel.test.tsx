@@ -124,6 +124,20 @@ describe("MergeQueuePanel", () => {
     expect(JSON.stringify(renderer.toJSON())).toContain("Ship merge queue panel");
   });
 
+  it("keeps last-good list and offers inline retry when a refresh fails", async () => {
+    const { renderer, onReload } = mount([item()], { error: "refresh failed" });
+    expect(JSON.stringify(renderer.toJSON())).toContain("最近刷新失败：");
+    expect(JSON.stringify(renderer.toJSON())).toContain("refresh failed");
+    expect(JSON.stringify(renderer.toJSON())).toContain("Ship merge queue panel");
+    const retry = renderer.root.findAllByType("button").find((node: any) => node.children.includes("重试"));
+    await act(async () => {
+      retry!.props.onClick();
+      await Promise.resolve();
+    });
+    expect(onReload).toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
   it("shows loading, failure, empty and conflict states", () => {
     const loading = mount(null, { loading: true });
     expect(JSON.stringify(loading.renderer.toJSON())).toContain("加载合并队列");

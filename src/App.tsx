@@ -644,9 +644,13 @@ export default function App() {
       const route = routeTabFromPanel(key);
       if (route) setTab(route);
       setActivePanelKey(key);
+      if (key === "mergeQueue") {
+        setMergeQueueOpen(true);
+        void loadMergeQueue();
+      }
       dockRef.current?.openPanel(key);
     },
-    [settingsDirty, settingsOpen, tab],
+    [loadMergeQueue, settingsDirty, settingsOpen, tab],
   );
 
   function focusPanelNow(key: PrimaryRailKey): boolean {
