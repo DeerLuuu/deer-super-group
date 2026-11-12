@@ -49,6 +49,9 @@ describe("t247 FirstRunCard", () => {
       );
     });
     expect(renderer!.root.findAllByProps({ "aria-label": "就绪清单" })).toHaveLength(1);
+    expect(
+      renderer!.root.findAllByProps({ role: "region", "aria-label": "首用就绪" }),
+    ).toHaveLength(1);
     expect(textOf(renderer!.toJSON())).toContain("创建团队成员");
     expect(renderer!.root.findAllByType("button").filter((button) => button.props.className === "primary small")).toHaveLength(1);
     const collapse = renderer!.root

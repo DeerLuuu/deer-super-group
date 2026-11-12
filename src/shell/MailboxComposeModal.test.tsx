@@ -5,6 +5,7 @@ vi.mock("../Modal.js", () => ({
   default: ({ children }: { children: unknown }) => children,
 }));
 import { MailboxComposeModal } from "../App.js";
+import { writeThenRefresh } from "./writeThenRefresh.js";
 import type { Snapshot } from "../shared/types.js";
 
 const { act, create } = TestRenderer as {
@@ -51,5 +52,42 @@ describe("t255 MailboxComposeModal failure retention", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(subject.props.value).toBe("保留主题");
     expect(body.props.value).toBe("保留正文");
+  });
+
+  it("closes when send commits but refresh fails", async () => {
+    const onClose = vi.fn();
+    const write = vi.fn(async () => ({ id: "mail-1" }));
+    const onSend = vi.fn(async () => {
+      const result = await writeThenRefresh(write, async () => {
+        throw new Error("refresh failed");
+      });
+      expect(result.postError).toBeInstanceOf(Error);
+      return true;
+    });
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <MailboxComposeModal
+          snapshot={{ agents: [] } as unknown as Snapshot}
+          busy={false}
+          onClose={onClose}
+          onSend={onSend}
+        />,
+      );
+    });
+    const subject = renderer!.root.findAllByType("input")[1]!;
+    const body = renderer!.root.findAllByType("textarea")[0]!;
+    await act(() => {
+      (subject.props.onChange as (event: unknown) => void)({ target: { value: "已发送" } });
+      (body.props.onChange as (event: unknown) => void)({ target: { value: "正文" } });
+    });
+    const form = renderer!.root.findAllByType("form")[0]!;
+    await act(async () => {
+      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+        preventDefault: vi.fn(),
+      });
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

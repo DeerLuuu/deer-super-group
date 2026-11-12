@@ -86,6 +86,7 @@ import FirstRunCard from "./shell/FirstRunCard";
 import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
 import ApprovalTerms from "./shell/ApprovalTerms";
 import { deriveFirstRunState, resolveFirstRunKeyStatus } from "./shell/firstRunData";
+import { writeThenRefresh } from "./shell/writeThenRefresh";
 import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
 import {
   resolveTaskWorkspaceSource,
@@ -1811,31 +1812,43 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      const task = await window.deer.createTask({
-        workspaceId: current.workspace.id,
-        title,
-        description,
-        acceptance,
-      });
-      await refresh(current.workspace.id);
-      setSelectedTaskId(task.id);
-      await loadTrace(task.id);
-      openPanel("tasks");
-      // C26：成功 toast + 下一步动作。
-      pushToast({
-        kind: "success",
-        message: `已创建任务「${title}」`,
-        action: {
-          label: "查看",
-          onClick: () => {
-            setSelectedTaskId(task.id);
-            openPanel("tasks");
-          },
+      const { value: task, postError } = await writeThenRefresh(
+        () =>
+          window.deer.createTask({
+            workspaceId: current.workspace.id,
+            title,
+            description,
+            acceptance,
+          }),
+        async (created) => {
+          setSelectedTaskId(created.id);
+          openPanel("tasks");
+          await refresh(current.workspace.id);
+          await loadTrace(created.id);
         },
-      });
+      );
+      if (postError) {
+        pushToast({
+          kind: "error",
+          message: `任务已创建，但刷新失败：${formatError(postError)}`,
+        });
+      } else {
+        pushToast({
+          kind: "success",
+          message: `已创建任务「${title}」`,
+          action: {
+            label: "查看",
+            onClick: () => {
+              setSelectedTaskId(task.id);
+              openPanel("tasks");
+            },
+          },
+        });
+      }
+      // 写已提交：即使刷新失败也必须关闭表单，避免用户重提造成重复。
       return true;
     } catch (error) {
-      // 非幂等写操作不自动重试；保留表单由调用方决定是否再次提交。
+      // 非幂等写操作不自动重试；write 本身失败时保留表单。
       showError(errorText(error));
       return false;
     } finally {
@@ -2744,21 +2757,33 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await window.deer.sendMessage({
-        workspaceId: current.workspace.id,
-        from: "user",
-        ...input,
-      });
-      await refresh(current.workspace.id);
-      // C26：成功 toast + 下一步动作。
-      pushToast({
-        kind: "success",
-        message: `已发送邮件「${input.subject}」`,
-        action: { label: "查看", onClick: () => openPanel("mailbox") },
-      });
+      const { postError } = await writeThenRefresh(
+        () =>
+          window.deer.sendMessage({
+            workspaceId: current.workspace.id,
+            from: "user",
+            ...input,
+          }),
+        async () => {
+          await refresh(current.workspace.id);
+        },
+      );
+      if (postError) {
+        pushToast({
+          kind: "error",
+          message: `邮件已发送，但刷新失败：${formatError(postError)}`,
+        });
+      } else {
+        pushToast({
+          kind: "success",
+          message: `已发送邮件「${input.subject}」`,
+          action: { label: "查看", onClick: () => openPanel("mailbox") },
+        });
+      }
+      // 写已提交：即使刷新失败也必须关闭表单，避免用户重发造成重复。
       return true;
     } catch (error) {
-      // 非幂等写操作不自动重试；保留表单由调用方决定是否再次发送。
+      // 非幂等写操作不自动重试；write 本身失败时保留表单。
       showError(errorText(error));
       return false;
     } finally {

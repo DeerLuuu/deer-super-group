@@ -33,7 +33,7 @@ export default function FirstRunCard({
   }
 
   return (
-    <div className="first-run-card" aria-label="首用就绪">
+    <div className="first-run-card" role="region" aria-label="首用就绪">
       <div className="first-run-head">
         <div>
           <div className="panel-title">开始使用</div>

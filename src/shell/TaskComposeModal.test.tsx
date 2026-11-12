@@ -5,6 +5,7 @@ vi.mock("../Modal.js", () => ({
   default: ({ children }: { children: unknown }) => children,
 }));
 import { TaskComposeModal } from "../App.js";
+import { writeThenRefresh } from "./writeThenRefresh.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -66,6 +67,36 @@ describe("t255 TaskComposeModal failure retention", () => {
         preventDefault: vi.fn(),
       });
     });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes when write commits but refresh fails", async () => {
+    const onClose = vi.fn();
+    const write = vi.fn(async () => ({ id: "task-1" }));
+    const onCreate = vi.fn(async () => {
+      const result = await writeThenRefresh(write, async () => {
+        throw new Error("refresh failed");
+      });
+      expect(result.postError).toBeInstanceOf(Error);
+      return true;
+    });
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <TaskComposeModal busy={false} onClose={onClose} onCreate={onCreate} />,
+      );
+    });
+    const title = renderer!.root.findAllByType("input")[0]!;
+    await act(() => {
+      (title.props.onChange as (event: unknown) => void)({ target: { value: "提交成功" } });
+    });
+    const form = renderer!.root.findAllByType("form")[0]!;
+    await act(async () => {
+      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+        preventDefault: vi.fn(),
+      });
+    });
+    expect(write).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

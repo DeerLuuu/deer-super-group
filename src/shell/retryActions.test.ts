@@ -12,5 +12,9 @@ describe("t253/t255 write-operation retry wiring", () => {
     expect(appSource).toContain("if (created) onClose()");
     expect(appSource).toContain("if (sent) onClose()");
     expect(appSource).toContain("retryAction={");
+    expect(appSource).toContain("writeThenRefresh(");
+    expect(appSource).toContain("postError");
+    expect(appSource).toContain("任务已创建，但刷新失败");
+    expect(appSource).toContain("邮件已发送，但刷新失败");
   });
 });
