@@ -57,3 +57,9 @@
 - **F2 scrollTop 补偿**：`applyHistoryScrollPreservation(node, prev)` 直接设置真实滚动容器 `scrollTop`；`chatHistory.test` 用带 `scrollTop/scrollHeight` 的容器形状断言 120+300=420。
 - **F3 server 分页失败不前进**：`loadEarlierChatTurns(): Promise<boolean>` 仅在成功时合并 nextBefore/turns；ChatView 先 await `onLoadEarlierHistory`，false/异常不增加 visible，显示「更早历史加载失败，可重试」，保留缓存/可见范围。`chatViewIsolation` 注入 false 分页断言 message 0 未出现且可重试。
 - 1440/960 截图沿用 `t329-history-translation-1440/960.png`。
+
+## t335 修复（round 2）
+
+- **per-reasoning request guard**：`ChatTurnHistoryReasoning` 与 `ChatMessageReasoning` 各自持有 `requestIdRef` + `AbortController` + 请求时 revision 快照；revision 变化先 abort/递增 id，`then/catch` 仅在 id 当前、未 abort 且 revision 未变时 `setSegment`。新增 A(revision0 慢)→B(revision1 快)→A 晚到仍显示 B 的测试。
+- **App 级 saveSettings 测试**：新增 `translationRevisionApp.test`，挂载 App + mock SettingsView；成功 save → root `data-translation-revision` 0→1，失败 save 保持 1。
+- **1440/960 截图**：本修复无视觉结构变化，且真实 workspace 无 150 条 fixture；明确沿用 `t329-history-translation-1440.png` / `-960.png`，滚动补偿由 `chatHistory.test` 的真实容器形状断言覆盖。

@@ -329,6 +329,66 @@ describe("t172 App UI history process", () => {
     expect(textOf(renderer!.toJSON())).toContain("译:先检查工具");
   });
 
+  it("ignores a slow translation from the previous settings revision", async () => {
+    const pending: Array<(value: string) => void> = [];
+    const translate = vi.fn(
+      () => new Promise<string>((resolve) => pending.push(resolve)),
+    );
+    let renderer: ChatRenderer | null = null;
+    await act(async () => {
+      renderer = create(
+        <ChatTurnHistoryProcess
+          assistant={assistantFixture()}
+          translate={translate}
+          translationRevision={0}
+        />,
+      );
+    });
+    const details = renderer!.root.findByType("details");
+    await act(() => {
+      (details.props.onToggle as (event: unknown) => void)({
+        currentTarget: { open: true },
+      });
+    });
+    const stepButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("段思考"));
+    await act(() => {
+      (stepButton!.props.onClick as () => void)();
+    });
+    const thinkingButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("字") && textOf(button.children).includes("思考"));
+    await act(async () => {
+      (thinkingButton!.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    expect(pending).toHaveLength(1);
+    await act(async () => {
+      renderer!.update(
+        <ChatTurnHistoryProcess
+          assistant={assistantFixture()}
+          translate={translate}
+          translationRevision={1}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(pending).toHaveLength(2);
+    await act(async () => {
+      pending[1]!("B 新译文");
+      await Promise.resolve();
+    });
+    expect(textOf(renderer!.toJSON())).toContain("B 新译文");
+    await act(async () => {
+      pending[0]!("A 旧译文");
+      await Promise.resolve();
+    });
+    const output = textOf(renderer!.toJSON());
+    expect(output).toContain("B 新译文");
+    expect(output).not.toContain("A 旧译文");
+  });
+
   it("does not attach live tools to a persisted assistant bubble", async () => {
     const assistant = assistantFixture();
     const renderer = await render(<ChatView {...chatViewProps({

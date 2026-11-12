@@ -3586,7 +3586,7 @@ export default function App() {
     watchdogCosts,
   });
   return (
-    <div className="app">
+    <div className="app" data-translation-revision={translationRevision}>
       <SkipLink />
       <ChatLiveBridge
         store={chatLiveStore}
@@ -6840,18 +6840,37 @@ function ChatTurnHistoryReasoning({
   }));
   const requested = useRef(false);
   const revisionRef = useRef(translationRevision);
+  const requestIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   function requestTranslation() {
     if (!reasoning.text.trim()) return;
+    const requestId = ++requestIdRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const revisionAtRequest = translationRevision;
     setSegment((prev) => ({ ...prev, status: "loading", translation: undefined }));
     void translate(reasoning.text)
       .then((translation) => {
+        if (
+          requestId !== requestIdRef.current ||
+          controller.signal.aborted ||
+          revisionAtRequest !== revisionRef.current
+        ) {
+          return;
+        }
         setSegment((prev) => ({ ...prev, status: "done", translation }));
       })
       .catch(() => {
+        if (requestId !== requestIdRef.current || controller.signal.aborted) return;
         setSegment((prev) => ({ ...prev, status: "error" }));
       });
   }
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!open || requested.current || !reasoning.text.trim()) return;
@@ -6863,6 +6882,8 @@ function ChatTurnHistoryReasoning({
   useEffect(() => {
     if (revisionRef.current === translationRevision) return;
     revisionRef.current = translationRevision;
+    requestIdRef.current += 1;
+    abortRef.current?.abort();
     requested.current = false;
     setSegment((prev) => ({ ...prev, translation: undefined, status: "done" }));
     if (open) {
@@ -7105,19 +7126,38 @@ function ChatMessageReasoning({
   }));
   const requested = useRef(false);
   const revisionRef = useRef(translationRevision);
+  const requestIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   function requestTranslation() {
     if (!text.trim()) return;
+    const requestId = ++requestIdRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const revisionAtRequest = translationRevision;
     setSegment((prev) => ({ ...prev, status: "loading", translation: undefined }));
     const run = translate ?? ((value: string) => window.deer.translateText(value));
     void run(text)
       .then((translation) => {
+        if (
+          requestId !== requestIdRef.current ||
+          controller.signal.aborted ||
+          revisionAtRequest !== revisionRef.current
+        ) {
+          return;
+        }
         setSegment((prev) => ({ ...prev, status: "done", translation }));
       })
       .catch(() => {
+        if (requestId !== requestIdRef.current || controller.signal.aborted) return;
         setSegment((prev) => ({ ...prev, status: "error" }));
       });
   }
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   // t183：历史消息的 reasoning 只在展开时懒翻译，避免启动时批量打 Bing。
   useEffect(() => {
@@ -7130,6 +7170,8 @@ function ChatMessageReasoning({
   useEffect(() => {
     if (revisionRef.current === translationRevision) return;
     revisionRef.current = translationRevision;
+    requestIdRef.current += 1;
+    abortRef.current?.abort();
     requested.current = false;
     setSegment((prev) => ({ ...prev, translation: undefined, status: "done" }));
     if (open) {
