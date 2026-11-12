@@ -94,6 +94,11 @@ import CommandPalette, {
 } from "./CommandPalette";
 import WorkflowRail from "./shell/WorkflowRail";
 import { useMergeQueue } from "./shell/useMergeQueue";
+import {
+  ALL_REFRESH_DOMAINS,
+  RefreshCoordinator,
+  type RefreshDomain,
+} from "./shell/refreshCoordinator";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
 import FirstRunCard from "./shell/FirstRunCard";
 import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
@@ -211,6 +216,15 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "board", label: "记忆", hint: "黑板、备忘录、检索与归档审批" },
   { id: "settings", label: "设置", hint: "配置模型与运行参数" },
 ];
+
+const REFRESH_DOMAIN_LABEL: Record<RefreshDomain, string> = {
+  snapshot: "任务/成员/邮箱/记忆",
+  scheduler: "调度",
+  watchdog: "看门狗/预算",
+  mergeQueue: "合并队列",
+  runs: "运行记录",
+  trace: "执行轨迹",
+};
 
 type TaskStatusFilter = "all" | TaskStatus;
 
@@ -539,9 +553,16 @@ export default function App() {
   const [dockWidth, setDockWidth] = useState(() =>
     Math.max(320, window.innerWidth - 300),
   );
+  const [refreshStale, setRefreshStale] = useState(false);
+  const [staleDomains, setStaleDomains] = useState<ReadonlySet<RefreshDomain>>(
+    () => new Set(),
+  );
   const snapshotRef = useRef<Snapshot | null>(null);
   const selectedTaskRef = useRef<string | null>(null);
-  const refreshTimer = useRef<number | null>(null);
+  const refreshCoordinatorRef = useRef<RefreshCoordinator | null>(null);
+  const refreshTokenRef = useRef(0);
+  const refreshGenerationRef = useRef(0);
+  const refreshLastSeqRef = useRef(0);
   const handoffFetchedRef = useRef<Set<string>>(new Set());
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarDisplayWidthRef = useRef<number | null>(sidebarDisplayWidth);
@@ -910,32 +931,51 @@ export default function App() {
     localStorage.setItem("deer.sidebarWidth", String(SIDEBAR_DEFAULT_WIDTH));
   }
 
-  const loadTrace = useCallback(async (taskId: string) => {
-    try {
-      setTrace(await window.deer.getTaskTrace(taskId));
-    } catch (error) {
-      setError(errorText(error));
-    }
-  }, []);
+  const loadTrace = useCallback(
+    async (
+      taskId: string,
+      options: { strict?: boolean; guard?: () => boolean } = {},
+    ) => {
+      try {
+        const next = await window.deer.getTaskTrace(taskId);
+        if (options.guard && !options.guard()) return;
+        setTrace(next);
+      } catch (error) {
+        if (options.guard && !options.guard()) return;
+        setError(errorText(error));
+        if (options.strict) throw error;
+      }
+    },
+    [],
+  );
 
-  /** t69：调度器快照；silent 用于事件刷新，避免每 220ms 出现骨架闪烁。 */
+  /** t69/R3：调度器快照；silent 用于事件批次刷新，避免出现骨架闪烁。 */
   const loadScheduler = useCallback(
-    async (workspaceId: string, silent = false) => {
+    async (
+      workspaceId: string,
+      silent = false,
+      options: { strict?: boolean; guard?: () => boolean } = {},
+    ) => {
       const requestId = ++schedulerRequestRef.current;
       if (!silent) setSchedulerLoading(true);
       try {
         const result = await window.deer.getScheduler(workspaceId);
+        if (options.guard && !options.guard()) return;
         if (schedulerRequestRef.current !== requestId) return;
         if (result.ok) {
           setScheduler(result.value);
           setSchedulerError(null);
         } else {
-          setSchedulerError(kernelErrorText(result.error));
+          const message = kernelErrorText(result.error);
+          setSchedulerError(message);
+          if (options.strict) throw new Error(message);
         }
       } catch (error) {
+        if (options.guard && !options.guard()) return;
         if (schedulerRequestRef.current === requestId) {
           setSchedulerError(errorText(error));
         }
+        if (options.strict) throw error;
       } finally {
         if (schedulerRequestRef.current === requestId) setSchedulerLoading(false);
       }
@@ -944,31 +984,45 @@ export default function App() {
   );
 
   /** t69：当前任务的 Run 历史；silent 同上。 */
-  const loadRuns = useCallback(async (taskId: string, silent = false) => {
-    const requestId = ++runsRequestRef.current;
-    if (!silent) {
-      setRunsLoading(true);
-      setTaskRuns([]);
-    }
-    try {
-      const result = await window.deer.listRuns(taskId);
-      if (runsRequestRef.current !== requestId) return;
-      if (result.ok) {
-        setTaskRuns(result.value);
-        setRunsError(null);
-      } else {
+  const loadRuns = useCallback(
+    async (
+      taskId: string,
+      silent = false,
+      options: { strict?: boolean; guard?: () => boolean } = {},
+    ) => {
+      const requestId = ++runsRequestRef.current;
+      if (!silent) {
+        setRunsLoading(true);
         setTaskRuns([]);
-        setRunsError(kernelErrorText(result.error));
       }
-    } catch (error) {
-      if (runsRequestRef.current === requestId) {
-        setTaskRuns([]);
-        setRunsError(errorText(error));
+      try {
+        const result = await window.deer.listRuns(taskId);
+        if (options.guard && !options.guard()) return;
+        if (runsRequestRef.current !== requestId) return;
+        if (result.ok) {
+          setTaskRuns(result.value);
+          setRunsError(null);
+        } else {
+          const message = kernelErrorText(result.error);
+          if (options.strict) {
+            setRunsError(message);
+            throw new Error(message);
+          }
+          setTaskRuns([]);
+          setRunsError(message);
+        }
+      } catch (error) {
+        if (options.guard && !options.guard()) return;
+        if (runsRequestRef.current === requestId) {
+          setRunsError(errorText(error));
+        }
+        if (options.strict) throw error;
+      } finally {
+        if (runsRequestRef.current === requestId) setRunsLoading(false);
       }
-    } finally {
-      if (runsRequestRef.current === requestId) setRunsLoading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
   const loadChat = useCallback(async () => {
     const current = snapshotRef.current;
@@ -1039,34 +1093,111 @@ export default function App() {
     void loadChatTrajectory();
   }, [chatView, snapshot?.workspace.id, loadChatTrajectory]);
 
-  const loadWatchdog = useCallback(async (workspaceId: string) => {
-    try {
-      const [snapshotResult, costsResult] = await Promise.all([
-        window.deer.getWatchdogSnapshot(workspaceId),
-        window.deer.getWatchdogCosts(workspaceId),
-      ]);
-      if (snapshotResult.ok) setWatchdogSnapshot(snapshotResult.value);
-      if (costsResult.ok) setWatchdogCosts(costsResult.value);
-    } catch {
-      // watchdog 不可用时不影响主界面
-    }
-  }, []);
-
-  const refresh = useCallback(
-    async (workspaceId: string) => {
-      const next = await window.deer.getSnapshot(workspaceId);
-      setSnapshot(next);
-      // t69：事件刷新同时更新调度快照与当前任务 Run（静默，不闪骨架）。
-      void loadScheduler(workspaceId, true);
-      void loadWatchdog(workspaceId);
-      void loadMergeQueue();
-      if (selectedTaskRef.current) {
-        await loadTrace(selectedTaskRef.current);
-        void loadRuns(selectedTaskRef.current, true);
+  const loadWatchdog = useCallback(
+    async (
+      workspaceId: string,
+      options: { strict?: boolean; guard?: () => boolean } = {},
+    ) => {
+      try {
+        const [snapshotResult, costsResult] = await Promise.all([
+          window.deer.getWatchdogSnapshot(workspaceId),
+          window.deer.getWatchdogCosts(workspaceId),
+        ]);
+        if (options.guard && !options.guard()) return;
+        if (snapshotResult.ok) setWatchdogSnapshot(snapshotResult.value);
+        if (costsResult.ok) setWatchdogCosts(costsResult.value);
+        if (options.strict) {
+          if (!snapshotResult.ok) throw new Error(snapshotResult.error.message);
+          if (!costsResult.ok) throw new Error(costsResult.error.message);
+        }
+      } catch (error) {
+        if (options.guard && !options.guard()) return;
+        if (options.strict) throw error;
+        // 非事件路径（首屏/手动）保留 last-good，不把 watchdog 错误扩散到主界面。
       }
+    },
+    [],
+  );
+
+  /** R3：只读取本次事件涉及的域；带 App token，旧响应不得覆盖新数据。 */
+  const refreshDomains = useCallback(
+    async (
+      workspaceId: string,
+      domains: ReadonlySet<RefreshDomain>,
+      token: number,
+    ) => {
+      const isCurrent = () =>
+        token === refreshTokenRef.current &&
+        snapshotRef.current?.workspace.id === workspaceId;
+
+      if (domains.has("snapshot")) {
+        try {
+          const next = await window.deer.getSnapshot(workspaceId);
+          if (!isCurrent()) return;
+          setSnapshot(next);
+        } catch (error) {
+          if (!isCurrent()) return;
+          throw error;
+        }
+      }
+
+      const jobs: Promise<void>[] = [];
+      if (domains.has("scheduler")) {
+        jobs.push(loadScheduler(workspaceId, true, { strict: true, guard: isCurrent }));
+      }
+      if (domains.has("watchdog")) {
+        jobs.push(loadWatchdog(workspaceId, { strict: true, guard: isCurrent }));
+      }
+      if (domains.has("mergeQueue")) {
+        jobs.push(loadMergeQueue({ strict: true, guard: isCurrent }));
+      }
+      if ((domains.has("runs") || domains.has("trace")) && selectedTaskRef.current) {
+        const taskId = selectedTaskRef.current;
+        jobs.push(loadTrace(taskId, { strict: true, guard: isCurrent }));
+        jobs.push(loadRuns(taskId, true, { strict: true, guard: isCurrent }));
+      }
+      await Promise.all(jobs);
     },
     [loadTrace, loadScheduler, loadRuns, loadWatchdog, loadMergeQueue],
   );
+
+  /**
+   * 手动 full refresh：与 App token/stale 共享，但不推进 Coordinator 的 generation/lastSeq；
+   * 成功后显式 markRecovered，允许后续 onEvent notify 继续 flush；失败 invalidateAll 进入 backoff。
+   */
+  const refresh = useCallback(
+    async (workspaceId: string) => {
+      const token = ++refreshTokenRef.current;
+      try {
+        await refreshDomains(workspaceId, ALL_REFRESH_DOMAINS, token);
+        if (token === refreshTokenRef.current) {
+          setRefreshStale(false);
+          setStaleDomains(new Set());
+          refreshCoordinatorRef.current?.markRecovered();
+        }
+      } catch (error) {
+        if (token === refreshTokenRef.current) {
+          setRefreshStale(true);
+          setStaleDomains(new Set(ALL_REFRESH_DOMAINS));
+          // 手动 full refresh 失败也进入事件协调器的 backoff，避免调用方反复手刷。
+          refreshCoordinatorRef.current?.invalidateAll();
+        }
+        throw error;
+      }
+    },
+    [refreshDomains],
+  );
+
+  const handleManualRefresh = useCallback(async () => {
+    const current = snapshotRef.current;
+    if (!current) return;
+    try {
+      await refresh(current.workspace.id);
+    } catch (error) {
+      setError(errorText(error));
+      pushToast({ kind: "error", message: `刷新失败：${formatError(error)}` });
+    }
+  }, [refresh, pushToast]);
 
   const refreshWatchdog = useCallback(async () => {
     const workspaceId = snapshotRef.current?.workspace.id;
@@ -1125,15 +1256,11 @@ export default function App() {
     [holdReasonForAlert, loadRuns, pushToast, refreshWatchdog],
   );
 
-  // t69：工作区切换/首屏就绪后加载调度快照（与 snapshot 解耦，避免每次 refresh 重载）。
+  // t69/R3：工作区切换/首屏就绪后加载调度与 watchdog；之后由事件域驱动，不做 15s 常驻轮询。
   useEffect(() => {
     if (!snapshot) return;
     void loadScheduler(snapshot.workspace.id);
     void loadWatchdog(snapshot.workspace.id);
-    const timer = window.setInterval(() => {
-      if (snapshotRef.current) void loadWatchdog(snapshotRef.current.workspace.id);
-    }, 15_000);
-    return () => window.clearInterval(timer);
   }, [snapshot?.workspace.id, loadScheduler, loadWatchdog]);
 
   // t157：RunHistory 的交接卡按需加载，避免触碰 Run 事件契约。
@@ -1271,18 +1398,52 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const off = window.deer.onEvent(() => {
-      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
-      refreshTimer.current = window.setTimeout(() => {
+    const coordinator = new RefreshCoordinator({
+      onFlush: async ({ domains, generation, lastSeq }) => {
         const current = snapshotRef.current;
-        if (current) void refresh(current.workspace.id);
-      }, 220);
+        if (!current) return;
+        const token = ++refreshTokenRef.current;
+        refreshGenerationRef.current = generation;
+        refreshLastSeqRef.current = lastSeq;
+        await refreshDomains(current.workspace.id, domains, token);
+        if (token === refreshTokenRef.current) {
+          setRefreshStale(false);
+          setStaleDomains(new Set());
+        }
+      },
+      onStale: (domains) => {
+        setStaleDomains(new Set(domains));
+        setRefreshStale(true);
+      },
     });
+    refreshCoordinatorRef.current = coordinator;
+    const off = window.deer.onEvent((event: EventRecord) => {
+      coordinator.notify({ seq: event.seq, type: event.type });
+    });
+    const onOnline = () => coordinator.invalidateAll();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") coordinator.invalidateAll();
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       off();
-      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisibility);
+      coordinator.dispose();
+      refreshCoordinatorRef.current = null;
     };
-  }, [refresh]);
+  }, [refreshDomains]);
+
+  // 工作区切换：seq/token 从新 workspace 重新起算，旧 in-flight 响应失效。
+  useEffect(() => {
+    refreshTokenRef.current += 1;
+    refreshCoordinatorRef.current?.reset();
+    refreshGenerationRef.current = 0;
+    refreshLastSeqRef.current = 0;
+    setRefreshStale(false);
+    setStaleDomains(new Set());
+  }, [snapshot?.workspace.id]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -2434,8 +2595,7 @@ export default function App() {
   function handleRetryAfterError() {
     setError(null);
     setErrorRetry(null);
-    const current = snapshotRef.current;
-    if (current) void refresh(current.workspace.id);
+    void handleManualRefresh();
     void loadChat().catch((cause) => showError(errorText(cause)));
   }
 
@@ -3344,7 +3504,7 @@ export default function App() {
           <button
             type="button"
             className="ghost small sidebar-action"
-            onClick={() => void refresh(snapshot.workspace.id)}
+            onClick={() => void handleManualRefresh()}
             title="刷新"
           >
             <span className="sidebar-action-icon">↻</span>
@@ -3495,6 +3655,20 @@ export default function App() {
           />
         )}
 
+        {refreshStale && (
+          <div
+            className="notice small"
+            role="status"
+            data-stale-domains={[...staleDomains].join(",")}
+          >
+            {staleDomains.size > 0
+              ? `以下数据可能过期：${[...staleDomains]
+                  .map((domain) => REFRESH_DOMAIN_LABEL[domain])
+                  .join("、")}。当前显示上次成功数据；连接恢复后会自动对齐。`
+              : "实时刷新暂不可用，当前显示上次成功的数据；连接恢复后会自动对齐。"}
+          </div>
+        )}
+
         {watchdogSnapshot && (
           <div className="watchdog-topbar" role="region" aria-label="看门狗与预算">
             <button
@@ -3567,7 +3741,7 @@ export default function App() {
             busy={busy}
             onSave={handleSaveSettings}
             onDirtyChange={setSettingsDirty}
-            onReload={() => void refresh(snapshot.workspace.id)}
+            onReload={() => void handleManualRefresh()}
             initialSection={gitSettingsFocus ? "git" : settingsInitialSection}
           />
         </Modal>
