@@ -2787,10 +2787,6 @@ export default function App() {
       handleOpenGitSettings();
       return;
     }
-    if (action === "open-git-graph") {
-      openPanel("gitGraph");
-      return;
-    }
     if (action === "open-task-vcs") {
       handleOpenTaskVcs();
       return;

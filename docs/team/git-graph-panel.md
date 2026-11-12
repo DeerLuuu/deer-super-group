@@ -45,9 +45,9 @@
 
 - Sidebar 操作区「版本图」按钮（secondary tool，不改变 PrimaryRail 五入口）。
 - `PANEL_LAUNCHER_KEYS` 面板启动器。
-- Command Palette Git 组「打开版本图」。
 - Task VCS「在版本图中查看」（传当前任务入口）。
 - `#/git` 深链；不新增 primary tab。
+- Command Palette 入口因 `src/CommandPalette.tsx` 不在本任务 inScope 内，未纳入本 PR；后续任务补。
 
 ## 5. 测试
 
