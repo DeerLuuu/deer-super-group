@@ -1,0 +1,75 @@
+{
+  "at": "2026-11-12T20:56:41.170Z",
+  "results": [
+    {
+      "id": "starmap-ready",
+      "ok": true,
+      "detail": "3 nodes"
+    },
+    {
+      "id": "no-star-hint-1440",
+      "ok": true,
+      "detail": "{\"hints\":0,\"full\":false,\"dup\":false,\"sr\":2,\"help\":true,\"nodes\":3,\"scrollWidth\":1440,\"innerWidth\":1440}"
+    },
+    {
+      "id": "no-dashboard-dup-1440",
+      "ok": true,
+      "detail": "{\"dup\":false}"
+    },
+    {
+      "id": "help-sr-preserved-1440",
+      "ok": true,
+      "detail": "{\"sr\":2,\"help\":true}"
+    },
+    {
+      "id": "no-overflow-1440",
+      "ok": true,
+      "detail": "1440/1440"
+    },
+    {
+      "id": "no-star-hint-960",
+      "ok": true,
+      "detail": "{\"hints\":0,\"full\":false,\"dup\":false,\"sr\":2,\"help\":true,\"nodes\":3,\"scrollWidth\":960,\"innerWidth\":960}"
+    },
+    {
+      "id": "no-dashboard-dup-960",
+      "ok": true,
+      "detail": "{\"dup\":false}"
+    },
+    {
+      "id": "help-sr-preserved-960",
+      "ok": true,
+      "detail": "{\"sr\":2,\"help\":true}"
+    },
+    {
+      "id": "no-overflow-960",
+      "ok": true,
+      "detail": "960/960"
+    },
+    {
+      "id": "no-star-hint-480",
+      "ok": true,
+      "detail": "{\"hints\":0,\"full\":false,\"dup\":false,\"sr\":2,\"help\":true,\"nodes\":3,\"scrollWidth\":480,\"innerWidth\":480}"
+    },
+    {
+      "id": "no-dashboard-dup-480",
+      "ok": true,
+      "detail": "{\"dup\":false}"
+    },
+    {
+      "id": "help-sr-preserved-480",
+      "ok": true,
+      "detail": "{\"sr\":2,\"help\":true}"
+    },
+    {
+      "id": "no-overflow-480",
+      "ok": true,
+      "detail": "480/480"
+    },
+    {
+      "id": "help-panel-opens",
+      "ok": true,
+      "detail": "帮助面板可打开"
+    }
+  ]
+}
