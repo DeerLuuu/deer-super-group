@@ -35,14 +35,31 @@
 - 当前选中线程高亮；深链 `#/mailbox?m=<messageId>` 会定位到包含该消息的线程（回复链内定位）。
 - 点击「回复线程」打开 compose，自动带线程参与者、`Re:` 主题与 `threadId`（`threadKey`），发送后仍停留在该线程。
 
+### 3.1 刷新/重排/新消息保持（t405）
+
+- 线程列表与详情滚动锚点用「第一可见项稳定 id + 相对 offset」表示（不是绝对 scrollTop），实现于 `src/shell/mailboxScroll.ts`；线程 key 使用根消息 id。
+- 滚动/刷新/新消息到达/重新挂载后，`MailboxView` 在 layout effect 中恢复线程列表与回复链锚点；锚点按工作区写 `sessionStorage["deer.mailbox.scroll.<workspaceId>"]`（UI-only），返回该 Tab 或刷新页面仍保持。
+- 选中线程由 App 的 `selectedMessageId` 保持；新消息使线程按 lastActivity 置顶时，当前线程仍展开（`data-expanded`/`aria-selected`），列表滚动锚点不丢；详情链有新回复时原消息锚点不跳。
+- `t405-mailbox-walkthrough.json`：刷新前/后 listTop 620、chainTop 260、firstThread offset 67、active 深层回复链都一致；插入新线程并刷新后 `topSubject=新消息`、rows 25→26、listHeight 2914→3030、firstThread/offset/chainTop 保持，active 仍为深层回复链。
+- 截图：`t405-mailbox-1440-scroll-before.png`、`-after-refresh.png`、`-after-new.png`。
+
+### 3.2 深度/缩进上限（t405 F2）
+
+- `MAILBOX_MAX_DEPTH = 12`：投影 depth 最大 12，防止无限递归/极端缩进。
+- `MAILBOX_MAX_INDENT = 6`：UI 最大缩进 `6 × 14px = 84px`，更深回复仍展示内容但不继续右移。
+- `mailboxThreads.test.ts` 的 50 层父链测试确认 `depth[0]=0`、`depth[12]=12`、`depth[49]=12`。
+
 ## 4. 组件与文件
 
-- `src/shared/mailboxThreads.ts`：纯投影 `deriveMailboxThreads`、`filterMailboxThreads`、`mailboxParticipants`、`totalMailboxUnread`。
-- `src/shared/mailboxThreads.test.ts`：6 项纯函数测试。
-- `src/App.tsx`：`MailboxView` 线程列表 + 回复链 + 搜索/过滤 + 全部已读 + compose 线程上下文；App read state/localStorage；`MailboxComposeModal` 可选 thread 预填。
+- `src/shared/mailboxThreads.ts`：纯投影 `deriveMailboxThreads`、`filterMailboxThreads`、`mailboxParticipants`、`totalMailboxUnread`、depth/indent 上限、read-state 存取。
+- `src/shared/mailboxThreads.test.ts`：8 项纯函数测试（含 50 层深链、read-state reload）。
+- `src/shell/mailboxScroll.ts`：滚动锚点捕获/恢复/序列化纯函数。
+- `src/shell/mailboxScroll.test.ts`：5 项测试（重排、新消息顶部插入、详情、持久化容错）。
+- `src/App.tsx`：`MailboxView` 线程列表 + 回复链 + 搜索/过滤 + 全部已读 + scroll 保持 + compose 线程上下文；App read state/localStorage；`MailboxComposeModal` 可选 thread 预填。
 - `src/shared/types.ts`：`MailboxMessage.parentId?`、`SendMessageInput.threadId?`（均为可选，不改 DB）。
 - `src/styles.css`：线程列表/链/未读/过滤条；≤900/≤720/≤480 单列布局，无横向溢出。
-- `src/shell/MailboxView.test.tsx`：5 项视图测试。
+- `src/shell/MailboxView.test.tsx`：6 项视图测试（含新消息置顶保持展开）。
+- `src/shell/mailboxAppThread.test.tsx`：1 项 App 级 Command Palette → mailbox 线程定位测试。
 - `src/shell/MailboxComposeModal.test.tsx`：原失败保留测试保持通过。
 
 ## 5. 截图与真实 Electron 走查
@@ -59,6 +76,14 @@
 
 1440 回复 compose（`Re: 独立通知`，收件人来自线程参与者）：![](t356-mailbox-1440-reply.png)
 
+t405 刷新/重排保持截图（25 个线程，list/detail 均滚动到中段）：
+
+| 刷新前（listTop 620 / chainTop 260） | 刷新后（锚点/展开保持） | 新消息置顶后（锚点/展开保持） |
+|---|---|---|
+| ![](t405-mailbox-1440-scroll-before.png) | ![](t405-mailbox-1440-scroll-after-refresh.png) | ![](t405-mailbox-1440-scroll-after-new.png) |
+
+`t405-mailbox-walkthrough.json` 记录：before/after-refresh listTop 620、chainTop 260、firstThread offset 67、active 深层回复链完全一致；插入新线程并刷新后 topSubject=新消息、rows 25→26、firstThread/offset/chainTop 保持；`全部标为已读` settled 后未读为 `全部已读`（修正旧 walkthrough 采样时机）。
+
 `t356-mailbox-walkthrough.json` 记录 DOM 断言：
 
 - 3 个线程；同 thread_id 的 3 封显示 1 行、3 封 / 3 未读；点击后回复链 3 条，缩进 `0/14/28px`。
@@ -70,13 +95,13 @@
 ## 6. 验证
 
 - `pnpm typecheck` exit 0。
-- `pnpm build` exit 0（js 321.93 kB / gzip 96.00；vendor 414.89 / 97.22）。
-- `pnpm test -- --max-workers=1`：127 文件 / 907 用例全绿（exit 0）。默认并行在本机有既有重测试 5s timeout 基线（与本功能无关；串行/扩展运行通过）。
+- `pnpm build` exit 0（js 323.86 kB / gzip 96.57；vendor 414.89 / 97.22）。
+- `pnpm test -- --max-workers=1 --testTimeout=20000`：129 文件 / 915 用例全绿（exit 0）。默认并行 5s timeout 与串行首轮 openai 5s timeout 均为既有重测试基线（与本功能无关；扩展/串行重跑通过）。
 
 ## 7. 风险、边界与回滚
 
 - 未改 `src/kernel/`、`electron/`、`src/git/`、权限、数据源、IPC 通道；只复用现有 `thread_id` 列和现有 `sendMessage`。
-- read state 仅在工作区 localStorage，不跨设备/不写 DB；换工作区按 key 隔离。
+- read state 仅在工作区 localStorage；scroll 锚点仅在工作区 sessionStorage（UI-only，不跨设备/不写 DB）；换工作区按 key 隔离。
 - 当前没有真实 `parent_id` 列，显式 parentId 分支主要服务已有/后续数据；存量兼容路径已验证。
 - 回滚：revert 本 PR 单 commit；不影响已有消息与 schema。
 

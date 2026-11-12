@@ -68,11 +68,11 @@
     "rows": 3,
     "rowLabels": [
       "线程：独立通知，0 封未读，1 封",
-      "线程：评审意见汇总，2 封未读，2 封",
-      "线程：发布检查清单，3 封未读，3 封"
+      "线程：评审意见汇总，0 封未读，2 封",
+      "线程：发布检查清单，0 封未读，3 封"
     ],
     "activeThread": "线程：独立通知，0 封未读，1 封",
-    "unread": "5 未读",
+    "unread": "全部已读",
     "chainMessages": 1,
     "chainText": "Builder\n→ Router\n01:27:03\n独立通知\n这是一封没有回复的存量邮件。",
     "modal": null,
@@ -87,7 +87,8 @@
       "left": 269
     },
     "scrollWidth": 1440,
-    "innerWidth": 1440
+    "innerWidth": 1440,
+    "note": "t405 corrected: all-read settled"
   },
   {
     "step": "1440-search",

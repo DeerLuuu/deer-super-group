@@ -22,6 +22,9 @@ export interface MailboxThread {
   summary: string;
 }
 
+export const MAILBOX_MAX_DEPTH = 12;
+export const MAILBOX_MAX_INDENT = 6;
+
 const EMPTY_READ_IDS: ReadonlySet<string> = new Set();
 
 function createdAtRank(message: MailboxMessage): number {
@@ -127,7 +130,7 @@ export function deriveMailboxThreads(
       visiting.add(id);
       const parentId = relation.get(id) ?? null;
       if (!parentId) return 0;
-      return Math.min(12, 1 + depthOf(parentId, visiting));
+      return Math.min(MAILBOX_MAX_DEPTH, 1 + depthOf(parentId, visiting));
     }
 
     const participants: string[] = [];

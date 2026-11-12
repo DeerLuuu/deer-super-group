@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAILBOX_MAX_DEPTH,
+  MAILBOX_MAX_INDENT,
   deriveMailboxThreads,
   filterMailboxThreads,
   mailboxParticipants,
@@ -24,7 +26,7 @@ function message(overrides: Partial<MailboxMessage> = {}): MailboxMessage {
     subject: "subject",
     body: "body",
     refs: [],
-    createdAt: `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
+    createdAt: new Date(Date.UTC(2026, 0, 1) + seq * 1000).toISOString(),
     ...overrides,
   };
 }
@@ -110,6 +112,21 @@ describe("t356 mailbox thread projection", () => {
   it("returns an empty projection for an empty mailbox", () => {
     expect(deriveMailboxThreads([])).toEqual([]);
     expect(totalMailboxUnread([])).toBe(0);
+  });
+
+  it("caps very deep chains at depth 12 and documents indent 6", () => {
+    const root = message({ threadId: "deep", subject: "deep thread" });
+    const chain = [root];
+    for (let index = 1; index < 50; index += 1) {
+      chain.push(message({ threadId: "deep", parentId: chain[index - 1].id }));
+    }
+    const threads = deriveMailboxThreads(chain);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].messages).toHaveLength(50);
+    expect(threads[0].messages[0].depth).toBe(0);
+    expect(threads[0].messages[MAILBOX_MAX_DEPTH].depth).toBe(MAILBOX_MAX_DEPTH);
+    expect(threads[0].messages[49].depth).toBe(MAILBOX_MAX_DEPTH);
+    expect(MAILBOX_MAX_INDENT).toBe(6);
   });
 
   it("round-trips read state through the workspace-scoped storage value after reload", () => {

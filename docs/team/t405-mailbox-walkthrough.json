@@ -1,0 +1,71 @@
+[
+  {
+    "step": "before-refresh",
+    "listTop": 620,
+    "listHeight": 2914,
+    "chainTop": 260,
+    "chainHeight": 1902,
+    "firstThread": {
+      "id": "msg_mwduirzt_6acfdb9c2e",
+      "offset": 67
+    },
+    "firstMessage": {
+      "id": "msg_mwduirpw_296b2c4799",
+      "offset": 83
+    },
+    "active": "线程：深层回复链，0 封未读，20 封",
+    "rows": 25,
+    "chain": 20,
+    "topSubject": "线程 24：发布准备",
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "after-refresh",
+    "listTop": 620,
+    "listHeight": 2914,
+    "chainTop": 260,
+    "chainHeight": 1902,
+    "firstThread": {
+      "id": "msg_mwduirzt_6acfdb9c2e",
+      "offset": 67
+    },
+    "firstMessage": {
+      "id": "msg_mwduirpw_296b2c4799",
+      "offset": 83
+    },
+    "active": "线程：深层回复链，0 封未读，20 封",
+    "rows": 25,
+    "chain": 20,
+    "topSubject": "线程 24：发布准备",
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "after-new-message",
+    "listTop": 736,
+    "listHeight": 3030,
+    "chainTop": 260,
+    "chainHeight": 1902,
+    "firstThread": {
+      "id": "msg_mwduirzt_6acfdb9c2e",
+      "offset": 67
+    },
+    "firstMessage": {
+      "id": "msg_mwduirpw_296b2c4799",
+      "offset": 83
+    },
+    "active": "线程：深层回复链，0 封未读，20 封",
+    "rows": 26,
+    "chain": 20,
+    "topSubject": "新消息：刷新后置顶",
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  },
+  {
+    "step": "all-read-settled",
+    "unread": "全部已读",
+    "active": "线程：新消息：刷新后置顶，0 封未读，1 封",
+    "rows": 26
+  }
+]

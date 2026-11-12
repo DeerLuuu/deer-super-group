@@ -14,6 +14,7 @@ const { act, create } = TestRenderer as {
       findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
       findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }>;
     };
+    update: (element: unknown) => unknown;
     toJSON: () => unknown;
   };
 };
@@ -38,6 +39,7 @@ function mail(overrides: Partial<MailboxMessage> = {}): MailboxMessage {
 
 function snapshot(messages: MailboxMessage[]): Snapshot {
   return {
+    workspace: { id: "ws", name: "Workspace", path: "S:/workspace" },
     agents: [
       { id: "a1", name: "Router" },
       { id: "a2", name: "Builder" },
@@ -202,5 +204,39 @@ describe("t356 MailboxView threads", () => {
         threadId: "t1",
       }),
     );
+  });
+
+  it("keeps the selected expanded thread when a newer thread arrives at the top", async () => {
+    const root = mail({ id: "root", threadId: "t1", subject: "Selected thread" });
+    const newer = mail({
+      id: "newer",
+      threadId: "t2",
+      subject: "Newest thread",
+      createdAt: "2026-01-01T00:00:09Z",
+    });
+    const renderer = renderView({ messages: [root], selectedMessageId: root.id });
+    expect(renderer.root.findAllByProps({ role: "option" })[0].props["aria-selected"]).toBe(true);
+    await act(() => {
+      renderer.update(
+        <MailboxView
+          snapshot={snapshot([newer, root])}
+          busy={false}
+          selectedMessageId={root.id}
+          onSelectMessage={vi.fn()}
+          autoOpenCompose={false}
+          onAutoOpenHandled={vi.fn()}
+          onSend={vi.fn(async () => true)}
+          readIds={new Set()}
+          onMarkRead={vi.fn()}
+        />,
+      );
+    });
+    const rows = renderer.root.findAllByProps({ role: "option" });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].props["aria-label"]).toContain("Newest thread");
+    const selectedRow = rows.find((row) => row.props["aria-selected"] === true);
+    expect(selectedRow?.props["aria-label"]).toContain("Selected thread");
+    expect(selectedRow?.props["data-expanded"]).toBe(true);
+    expect(JSON.stringify(renderer.toJSON())).toContain("Selected thread");
   });
 });

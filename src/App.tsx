@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -40,6 +41,7 @@ import type {
 } from "./shared/types";
 import { DEFAULT_MAX_DOCK_GROUPS } from "./shared/types";
 import {
+  MAILBOX_MAX_INDENT,
   deriveMailboxThreads,
   filterMailboxThreads,
   mailboxParticipants,
@@ -49,6 +51,14 @@ import {
   totalMailboxUnread,
   type MailboxThread,
 } from "./shared/mailboxThreads";
+import {
+  captureMailboxScrollState,
+  parseMailboxScrollState,
+  restoreMailboxScrollTop,
+  serializeMailboxScrollState,
+  type MailboxScrollItem,
+  type MailboxScrollState,
+} from "./shell/mailboxScroll";
 import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
 import EmptyState from "./EmptyState";
@@ -5389,6 +5399,37 @@ function TraceItem({ event }: { event: EventRecord }) {
 
 // C10：旧 RouterView 已移除；t235 旧 RouterPlanModal 也删除，所有规划入口统一到 Plan Draft。
 
+function mailboxScrollItems(
+  container: HTMLElement | null,
+  attribute: "data-thread-id" | "data-message-id",
+): MailboxScrollItem[] {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll<HTMLElement>(`[${attribute}]`)).map((element) => ({
+    id: element.getAttribute(attribute) ?? "",
+    offsetTop: element.offsetTop,
+    offsetHeight: element.offsetHeight,
+  }));
+}
+
+function readMailboxScrollState(storageKey: string): MailboxScrollState {
+  try {
+    if (typeof sessionStorage === "undefined") return parseMailboxScrollState(null);
+    return parseMailboxScrollState(sessionStorage.getItem(storageKey));
+  } catch {
+    return parseMailboxScrollState(null);
+  }
+}
+
+function writeMailboxScrollState(storageKey: string, state: MailboxScrollState): void {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(storageKey, serializeMailboxScrollState(state));
+    }
+  } catch {
+    // sessionStorage 不可用时只保留当前会话内存锚点。
+  }
+}
+
 export function MailboxView({
   snapshot,
   busy,
@@ -5423,6 +5464,10 @@ export function MailboxView({
   const [query, setQuery] = useState("");
   const [member, setMember] = useState("");
   const threadRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const chainRef = useRef<HTMLDivElement | null>(null);
+  const scrollStorageKey = `deer.mailbox.scroll.${snapshot.workspace.id}`;
+  const scrollStateRef = useRef<MailboxScrollState>(readMailboxScrollState(scrollStorageKey));
 
   useEffect(() => {
     if (!autoOpenCompose) return;
@@ -5445,6 +5490,45 @@ export function MailboxView({
       thread.messages.some((entry) => entry.message.id === selectedMessageId),
     ) ?? visibleThreads[0] ?? null;
   const unreadTotal = useMemo(() => totalMailboxUnread(threads), [threads]);
+
+  function rememberScroll() {
+    const list = listRef.current;
+    if (!list) return;
+    const chain = chainRef.current;
+    const next = captureMailboxScrollState(
+      mailboxScrollItems(list, "data-thread-id"),
+      list.scrollTop,
+      mailboxScrollItems(chain, "data-message-id"),
+      chain?.scrollTop ?? 0,
+    );
+    scrollStateRef.current = next;
+    writeMailboxScrollState(scrollStorageKey, next);
+  }
+
+  useEffect(() => {
+    scrollStateRef.current = readMailboxScrollState(scrollStorageKey);
+  }, [scrollStorageKey]);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const threadTop = restoreMailboxScrollTop(
+      mailboxScrollItems(list, "data-thread-id"),
+      scrollStateRef.current.thread,
+    );
+    if (threadTop !== null) list.scrollTop = threadTop;
+    const chain = chainRef.current;
+    if (chain) {
+      const messageTop = restoreMailboxScrollTop(
+        mailboxScrollItems(chain, "data-message-id"),
+        scrollStateRef.current.message,
+      );
+      chain.scrollTop = messageTop ?? 0;
+    }
+    if (!scrollStateRef.current.thread.id) rememberScroll();
+  }, [visibleThreads, selectedThread?.threadId]);
+
+  useEffect(() => () => rememberScroll(), [scrollStorageKey]);
 
   function selectThread(thread: MailboxThread) {
     onMarkRead(thread.messages.map((entry) => entry.message.id));
@@ -5536,7 +5620,13 @@ export function MailboxView({
           </select>
         </div>
 
-        <div className="message-list mailbox-thread-list" role="listbox" aria-label="邮件线程">
+        <div
+          ref={listRef}
+          className="message-list mailbox-thread-list"
+          role="listbox"
+          aria-label="邮件线程"
+          onScroll={rememberScroll}
+        >
           {snapshot.messages.length === 0 && (
             <EmptyState
               icon="✉"
@@ -5570,6 +5660,8 @@ export function MailboxView({
               }}
               type="button"
               role="option"
+              data-thread-id={thread.threadId}
+              data-expanded={selectedThread?.threadId === thread.threadId}
               aria-selected={selectedThread?.threadId === thread.threadId}
               aria-label={`线程：${thread.subject}，${thread.unreadCount} 封未读，${thread.messages.length} 封`}
               className={`message-row mailbox-thread-row ${
@@ -5629,11 +5721,18 @@ export function MailboxView({
               <div className="panel-title mailbox-detail-subject">{selectedThread.subject}</div>
               <div className="muted tiny">{selectedThread.participants.join(" · ")}</div>
             </div>
-            <div className="mailbox-thread-chain" role="list" aria-label="回复链">
+            <div
+              ref={chainRef}
+              className="mailbox-thread-chain"
+              role="list"
+              aria-label="回复链"
+              onScroll={rememberScroll}
+            >
               {selectedThread.messages.map((entry) => (
                 <article
                   key={entry.message.id}
                   role="listitem"
+                  data-message-id={entry.message.id}
                   className={`mailbox-thread-message ${
                     selectedMessageId === entry.message.id ? "selected" : ""
                   }`}
@@ -5641,7 +5740,7 @@ export function MailboxView({
                     entry.unread ? "未读" : "已读"
                   }`}
                   data-depth={entry.depth}
-                  style={{ marginLeft: `${Math.min(entry.depth, 6) * 14}px` }}
+                  style={{ marginLeft: `${Math.min(entry.depth, MAILBOX_MAX_INDENT) * 14}px` }}
                 >
                   <div className="mailbox-thread-message-head">
                     <strong>{entry.message.from}</strong>
