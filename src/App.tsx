@@ -39,9 +39,7 @@ import type {
   Workspace,
 } from "./shared/types";
 import { DEFAULT_MAX_DOCK_GROUPS } from "./shared/types";
-import SettingsView from "./SettingsView";
 import Modal from "./Modal";
-import TeamDashboard from "./TeamDashboard";
 import StatusBadge from "./StatusBadge";
 import EmptyState from "./EmptyState";
 import DangerConfirmModal from "./DangerConfirmModal";
@@ -52,7 +50,6 @@ import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
 import {
   BudgetBar,
   WatchdogAlertBanner,
-  WatchdogPanel,
 } from "./watchdog/WatchdogPanel";
 import type {
   CostSnapshot,
@@ -64,11 +61,7 @@ import type {
 import KernelAnnouncer from "./KernelAnnouncer";
 import ChatContent from "./ChatContent";
 import { TaskVcsPanel } from "./git/ui/GitPanels";
-import { MergeQueuePanel } from "./git/ui/MergeQueuePanel";
-import GitGraphPanel from "./git/ui/GitGraphPanel";
-import MemoryWorkbench from "./shell/MemoryWorkbench";
 import ReviewSection from "./review/ui/ReviewSection";
-import PollPanel from "./shell/PollPanel";
 import QuestionModal, { type QuestionSubmitResult } from "./interactive/QuestionModal";
 import {
   answerAlreadySent,
@@ -101,10 +94,10 @@ import {
   RefreshCoordinator,
   type RefreshDomain,
 } from "./shell/refreshCoordinator";
-import PlanDraftPanel from "./shell/PlanDraftPanel";
 import FirstRunCard from "./shell/FirstRunCard";
 import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
 import ApprovalTerms from "./shell/ApprovalTerms";
+import { LazyPanel } from "./shell/LazyPanel";
 import { deriveFirstRunState, resolveFirstRunKeyStatus } from "./shell/firstRunData";
 import { writeThenRefresh } from "./shell/writeThenRefresh";
 import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
@@ -198,6 +191,17 @@ import { clampTaskListWidth, taskListMaxWidth } from "./shell/taskListWidth";
 import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
+
+const loadSettingsPanel = () => import("./SettingsView");
+const loadTeamPanel = () => import("./TeamDashboard");
+const loadMemoryPanel = () => import("./shell/MemoryWorkbench");
+const loadPollPanel = () => import("./shell/PollPanel");
+const loadWatchdogPanel = () =>
+  import("./watchdog/WatchdogPanel").then((module) => ({ default: module.WatchdogPanel }));
+const loadGitGraphPanel = () => import("./git/ui/GitGraphPanel");
+const loadMergeQueuePanel = () =>
+  import("./git/ui/MergeQueuePanel").then((module) => ({ default: module.MergeQueuePanel }));
+const loadPlanDraftPanel = () => import("./shell/PlanDraftPanel");
 
 /** 侧栏「面板」启动器：设置独立为弹窗，不在此列。 */
 export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
@@ -3105,37 +3109,51 @@ export default function App() {
               switch (key) {
                 case "planDraft":
                   return (
-                    <PlanDraftPanel
-                      draft={planDraft}
-                      source={planSource}
-                      sourceChanged={isPlanDraftSourceChanged(planDraft, planSource)}
-                      issues={planIssues}
-                      agents={snapshot.agents}
-                      busy={planBusy}
-                      error={planError}
-                      confirming={planConfirming}
-                      onDraftChange={handlePlanDraftChange}
-                      onGoalChange={handlePlanGoalChange}
-                      onConfirm={(ack) => void handleConfirmPlan(ack)}
-                      onCancel={handleCancelPlan}
-                      onRetry={() => {
-                        if (planSource) void loadPlanPreview(planSource);
-                      }}
-                    />
+                    <LazyPanel load={loadPlanDraftPanel} label="计划草案">
+                      {(PlanDraftPanel) => (
+                        <PlanDraftPanel
+                          draft={planDraft}
+                          source={planSource}
+                          sourceChanged={isPlanDraftSourceChanged(planDraft, planSource)}
+                          issues={planIssues}
+                          agents={snapshot.agents}
+                          busy={planBusy}
+                          error={planError}
+                          confirming={planConfirming}
+                          onDraftChange={handlePlanDraftChange}
+                          onGoalChange={handlePlanGoalChange}
+                          onConfirm={(ack) => void handleConfirmPlan(ack)}
+                          onCancel={handleCancelPlan}
+                          onRetry={() => {
+                            if (planSource) void loadPlanPreview(planSource);
+                          }}
+                        />
+                      )}
+                    </LazyPanel>
                   );
                 case "gitGraph":
-                  return <GitGraphPanel workspaceId={snapshot.workspace.id} />;
+                  return (
+                    <LazyPanel load={loadGitGraphPanel} label="版本图">
+                      {(GitGraphPanel) => (
+                        <GitGraphPanel workspaceId={snapshot.workspace.id} />
+                      )}
+                    </LazyPanel>
+                  );
                 case "mergeQueue":
                   return (
-                    <MergeQueuePanel
-                      workspaceId={snapshot.workspace.id}
-                      items={mergeQueueItems}
-                      stale={mergeQueueStale}
-                      error={mergeQueueError}
-                      loading={mergeQueueLoading}
-                      onReload={() => loadMergeQueue()}
-                      onOpenTask={(taskId) => handleOpenTaskPage(taskId)}
-                    />
+                    <LazyPanel load={loadMergeQueuePanel} label="合并队列">
+                      {(MergeQueuePanel) => (
+                        <MergeQueuePanel
+                          workspaceId={snapshot.workspace.id}
+                          items={mergeQueueItems}
+                          stale={mergeQueueStale}
+                          error={mergeQueueError}
+                          loading={mergeQueueLoading}
+                          onReload={() => loadMergeQueue()}
+                          onOpenTask={(taskId) => handleOpenTaskPage(taskId)}
+                        />
+                      )}
+                    </LazyPanel>
                   );
                 case "tasks":
                   return (
@@ -3213,31 +3231,35 @@ export default function App() {
                   );
                 case "team":
                   return (
-                    <TeamDashboard
-                      snapshot={snapshot}
-                      busy={busy}
-                      selectedTaskId={null}
-                      onSelectTask={(taskId) => {
-                        if (taskId) handleOpenTaskWorkspace(taskId, "team");
-                      }}
-                      starmapFocus={starmapFocus}
-                      autoOpenMemberDialog={createIntent === "member"}
-                      onAutoOpenHandled={() => setCreateIntent(null)}
-                      onCreate={handleCreateAgent}
-                      onRecommend={handleRecommendMembers}
-                      onOpenSettings={() => openSettingsSection("models")}
-                      onUpdate={handleUpdateAgent}
-                      onDelete={handleDeleteAgent}
-                      onOpenTask={(taskId) => handleShowTaskContext(taskId, "team")}
-                      onOpenTaskPage={(taskId) => handleOpenTaskWorkspace(taskId, "team")}
-                      scheduler={scheduler}
-                      onOpenRuns={(taskId) =>
-                        openRunsPanel(taskId ?? selectedTaskId, null, "team")
-                      }
-                      onOpenMergeQueue={handleOpenMergeQueue}
-                      onOpenMemory={() => openPanel("board")}
-                      onOpenTaskGit={(taskId) => handleOpenTaskVcs(taskId)}
-                    />
+                    <LazyPanel load={loadTeamPanel} label="团队">
+                      {(TeamDashboard) => (
+                        <TeamDashboard
+                          snapshot={snapshot}
+                          busy={busy}
+                          selectedTaskId={null}
+                          onSelectTask={(taskId) => {
+                            if (taskId) handleOpenTaskWorkspace(taskId, "team");
+                          }}
+                          starmapFocus={starmapFocus}
+                          autoOpenMemberDialog={createIntent === "member"}
+                          onAutoOpenHandled={() => setCreateIntent(null)}
+                          onCreate={handleCreateAgent}
+                          onRecommend={handleRecommendMembers}
+                          onOpenSettings={() => openSettingsSection("models")}
+                          onUpdate={handleUpdateAgent}
+                          onDelete={handleDeleteAgent}
+                          onOpenTask={(taskId) => handleShowTaskContext(taskId, "team")}
+                          onOpenTaskPage={(taskId) => handleOpenTaskWorkspace(taskId, "team")}
+                          scheduler={scheduler}
+                          onOpenRuns={(taskId) =>
+                            openRunsPanel(taskId ?? selectedTaskId, null, "team")
+                          }
+                          onOpenMergeQueue={handleOpenMergeQueue}
+                          onOpenMemory={() => openPanel("board")}
+                          onOpenTaskGit={(taskId) => handleOpenTaskVcs(taskId)}
+                        />
+                      )}
+                    </LazyPanel>
                   );
                 case "runs":
                   return (
@@ -3380,35 +3402,43 @@ export default function App() {
                   );
                 case "board":
                   return (
-                    <MemoryWorkbench
-                      workspaceId={snapshot.workspace.id}
-                      agents={snapshot.agents}
-                      selectedBoard={selectedBoard}
-                      onSelectBoard={setSelectedBoard}
-                      autoOpenPublish={createIntent === "board"}
-                      onAutoOpenHandled={() => setCreateIntent(null)}
-                      onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
-                      onStartPoll={(source) => {
-                        setPollIntent({
-                          title: source.title,
-                          sourceId: source.sourceId,
-                          scope: "board",
-                          scopeId: source.sourceId,
-                        });
-                        openPanel("polls");
-                      }}
-                    />
+                    <LazyPanel load={loadMemoryPanel} label="记忆">
+                      {(MemoryWorkbench) => (
+                        <MemoryWorkbench
+                          workspaceId={snapshot.workspace.id}
+                          agents={snapshot.agents}
+                          selectedBoard={selectedBoard}
+                          onSelectBoard={setSelectedBoard}
+                          autoOpenPublish={createIntent === "board"}
+                          onAutoOpenHandled={() => setCreateIntent(null)}
+                          onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
+                          onStartPoll={(source) => {
+                            setPollIntent({
+                              title: source.title,
+                              sourceId: source.sourceId,
+                              scope: "board",
+                              scopeId: source.sourceId,
+                            });
+                            openPanel("polls");
+                          }}
+                        />
+                      )}
+                    </LazyPanel>
                   );
                 case "polls":
                   return (
-                    <PollPanel
-                      workspaceId={snapshot.workspace.id}
-                      agents={snapshot.agents}
-                      autoOpenCreate={pollIntent !== null}
-                      initialSource={pollIntent}
-                      onAutoOpenHandled={() => setPollIntent(null)}
-                      onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
-                    />
+                    <LazyPanel load={loadPollPanel} label="投票">
+                      {(PollPanel) => (
+                        <PollPanel
+                          workspaceId={snapshot.workspace.id}
+                          agents={snapshot.agents}
+                          autoOpenCreate={pollIntent !== null}
+                          initialSource={pollIntent}
+                          onAutoOpenHandled={() => setPollIntent(null)}
+                          onNotify={(message, kind) => pushToast({ kind: kind ?? "success", message })}
+                        />
+                      )}
+                    </LazyPanel>
                   );
                 case "watchdog":
                   if (!watchdogSnapshot) {
@@ -3421,16 +3451,20 @@ export default function App() {
                     );
                   }
                   return (
-                    <WatchdogPanel
-                      snapshot={watchdogSnapshot}
-                      costs={watchdogCosts}
-                      onAck={handleAckWatchdogAlert}
-                      onResolve={handleResolveWatchdogAlert}
-                      onRelease={handleReleaseWatchdogHold}
-                      onOpenRun={(runId) => {
-                        if (runId) openRunsPanel(selectedTaskId, runId);
-                      }}
-                    />
+                    <LazyPanel load={loadWatchdogPanel} label="看门狗">
+                      {(WatchdogPanel) => (
+                        <WatchdogPanel
+                          snapshot={watchdogSnapshot}
+                          costs={watchdogCosts}
+                          onAck={handleAckWatchdogAlert}
+                          onResolve={handleResolveWatchdogAlert}
+                          onRelease={handleReleaseWatchdogHold}
+                          onOpenRun={(runId) => {
+                            if (runId) openRunsPanel(selectedTaskId, runId);
+                          }}
+                        />
+                      )}
+                    </LazyPanel>
                   );
                 default:
                   return null;
@@ -3906,14 +3940,18 @@ export default function App() {
           confirmClose={settingsDirty}
           className="settings-modal"
         >
-          <SettingsView
-            snapshot={snapshot}
-            busy={busy}
-            onSave={handleSaveSettings}
-            onDirtyChange={setSettingsDirty}
-            onReload={() => void handleManualRefresh()}
-            initialSection={gitSettingsFocus ? "git" : settingsInitialSection}
-          />
+          <LazyPanel load={loadSettingsPanel} label="设置">
+            {(SettingsView) => (
+              <SettingsView
+                snapshot={snapshot}
+                busy={busy}
+                onSave={handleSaveSettings}
+                onDirtyChange={setSettingsDirty}
+                onReload={() => void handleManualRefresh()}
+                initialSection={gitSettingsFocus ? "git" : settingsInitialSection}
+              />
+            )}
+          </LazyPanel>
         </Modal>
       )}
 
