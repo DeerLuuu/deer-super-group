@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { AppService } from "../src/kernel/service.js";
+import { stripCreateAgentPermission } from "../src/shared/memberRecommendation.js";
 import type {
   AnswerChatQuestionInput,
   CancelChatQuestionInput,
@@ -160,7 +161,9 @@ app.whenReady().then(() => {
   });
 
   handle("workspace:snapshot", (workspaceId: string) => getService().getSnapshot(workspaceId));
-  handle("agent:create", (input: CreateAgentInput) => getService().createAgent(input));
+  handle("agent:create", (input: CreateAgentInput) =>
+    getService().createAgent(stripCreateAgentPermission(input)),
+  );
   handle("agent:recommend", (input: RecommendMembersRequest) =>
     getService().recommendMembers(input),
   );

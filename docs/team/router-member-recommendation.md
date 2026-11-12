@@ -75,3 +75,9 @@
 - 服务测试断言 429/401/timeout/empty 不新增 agent；UI 测试断言限流/认证/超时/空状态与重试/手动 fallback。
 - 编辑已有成员组件测试：无 tabs/推荐 CTA，仅手动表单。
 - 推荐/手动聘用均提交 permission=read_only；`CreateAgentInput` 无 permission 字段（`@ts-expect-error` guard），service 对运行时夹带 permission 仍固定 read_only。
+
+## t280 补强
+
+- Prompt 所有自由文本统一 `sanitizeErrorText` + 字段级 cap：workspace name/path/overview、成员 name/role/model label、任务 title/description/status/owner、最近上下文、描述、模型 id/label；任务 description 纳入上下文。
+- schema/service 测试用 overview、任务标题、任务 description、描述、最近消息分别注入 `sk-live-*`/Bearer，断言 provider prompt 不含原文。
+- IPC `agent:create` 边界使用 `stripCreateAgentPermission` 只保留固定字段，permission/isRouter 等未知字段被丢弃；service 仍对夹带 permission 固定 read_only；测试覆盖 helper 与 service。

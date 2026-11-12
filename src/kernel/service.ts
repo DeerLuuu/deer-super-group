@@ -551,6 +551,7 @@ export class AppService {
               })),
               tasks: tasks.map((task) => ({
                 title: task.title,
+                description: task.description,
                 status: task.status,
                 ownerName: agents.find((agent) => agent.id === task.ownerId)?.name ?? null,
               })),

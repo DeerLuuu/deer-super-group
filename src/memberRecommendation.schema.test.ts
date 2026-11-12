@@ -97,12 +97,19 @@ describe("t272 recommendation schema", () => {
   it("prompt contains only allowed facts and never existing hidden prompts/secrets", () => {
     const prompt = buildMemberRecommendationUserPrompt({
       mode: "description",
-      description: "需要 QA",
+      description: "需要 QA sk-live-DESC123456",
       workspaceName: "Demo",
       workspacePath: "C:\\demo",
-      overview: "overview",
+      overview: "overview sk-live-OVERVIEW123456",
       members: [{ name: "Builder", role: "engineer", modelLabel: "GLM 5.3" }],
-      tasks: [{ title: "Fix", status: "ready", ownerName: "Builder" }],
+      tasks: [
+        {
+          title: "Fix sk-live-TITLE123456",
+          description: "detail Bearer task-token-123456",
+          status: "ready",
+          ownerName: "Builder",
+        },
+      ],
       recentContext: [
         {
           role: "user",
@@ -119,6 +126,10 @@ describe("t272 recommendation schema", () => {
     expect(prompt).not.toContain("secret123");
     expect(prompt).not.toContain("querysecret");
     expect(prompt).not.toContain("api.internal.corp");
+    expect(prompt).not.toContain("sk-live-DESC123456");
+    expect(prompt).not.toContain("sk-live-OVERVIEW123456");
+    expect(prompt).not.toContain("sk-live-TITLE123456");
+    expect(prompt).not.toContain("task-token-123456");
     expect(prompt).toContain("[REDACTED]");
     expect(prompt).not.toContain("system prompt:");
     expect(prompt).not.toContain("baseUrl");

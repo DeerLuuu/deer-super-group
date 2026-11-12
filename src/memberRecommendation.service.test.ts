@@ -121,6 +121,12 @@ describe("t278 recommendation failure codes", () => {
       role: "user",
       content: "sk-live-ABC123456 Authorization: Bearer abc.def token=secret123",
     });
+    service.createTask({
+      workspaceId: workspace.id,
+      title: "Fix sk-live-TASKTITLE123456",
+      description: "detail sk-live-TASKDESC123456",
+      acceptance: [],
+    });
     client.complete.mockResolvedValueOnce({
       text: JSON.stringify({ candidates: [] }),
       reasoning: "",
@@ -135,5 +141,7 @@ describe("t278 recommendation failure codes", () => {
     expect(prompt).not.toContain("sk-live-ABC123456");
     expect(prompt).not.toContain("Bearer abc.def");
     expect(prompt).not.toContain("secret123");
+    expect(prompt).not.toContain("sk-live-TASKTITLE123456");
+    expect(prompt).not.toContain("sk-live-TASKDESC123456");
   });
 });

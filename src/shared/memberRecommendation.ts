@@ -1,4 +1,4 @@
-import type { ModelProfile } from "./types.js";
+import type { CreateAgentInput, ModelProfile } from "./types.js";
 import { sanitizeErrorText } from "./errorRedaction.js";
 
 export const MEMBER_RECOMMENDATION_SYSTEM_PROMPT = `ROUTER_MEMBER_RECOMMENDER
@@ -165,37 +165,75 @@ export function buildMemberRecommendationUserPrompt(input: {
   workspacePath: string;
   overview?: string;
   members: ReadonlyArray<{ name: string; role: string; modelLabel: string | null }>;
-  tasks: ReadonlyArray<{ title: string; status: string; ownerName: string | null }>;
+  tasks: ReadonlyArray<{
+    title: string;
+    description?: string;
+    status: string;
+    ownerName: string | null;
+  }>;
   recentContext: ReadonlyArray<{ role: string; content: string }>;
   allowedModels: ReadonlyArray<{ id: string; label: string }>;
 }): string {
+  const clean = (value: string, max: number): string =>
+    value.trim() ? sanitizeErrorText(value, max) : "";
   const lines = [
-    `WORKSPACE: ${input.workspaceName}`,
-    `PATH: ${input.workspacePath}`,
-    `OVERVIEW: ${input.overview ?? ""}`,
+    `WORKSPACE: ${clean(input.workspaceName, 200)}`,
+    `PATH: ${clean(input.workspacePath, 500)}`,
+    `OVERVIEW: ${clean(input.overview ?? "", 1000)}`,
     "TEAM:",
-    ...input.members.map(
-      (member) => `- ${member.name} (${member.role}, ${member.modelLabel ?? "default model"})`,
-    ),
+    ...input.members
+      .slice(0, 50)
+      .map(
+        (member) =>
+          `- ${clean(member.name, 100)} (${clean(member.role, 100)}, ${clean(
+            member.modelLabel ?? "default model",
+            100,
+          )})`,
+      ),
     "TASKS:",
-    ...input.tasks.slice(0, 20).map(
-      (task) => `- ${task.title} [${task.status}] ${task.ownerName ?? "unassigned"}`,
-    ),
+    ...input.tasks.slice(0, 20).map((task) => {
+      const detail = clean(task.description ?? "", 500);
+      return `- ${clean(task.title, 200)} [${clean(task.status, 32)}] ${clean(
+        task.ownerName ?? "unassigned",
+        100,
+      )}${detail ? `: ${detail}` : ""}`;
+    }),
     "RECENT_CONTEXT:",
     ...input.recentContext
       .slice(-8)
       .map((message) => `- ${message.role}: ${sanitizeErrorText(message.content, 500)}`),
     `MODE: ${input.mode}`,
-    input.mode === "description" ? `DESCRIPTION: ${input.description ?? ""}` : "",
-    `ALLOWED_MODEL_IDS: ${JSON.stringify(input.allowedModels.map((model) => model.id))}`,
+    input.mode === "description"
+      ? `DESCRIPTION: ${clean(input.description ?? "", 2000)}`
+      : "",
+    `ALLOWED_MODEL_IDS: ${JSON.stringify(
+      input.allowedModels.map((model) => clean(model.id, 200)),
+    )}`,
+    `ALLOWED_MODEL_LABELS: ${JSON.stringify(
+      input.allowedModels.map((model) => clean(model.label, 200)),
+    )}`,
     "ALLOWED_PERMISSION: read_only",
     "SCHEMA: {\"candidates\":[{\"name\":\"string\",\"role\":\"string\",\"responsibilities\":\"string\",\"reason\":\"string\",\"suggestedModelProfileId\":\"string|null\",\"permission\":\"read_only\",\"skills\":[\"string\"],\"risks\":[\"string\"],\"systemPrompt\":\"string?\",\"persona\":\"string?\",\"agentsMd\":\"string?\"}]}",
   ];
   return lines.filter((line) => line !== "").join("\n");
 }
 
-export function recommendationErrorMessage(code: string): string {
-  switch (code) {
+/** IPC 边界：createAgent 只接受固定字段；permission/未知字段一律丢弃。 */
+export function stripCreateAgentPermission(
+  input: CreateAgentInput & { permission?: unknown },
+): CreateAgentInput {
+  return {
+    workspaceId: input.workspaceId,
+    name: input.name,
+    role: input.role,
+    systemPrompt: input.systemPrompt,
+    persona: input.persona,
+    agentsMd: input.agentsMd,
+    model: input.model,
+  };
+}
+
+export function recommendationErrorMessage(code: string): string {  switch (code) {
     case "MOCK_UNSUPPORTED":
       return "Mock 模式不提供真实推荐；请手填成员或切换真实模型。";
     case "NO_MODEL_CONFIGURED":
