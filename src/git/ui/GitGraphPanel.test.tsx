@@ -125,7 +125,9 @@ describe("GitGraphPanel", () => {
         await Promise.resolve();
       });
       const root = renderer!.root;
-      const tablist = root.findByProps({ role: "tablist" });
+      const tablist = root
+        .findAllByProps({ role: "tablist" })
+        .find((node: any) => node.props["aria-label"] === "版本视图")!;
       await act(async () => {
         tablist.props.onKeyDown({ key: "ArrowRight", preventDefault() {} });
       });
@@ -674,7 +676,34 @@ describe("GitGraphPanel", () => {
       expect(json).toContain("未暂存 / 未跟踪 (");
       expect(json).toContain("选择一个提交查看详情");
       expect(json).toContain("版本视图");
+      expect(json).toContain("git-ws-sections");
+      expect(json).toContain("git-ws-resizer");
       const root = renderer!.root;
+      const separator = root.findByProps({ role: "separator" });
+      expect(separator.props["aria-valuenow"]).toBe(38);
+      const sections = root.findByProps({ className: "git-ws-sections" });
+      expect(sections).toBeTruthy();
+      await act(async () => {
+        (separator.props.onKeyDown as (event: unknown) => void)({
+          key: "ArrowDown",
+          preventDefault() {},
+        });
+        await Promise.resolve();
+      });
+      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(43);
+      await act(async () => {
+        (root.findByProps({ role: "separator" }).props.onKeyDown as (event: unknown) => void)({
+          key: "Home",
+          preventDefault() {},
+        });
+        await Promise.resolve();
+      });
+      expect(root.findByProps({ role: "separator" }).props["aria-valuenow"]).toBe(38);
+      expect(
+        root
+          .findAllByProps({ role: "tab" })
+          .some((node: any) => String(node.props.children).includes("已暂存")),
+      ).toBe(true);
       const author = root
         .findAllByType("input")
         .find((input: any) => String(input.props["aria-label"]).includes("Author Name"));
@@ -698,6 +727,12 @@ describe("GitGraphPanel", () => {
       const filtered = JSON.stringify(renderer!.toJSON());
       expect(filtered).toContain("staged.txt");
       expect(filtered).not.toContain("work.txt");
+      expect(root.findAllByProps({ className: "git-ws-section-list" })).toHaveLength(2);
+      await act(async () => {
+        (fileSearch!.props.onChange as (event: unknown) => void)({ target: { value: "work" } });
+        await Promise.resolve();
+      });
+      expect(JSON.stringify(renderer!.toJSON())).toContain("没有已暂存文件");
       renderer!.unmount();
     } finally {
       (globalThis as { window?: unknown }).window = previous;

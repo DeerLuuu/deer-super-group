@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layoutGraph } from "../graph.js";
 import "./gitGraph.css";
 import "./gitSourceTree.css";
+import { GitDiffViewer } from "./GitDiffViewer.js";
 import type {
   GitCommitDetail,
   GitDiffPage,
@@ -244,13 +245,14 @@ export default function GitGraphPanel({
   }
 
   const openWorkingFile = async (file: GitWorkingFile) => {
-    if (!api || busy) return;
+    if (!api) return;
     setBusy(true);
     try {
       const scope = file.staged ? "staged" as const : "working" as const;
       setWorkingDiff(unwrap(await api.gitDiff(workspaceId, { scope, path: file.path, context: 3 })));
       setInspectorMode("diff");
-      setView("workspace");
+      // t401：选择文件即展示 Diff；480 下同时切到 Diff tab。
+      setView("detail");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -871,7 +873,7 @@ export default function GitGraphPanel({
                   </button>
                 </div>
                 {workingDiff ? (
-                  <DiffView diff={workingDiff} />
+                  <DiffView diff={workingDiff} loading={busy} />
                 ) : (
                   <p className="muted small git-st-empty">
                     选择一个工作区文件查看 diff；也可以选择提交查看详情。
@@ -906,7 +908,7 @@ export default function GitGraphPanel({
                     </li>
                   ))}
                 </ul>
-                <DiffView diff={detail.diff} />
+                <DiffView diff={detail.diff} loading={busy} error={error} />
               </div>
             ) : (
               <p className="muted small git-st-empty">
@@ -1035,6 +1037,48 @@ function WorkingTree({
   const [selectedStaged, setSelectedStaged] = useState<Set<string>>(new Set());
   const [commitTitle, setCommitTitle] = useState("");
   const [commitBody, setCommitBody] = useState("");
+  const [commitBodyOpen, setCommitBodyOpen] = useState(false);
+  const [sectionRatio, setSectionRatio] = useState(38);
+  const [sectionTab, setSectionTab] = useState<"staged" | "unstaged">("unstaged");
+  const sectionsRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ startY: number; startRatio: number; height: number } | null>(null);
+
+  function clampSectionRatio(value: number): number {
+    return Math.min(80, Math.max(20, value));
+  }
+
+  function beginSectionResize(event: React.MouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const height = sectionsRef.current?.getBoundingClientRect().height ?? 0;
+    if (height <= 0) return;
+    dragRef.current = { startY: event.clientY, startRatio: sectionRatio, height };
+    const onMove = (move: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      setSectionRatio(
+        clampSectionRatio(drag.startRatio + ((move.clientY - drag.startY) / drag.height) * 100),
+      );
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  function onSectionResizeKey(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setSectionRatio((value) =>
+        clampSectionRatio(value + (event.key === "ArrowDown" ? 5 : -5)),
+      );
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setSectionRatio(38);
+    }
+  }
 
   // 状态刷新后清掉已失效的勾选。
   useEffect(() => {
@@ -1088,8 +1132,8 @@ function WorkingTree({
   const visibleUnstaged = sortFiles(unstagedFiles.filter(filterFile));
 
   return (
-    <div className={`git-working-tree ${compact ? "compact" : ""}`}>
-      <div className="row between">
+    <div className={`git-working-tree ${compact ? "compact" : ""} show-sections`}>
+      <div className="git-ws-toolbar">
         <h3>工作区</h3>
         <div className="row gap">
           {canWrite ? (
@@ -1103,7 +1147,9 @@ function WorkingTree({
               生成 .gitignore
             </button>
           ) : null}
-          <button type="button" className="ghost tiny" onClick={onRefresh}>刷新</button>
+          <button type="button" className="ghost tiny" onClick={onRefresh}>
+            刷新
+          </button>
         </div>
       </div>
 
@@ -1125,240 +1171,295 @@ function WorkingTree({
             <button type="button" className="ghost tiny" onClick={onRefresh} disabled={writeBusy}>
               重试刷新
             </button>
-            <button type="button" className="ghost tiny" onClick={onDismissWriteError}>关闭</button>
+            <button type="button" className="ghost tiny" onClick={onDismissWriteError}>
+              关闭
+            </button>
           </div>
         </div>
       ) : null}
 
       {lastCommitSha ? (
-        <p className="git-write-ok" role="status">已提交 <code>{lastCommitSha.slice(0, 8)}</code>（仅本地，未推送）。</p>
+        <p className="git-write-ok" role="status">
+          已提交 <code>{lastCommitSha.slice(0, 8)}</code>（仅本地，未推送）。
+        </p>
       ) : null}
-
       {loading ? <p role="status">读取工作区…</p> : null}
 
       {status ? (
         <>
-          {/* 已暂存：可勾选批量取消暂存 */}
-          <section>
-            <div className="row between git-group-head">
-              <h4>
-                <label className="git-check">
+          <div className="git-ws-status muted tiny" aria-label="工作区状态">
+            冲突 {status.conflicts.length} · 子模块 {status.submodules.length}
+            {status.submodulesUnsupported ? " · 子模块读取不可用" : ""}
+            {status.truncated ? " · 文件过多，仅显示部分" : ""}
+          </div>
+
+          <div className="git-ws-segment-tabs" role="tablist" aria-label="工作区文件段">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sectionTab === "staged"}
+              onClick={() => setSectionTab("staged")}
+            >
+              已暂存 ({visibleStaged.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sectionTab === "unstaged"}
+              onClick={() => setSectionTab("unstaged")}
+            >
+              未暂存 / 未跟踪 ({visibleUnstaged.length})
+            </button>
+          </div>
+
+          <div className="git-ws-sections" ref={sectionsRef}>
+            <section
+              className={`git-ws-section ${visibleStaged.length === 0 ? "is-empty" : ""} ${sectionTab === "staged" ? "" : "mobile-hidden"}`}
+              style={{ flexBasis: `${sectionRatio}%` }}
+              aria-label={`已暂存文件，共 ${visibleStaged.length} 个`}
+            >
+              <div className="git-ws-section-head">
+                <label className="git-check git-ws-section-title">
                   <input
                     type="checkbox"
                     aria-label="全选已暂存文件"
-                    checked={stagedCount > 0 && selectedStaged.size === stagedCount}
+                    checked={visibleStaged.length > 0 && selectedStaged.size === visibleStaged.length}
                     onChange={(event) =>
                       setSelectedStaged(
                         event.target.checked
-                          ? new Set((status.staged ?? []).map((file) => file.path))
+                          ? new Set(visibleStaged.map((file) => file.path))
                           : new Set(),
                       )
                     }
-                    disabled={!canWrite || writeBusy || stagedCount === 0}
+                    disabled={!canWrite || writeBusy || visibleStaged.length === 0}
                   />
-                  已暂存 ({stagedCount})
+                  已暂存 ({visibleStaged.length})
                 </label>
-              </h4>
-              {canWrite ? (
-                <button
-                  type="button"
-                  className="ghost tiny"
-                  disabled={writeBusy || selectedStaged.size === 0}
-                  onClick={() => {
-                    onUnstage([...selectedStaged]);
-                    setSelectedStaged(new Set());
-                  }}
-                >
-                  取消暂存选中 ({selectedStaged.size})
-                </button>
-              ) : null}
-            </div>
-            <ul className="git-status-files">
-              {(visibleStaged ?? []).map((file) => (
-                <li key={`staged-${file.path}`} className="git-file-row">
-                  <label className="git-check ellipsis" title={file.path}>
-                    <input
-                      type="checkbox"
-                      checked={selectedStaged.has(file.path)}
-                      onChange={() => setSelectedStaged((prev) => toggle(prev, file.path))}
-                      disabled={!canWrite || writeBusy}
-                    />
-                    <span className="badge">{statusLabel(file)}</span>
-                    <span className="ellipsis">{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</span>
-                  </label>
-                  <button
-                    type="button"
-                    className="ghost tiny git-file-open"
-                    aria-label={`取消暂存 ${file.path}`}
-                    title="取消暂存"
-                    disabled={!canWrite || writeBusy}
-                    onClick={() => onUnstage([file.path])}
-                  >
-                    −
-                  </button>
-                  <button type="button" className="ghost tiny git-file-open" onClick={() => onOpen(file)}>
-                    diff
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {/* 未暂存 / 未跟踪：可勾选批量暂存 */}
-          <section>
-            <div className="row between git-group-head">
-              <h4>
-                <label className="git-check">
-                  <input
-                    type="checkbox"
-                    aria-label="全选未暂存文件"
-                    checked={unstagedFiles.length > 0 && selectedUnstaged.size === unstagedFiles.length}
-                    onChange={(event) =>
-                      setSelectedUnstaged(
-                        event.target.checked
-                          ? new Set(unstagedFiles.map((file) => file.path))
-                          : new Set(),
-                      )
-                    }
-                    disabled={!canWrite || writeBusy || unstagedFiles.length === 0}
-                  />
-                  未暂存 / 未跟踪 ({unstagedFiles.length})
-                </label>
-              </h4>
-              {canWrite ? (
-                <div className="row gap">
+                {canWrite ? (
                   <button
                     type="button"
                     className="ghost tiny"
+                    aria-label={`取消暂存选中 ${selectedStaged.size} 个文件`}
+                    disabled={writeBusy || selectedStaged.size === 0}
+                    onClick={() => {
+                      onUnstage([...selectedStaged]);
+                      setSelectedStaged(new Set());
+                    }}
+                  >
+                    − 取消暂存选中 ({selectedStaged.size})
+                  </button>
+                ) : null}
+              </div>
+              <div className="git-ws-section-list">
+                {visibleStaged.length === 0 ? (
+                  <div className="git-ws-empty">没有已暂存文件。</div>
+                ) : (
+                  <ul className="git-status-files">
+                    {visibleStaged.map((file) => (
+                      <li key={`staged-${file.path}`} className="git-file-row">
+                        <label className="git-check ellipsis" title={file.path}>
+                          <input
+                            type="checkbox"
+                            checked={selectedStaged.has(file.path)}
+                            onChange={() => setSelectedStaged((prev) => toggle(prev, file.path))}
+                            disabled={!canWrite || writeBusy}
+                          />
+                          <span className="badge">{statusLabel(file)}</span>
+                          <span className="ellipsis">
+                            {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="ghost tiny git-file-open"
+                          aria-label={`取消暂存 ${file.path}`}
+                          title="取消暂存"
+                          disabled={!canWrite || writeBusy}
+                          onClick={() => onUnstage([file.path])}
+                        >
+                          −
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost tiny git-file-open"
+                          onClick={() => onOpen(file)}
+                        >
+                          diff
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+
+            {visibleStaged.length > 0 && visibleUnstaged.length > 0 ? (
+              <div
+                className="git-ws-resizer"
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="调整已暂存与未暂存列表高度"
+                aria-valuemin={20}
+                aria-valuemax={80}
+                aria-valuenow={Math.round(sectionRatio)}
+                tabIndex={0}
+                onMouseDown={beginSectionResize}
+                onKeyDown={onSectionResizeKey}
+                title="拖拽调整高度；Home 恢复 38/62"
+              />
+            ) : null}
+
+            <section
+              className={`git-ws-section ${visibleUnstaged.length === 0 ? "is-empty" : ""} ${sectionTab === "unstaged" ? "" : "mobile-hidden"}`}
+              aria-label={`未暂存或未跟踪文件，共 ${visibleUnstaged.length} 个`}
+            >
+              <div className="git-ws-section-head">
+                <label className="git-check git-ws-section-title">
+                  <input
+                    type="checkbox"
+                    aria-label="全选未暂存文件"
+                    checked={
+                      visibleUnstaged.length > 0 && selectedUnstaged.size === visibleUnstaged.length
+                    }
+                    onChange={(event) =>
+                      setSelectedUnstaged(
+                        event.target.checked
+                          ? new Set(visibleUnstaged.map((file) => file.path))
+                          : new Set(),
+                      )
+                    }
+                    disabled={!canWrite || writeBusy || visibleUnstaged.length === 0}
+                  />
+                  未暂存 / 未跟踪 ({visibleUnstaged.length})
+                </label>
+                {canWrite ? (
+                  <button
+                    type="button"
+                    className="ghost tiny"
+                    aria-label={`暂存选中 ${selectedUnstaged.size} 个文件`}
                     disabled={writeBusy || selectedUnstaged.size === 0}
                     onClick={() => {
                       onStage([...selectedUnstaged]);
                       setSelectedUnstaged(new Set());
                     }}
                   >
-                    暂存选中 ({selectedUnstaged.size})
+                    + 暂存选中 ({selectedUnstaged.size})
                   </button>
-                </div>
-              ) : null}
-            </div>
-            <ul className="git-status-files">
-              {visibleUnstaged.map((file) => (
-                <li key={`unstaged-${file.path}`} className="git-file-row">
-                  <label className="git-check ellipsis" title={file.path}>
-                    <input
-                      type="checkbox"
-                      checked={selectedUnstaged.has(file.path)}
-                      onChange={() => setSelectedUnstaged((prev) => toggle(prev, file.path))}
-                      disabled={!canWrite || writeBusy}
-                    />
-                    <span className="badge">{statusLabel(file)}</span>
-                    <span className="ellipsis">{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</span>
-                  </label>
-                  <button
-                    type="button"
-                    className="ghost tiny git-file-open"
-                    aria-label={`暂存 ${file.path}`}
-                    title="暂存"
-                    disabled={!canWrite || writeBusy}
-                    onClick={() => onStage([file.path])}
-                  >
-                    +
-                  </button>
-                  <button type="button" className="ghost tiny git-file-open" onClick={() => onOpen(file)}>
-                    diff
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {/* 冲突（不可暂存/提交） */}
-          <section>
-            <h4>冲突 ({status.conflicts.length})</h4>
-            <ul className="git-status-files">
-              {status.conflicts.map((file) => (
-                <li key={`conflict-${file.path}`}>
-                  <span className="badge">U</span> <span className="ellipsis">{file.path}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {/* 提交框：只提交已暂存文件，绝不自动 add */}
-          {canWrite ? (
-            <form className="git-commit-box" onSubmit={submitCommit} aria-label="提交已暂存文件">
-              <label>
-                提交标题（必填）
-                <input
-                  value={commitTitle}
-                  onChange={(event) => setCommitTitle(event.target.value)}
-                  placeholder="例如：feat: 补齐健康检查接口"
-                  maxLength={100}
-                  disabled={writeBusy}
-                  required
-                />
-              </label>
-              <label>
-                正文（可选）
-                <textarea
-                  value={commitBody}
-                  onChange={(event) => setCommitBody(event.target.value)}
-                  rows={2}
-                  maxLength={5000}
-                  placeholder="背景、改动点、验证方式…"
-                  disabled={writeBusy}
-                />
-              </label>
-              <div className="row between">
-                <span className="muted tiny">
-                  将提交已暂存的 {stagedCount} 个文件（不自动暂存其余改动；仅本地提交，无推送）。
-                </span>
-                <button
-                  type="submit"
-                  className="primary small"
-                  disabled={writeBusy || stagedCount === 0 || !commitTitle.trim()}
-                >
-                  {writeBusy ? "提交中…" : `提交（${stagedCount} 个文件）`}
-                </button>
+                ) : null}
               </div>
-            </form>
-          ) : null}
-
-          <section>
-            <h4>子模块 ({status.submodules.length})</h4>
-            {status.submodulesUnsupported ? <p className="muted tiny">子模块状态不可用（git submodule 读取失败）。</p> : null}
-            <ul className="git-status-files">
-              {status.submodules.map((file) => (
-                <li key={`submodule-${file.path}`}>
-                  <span className="badge">S</span> <span className="ellipsis">{file.path}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-          {status.truncated ? <p className="muted tiny">工作区文件过多，仅显示部分。</p> : null}
+              <div className="git-ws-section-list">
+                {visibleUnstaged.length === 0 ? (
+                  <div className="git-ws-empty">没有未暂存或未跟踪文件。</div>
+                ) : (
+                  <ul className="git-status-files">
+                    {visibleUnstaged.map((file) => (
+                      <li key={`unstaged-${file.path}`} className="git-file-row">
+                        <label className="git-check ellipsis" title={file.path}>
+                          <input
+                            type="checkbox"
+                            checked={selectedUnstaged.has(file.path)}
+                            onChange={() =>
+                              setSelectedUnstaged((prev) => toggle(prev, file.path))
+                            }
+                            disabled={!canWrite || writeBusy}
+                          />
+                          <span className="badge">{statusLabel(file)}</span>
+                          <span className="ellipsis">
+                            {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="ghost tiny git-file-open"
+                          aria-label={`暂存 ${file.path}`}
+                          title="暂存"
+                          disabled={!canWrite || writeBusy}
+                          onClick={() => onStage([file.path])}
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost tiny git-file-open"
+                          onClick={() => onOpen(file)}
+                        >
+                          diff
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          </div>
         </>
-      ) : !loading ? <p className="muted small">没有工作区变更，或尚未读取。</p> : null}
-      {diff ? <><h3>文件 diff</h3><DiffView diff={diff} /></> : null}
+      ) : !loading ? (
+        <div className="git-ws-empty">工作区干净，没有可暂存文件。</div>
+      ) : null}
+
+      {canWrite ? (
+        <form className="git-commit-box git-ws-commit" onSubmit={submitCommit} aria-label="提交已暂存文件">
+          <div className="git-ws-commit-row">
+            <label className="git-ws-commit-title">
+              提交标题（必填）
+              <input
+                value={commitTitle}
+                onChange={(event) => setCommitTitle(event.target.value)}
+                placeholder="例如：feat: 补齐健康检查接口"
+                maxLength={100}
+                disabled={writeBusy}
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              className="primary small"
+              disabled={writeBusy || stagedCount === 0 || !commitTitle.trim()}
+            >
+              {writeBusy ? "提交中…" : `提交（${stagedCount} 个文件）`}
+            </button>
+          </div>
+          <div className="row between git-ws-commit-foot">
+            <button
+              type="button"
+              className="ghost tiny"
+              aria-expanded={commitBodyOpen}
+              onClick={() => setCommitBodyOpen((value) => !value)}
+            >
+              {commitBodyOpen ? "收起正文" : "正文（可选）"}
+            </button>
+            <span className="muted tiny">
+              仅提交已暂存的 {stagedCount} 个文件；仅本地提交，无推送。
+            </span>
+          </div>
+          {commitBodyOpen ? (
+            <label>
+              提交正文
+              <textarea
+                value={commitBody}
+                onChange={(event) => setCommitBody(event.target.value)}
+                rows={2}
+                maxLength={5000}
+                placeholder="背景、改动点、验证方式…"
+                disabled={writeBusy}
+              />
+            </label>
+          ) : null}
+        </form>
+      ) : null}
     </div>
   );
 }
 
-function DiffView({ diff }: { diff: GitDiffPage }) {
-  if (diff.binary || diff.submodule) {
-    return <p className="muted small">{diff.submodule ? "子模块变更不展开。" : "二进制文件不显示 diff。"}</p>;
-  }
-  return (
-    <div className="git-diff">
-      {diff.truncated ? <p className="muted tiny">diff 已截断（{diff.bytes} bytes）。</p> : null}
-      {diff.files.map((file) => (
-        <section key={file.path}>
-          <h4 className="mono">{file.path}</h4>
-          {file.hunks.map((hunk, index) => (
-            <pre key={index} className="git-hunk"><code>{hunk.header}{"\n"}{hunk.lines.map((line) => `${line.kind}${line.text}`).join("\n")}</code></pre>
-          ))}
-        </section>
-      ))}
-      {diff.files.length === 0 ? <p className="muted small">没有文本 diff。</p> : null}
-    </div>
-  );
+
+function DiffView({
+  diff,
+  loading = false,
+  error = null,
+}: {
+  diff: GitDiffPage;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  return <GitDiffViewer diff={diff} loading={loading} error={error} />;
 }

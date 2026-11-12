@@ -14,7 +14,7 @@ describe("t391 SourceTree responsive contract", () => {
   });
 
   it("keeps a fixed diff inspector and scrollable regions", () => {
-    expect(css).toContain("grid-template-columns: minmax(0, 55%) minmax(0, 45%)");
+    expect(css).toContain("grid-template-columns: minmax(0, 44%) minmax(0, 56%)");
     expect(css).toContain("min-height: 0;");
     expect(css).toContain("overflow: auto;");
     expect(css).toContain(".mobile-view-workspace .git-st-inspector");
