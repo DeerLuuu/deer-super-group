@@ -6,6 +6,16 @@ import {
   type WorkflowProjection,
   type WorkflowStage,
 } from "./workflowData";
+import { BudgetBar } from "../watchdog/WatchdogPanel";
+
+export type WorkflowWatchdog = {
+  spentUsd: number;
+  limitUsd: number;
+  ratio: number;
+  softRatio: number;
+  openAlerts: number;
+  onOpen: () => void;
+};
 
 /**
  * P0-3：工作区内常驻的轻量阶段条。
@@ -15,11 +25,13 @@ import {
 export default function WorkflowRail({
   projection,
   needs,
+  watchdog,
   onStage,
   onNeedsMe,
 }: {
   projection: WorkflowProjection;
   needs: readonly NeedsMeItem[];
+  watchdog?: WorkflowWatchdog | null;
   onStage: (stage: WorkflowStage, taskId: string | null) => void;
   onNeedsMe: (item: NeedsMeItem) => void;
 }) {
@@ -110,6 +122,30 @@ export default function WorkflowRail({
         <span className="workflow-unknown muted tiny" role="status">
           阶段未知
         </span>
+      ) : null}
+
+      {watchdog ? (
+        <div className="workflow-watchdog" role="group" aria-label="看门狗与今日预算">
+          <BudgetBar
+            spentUsd={watchdog.spentUsd}
+            limitUsd={watchdog.limitUsd}
+            ratio={watchdog.ratio}
+            softRatio={watchdog.softRatio}
+            label="今日预算"
+            onOpen={watchdog.onOpen}
+          />
+          {watchdog.openAlerts > 0 ? (
+            <button
+              type="button"
+              className="workflow-watchdog-alerts"
+              onClick={watchdog.onOpen}
+              aria-label={`打开看门狗，${watchdog.openAlerts} 个未处理告警`}
+              title={`${watchdog.openAlerts} 个未处理告警`}
+            >
+              告警 <span className="workflow-watchdog-alert-count">{watchdog.openAlerts}</span>
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {needs.length > 0 ? (

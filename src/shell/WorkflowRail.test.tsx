@@ -134,5 +134,32 @@ describe("t222 WorkflowRail", () => {
         .findAllByType("button")
         .some((button) => textOf(button.children).includes("需要我处理")),
     ).toBe(false);
+    expect(renderer!.root.findAllByProps({ role: "progressbar" })).toHaveLength(0);
+  });
+
+  it("renders budget/alerts only with watchdog data and opens the panel", async () => {
+    const onOpen = vi.fn();
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <WorkflowRail
+          projection={{ stage: "run", cta: null, focusTaskId: null }}
+          needs={[]}
+          watchdog={{ spentUsd: 1.25, limitUsd: 5, ratio: 0.25, softRatio: 0.8, openAlerts: 2, onOpen }}
+          onStage={() => {}}
+          onNeedsMe={() => {}}
+        />,
+      );
+    });
+    expect(renderer!.root.findAllByProps({ role: "group", "aria-label": "看门狗与今日预算" })).toHaveLength(1);
+    expect(renderer!.root.findAllByProps({ role: "progressbar" })).toHaveLength(1);
+    const budget = renderer!.root.findAllByType("button").find((button) => String(button.props["aria-label"]).includes("今日预算"));
+    expect(budget).toBeTruthy();
+    await act(() => (budget!.props.onClick as () => void)());
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    const alert = renderer!.root.findAllByProps({ "aria-label": "打开看门狗，2 个未处理告警" })[0];
+    expect(alert).toBeTruthy();
+    await act(() => (alert!.props.onClick as () => void)());
+    expect(onOpen).toHaveBeenCalledTimes(2);
   });
 });

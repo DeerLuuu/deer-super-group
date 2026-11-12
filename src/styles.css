@@ -7324,17 +7324,43 @@ label.check input {
 }
 
 /* ---------- t157：watchdog / 预算 / handoff ---------- */
-.watchdog-topbar {
+.workflow-watchdog {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
 }
-.watchdog-topbar-open {
+.workflow-rail .watchdog-budget {
+  min-height: 28px;
+  padding: 2px 7px;
+  gap: 5px;
+}
+.workflow-rail .watchdog-budget-label {
+  font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
+}
+.workflow-rail .watchdog-budget-track {
+  width: 72px;
+}
+.workflow-watchdog-alerts {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.workflow-watchdog-alert-count {
+  font-weight: 700;
 }
 .watchdog-budget {
   display: inline-flex;
@@ -7460,40 +7486,52 @@ label.check input {
   padding: 0 12px 8px;
 }
 .watchdog-budget:focus-visible,
-.watchdog-topbar button:focus-visible,
+.workflow-watchdog-alerts:focus-visible,
 .watchdog-panel button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-@media (max-width: 900px) {
-  .watchdog-topbar {
-    padding: 4px 8px;
+@media (max-width: 1100px) {
+  .workflow-rail .watchdog-budget-text {
+    display: none;
   }
-  .watchdog-budget-track {
-    width: 64px;
+}
+@media (max-width: 900px) {
+  .workflow-rail .watchdog-budget-track {
+    width: 56px;
   }
   .watchdog-panel {
     padding: 8px;
   }
 }
 @media (max-width: 760px) {
-  .watchdog-topbar {
-    align-items: stretch;
+  .workflow-rail {
+    gap: 6px;
+    padding-inline: 8px;
   }
-  .watchdog-budget {
-    flex: 1 1 100%;
-    justify-content: space-between;
+  .workflow-rail .workflow-stage-hint {
+    display: none;
   }
-  .watchdog-budget-text {
-    white-space: normal;
+  .workflow-rail .workflow-stage {
+    min-width: 48px;
+    padding: 4px 6px;
+  }
+  .workflow-rail .watchdog-budget {
+    padding: 2px 6px;
+    gap: 4px;
+  }
+  .workflow-rail .watchdog-budget-track {
+    width: 44px;
+  }
+  .workflow-watchdog-alerts {
+    padding: 3px 6px;
   }
   .watchdog-panel-head {
     align-items: flex-start;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .watchdog-panel *,
-  .watchdog-topbar * {
+  .watchdog-panel * {
     transition: none !important;
     animation: none !important;
   }

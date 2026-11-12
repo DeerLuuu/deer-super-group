@@ -76,7 +76,6 @@ import {
   nextVisibleMessageCount,
 } from "./shared/chatHistory";
 import {
-  BudgetBar,
   WatchdogAlertBanner,
   WatchdogPanel,
 } from "./watchdog/WatchdogPanel";
@@ -4199,6 +4198,18 @@ export default function App() {
         <WorkflowRail
           projection={workflowProjection}
           needs={needsMe}
+          watchdog={
+            watchdogSnapshot
+              ? {
+                  spentUsd: watchdogSnapshot.budgets.workspaceDay.spentUsd,
+                  limitUsd: watchdogSnapshot.budgets.workspaceDay.limitUsd,
+                  ratio: watchdogSnapshot.budgets.workspaceDay.ratio,
+                  softRatio: watchdogSnapshot.budgets.softRatio,
+                  openAlerts: watchdogSnapshot.alerts.filter((alert) => alert.status === "open").length,
+                  onOpen: () => openPanel("watchdog"),
+                }
+              : null
+          }
           onStage={handleWorkflowStage}
           onNeedsMe={handleNeedsMeItem}
         />
@@ -4239,31 +4250,6 @@ export default function App() {
                   .map((domain) => REFRESH_DOMAIN_LABEL[domain])
                   .join("、")}。当前显示上次成功数据；连接恢复后会自动对齐。`
               : "实时刷新暂不可用，当前显示上次成功的数据；连接恢复后会自动对齐。"}
-          </div>
-        )}
-
-        {watchdogSnapshot && (
-          <div className="watchdog-topbar" role="region" aria-label="看门狗与预算">
-            <button
-              type="button"
-              className="ghost tiny watchdog-topbar-open"
-              onClick={() => openPanel("watchdog")}
-            >
-              看门狗
-            </button>
-            <BudgetBar
-              spentUsd={watchdogSnapshot.budgets.workspaceDay.spentUsd}
-              limitUsd={watchdogSnapshot.budgets.workspaceDay.limitUsd}
-              ratio={watchdogSnapshot.budgets.workspaceDay.ratio}
-              softRatio={watchdogSnapshot.budgets.softRatio}
-              label="今日预算"
-              onOpen={() => openPanel("watchdog")}
-            />
-            {watchdogSnapshot.alerts.some((alert) => alert.status === "open") && (
-              <span className="pill pill-warning">
-                告警 {watchdogSnapshot.alerts.filter((alert) => alert.status === "open").length}
-              </span>
-            )}
           </div>
         )}
 
