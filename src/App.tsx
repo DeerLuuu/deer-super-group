@@ -217,6 +217,15 @@ const TABS: Array<{ id: Tab; label: string; hint: string }> = [
   { id: "settings", label: "设置", hint: "配置模型与运行参数" },
 ];
 
+const REFRESH_DOMAIN_LABEL: Record<RefreshDomain, string> = {
+  snapshot: "任务/成员/邮箱/记忆",
+  scheduler: "调度",
+  watchdog: "看门狗/预算",
+  mergeQueue: "合并队列",
+  runs: "运行记录",
+  trace: "执行轨迹",
+};
+
 type TaskStatusFilter = "all" | TaskStatus;
 
 const chatLiveStore = new ChatLiveStore();
@@ -545,6 +554,9 @@ export default function App() {
     Math.max(320, window.innerWidth - 300),
   );
   const [refreshStale, setRefreshStale] = useState(false);
+  const [staleDomains, setStaleDomains] = useState<ReadonlySet<RefreshDomain>>(
+    () => new Set(),
+  );
   const snapshotRef = useRef<Snapshot | null>(null);
   const selectedTaskRef = useRef<string | null>(null);
   const refreshCoordinatorRef = useRef<RefreshCoordinator | null>(null);
@@ -1152,7 +1164,21 @@ export default function App() {
   const refresh = useCallback(
     async (workspaceId: string) => {
       const token = ++refreshTokenRef.current;
-      await refreshDomains(workspaceId, ALL_REFRESH_DOMAINS, token);
+      try {
+        await refreshDomains(workspaceId, ALL_REFRESH_DOMAINS, token);
+        if (token === refreshTokenRef.current) {
+          setRefreshStale(false);
+          setStaleDomains(new Set());
+        }
+      } catch (error) {
+        if (token === refreshTokenRef.current) {
+          setRefreshStale(true);
+          setStaleDomains(new Set(ALL_REFRESH_DOMAINS));
+          // 手动 full refresh 失败也进入事件协调器的 backoff，避免调用方反复手刷。
+          refreshCoordinatorRef.current?.invalidateAll();
+        }
+        throw error;
+      }
     },
     [refreshDomains],
   );
@@ -1364,9 +1390,15 @@ export default function App() {
         refreshGenerationRef.current = generation;
         refreshLastSeqRef.current = lastSeq;
         await refreshDomains(current.workspace.id, domains, token);
-        if (token === refreshTokenRef.current) setRefreshStale(false);
+        if (token === refreshTokenRef.current) {
+          setRefreshStale(false);
+          setStaleDomains(new Set());
+        }
       },
-      onStale: () => setRefreshStale(true),
+      onStale: (domains) => {
+        setStaleDomains(new Set(domains));
+        setRefreshStale(true);
+      },
     });
     refreshCoordinatorRef.current = coordinator;
     const off = window.deer.onEvent((event: EventRecord) => {
@@ -1394,6 +1426,7 @@ export default function App() {
     refreshGenerationRef.current = 0;
     refreshLastSeqRef.current = 0;
     setRefreshStale(false);
+    setStaleDomains(new Set());
   }, [snapshot?.workspace.id]);
 
   useEffect(() => {
@@ -3608,8 +3641,16 @@ export default function App() {
         )}
 
         {refreshStale && (
-          <div className="notice small" role="status">
-            实时刷新暂不可用，当前显示上次成功的数据；连接恢复后会自动对齐。
+          <div
+            className="notice small"
+            role="status"
+            data-stale-domains={[...staleDomains].join(",")}
+          >
+            {staleDomains.size > 0
+              ? `以下数据可能过期：${[...staleDomains]
+                  .map((domain) => REFRESH_DOMAIN_LABEL[domain])
+                  .join("、")}。当前显示上次成功数据；连接恢复后会自动对齐。`
+              : "实时刷新暂不可用，当前显示上次成功的数据；连接恢复后会自动对齐。"}
           </div>
         )}
 

@@ -33,7 +33,7 @@ export type RefreshFlush = {
 
 export type RefreshCoordinatorOptions = {
   onFlush: (flush: RefreshFlush) => void | Promise<void>;
-  onStale?: () => void;
+  onStale?: (domains: ReadonlySet<RefreshDomain>) => void;
   coalesceMs?: number;
   maxRetries?: number;
 };
@@ -41,6 +41,7 @@ export type RefreshCoordinatorOptions = {
 export function domainsForEventType(type: string): readonly RefreshDomain[] {
   if (type.startsWith("task.")) return ["snapshot", "scheduler", "runs"];
   if (type.startsWith("scheduler.")) return ["snapshot", "scheduler"];
+  if (type === "run.handoff_created") return ["runs", "watchdog"];
   if (
     type === "run.started" ||
     type === "run.completed" ||
@@ -50,6 +51,10 @@ export function domainsForEventType(type: string): readonly RefreshDomain[] {
     return ["runs", "snapshot", "scheduler"];
   }
   if (type.startsWith("run.")) return ["runs"];
+  if (type.startsWith("cost.") || type.startsWith("provider.")) {
+    return ["watchdog", "snapshot"];
+  }
+  if (type.startsWith("pr.")) return ["mergeQueue", "snapshot"];
   if (type.startsWith("merge.") || type.startsWith("git.")) {
     return ["mergeQueue", "snapshot"];
   }
@@ -203,7 +208,7 @@ export class RefreshCoordinator {
       } else {
         this.stale = true;
         this.retryDelay = null;
-        this.options.onStale?.();
+        this.options.onStale?.(domains);
       }
     } finally {
       // reset/dispose 后旧 flush 不得清掉新一代的 in-flight 或排旧批次。

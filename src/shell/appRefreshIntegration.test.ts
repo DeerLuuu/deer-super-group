@@ -73,6 +73,9 @@ function makeAppPipeline() {
     getGeneration: () => generation,
     getLastSeq: () => lastSeq,
     isStale: () => stale,
+    setSelectedTask: (taskId: string | null) => {
+      selectedTask = taskId;
+    },
     reset: () => {
       appToken += 1;
       coordinator.reset();
@@ -101,6 +104,34 @@ describe("t286 App-level event→IPC integration", () => {
     expect(app.ipc.listRuns).not.toHaveBeenCalled(); // 无 selectedTask
     expect(app.getGeneration()).toBe(1);
     expect(app.getLastSeq()).toBe(3);
+    app.coordinator.dispose();
+  });
+
+  it("maps cost/provider/handoff/pr events to expected dirty IPC domains", async () => {
+    vi.useFakeTimers();
+    const app = makeAppPipeline();
+
+    app.coordinator.notify(event(1, "cost.updated"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(app.ipc.getSnapshot).toHaveBeenCalledTimes(1);
+    expect(app.ipc.getWatchdog).toHaveBeenCalledTimes(1);
+
+    app.coordinator.notify(event(2, "provider.updated"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(app.ipc.getSnapshot).toHaveBeenCalledTimes(2);
+    expect(app.ipc.getWatchdog).toHaveBeenCalledTimes(2);
+
+    app.coordinator.notify(event(3, "pr.opened"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(app.ipc.getSnapshot).toHaveBeenCalledTimes(3);
+    expect(app.ipc.mergeQueue).toHaveBeenCalledTimes(1);
+
+    app.setSelectedTask("t1");
+    app.coordinator.notify(event(4, "run.handoff_created"));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(app.ipc.getTrace).toHaveBeenCalledTimes(1);
+    expect(app.ipc.listRuns).toHaveBeenCalledTimes(1);
+    expect(app.ipc.getWatchdog).toHaveBeenCalledTimes(3);
     app.coordinator.dispose();
   });
 

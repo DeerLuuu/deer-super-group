@@ -29,6 +29,10 @@ describe("t282 R3 RefreshCoordinator", () => {
     expect(domainsForEventType("watchdog.alert")).toEqual(["watchdog"]);
     expect(domainsForEventType("run.started")).toEqual(["runs", "snapshot", "scheduler"]);
     expect(domainsForEventType("run.heartbeat")).toEqual(["runs"]);
+    expect(domainsForEventType("run.handoff_created")).toEqual(["runs", "watchdog"]);
+    expect(domainsForEventType("cost.updated")).toEqual(["watchdog", "snapshot"]);
+    expect(domainsForEventType("provider.updated")).toEqual(["watchdog", "snapshot"]);
+    expect(domainsForEventType("pr.opened")).toEqual(["mergeQueue", "snapshot"]);
     expect(domainsForEventType("chat.reasoning")).toEqual([]);
 
     coordinator.notify(event(1, "task.created"));
