@@ -9424,3 +9424,57 @@ button.task-contract-chip:focus-visible {
     max-width: min(86vw, 280px);
   }
 }
+
+/* t443: chat turn minimap / history navigation */
+.chat-tab-panel {
+  position: relative;
+}
+.chat-messages-content {
+  min-width: 0;
+}
+.chat-turn-anchor {
+  display: block;
+  height: 0;
+  overflow: hidden;
+}
+.chat-scroll-rail {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  bottom: 148px;
+  right: 2px;
+  width: 18px;
+  pointer-events: none;
+}
+.chat-scroll-tick {
+  position: absolute;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 999px;
+  background: var(--panel);
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translateY(-50%);
+  transition: width 120ms ease, height 120ms ease, background 120ms ease;
+}
+.chat-scroll-tick:hover,
+.chat-scroll-tick:focus-visible {
+  width: 11px;
+  height: 11px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.chat-scroll-tick.is-active {
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+@media (max-width: 480px) {
+  .chat-scroll-rail {
+    display: none;
+  }
+}

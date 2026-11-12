@@ -8,7 +8,7 @@ import { ChatLiveStore } from "./chatLiveStore.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
-  create: (element: unknown) => {
+  create: (element: unknown, options?: { createNodeMock?: (element: { props: Record<string, unknown> }) => unknown }) => {
     root: {
       findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }>;
       findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
@@ -109,6 +109,27 @@ function ChatViewProbe({
 }
 
 describe("t260 R1 actual ChatView isolation", () => {
+  it("starts at the newest message and exposes turn ticks", async () => {
+    const store = new ChatLiveStore(WS);
+    const scrollNode = { scrollTop: 0, scrollHeight: 2400, clientHeight: 500 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    expect(scrollNode.scrollTop).toBe(2400);
+    expect(renderer!.root.findAllByProps({ "aria-label": "对话轮次导航" })).toHaveLength(1);
+    const ticks = renderer!.root.findAllByProps({ "data-rail-turn": "m110" });
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks[0]!.props.title).toContain("fixture message 110");
+    await act(() => {
+      renderer!.unmount();
+    });
+  });
+
+
   it("keeps ChatView/history stable across token deltas", async () => {
     viewRenders = 0;
     const store = new ChatLiveStore(WS);

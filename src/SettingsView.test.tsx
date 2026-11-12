@@ -288,4 +288,25 @@ describe("t190 Settings draft/save safety", () => {
     });
     expect(onSave).toHaveBeenCalledTimes(1);
   });
+
+  it("saves the chat recent-N setting from the interface section", async () => {
+    const onSave = vi.fn(async (_next: LlmSettings) => ({ ok: true as const }));
+    const { renderer } = await renderSettings(onSave, vi.fn(), {}, "interface");
+    const select = renderer.root
+      .findAllByType("select")
+      .find((item) => item.props["aria-label"] === "对话显示最近消息条数");
+    expect(select).toBeTruthy();
+    await act(async () => {
+      (select!.props.onChange as (event: unknown) => void)({ target: { value: "80" } });
+      await Promise.resolve();
+    });
+    const save = renderer.root
+      .findAllByType("button")
+      .find((button) => textOf(button.children).includes("保存界面设置"))!;
+    await act(async () => {
+      await (save.props.onClick as () => Promise<void>)();
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0]![0].layout?.chatHistoryLimit).toBe(80);
+  });
 });
