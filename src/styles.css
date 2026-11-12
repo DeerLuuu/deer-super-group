@@ -2191,6 +2191,62 @@ label.check input {
   display: grid;
   gap: 8px;
   background: var(--bg-2);
+  position: relative;
+  overflow: visible;
+}
+
+.chat-command-menu {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 6px);
+  z-index: 80;
+  max-height: 220px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+}
+
+.chat-command-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-command-item.active,
+.chat-command-item:hover {
+  background: var(--hover);
+}
+
+.chat-command-item .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-command-empty {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 480px) {
+  .chat-command-menu {
+    left: 6px;
+    right: 6px;
+    max-height: 180px;
+  }
 }
 
 .chat-composer textarea {

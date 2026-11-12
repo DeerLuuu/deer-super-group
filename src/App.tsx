@@ -31,6 +31,7 @@ import type {
   PermissionMode,
   RecommendMembersRequest,
   RecommendMembersResponse,
+  MemberCandidate,
   RiskApprovalRequest,
   Run,
   SchedulerSnapshot,
@@ -68,6 +69,7 @@ import SchedulerBar from "./SchedulerBar";
 import RunHistory from "./RunHistory";
 import RunPanel from "./RunPanel";
 import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
+import { dispatchChatSubmission, extractRecommendationCandidates } from "./shared/routerMemberHandoff";
 import { translationCacheNeedsInvalidation } from "./shared/translationCache";
 import {
   applyHistoryScrollPreservation,
@@ -554,6 +556,7 @@ export default function App() {
   const [panelSearch, setPanelSearch] = useState("");
   const [openPanelKeys, setOpenPanelKeys] = useState<PanelKey[]>([]);
   const [createIntent, setCreateIntent] = useState<CreateIntent | null>(null);
+  const [recommendedMembers, setRecommendedMembers] = useState<MemberCandidate[] | null>(null);
   const [memberEditTarget, setMemberEditTarget] = useState<string | null>(null);
   // t136：从任务/黑板发起 Poll 时带入来源并自动打开创建弹窗。
   const [pollIntent, setPollIntent] = useState<{
@@ -2157,6 +2160,34 @@ export default function App() {
     return window.deer.recommendMembers({ ...input, workspaceId: current.workspace.id });
   }
 
+  async function handleTeamCommand(description: string | null): Promise<void> {
+    if (chatBusy || chatContextBusy) return;
+    setChatBusy(true);
+    setError(null);
+    try {
+      const response = await handleRecommendMembers(
+        description ? { mode: "description", description } : { mode: "team-gap" },
+      );
+      if (!response.ok) {
+        pushToast({ kind: "error", message: response.message });
+        return;
+      }
+      const candidates = extractRecommendationCandidates(response);
+      if (!candidates) {
+        pushToast({ kind: "error", message: "Router 没有返回可聘用的成员候选。" });
+        return;
+      }
+      setRecommendedMembers(candidates);
+      setCreateIntent(null);
+      openPanel("team");
+      openPanel("team");
+    } catch (error) {
+      pushToast({ kind: "error", message: errorText(error) });
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   async function handleUpdateAgent(input: UpdateAgentInput) {
     const current = snapshotRef.current;
     if (!current) return;
@@ -2601,19 +2632,24 @@ export default function App() {
   async function handleSendChat() {
     const text = chatInput.trim();
     if (!text || chatBusy || chatContextBusy) return;
-    const command = text.toLowerCase();
-    if (command === "/clear" || command === "/清空") {
-      setChatInput("");
-      await handleClearContext();
-      return;
-    }
-    if (command === "/compact" || command === "/压缩") {
-      setChatInput("");
-      await handleCompactContext();
-      return;
-    }
-    setChatInput("");
-    await sendChatText(text);
+    dispatchChatSubmission(text, {
+      clear: () => {
+        setChatInput("");
+        void handleClearContext();
+      },
+      compact: () => {
+        setChatInput("");
+        void handleCompactContext();
+      },
+      team: (description) => {
+        setChatInput("");
+        void handleTeamCommand(description);
+      },
+      send: (value) => {
+        setChatInput("");
+        void sendChatText(value);
+      },
+    });
   }
 
   // ---------- t64：提问弹窗（队列 / 自动打开 / 回答 / 取消 / 超时） ----------
@@ -3375,6 +3411,8 @@ export default function App() {
                           starmapFocus={starmapFocus}
                           autoOpenMemberDialog={createIntent === "member"}
                           onAutoOpenHandled={() => setCreateIntent(null)}
+                          recommendedMembers={recommendedMembers}
+                          onRecommendedMembersHandled={() => setRecommendedMembers(null)}
                           autoEditMemberId={memberEditTarget}
                           onAutoEditHandled={() => setMemberEditTarget(null)}
                           onCreate={handleCreateAgent}
@@ -3627,6 +3665,7 @@ export default function App() {
     busy,
     taskStatusFilter,
     createIntent,
+    recommendedMembers,
     scheduler,
     schedulerLoading,
     schedulerError,
@@ -6259,6 +6298,12 @@ function formatToolPayload(value: unknown): string {
   }
 }
 
+const CHAT_COMMANDS = [
+  { name: "/clear", insert: "/clear", description: "清空当前对话上下文" },
+  { name: "/compact", insert: "/compact", description: "压缩上下文，保留最近对话" },
+  { name: "/team", insert: "/team ", description: "推荐成员并打开新建成员弹窗（可带描述）" },
+] as const;
+
 export function ChatView({
   messages,
   liveStore,
@@ -6374,6 +6419,38 @@ export function ChatView({
   );
   const [messagePageLoading, setMessagePageLoading] = useState(false);
   const [messagePageError, setMessagePageError] = useState<string | null>(null);
+  const [commandDismissed, setCommandDismissed] = useState(false);
+  const [commandIndex, setCommandIndex] = useState(0);
+  const commandText = input.trim();
+  const commandRaw = input.replace(/^\s+/, "");
+  const commandOpen =
+    commandText.startsWith("/") &&
+    !/\s/.test(commandRaw) &&
+    !commandDismissed;
+  const commandMatches = commandOpen
+    ? CHAT_COMMANDS.filter((command) => command.name.startsWith(commandText.toLowerCase()))
+    : [];
+
+  useEffect(() => {
+    setCommandDismissed(false);
+    setCommandIndex(0);
+  }, [input]);
+
+  useEffect(() => {
+    if (commandIndex >= commandMatches.length) setCommandIndex(0);
+  }, [commandMatches.length, commandIndex]);
+
+  function chooseCommand(command: (typeof CHAT_COMMANDS)[number]) {
+    onInput(command.insert);
+    setCommandDismissed(true);
+    const composer = composerRef.current;
+    composer?.focus();
+    setTimeout(() => {
+      if (!composer) return;
+      const end = command.insert.length;
+      composer.setSelectionRange(end, end);
+    }, 0);
+  }
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const visibleMessages = messages.slice(-Math.max(0, visibleMessageCount));
   // 旧 fixture 没有 external store：给一个空 store 供 hook 稳定调用，实际终端回退 legacy props。
@@ -6735,26 +6812,93 @@ export function ChatView({
         </div>
 
         <div className="chat-composer">
+          {commandOpen ? (
+            <div
+              className="chat-command-menu"
+              role="listbox"
+              aria-label="聊天命令"
+              id="chat-command-listbox"
+            >
+              {commandMatches.length === 0 ? (
+                <div className="chat-command-empty" role="status">无匹配命令</div>
+              ) : (
+                commandMatches.map((command, index) => (
+                  <button
+                    key={command.name}
+                    id={`chat-command-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === commandIndex}
+                    className={`chat-command-item ${index === commandIndex ? "active" : ""}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => chooseCommand(command)}
+                  >
+                    <span className="mono">{command.name}</span>
+                    <span className="muted tiny">{command.description}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
           <textarea
             ref={composerRef}
+            role="combobox"
             aria-label="给 Router 发消息"
             aria-describedby="chat-composer-help"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-expanded={commandOpen}
+            aria-controls={commandOpen ? "chat-command-listbox" : undefined}
+            aria-activedescendant={commandOpen && commandMatches[commandIndex] ? `chat-command-${commandIndex}` : undefined}
             value={input}
             onChange={(event) => onInput(event.target.value)}
             onKeyDown={(event) => {
+              if (commandOpen) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  if (commandMatches.length > 0) setCommandIndex((index) => (index + 1) % commandMatches.length);
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  if (commandMatches.length > 0) setCommandIndex((index) => (index - 1 + commandMatches.length) % commandMatches.length);
+                  return;
+                }
+                if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+                  event.preventDefault();
+                  const command = commandMatches[commandIndex];
+                  if (command) chooseCommand(command);
+                  else {
+                    setCommandDismissed(true);
+                    onSend();
+                  }
+                  return;
+                }
+                if (event.key === "Tab") {
+                  event.preventDefault();
+                  const command = commandMatches[commandIndex];
+                  if (command) chooseCommand(command);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setCommandDismissed(true);
+                  return;
+                }
+              }
               if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
                 onSend();
               }
             }}
             rows={3}
-            placeholder="给 Router 发消息… Ctrl+Enter 发送 · /clear 清空 · /compact 压缩"
+            placeholder="给 Router 发消息… Ctrl+Enter 发送 · /clear 清空 · /compact 压缩 · /team 推荐成员"
           />
           <div className="row between">
             <span className="muted tiny" id="chat-composer-help">
               {busy
                 ? "Router 正在回复…"
-                : "上下文与工具会随任务变化 · Ctrl+Enter 发送 · /clear 清空 · /compact 压缩"}
+                : "上下文与工具会随任务变化 · Ctrl+Enter 发送 · /clear 清空 · /compact 压缩 · /team 推荐成员"}
             </span>
             <div className="row gap">
               <button

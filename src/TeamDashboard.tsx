@@ -46,6 +46,8 @@ export default function TeamDashboard({
   starmapFocus,
   autoOpenMemberDialog,
   onAutoOpenHandled,
+  recommendedMembers,
+  onRecommendedMembersHandled,
   autoEditMemberId,
   onAutoEditHandled,
   onCreate,
@@ -71,6 +73,9 @@ export default function TeamDashboard({
   /** C11：命令面板/「＋新建」触发的自动打开成员弹窗（一次性）。 */
   autoOpenMemberDialog: boolean;
   onAutoOpenHandled: () => void;
+  /** t415: Router read-only candidates handed off from Chat. */
+  recommendedMembers?: MemberCandidate[] | null;
+  onRecommendedMembersHandled?: () => void;
   /** P1-5：从任务头权限 chip 跳到指定成员的编辑弹窗（一次性）。 */
   autoEditMemberId?: string | null;
   onAutoEditHandled?: () => void;
@@ -96,7 +101,7 @@ export default function TeamDashboard({
   onOpenRuns: (taskId?: string | null) => void;
 }) {
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<{ agent: Agent | null } | null>(null);
+  const [dialog, setDialog] = useState<{ agent: Agent | null; candidates?: MemberCandidate[] } | null>(null);
   const [deleteMember, setDeleteMember] = useState<{
     agent: Agent;
     owned: number;
@@ -108,6 +113,13 @@ export default function TeamDashboard({
     setDialog({ agent: null });
     onAutoOpenHandled();
   }, [autoOpenMemberDialog, onAutoOpenHandled]);
+
+  // t415: Chat Router recommendation → open the existing create dialog with
+  // candidates prefilled. This never creates; hiring still needs confirmation.
+  useEffect(() => {
+    if (!recommendedMembers?.length) return;
+    setDialog({ agent: null, candidates: recommendedMembers });
+  }, [recommendedMembers]);
 
   // P1-5：任务头权限 chip → 团队仅保留一处成员编辑。
   useEffect(() => {
@@ -321,11 +333,15 @@ export default function TeamDashboard({
 
       {dialog && (
         <AgentDialog
-          key={dialog.agent?.id ?? "new"}
+          key={dialog.agent?.id ?? `new-${dialog.candidates?.map((candidate) => candidate.candidateId).join(",") ?? ""}`}
           agent={dialog.agent}
+          initialCandidates={dialog.candidates}
           snapshot={snapshot}
           busy={busy}
-          onClose={() => setDialog(null)}
+          onClose={() => {
+            setDialog(null);
+            onRecommendedMembersHandled?.();
+          }}
           onSubmit={submitAgent}
           onRecommend={onRecommend}
           onOpenSettings={onOpenSettings}
@@ -532,6 +548,7 @@ function ProgressHeader({
 
 function AgentDialog({
   agent,
+  initialCandidates,
   snapshot,
   busy,
   onClose,
@@ -541,6 +558,7 @@ function AgentDialog({
   onDeleteRequest,
 }: {
   agent: Agent | null;
+  initialCandidates?: MemberCandidate[];
   snapshot: Snapshot;
   busy: boolean;
   onClose: () => void;
@@ -552,10 +570,11 @@ function AgentDialog({
   onDeleteRequest: (agent: Agent, owned: number) => void;
 }) {
   const defaultManual = snapshot.settings.models.length === 0 || snapshot.settings.mock;
+  const seededCandidates = initialCandidates ?? [];
   const [tab, setTab] = useState<"router" | "manual" | "description">(
-    agent || defaultManual ? "manual" : "router",
+    agent || (defaultManual && seededCandidates.length === 0) ? "manual" : "router",
   );
-  const [candidates, setCandidates] = useState<MemberCandidate[]>([]);
+  const [candidates, setCandidates] = useState<MemberCandidate[]>(seededCandidates);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [recommendationCode, setRecommendationCode] = useState<string | null>(null);
   const [recommending, setRecommending] = useState(false);
@@ -697,8 +716,16 @@ function AgentDialog({
   }
 
   function candidateCards() {
+    const recommendationUnavailable = snapshot.settings.mock || snapshot.settings.models.length === 0;
     return (
       <div className="member-candidates">
+        {recommendationUnavailable ? (
+          <div className="notice small" role="alert">
+            {snapshot.settings.mock
+              ? "Mock 模式不提供推荐成员或聘用；请关闭 Mock / 配置模型后重试。"
+              : "尚未配置模型，无法推荐或聘用成员；请先在设置中添加模型。"}
+          </div>
+        ) : null}
         {candidates.map((candidate) => {
           const confirming = confirmId === candidate.candidateId;
           return (
@@ -749,7 +776,7 @@ function AgentDialog({
                 <button
                   type="button"
                   className="primary small"
-                  disabled={busy || hiring || candidate.nameConflict}
+                  disabled={busy || hiring || candidate.nameConflict || recommendationUnavailable}
                   onClick={() => {
                     setConfirmId(confirming ? null : candidate.candidateId);
                     setHireError(null);
@@ -762,7 +789,7 @@ function AgentDialog({
                 <button
                   type="button"
                   className="ghost small"
-                  disabled={busy || hiring}
+                  disabled={busy || hiring || recommendationUnavailable}
                   onClick={() => editCandidate(candidate)}
                 >
                   编辑后聘用

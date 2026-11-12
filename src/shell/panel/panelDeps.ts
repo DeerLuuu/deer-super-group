@@ -24,6 +24,7 @@ export type PanelDepsInput = {
   busy?: unknown;
   taskStatusFilter?: unknown;
   createIntent?: unknown;
+  recommendedMembers?: unknown;
   scheduler?: unknown;
   schedulerLoading?: unknown;
   schedulerError?: unknown;
@@ -115,6 +116,7 @@ export function buildPanelDeps(input: PanelDepsInput): PanelDeps {
       input.scheduler,
       input.starmapFocus,
       input.createIntent,
+      input.recommendedMembers,
       // t276：TeamDashboard 的成员模型下拉读 snapshot.settings.models/providers。
       input.settings,
     ],
