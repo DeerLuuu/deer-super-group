@@ -83,7 +83,22 @@ function ChatViewProbe({
       onClearContext={() => {}}
       onCompactContext={() => {}}
       overview={null}
-      routerAgent={{ permission: "full_access" } as Agent}
+      agent={{
+        id: "router",
+        workspaceId: "ws",
+        name: "Router",
+        role: "Router",
+        systemPrompt: "",
+        persona: "",
+        agentsMd: "",
+        permission: "full_access",
+        model: null,
+        isRouter: true,
+        status: "idle",
+        createdAt: "",
+      } as Agent}
+      agentOptions={[]}
+      onSwitchAgent={() => {}}
       modelOptions={[]}
       fullThrottle={false}
       onModelChange={() => {}}

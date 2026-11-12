@@ -74,9 +74,9 @@ describe("t175 terminal persistence", () => {
     try {
       const events: ChatEvent[] = [];
       const off = service.onChatEvent((event) => events.push(event));
-      const pending = service.sendChat(workspace.id, "取消这一轮");
+      const pending = service.sendChat(workspace.id, router.id, "取消这一轮");
       await requestSeen;
-      service.cancelChat(workspace.id);
+      service.cancelChat(workspace.id, router.id);
       const reply = await pending;
       off();
 
@@ -125,7 +125,7 @@ describe("t175 terminal persistence", () => {
     });
     const events: ChatEvent[] = [];
     const off = service.onChatEvent((event) => events.push(event));
-    await expect(service.sendChat(workspace.id, "触发一次网络失败")).rejects.toBeTruthy();
+    await expect(service.sendChat(workspace.id, router.id, "触发一次网络失败")).rejects.toBeTruthy();
     off();
 
     const turn = service.getChatTurns(workspace.id, router.id).turns.find(
@@ -180,7 +180,7 @@ describe("t175 terminal persistence", () => {
     try {
       const events: ChatEvent[] = [];
       const off = service.onChatEvent((event) => events.push(event));
-      await expect(service.sendChat(workspace.id, "触发 provider 401")).rejects.toBeTruthy();
+      await expect(service.sendChat(workspace.id, router.id, "触发 provider 401")).rejects.toBeTruthy();
       off();
       const turn = service.getChatTurns(workspace.id, router.id).turns.find(
         (item) => item.userMessage?.content === "触发 provider 401",
@@ -258,9 +258,9 @@ describe("t175 terminal persistence", () => {
       mock: false,
     });
     try {
-      const pending = service.sendChat(workspace.id, "工具中取消");
+      const pending = service.sendChat(workspace.id, router.id, "工具中取消");
       const off = service.onChatEvent((event) => {
-        if (event.type === "tool_call") service.cancelChat(workspace.id);
+        if (event.type === "tool_call") service.cancelChat(workspace.id, router.id);
       });
       await pending;
       off();
@@ -281,7 +281,7 @@ describe("t175 terminal persistence", () => {
   it("does not write a terminal for a successful assistant reply", async () => {
     const { service, workspacePath } = setup();
     const { workspace, router } = await open(service, workspacePath);
-    const reply = await service.sendChat(workspace.id, "正常成功");
+    const reply = await service.sendChat(workspace.id, router.id, "正常成功");
     expect(reply?.role).toBe("assistant");
     expect(service.store.listChatTurnTerminalEvents(workspace.id)).toHaveLength(0);
     const turn = service.getChatTurns(workspace.id, router.id).turns.find(

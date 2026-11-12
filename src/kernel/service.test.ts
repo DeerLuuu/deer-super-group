@@ -158,7 +158,8 @@ describe("AppService", () => {
 
     const events: ChatEvent[] = [];
     const off = service.onChatEvent((event) => events.push(event));
-    const reply = await service.sendChat(workspace.id, "这个项目怎么跑起来？");
+    const router = service.getSnapshot(workspace.id).agents.find((agent) => agent.isRouter)!;
+    const reply = await service.sendChat(workspace.id, router.id, "这个项目怎么跑起来？");
     off();
 
     expect(reply?.role).toBe("assistant");

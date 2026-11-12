@@ -33,13 +33,15 @@ async function openWorkspace(service: AppService, workspacePath: string) {
 }
 
 async function askCanvas(service: AppService, workspaceId: string) {
-  const reply = await service.sendChat(workspaceId, "帮我画一张实现流程图");
+  const router = service.getSnapshot(workspaceId).agents.find((agent) => agent.isRouter)!;
+  const reply = await service.sendChat(workspaceId, router.id, "帮我画一张实现流程图");
   if (!reply) throw new Error("no reply");
   return reply;
 }
 
 async function askQuestion(service: AppService, workspaceId: string) {
-  const reply = await service.sendChat(workspaceId, "帮我做一个表单确认一下范围");
+  const router = service.getSnapshot(workspaceId).agents.find((agent) => agent.isRouter)!;
+  const reply = await service.sendChat(workspaceId, router.id, "帮我做一个表单确认一下范围");
   if (!reply) throw new Error("no reply");
   return reply;
 }
@@ -304,13 +306,13 @@ describe("提问状态机：回答 / 幂等 / 校验 / 过期 / 取消", () => {
 
   it("Router 回复中提交 → E_BUSY，且不改变状态", async () => {
     const { service, workspacePath } = setup();
-    const { workspace } = await openWorkspace(service, workspacePath);
+    const { workspace, router } = await openWorkspace(service, workspacePath);
     await askQuestion(service, workspace.id);
     const question = firstQuestion(service, workspace.id);
     const internals = service as unknown as {
       chatAborts: Map<string, AbortController>;
     };
-    internals.chatAborts.set(workspace.id, new AbortController());
+    internals.chatAborts.set(`${workspace.id}:${router.id}`, new AbortController());
     try {
       const result = service.answerChatQuestion({
         workspaceId: workspace.id,
@@ -321,7 +323,7 @@ describe("提问状态机：回答 / 幂等 / 校验 / 过期 / 取消", () => {
       if (!result.ok) expect(result.code).toBe("E_BUSY");
       expect(service.store.getChatQuestion(question.id)?.status).toBe("pending");
     } finally {
-      internals.chatAborts.delete(workspace.id);
+      internals.chatAborts.delete(`${workspace.id}:${router.id}`);
     }
   });
 

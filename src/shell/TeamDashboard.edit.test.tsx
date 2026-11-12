@@ -69,6 +69,7 @@ const snapshot = {
 describe("t337 Team member edit target", () => {
   it("opens the Team member editor once when task permission chip targets an owner", async () => {
     const onAutoEditHandled = vi.fn();
+    const onOpenAgentChat = vi.fn();
     let renderer: ReturnType<typeof create> | null = null;
     await act(async () => {
       renderer = create(
@@ -92,6 +93,7 @@ describe("t337 Team member edit target", () => {
           onOpenMergeQueue={() => {}}
           onOpenMemory={() => {}}
           onOpenTaskGit={() => {}}
+          onOpenAgentChat={onOpenAgentChat}
           scheduler={null}
           onOpenRuns={() => {}}
         />,
@@ -102,6 +104,14 @@ describe("t337 Team member edit target", () => {
     const text = textOf(renderer!.toJSON());
     expect(text).toContain("编辑成员");
     expect(text).toContain("Ren");
+    const chatButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => button.props["aria-label"] === "打开 Ren 的对话");
+    expect(chatButton).toBeTruthy();
+    await act(async () => {
+      (chatButton!.props.onClick as () => void)();
+    });
+    expect(onOpenAgentChat).toHaveBeenCalledWith("a1");
     await act(async () => renderer!.unmount());
   });
 });

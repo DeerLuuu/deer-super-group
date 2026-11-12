@@ -31,6 +31,8 @@ export type Route = {
   task: string | null;
   /** 对话页锁定的任务上下文 id（`task` 参数）。 */
   chatTask: string | null;
+  /** 对话页选中的成员 id（`agent` 参数；空表示 Router）。 */
+  chatAgent: string | null;
   /** 邮箱选中的消息 id（`m` 参数）。 */
   message: string | null;
   /** 黑板选中的板块名（`b` 参数）。 */
@@ -55,6 +57,7 @@ export const DEFAULT_ROUTE: Route = {
   tab: "tasks",
   task: null,
   chatTask: null,
+  chatAgent: null,
   message: null,
   board: null,
   run: null,
@@ -94,6 +97,7 @@ export function parseHash(hash: string): Route {
     tab,
     task: params.get("t"),
     chatTask: params.get("task"),
+    chatAgent: params.get("agent"),
     message: params.get("m"),
     board: params.get("b"),
     run: params.get("r"),
@@ -109,6 +113,7 @@ export function parseHash(hash: string): Route {
 export type RouteSelection = {
   task?: string | null;
   chatTask?: string | null;
+  chatAgent?: string | null;
   message?: string | null;
   board?: string | null;
   /** t69：Run 面板选中的 Run id（仅 tasks tab 写入）。 */
@@ -131,6 +136,7 @@ export function buildHash(tab: RouteTab, selection: RouteSelection = {}): string
     if (tab === "tasks" && selection.taskReview) params.set("review", "1");
   } else if (tab === "chat") {
     if (selection.chatTask) params.set("task", selection.chatTask);
+    if (selection.chatAgent) params.set("agent", selection.chatAgent);
   } else if (tab === "mailbox") {
     if (selection.message) params.set("m", selection.message);
   } else if (tab === "board") {

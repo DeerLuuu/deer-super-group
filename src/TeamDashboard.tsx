@@ -60,6 +60,7 @@ export default function TeamDashboard({
   onOpenMergeQueue,
   onOpenMemory,
   onOpenTaskGit,
+  onOpenAgentChat,
   scheduler,
   onOpenRuns,
 }: {
@@ -95,6 +96,8 @@ export default function TeamDashboard({
   /** t123：团队页记忆工作台入口。 */
   onOpenMemory: () => void;
   onOpenTaskGit: (taskId: string) => void;
+  /** t424：成员卡片直接打开该成员对话。 */
+  onOpenAgentChat?: (agentId: string) => void;
   /** t69：调度快照（团队进度/排队段与运行面板联动）。 */
   scheduler?: SchedulerSnapshot | null;
   /** t69：打开运行面板；可带选中任务。 */
@@ -281,6 +284,16 @@ export default function TeamDashboard({
                       <span className="muted tiny">{member.role}</span>
                     </span>
                     <span className="team-member-count">{owned}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="team-member-edit team-member-chat"
+                    aria-label={`打开 ${member.name} 的对话`}
+                    title={`打开 ${member.name} 的对话`}
+                    onClick={() => onOpenAgentChat?.(member.id)}
+                    disabled={!onOpenAgentChat}
+                  >
+                    对话
                   </button>
                   <button
                     type="button"

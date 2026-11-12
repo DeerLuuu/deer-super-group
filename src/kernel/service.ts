@@ -45,6 +45,8 @@ import type {
   UpdateAgentInput,
   Workspace,
 } from "../shared/types.js";
+import { chatAbortKey } from "../shared/chatAgent.js";
+import { buildAgentSystemPrompt } from "./chatAgentPrompt.js";
 import {
   QUESTION_LIMITS,
   INTERACTIVE_PROMPT_V1,
@@ -1040,21 +1042,25 @@ export class AppService {
     });
   }
 
-  /** t170：清空当前 Router 对话上下文；运行中先停止。 */
+  /** t170：清空当前 Router 对话上下文；仅 Router 流会阻塞。 */
   clearChatContext(workspaceId: string): ClearChatContextResult {
-    if (this.chatAborts.has(workspaceId)) throw new Error("chat is already running");
     const workspace = this.store.getWorkspace(workspaceId);
     if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
     const router = this.ensureRouter(workspaceId);
+    if (this.chatAborts.has(chatAbortKey(workspaceId, router.id))) {
+      throw new Error("chat is already running");
+    }
     return this.store.clearChatContext(workspaceId, router.id);
   }
 
-  /** t170：保留最近 8 条，把更早上下文压缩为 system 摘要。 */
+  /** t170：保留最近 8 条，把更早上下文压缩为 system 摘要；仅 Router 流会阻塞。 */
   compactChatContext(workspaceId: string): CompactChatContextResult {
-    if (this.chatAborts.has(workspaceId)) throw new Error("chat is already running");
     const workspace = this.store.getWorkspace(workspaceId);
     if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
     const router = this.ensureRouter(workspaceId);
+    if (this.chatAborts.has(chatAbortKey(workspaceId, router.id))) {
+      throw new Error("chat is already running");
+    }
     return this.store.compactChatContext(workspaceId, router.id, 8);
   }
 
@@ -1130,46 +1136,54 @@ export class AppService {
     }
   }
 
-  async sendChat(workspaceId: string, content: string): Promise<ChatMessage | null> {
+  async sendChat(workspaceId: string, agentId: string, content: string): Promise<ChatMessage | null> {
     const message = content.trim();
     if (!message) throw new Error("message is required");
-    if (this.chatAborts.has(workspaceId)) throw new Error("chat is already running");
 
     const workspace = this.store.getWorkspace(workspaceId);
     if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
     const router = this.ensureRouter(workspaceId);
+    const agent = this.store.getAgent(agentId);
+    if (!agent || agent.workspaceId !== workspaceId) {
+      throw new Error(`agent not found in workspace: ${agentId}`);
+    }
+    const isRouter = agent.id === router.id;
+    const abortKey = chatAbortKey(workspaceId, agent.id);
+    if (this.chatAborts.has(abortKey)) throw new Error("chat is already running");
     const settings = this.store.getLlmSettings();
-    const profile = resolveModelProfile(settings, router.model);
+    const profile = resolveModelProfile(settings, agent.model);
     const provider = resolveProvider(settings, profile.providerId);
     const client = createLlmClientForModel(settings, profile);
 
     const userMessage = this.store.addChatMessage({
       workspaceId,
-      agentId: router.id,
+      agentId: agent.id,
       role: "user",
       content: message,
     });
 
-    const history = this.store.listChatMessages(workspaceId, router.id, 30);
+    const history = this.store.listChatMessages(workspaceId, agent.id, 30);
     // DESIGN §15.4：满血模式注入（不改权限；预算覆盖：输出翻倍、思考拉满）。
-    const fullThrottle = this.isFullThrottle(workspaceId, router.id);
+    const fullThrottle = this.isFullThrottle(workspaceId, agent.id);
     const budget = fullThrottle ? fullThrottleBudget(profile) : null;
-    const routerPrompt = buildRouterSystemPrompt(
-      workspace,
-      this.store.listAgents(workspaceId),
-      this.store.listTasks(workspaceId),
-    );
+    const prompt = isRouter
+      ? buildRouterSystemPrompt(
+          workspace,
+          this.store.listAgents(workspaceId),
+          this.store.listTasks(workspaceId),
+        )
+      : buildAgentSystemPrompt(agent, workspace);
     // t64 §5.9：画布/问题块进入模型上下文前压缩为摘要，避免 JSON 挤爆上下文；
     // 同时把最近 5 张画布摘要附加到单条 system 消息末尾（不同 provider 对多 system 处理不一致）。
-    const recentCanvases = this.recentCanvasSummary(workspaceId, router.id);
+    const recentCanvases = isRouter ? this.recentCanvasSummary(workspaceId, agent.id) : "";
     // t170：压缩后的 system 摘要并入顶部 system，不能作为普通 user turn。
     const compactedSummaries = history
       .filter((item) => item.role === "system")
       .map((item) => item.content);
     const conversation = history.filter((item) => item.role !== "system");
     const systemContent = [
-      fullThrottle ? withFullThrottle(routerPrompt) : routerPrompt,
-      ...compactedSummaries,
+      fullThrottle ? withFullThrottle(prompt) : prompt,
+      ...(isRouter ? compactedSummaries : []),
       recentCanvases,
     ]
       .filter(Boolean)
@@ -1184,7 +1198,7 @@ export class AppService {
           role: item.role === "assistant" ? "assistant" : "user",
           content:
             item.role === "assistant"
-              ? compressInteractiveForModel(item.content, item.id)
+              ? (isRouter ? compressInteractiveForModel(item.content, item.id) : item.content)
               : item.content,
         }),
       ),
@@ -1200,14 +1214,14 @@ export class AppService {
     let lastTool: { callId: string; name: string; step: number | null } | null = null;
     const activeTools = new Map<string, { callId: string; name: string; step: number | null }>();
     const requestApproval =
-      router.permission === "auto_risk"
+      agent.permission === "auto_risk"
         ? async (input: Parameters<NonNullable<ToolContext["requestApproval"]>>[0]) => {
             stage = "approval";
             try {
               return await this.requestRiskApproval({
                 workspaceId,
                 taskId: "",
-                agentName: router.name,
+                agentName: agent.name,
                 ...input,
               });
             } finally {
@@ -1222,16 +1236,16 @@ export class AppService {
       workspacePath: workspace.path,
       worktreePath: workspace.path,
       taskId: "",
-      runId: `chat:${router.id}`,
-      agentId: router.id,
-      agentName: router.name,
+      runId: `chat:${agent.id}`,
+      agentId: agent.id,
+      agentName: agent.name,
       store: this.store,
       signal: controller.signal,
-      permission: router.permission,
+      permission: agent.permission,
       requestApproval: requestApproval as ToolContext["requestApproval"],
     };
 
-    this.chatAborts.set(workspaceId, controller);
+    this.chatAborts.set(abortKey, controller);
 
     try {
       const result = await runAgentLoop({
@@ -1252,9 +1266,9 @@ export class AppService {
         thinkingStyle: thinkingStyleFor(provider, profile.modelId),
         signal: controller.signal,
         onTextDelta: (text) =>
-          this.emitChat({ type: "delta", workspaceId, agentId: router.id, text }),
+          this.emitChat({ type: "delta", workspaceId, agentId: agent.id, text }),
         onReasoningDelta: (text) =>
-          this.emitChat({ type: "reasoning", workspaceId, agentId: router.id, text }),
+          this.emitChat({ type: "reasoning", workspaceId, agentId: agent.id, text }),
         // t173：把工具调用/结果实时推给 chat UI。
         onEvent: (type, payload) => {
           const data = (payload ?? {}) as Record<string, unknown>;
@@ -1265,7 +1279,7 @@ export class AppService {
             this.emitChat({
               type: "reasoning_segment",
               workspaceId,
-              agentId: router.id,
+              agentId: agent.id,
               step,
               text,
             });
@@ -1274,8 +1288,8 @@ export class AppService {
                 aggregateType: "chat",
                 aggregateId: workspaceId,
                 type: "chat.reasoning",
-                actor: `agent:${router.name}`,
-                payload: { agentId: router.id, step, text: text.slice(0, 8_000) },
+                actor: `agent:${agent.name}`,
+                payload: { agentId: agent.id, step, text: text.slice(0, 8_000) },
               });
             } catch {
               // Trajectory persistence is best-effort; never block chat.
@@ -1293,7 +1307,7 @@ export class AppService {
             this.emitChat({
               type: "tool_call",
               workspaceId,
-              agentId: router.id,
+              agentId: agent.id,
               callId: String(data.id ?? ""),
               name: String(data.name ?? ""),
               arguments: String(data.arguments ?? ""),
@@ -1304,9 +1318,9 @@ export class AppService {
                 aggregateType: "chat",
                 aggregateId: workspaceId,
                 type: "chat.tool_call",
-                actor: `agent:${router.name}`,
+                actor: `agent:${agent.name}`,
                 payload: {
-                  agentId: router.id,
+                  agentId: agent.id,
                   callId: String(data.id ?? ""),
                   name: String(data.name ?? ""),
                   arguments: String(data.arguments ?? "").slice(0, 8_000),
@@ -1328,7 +1342,7 @@ export class AppService {
             this.emitChat({
               type: "tool_result",
               workspaceId,
-              agentId: router.id,
+              agentId: agent.id,
               callId: String(data.id ?? ""),
               name: String(data.name ?? ""),
               ok: Boolean(data.ok),
@@ -1341,9 +1355,9 @@ export class AppService {
                 aggregateType: "chat",
                 aggregateId: workspaceId,
                 type: "chat.tool_result",
-                actor: `agent:${router.name}`,
+                actor: `agent:${agent.name}`,
                 payload: {
-                  agentId: router.id,
+                  agentId: agent.id,
                   callId: String(data.id ?? ""),
                   name: String(data.name ?? ""),
                   ok: Boolean(data.ok),
@@ -1361,32 +1375,34 @@ export class AppService {
       stage = "persist";
       const assistant = this.store.addChatMessage({
         workspaceId,
-        agentId: router.id,
+        agentId: agent.id,
         role: "assistant",
         content: result.text.trim() || "（无回复）",
         reasoning: result.reasoning.trim(),
       });
-      // t64 §9.4：落库后 ingest 画布/提问（幂等）；任何异常只写审计事件，不阻断 done。
-      try {
-        this.ingestAssistantInteractive(workspaceId, router.id, assistant);
-      } catch (error) {
-        const code = safeErrorSummary(error, 120);
-        this.store.appendEvent({
-          aggregateType: "chat",
-          aggregateId: assistant.id,
-          type: "chat.interactive_ingest_failed",
-          actor: "Router",
-          payload: { messageId: assistant.id, code },
-        });
+      // t64 §9.4：仅 Router 落库后 ingest 画布/提问；成员对话不得创建提问/画布。
+      if (isRouter) {
+        try {
+          this.ingestAssistantInteractive(workspaceId, agent.id, assistant);
+        } catch (error) {
+          const code = safeErrorSummary(error, 120);
+          this.store.appendEvent({
+            aggregateType: "chat",
+            aggregateId: assistant.id,
+            type: "chat.interactive_ingest_failed",
+            actor: "Router",
+            payload: { messageId: assistant.id, code },
+          });
+        }
       }
-      this.emitChat({ type: "done", workspaceId, agentId: router.id, message: assistant });
+      this.emitChat({ type: "done", workspaceId, agentId: agent.id, message: assistant });
       return assistant;
     } catch (error) {
       if (controller.signal.aborted) {
         const { terminal, persisted } = this.persistChatTurnTerminal({
           workspaceId,
-          agentId: router.id,
-          agentName: router.name,
+          agentId: agent.id,
+          agentName: agent.name,
           userMessageId: userMessage.id,
           status: "cancelled",
           stage,
@@ -1395,7 +1411,7 @@ export class AppService {
         this.emitChat({
           type: "cancelled",
           workspaceId,
-          agentId: router.id,
+          agentId: agent.id,
           userMessageId: userMessage.id,
           terminal,
           terminalPersisted: persisted,
@@ -1405,8 +1421,8 @@ export class AppService {
       const errorMessage = safeErrorSummary(error);
       const { terminal, persisted } = this.persistChatTurnTerminal({
         workspaceId,
-        agentId: router.id,
-        agentName: router.name,
+        agentId: agent.id,
+        agentName: agent.name,
         userMessageId: userMessage.id,
         status: "error",
         stage,
@@ -1416,7 +1432,7 @@ export class AppService {
       this.emitChat({
         type: "error",
         workspaceId,
-        agentId: router.id,
+        agentId: agent.id,
         error: errorMessage,
         userMessageId: userMessage.id,
         terminal,
@@ -1424,12 +1440,12 @@ export class AppService {
       });
       throw error;
     } finally {
-      this.chatAborts.delete(workspaceId);
+      this.chatAborts.delete(abortKey);
     }
   }
 
-  cancelChat(workspaceId: string): void {
-    this.chatAborts.get(workspaceId)?.abort();
+  cancelChat(workspaceId: string, agentId: string): void {
+    this.chatAborts.get(chatAbortKey(workspaceId, agentId))?.abort();
   }
 
   /** DESIGN §15.4：满血模式开关——只注入提示/预算，不碰权限；无工具暴露给 Agent。 */
@@ -1636,8 +1652,9 @@ export class AppService {
     if (question.workspaceId !== input.workspaceId) {
       return { ok: false, code: "E_WORKSPACE_MISMATCH", message: "问题不属于当前工作区" };
     }
-    // E_BUSY 在标记 answered 之前检查：避免「答案已存但消息发不出」的状态。
-    if (this.chatAborts.has(input.workspaceId)) {
+    // E_BUSY 在标记 answered 之前检查：仅 Router 流会阻塞提问回答。
+    const busyRouter = this.ensureRouter(input.workspaceId);
+    if (this.chatAborts.has(chatAbortKey(input.workspaceId, busyRouter.id))) {
       return { ok: false, code: "E_BUSY", message: "Router 正在回复，请稍后再提交" };
     }
     const now = new Date().toISOString();

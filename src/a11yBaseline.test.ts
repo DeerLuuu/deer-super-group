@@ -32,7 +32,7 @@ describe("t292 accessibility baseline", () => {
   });
 
   it("keeps composer, Chat tabs and resizers semantically labelled", () => {
-    expect(app).toContain('aria-label="给 Router 发消息"');
+    expect(app).toContain('aria-label={`给 ${agent.name} 发消息`}');
     expect(app).toContain('aria-describedby="chat-composer-help"');
     expect(app).toContain('id="chat-panel-chat"');
     expect(app).toContain('role="tabpanel"');
