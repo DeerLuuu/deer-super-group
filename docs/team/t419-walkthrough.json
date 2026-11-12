@@ -1,0 +1,60 @@
+{
+  "at": "2026-11-12T20:14:05.684Z",
+  "results": [
+    {
+      "id": "starmap-ready",
+      "ok": true,
+      "detail": "团队面板星图已渲染（3 节点依赖链）"
+    },
+    {
+      "id": "aria-hint",
+      "ok": true,
+      "detail": "节点 aria-label 含单击/双击提示"
+    },
+    {
+      "id": "single-click-popover",
+      "ok": true,
+      "detail": "单击打开概览浮窗"
+    },
+    {
+      "id": "single-click-no-nav",
+      "ok": true,
+      "detail": "单击后仍在团队面板（#/team → #/team?t=t419-a，仅附加选中参数）"
+    },
+    {
+      "id": "popover-actions",
+      "ok": true,
+      "detail": "浮窗含「打开会话 / 在任务页打开」动作"
+    },
+    {
+      "id": "popover-esc",
+      "ok": true,
+      "detail": "Esc 关闭浮窗"
+    },
+    {
+      "id": "double-click-nav",
+      "ok": true,
+      "detail": "双击后进入任务页（#/tasks?t=t419-b）"
+    },
+    {
+      "id": "node-focusable",
+      "ok": true,
+      "detail": "节点可聚焦"
+    },
+    {
+      "id": "ctrl-enter-nav",
+      "ok": true,
+      "detail": "Ctrl+Enter 与双击等价（进入任务页）"
+    },
+    {
+      "id": "no-overflow-960",
+      "ok": true,
+      "detail": "960 档 scrollWidth=960"
+    },
+    {
+      "id": "no-overflow-480",
+      "ok": true,
+      "detail": "480 档 scrollWidth=480"
+    }
+  ]
+}

@@ -1212,8 +1212,9 @@ export default function TaskStarMap({
                 openPopover(task, event.currentTarget);
               }}
               onDoubleClick={() => {
+                // G6：双击打开任务工作区（不进聊天）。
                 closePopover(false);
-                onOpen(task);
+                onOpenTaskPage(task);
               }}
               onMouseEnter={() => scheduleHighlight(task.id)}
               onMouseLeave={() => scheduleHighlight(null)}
@@ -1221,16 +1222,18 @@ export default function TaskStarMap({
               onBlur={() => scheduleHighlight(null)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                  // G6：Ctrl/Cmd+Enter 与双击等价——进入任务工作区。
                   event.preventDefault();
                   closePopover(false);
-                  onOpen(task);
+                  onOpenTaskPage(task);
                 }
               }}
               aria-label={`${task.title}，${TASK_STATUS_LABEL[task.status]}，${
                 owner ? owner.name : "未分配"
               }，${(model.upstream.get(task.id) ?? []).length} 个上游、${
                 (model.downstream.get(task.id) ?? []).length
-              } 个下游`}
+              } 个下游，单击查看概览，双击打开任务`}
+              title={`${task.title}｜单击查看概览，双击打开任务`}
             >
               {showLabel && (
                 <span className={`star-label tier-${tier}`} aria-hidden="true">
