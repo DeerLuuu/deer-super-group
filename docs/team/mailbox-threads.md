@@ -5,7 +5,7 @@
 把邮箱从平铺消息改为**线程视图**：同一线程的回复链、未读聚合、全部已读、线程搜索/成员过滤，以及 1440/960/480 三档响应式与键盘/aria。
 
 - 单一功能：邮箱线程化。
-- 分支：`feature/t356-mailbox-threads`（PR 待创建）。
+- 分支：`feature/t356-mailbox-threads`（PR https://github.com/DeerLuuu/deer-super-group/pull/55，未合并）。
 - 基线：main `e2ac41a`（G3 SourceTree Git 面板已合入后的最新 main）。
 - 不新增数据源、不改权限、不改 schema；没有新增 IPC 通道。
 
