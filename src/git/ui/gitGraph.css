@@ -247,19 +247,6 @@
   flex: 0 0 auto;
 }
 
-.git-first-commit {
-  margin: 8px 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(88, 166, 255, 0.4);
-  border-radius: 8px;
-  background: rgba(88, 166, 255, 0.08);
-}
-
-.git-first-commit strong {
-  display: block;
-  margin-bottom: 4px;
-}
-
 .git-write-error {
   margin: 8px 0;
   padding: 10px 12px;

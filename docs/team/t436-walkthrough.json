@@ -1,0 +1,41 @@
+{
+  "at": "2026-11-12T21:46:45.751Z",
+  "out": [
+    {
+      "width": 1440,
+      "state": {
+        "width": 1440,
+        "hints": 0,
+        "text": false,
+        "noGuide": false,
+        "controls": true,
+        "workspace": true,
+        "scrollWidth": 1440
+      }
+    },
+    {
+      "width": 960,
+      "state": {
+        "width": 960,
+        "hints": 0,
+        "text": false,
+        "noGuide": false,
+        "controls": true,
+        "workspace": true,
+        "scrollWidth": 960
+      }
+    },
+    {
+      "width": 480,
+      "state": {
+        "width": 480,
+        "hints": 0,
+        "text": false,
+        "noGuide": false,
+        "controls": true,
+        "workspace": true,
+        "scrollWidth": 480
+      }
+    }
+  ]
+}

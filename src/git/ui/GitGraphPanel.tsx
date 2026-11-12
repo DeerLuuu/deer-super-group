@@ -967,7 +967,6 @@ export default function GitGraphPanel({
               fileFilter={fileFilter}
               fileSort={fileSort}
               compact={compactFiles}
-              isFirstCommit={!loading && repo !== null && !repo.headSha}
               writeBusy={writeBusy}
               writeError={writeError}
               onDismissWriteError={() => setWriteError(null)}
@@ -1118,7 +1117,6 @@ function WorkingTree({
   fileFilter = "",
   fileSort = "path",
   compact = false,
-  isFirstCommit,
   writeBusy,
   writeError,
   onDismissWriteError,
@@ -1137,8 +1135,6 @@ function WorkingTree({
   fileFilter?: string;
   fileSort?: "path" | "status";
   compact?: boolean;
-  /** 空仓库（一键 init 后尚无提交）：显示首次提交引导。 */
-  isFirstCommit: boolean;
   writeBusy: boolean;
   writeError: string | null;
   onDismissWriteError: () => void;
@@ -1254,17 +1250,6 @@ function WorkingTree({
           </button>
         </div>
       </div>
-
-      {isFirstCommit && canWrite ? (
-        <div className="git-first-commit" role="note" aria-label="首次提交引导">
-          <strong>首次提交</strong>
-          <p className="muted small">
-            这是全新仓库，还没有任何提交。三步完成首次提交：
-            ① 在下方勾选文件并点「暂存选中」；② 填写提交标题；③ 点「提交（N 个文件）」。
-            可先生成 .gitignore 忽略 node_modules/ 等目录。
-          </p>
-        </div>
-      ) : null}
 
       {writeError ? (
         <div className="git-write-error" role="alert">
