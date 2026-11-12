@@ -842,9 +842,9 @@ describe("t111 repair — B1 realpath/lstat worktree paths", () => {
 });
 
 describe("t111 repair — B2 emitGitEvent/eventRegistry", () => {
-  it("registers all 34 Git event types and validates before append", () => {
+  it("registers all 35 Git event types and validates before append", () => {
     registerGitEventTypes();
-    expect(GIT_EVENT_TYPES).toHaveLength(34);
+    expect(GIT_EVENT_TYPES).toHaveLength(35);
     for (const type of GIT_EVENT_TYPES) {
       expect(isKernelEventType(type)).toBe(true);
       expect((EVENT_REGISTRY as unknown as Record<string, unknown>)[type]).toBeTruthy();

@@ -337,6 +337,17 @@ app.whenReady().then(() => {
     if (!parsed.success) return readBadParam();
     return getService().git.readRepo(parsed.data);
   });
+  // t348：非 Git 工作区初始化；只接受 workspaceId，路径由主进程 Store 解析。
+  handle("git:init-probe", (workspaceId: string) => {
+    const parsed = gitWorkspaceIdSchema.safeParse(workspaceId);
+    if (!parsed.success) return readBadParam();
+    return getService().git.probeInit(parsed.data);
+  });
+  handle("git:init", (workspaceId: string) => {
+    const parsed = gitWorkspaceIdSchema.safeParse(workspaceId);
+    if (!parsed.success) return readBadParam();
+    return getService().git.init(parsed.data);
+  });
   handle("git:graph", (workspaceId: string, params?: unknown) => {
     const ws = gitWorkspaceIdSchema.safeParse(workspaceId);
     const body = gitGraphParamsSchema.safeParse(params ?? {});

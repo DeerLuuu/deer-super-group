@@ -132,3 +132,76 @@
   .git-graph-body .git-graph-detail { grid-column: auto; max-height: none; }
   .git-graph-panel { padding: 6px; }
 }
+
+.git-init-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 560px;
+  margin: 24px auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.git-init-empty h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.git-init-empty p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.git-init-cta {
+  margin-top: 4px;
+}
+
+.git-init-success {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--success);
+  color: var(--text);
+  background: var(--panel);
+}
+
+.git-init-modal .git-init-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0 0 10px;
+}
+
+.git-init-modal .git-init-summary dt {
+  color: var(--muted);
+}
+
+.git-init-modal .git-init-summary dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.git-init-error {
+  margin: 10px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.git-init-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+@media (max-width: 480px) {
+  .git-init-empty { margin: 12px 0; padding: 14px; }
+  .git-init-modal .git-init-summary { grid-template-columns: 1fr; }
+  .git-init-modal .git-init-summary dt { margin-top: 6px; }
+  .git-init-actions { flex-wrap: wrap; }
+}

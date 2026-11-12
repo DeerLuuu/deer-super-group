@@ -211,9 +211,29 @@ export class GitReadService {
     const headSha = head.code === 0 ? head.stdout.trim() : null;
     const branchRaw = await this.run(["rev-parse", "--abbrev-ref", "HEAD"], 10_000, 1024 * 1024);
     const branch = branchRaw.code === 0 && branchRaw.stdout.trim() !== "HEAD" ? branchRaw.stdout.trim() : null;
-    if (!headSha) return fail("GIT_READ_NO_COMMITS", "repository has no commits");
     const bare = (await this.run(["rev-parse", "--is-bare-repository"], 10_000, 1024 * 1024)).stdout.trim() === "true";
     const shallow = (await this.run(["rev-parse", "--is-shallow-repository"], 10_000, 1024 * 1024)).stdout.trim() === "true";
+    if (!headSha) {
+      // An initialized repository may have no commits yet. This is a valid
+      // empty repository, not a read failure; branch falls back to the
+      // configured base branch until HEAD points at a commit.
+      return result({
+        workspaceId: "",
+        workspacePath: this.repo.workspacePath,
+        root: this.root,
+        headSha: null,
+        branch: branch ?? this.repo.baseBranch ?? "main",
+        detached: false,
+        ahead: 0,
+        behind: 0,
+        baseBranch: this.repo.baseBranch,
+        remote: parseRemote(this.repo.remote),
+        shallow,
+        bare,
+        gitVersion: this.repo.gitVersion,
+        generatedAt: new Date().toISOString(),
+      });
+    }
     let ahead = 0;
     let behind = 0;
     if (branch) {
@@ -313,6 +333,23 @@ export class GitReadService {
     if (!refs.ok || !refs.value) return failFrom(refs);
     const repoValue = repo.value;
     const refsValue = refs.value;
+    if (!repoValue.headSha) {
+      // Empty repository: graph is valid but has no commits. The UI maps this
+      // to the "main has no commits yet" empty state.
+      return result({
+        repo: repoValue,
+        commits: [],
+        refs: refsValue.refs,
+        graphVersion: "empty",
+        offset,
+        limit,
+        hasMore: false,
+        nextOffset: null,
+        totalLoaded: 0,
+        truncated: false,
+        layout: { laneCount: 0, maxLanes: 16, truncatedLanes: false },
+      });
+    }
     const args = [
       "log",
       "--no-color",
