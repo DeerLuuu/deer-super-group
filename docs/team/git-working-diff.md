@@ -150,4 +150,21 @@
 
 执行签名：2026-11-13 02:28 +08:00 / ren / Electron + CDP / 固定面板容器 1372×328，960×1000，480×900。
 
+## t413：并排大 diff 与 side 语义
+
+- **side 分块**：新增 `SideHunkBlock`，与 unified 共用 large 阈值（>1200 行或 >512KB 默认折叠 hunk）；单 hunk 每次最多渲染 **400 行 side row**，「继续加载并排行」按 400 行递增。大 diff 不再一次性渲染全部 side 行。
+- **20k 行 side 测试**：`GitDiffViewer.test` 以 `availableWidth=900` 强制并排；20,000 行 hunk 默认折叠（side row 0），展开后严格 **400 side rows / 1600 gridcell**，字符串节点 <10,000。
+- **side gridcell**：每行旧号/旧文本/新号/新文本四个 `role=gridcell`，aria-label 分别「旧行/旧文本/新行/新文本」；side 容器 `role=table`，行 `role=row`、`tabIndex=0`。
+- **D1 搜索槽**：保持 disabled，待 D1 实现时替换；本 PR 不改。
+- **固定容器基线**：沿用 t411 的 1372×328 面板容器证据；真机窗口高度限制下后续再补真实窗口验证。
+- **后续**：metrics JSON 导出/读屏完整走查留待后续任务。
+- 无 G1/IPC/#git/LazyPanel/RefreshCoordinator 改动，无新依赖。
+
+### t413 验证
+
+- `pnpm typecheck` 0
+- `pnpm build` 0（452 modules）
+- `pnpm test -- --testTimeout=20000 --maxWorkers=2` 0（128 files / 912 tests）
+
+
 

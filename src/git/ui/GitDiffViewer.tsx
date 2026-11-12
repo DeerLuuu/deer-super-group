@@ -202,6 +202,61 @@ function HunkBlock({
   );
 }
 
+function SideHunkBlock({
+  hunk,
+  fileIndex,
+  hunkIndex,
+  large,
+}: {
+  hunk: HunkModel;
+  fileIndex: number;
+  hunkIndex: number;
+  large: boolean;
+}) {
+  const [open, setOpen] = useState(!large);
+  const [limit, setLimit] = useState(400);
+  const rows = useMemo(() => buildSideBySide(hunk.rows), [hunk.rows]);
+  const shown = rows.slice(0, limit);
+
+  return (
+    <section className="git-diff-hunk" aria-label={hunk.header}>
+      <button
+        type="button"
+        className="git-diff-hunk-head"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="mono">{hunk.header}</span>
+        <span className="git-diff-hunk-stats">
+          {hunk.insertions > 0 ? <span className="diff-add">+{hunk.insertions}</span> : null}
+          {hunk.deletions > 0 ? <span className="diff-del">−{hunk.deletions}</span> : null}
+          {rows.length > 400 ? <span className="muted tiny">{rows.length} 行</span> : null}
+        </span>
+      </button>
+      {open ? (
+        <div className="git-diff-hunk-body">
+          {shown.map((row, index) => (
+            <SideRowView
+              key={`${fileIndex}-${hunkIndex}-side-${index}`}
+              row={row}
+              index={index}
+            />
+          ))}
+          {rows.length > limit ? (
+            <button
+              type="button"
+              className="ghost tiny git-diff-more"
+              onClick={() => setLimit((value) => value + 400)}
+            >
+              继续加载并排行（剩余 {rows.length - limit} 行）
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function groupRows(
   rows: NumberedLine[],
   expandedContext: boolean,
@@ -253,10 +308,26 @@ function SideRowView({ row, index }: { row: SideRow; index: number }) {
       aria-label={`旧行 ${row.oldLine ?? "无"}，新行 ${row.newLine ?? "无"}，${row.kind === "+" ? "新增" : row.kind === "-" ? "删除" : "修改"}`}
       data-row={index}
     >
-      <span className="git-diff-num">{row.oldLine ?? ""}</span>
-      <span className={`git-diff-text ${leftClass}`}>{row.oldText ?? ""}</span>
-      <span className="git-diff-num">{row.newLine ?? ""}</span>
-      <span className={`git-diff-text ${rightClass}`}>{row.newText ?? ""}</span>
+      <span className="git-diff-num" role="gridcell" aria-label={`旧行 ${row.oldLine ?? "无"}`}>
+        {row.oldLine ?? ""}
+      </span>
+      <span
+        className={`git-diff-text ${leftClass}`}
+        role="gridcell"
+        aria-label={`旧文本 ${row.oldText ?? "无"}`}
+      >
+        {row.oldText ?? ""}
+      </span>
+      <span className="git-diff-num" role="gridcell" aria-label={`新行 ${row.newLine ?? "无"}`}>
+        {row.newLine ?? ""}
+      </span>
+      <span
+        className={`git-diff-text ${rightClass}`}
+        role="gridcell"
+        aria-label={`新文本 ${row.newText ?? "无"}`}
+      >
+        {row.newText ?? ""}
+      </span>
     </div>
   );
 }
@@ -265,22 +336,31 @@ export function GitDiffViewer({
   diff,
   loading = false,
   error = null,
+  availableWidth,
 }: {
   diff: GitDiffPage | null;
   loading?: boolean;
   error?: string | null;
+  /** 测试/嵌入场景可显式给出 diff pane 宽度；生产环境使用 ResizeObserver。 */
+  availableWidth?: number;
 }) {
   const [mode, setMode] = useState<"unified" | "side">("unified");
   const [wrap, setWrap] = useState(false);
-  const [wide, setWide] = useState(false);
+  const [wide, setWide] = useState(
+    availableWidth == null ? false : canUseSideBySide(availableWidth),
+  );
   const [copied, setCopied] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (availableWidth != null) {
+      setWide(canUseSideBySide(availableWidth));
+      return;
+    }
     const node = ref.current;
     if (!node) return;
     return observeDiffWidth(node, setWide);
-  }, []);
+  }, [availableWidth]);
 
   useEffect(() => {
     if (!wide) setMode("unified");
@@ -437,12 +517,13 @@ export function GitDiffViewer({
             ) : mode === "side" && wide ? (
               <div className="git-diff-side" role="table" aria-label={`${file.path} 并排 diff`}>
                 {hunks.map((hunk, hunkIndex) => (
-                  <section className="git-diff-hunk" key={`${file.path}-side-${hunkIndex}`}>
-                    <div className="git-diff-hunk-head is-static mono">{hunk.header}</div>
-                    {buildSideBySide(hunk.rows).map((row, index) => (
-                      <SideRowView key={`${file.path}-side-${hunkIndex}-${index}`} row={row} index={index} />
-                    ))}
-                  </section>
+                  <SideHunkBlock
+                    key={`${file.path}-side-${hunkIndex}`}
+                    hunk={hunk}
+                    fileIndex={fileIndex}
+                    hunkIndex={hunkIndex}
+                    large={large}
+                  />
                 ))}
               </div>
             ) : (

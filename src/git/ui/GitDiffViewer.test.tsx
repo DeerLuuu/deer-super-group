@@ -295,4 +295,67 @@ describe("t401 GitDiffViewer", () => {
     expect(rows.length).toBeLessThanOrEqual(400);
     renderer.unmount();
   });
+
+  it("caps side-by-side large diffs at 400 rows and exposes gridcell aria", async () => {
+    const text = "const sideValue = 'abcdefghijklmnopqrstuvwxyz0123456789';";
+    const lines = Array.from({ length: 20_000 }, (_, index) => ({
+      kind: "+" as const,
+      text: `${text} // ${index}`,
+    }));
+    const big: GitDiffPage = {
+      bytes: lines.reduce((sum, line) => sum + line.text.length + 2, 0),
+      truncated: false,
+      binary: false,
+      submodule: false,
+      files: [
+        {
+          path: "generated/side.ts",
+          status: "M",
+          binary: false,
+          submodule: false,
+          truncated: false,
+          hunks: [{ header: "@@ -0,0 +1,20000 @@", lines }],
+        },
+      ],
+    };
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={big} availableWidth={900} />);
+    });
+    const sideButton = renderer.root
+      .findAllByType("button")
+      .find((node: any) => String(node.props.children) === "并排");
+    expect(sideButton.props.disabled).toBe(false);
+    await act(async () => {
+      sideButton.props.onClick();
+    });
+    expect(
+      renderer.root.findAll(
+        (node: any) =>
+          String(node.props.className ?? "").includes("git-diff-side-row"),
+      ).length,
+    ).toBe(0);
+    const hunk = renderer.root
+      .findAllByType("button")
+      .find((node: any) => node.props["aria-expanded"] === false);
+    await act(async () => {
+      hunk.props.onClick();
+    });
+    const sideRows = renderer.root.findAll(
+      (node: any) =>
+        String(node.props.className ?? "").includes("git-diff-side-row"),
+    );
+    const cells = renderer.root.findAllByProps({ role: "gridcell" });
+    expect(sideRows.length).toBe(400);
+    expect(cells.length).toBe(1600);
+    expect(String(cells[0]?.props["aria-label"])).toContain("旧行");
+    expect(String(cells[1]?.props["aria-label"])).toContain("旧文本");
+    expect(String(cells[2]?.props["aria-label"])).toContain("新行");
+    expect(String(cells[3]?.props["aria-label"])).toContain("新文本");
+    expect(
+      renderer.root.findAll((node: any) => typeof node.type === "string").length,
+    ).toBeLessThan(10_000);
+    renderer.unmount();
+  });
 });
