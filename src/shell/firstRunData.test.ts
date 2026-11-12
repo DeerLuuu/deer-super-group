@@ -12,7 +12,6 @@ const base = {
   modelLabel: "DeepSeek Flash · Default",
   mock: false,
   keyReady: true,
-  dismissed: false,
 };
 
 describe("t247 first-run readiness", () => {

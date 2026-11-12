@@ -25,6 +25,20 @@ describe("t247 provider error recovery", () => {
     });
   });
 
+  it("matches real UI key messages, not only the short fixture", () => {
+    for (const message of [
+      "未配置 API Key",
+      "API Key 为空",
+      "API key missing",
+      "API key is empty",
+    ]) {
+      expect(classifyErrorRecovery(message)).toMatchObject({
+        kind: "key",
+        action: { kind: "settings", label: "去设置 Key" },
+      });
+    }
+  });
+
   it("redacts secrets in the summary", () => {
     const recovery = classifyErrorRecovery(
       "401 invalid key sk-abcdef123456 Authorization: Bearer secret-token",

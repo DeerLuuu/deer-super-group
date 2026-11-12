@@ -36,7 +36,6 @@ const state = deriveFirstRunState({
   modelLabel: "Model · Provider",
   mock: false,
   keyReady: true,
-  dismissed: false,
 });
 
 describe("t247 FirstRunCard", () => {

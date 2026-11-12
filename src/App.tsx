@@ -84,6 +84,7 @@ import { useMergeQueue } from "./shell/useMergeQueue";
 import PlanDraftPanel from "./shell/PlanDraftPanel";
 import FirstRunCard from "./shell/FirstRunCard";
 import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
+import ApprovalTerms from "./shell/ApprovalTerms";
 import { deriveFirstRunState } from "./shell/firstRunData";
 import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
 import {
@@ -378,6 +379,9 @@ export default function App() {
   // t103：Git 入口——合并队列 Modal、设置 Modal 内 Git 区聚焦、任务详情 VCS 区聚焦。
   const [mergeQueueOpen, setMergeQueueOpen] = useState(false);
   const [gitSettingsFocus, setGitSettingsFocus] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<"models" | undefined>(
+    undefined,
+  );
   const [taskVcsFocus, setTaskVcsFocus] = useState(false);
   const [taskReviewFocus, setTaskReviewFocus] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -2468,6 +2472,12 @@ export default function App() {
     openPanel("runs");
   }
 
+  function openSettingsSection(section: "models" = "models") {
+    setGitSettingsFocus(false);
+    setSettingsInitialSection(section);
+    openPanel("settings");
+  }
+
   function handleRetryAfterError() {
     setError(null);
     const current = snapshotRef.current;
@@ -2481,7 +2491,7 @@ export default function App() {
         return;
       case "settings-model":
       case "settings-key":
-        openPanel("settings");
+        openSettingsSection("models");
         return;
       case "team":
         startCreate("member");
@@ -2841,7 +2851,6 @@ export default function App() {
       : "",
     mock: snapshot.settings.mock,
     keyReady: snapshot.settings.providers.some((provider) => provider.apiKeySource !== "none"),
-    dismissed: firstRunCollapsed,
   });
   const failedCount = snapshot.tasks.filter((task) => task.status === "failed").length;
   // t194：显示宽度而不是改写保存宽度；回到宽屏后恢复用户原始 250/480。
@@ -3110,8 +3119,8 @@ export default function App() {
         {error && (
           <ErrorRecoveryBar
             message={formatError(error)}
-            onOpenSettings={() => openPanel("settings")}
-            onOpenModels={() => openPanel("settings")}
+            onOpenSettings={() => openSettingsSection("models")}
+            onOpenModels={() => openSettingsSection("models")}
             onRetry={handleRetryAfterError}
             onClose={() => setError(null)}
           />
@@ -3509,7 +3518,7 @@ export default function App() {
             onSave={handleSaveSettings}
             onDirtyChange={setSettingsDirty}
             onReload={() => void refresh(snapshot.workspace.id)}
-            initialSection={gitSettingsFocus ? "git" : undefined}
+            initialSection={gitSettingsFocus ? "git" : settingsInitialSection}
           />
         </Modal>
       )}
@@ -4241,13 +4250,12 @@ function TasksView({
             title={snapshot.tasks.length === 0 ? "创建第一个任务" : "选择一个任务"}
             description={
               snapshot.tasks.length === 0
-                ? "用「规划任务」让 Router 拆解目标，或直接「+ 新建」。"
+                ? "先新建一个任务；也可以从对话页让 Router 先规划。"
                 : "在左侧列表选择任务，查看详情与执行 trace。"
             }
             actions={
               snapshot.tasks.length === 0
                 ? [
-                    { label: "规划任务", onClick: () => onPlanDraft() },
                     { label: "+ 新建任务", onClick: () => setComposeOpen(true), primary: true },
                   ]
                 : undefined
@@ -4596,9 +4604,7 @@ function TasksView({
                   >
                     拒绝任务交付
                   </button>
-                  <span className="muted tiny" role="note" aria-label="批准术语说明">
-                    任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。
-                  </span>
+                  <ApprovalTerms />
                 </div>
                 <div id="task-review-section" className="task-review-section">
                   <ReviewSection key={`review-${selectedTask.id}`} taskId={selectedTask.id} />

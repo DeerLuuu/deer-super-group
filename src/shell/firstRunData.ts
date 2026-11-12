@@ -37,7 +37,6 @@ export function deriveFirstRunState(input: {
   modelLabel: string;
   mock: boolean;
   keyReady: boolean;
-  dismissed: boolean;
 }): FirstRunState {
   const workspaceReady = input.workspacePath.trim().length > 0;
   const modelReady = input.modelCount > 0 && Boolean(input.modelId);

@@ -13,7 +13,11 @@ export interface ErrorRecovery {
 /** 常见 provider/网络错误分类；只返回脱敏摘要，不引入新敏感字段。 */
 export function classifyErrorRecovery(message: string): ErrorRecovery {
   const summary = sanitizeErrorText(message, 260);
-  if (/未配置\s*key|api.?key.*(missing|未配置)|not configured|missing key/i.test(message)) {
+  if (
+    /未配置.*(?:api\s*)?key|api\s*key\s*(?:为空|缺失|未配置|empty|missing)|key.*(?:为空|缺失|missing|empty)|not configured|missing key/i.test(
+      message,
+    )
+  ) {
     return {
       kind: "key",
       title: "未配置模型 Key",
