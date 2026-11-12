@@ -67,6 +67,15 @@
 - F7：diff stdout 超 8MB 映射 `GIT_READ_TOO_LARGE`；F8 rename 显示 `old → new`。
 - F10：Command Palette 入口仍不在 inScope，docs 明确后续补。
 
+## 5.2 t307 修复
+
+- F1：untracked 工作区文件用 `git diff --no-index -- /dev/null <path>` 读取真实内容；二进制/大文件走统一 diff 解析/上限；组件测试的真实 untracked 用例不再 mock 成非空。
+- F2：`loadCommit` 增加 `commitRequestRef` 代际；旧响应在新选中后丢弃；组件测试 B→A 倒序解析仍显示 B。
+- F3：补 500/2000 精确边界、1MB 截断、timeout、非 git、shallow、bare、binary 测试。
+- F4：新增 [480 工作区 diff](t307-480-workspace-diff.png)。
+- F5：直接对提交 option 触发 Enter，断言只触发一次 `gitCommit`。
+- F7：Command Palette 仍不在 inScope，docs 记录后续补。
+
 ## 6. 降级
 
 非 git/非 root → `GIT_READ_NOT_REPO/NOT_ROOT` 显式错误；空/unborn → `NO_COMMITS`；bare/shallow/detached 在 repo 信息中标记；二进制/子模块 diff 返回 metadata + `reason`，不展示 hunk；大 diff 截断 `maxBytes` 或 `GIT_READ_TOO_LARGE`；大提交/工作区文件上限截断。
@@ -79,6 +88,7 @@
 - [1440 工作区文件 diff](t305-1440-workspace-diff.png)：选中 tracked 文件后显示 `@@` diff。
 - [960 布局](t305-960.png)：详情下沉。
 - [480 布局](t305-480.png)：图/详情/工作区 tab、无横向溢出（bodyWidth=480）。
+- [480 工作区 diff](t307-480-workspace-diff.png)：选中 tracked 文件后显示 `@@` diff，bodyWidth=480。
 
 ## 8. 限制/P1
 

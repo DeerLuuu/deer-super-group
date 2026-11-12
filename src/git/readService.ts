@@ -304,7 +304,7 @@ export class GitReadService {
 
   async graph(params: { limit: number; offset: number; ref?: string }): Promise<GitResult<GitGraphPage>> {
     const limit = Math.max(1, Math.min(GRAPH_LIMIT, params.limit));
-    const offset = Math.max(0, Math.min(GRAPH_TOTAL - 1, params.offset));
+    const offset = Math.max(0, Math.min(GRAPH_TOTAL, params.offset));
     if (offset + limit > GRAPH_TOTAL) return fail("GIT_READ_BAD_PARAM", "offset + limit exceeds 2000");
     if (params.ref && !isReadRef(params.ref)) return fail("GIT_READ_BAD_REF", "invalid ref");
     const repo = await this.repoInfo();
@@ -463,6 +463,7 @@ export class GitReadService {
     }
     if (params.path && !isReadPath(params.path)) return fail("GIT_READ_BAD_PATH", "invalid path");
     const args = ["show", "--no-color", "--no-ext-diff", "--no-textconv", "--format=", `--unified=${context}`];
+    let noIndex = false;
     if (params.scope === "commit") {
       args.push(params.sha!);
     } else if (params.scope === "staged") {
@@ -470,10 +471,18 @@ export class GitReadService {
       args.splice(0, args.length, "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", `--unified=${context}`);
     } else {
       args.splice(0, args.length, "diff", "--no-color", "--no-ext-diff", "--no-textconv", `--unified=${context}`);
+      if (params.path && await this.isUntracked(params.path)) {
+        // git diff does not show untracked files; compare against the NUL device.
+        noIndex = true;
+        args.splice(1, 0, "--no-index");
+      }
     }
-    if (params.path) args.push("--", params.path);
+    if (params.path) {
+      if (noIndex) args.push("--", "/dev/null", params.path);
+      else args.push("--", params.path);
+    }
     const output = await this.run(args, 15_000, 8 * 1024 * 1024);
-    if (output.code !== 0) {
+    if (output.code !== 0 && !(noIndex && output.code === 1)) {
       if (/unknown revision|bad object/i.test(output.stderr)) return fail("GIT_REF_NOT_FOUND", "commit not found");
       if (/maxBuffer|ERR_CHILD_PROCESS_STDIO_MAXBUFFER|stdout maxBuffer/i.test(output.stderr)) {
         return fail("GIT_READ_TOO_LARGE", "diff exceeds 8MB stdout limit");
@@ -482,5 +491,14 @@ export class GitReadService {
       return fail("GIT_READ_INTERNAL", output.stderr || "cannot read diff");
     }
     return result(parseDiff(output.stdout, maxBytes));
+  }
+
+  private async isUntracked(filePath: string): Promise<boolean> {
+    const output = await this.run(
+      ["status", "--porcelain", "-z", "--untracked-files=all", "--ignore-submodules=none"],
+      8_000,
+      4 * 1024 * 1024,
+    );
+    return output.code === 0 && parseFiles(output.stdout).some((file) => file.path === filePath && file.status === "?");
   }
 }

@@ -54,6 +54,7 @@ export default function GitGraphPanel({
   const [error, setError] = useState<string | null>(null);
   const [showRefs, setShowRefs] = useState(true);
   const requestRef = useRef(0);
+  const commitRequestRef = useRef(0);
   const tabRefs = useRef<Record<"graph" | "detail" | "workspace", HTMLButtonElement | null>>({
     graph: null,
     detail: null,
@@ -64,11 +65,14 @@ export default function GitGraphPanel({
   const loadCommit = useCallback(
     async (sha: string) => {
       if (!api) return;
+      const token = ++commitRequestRef.current;
       try {
         const value = unwrap(await api.gitCommit(workspaceId, sha));
+        if (token !== commitRequestRef.current) return;
         setDetail(value);
         setSelectedSha(sha);
       } catch (cause) {
+        if (token !== commitRequestRef.current) return;
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
@@ -361,6 +365,12 @@ export default function GitGraphPanel({
                     tabIndex={commit.sha === selectedSha ? 0 : -1}
                     className={`git-commit-row ${commit.sha === selectedSha ? "selected" : ""}`}
                     onClick={() => { setSelectedSha(commit.sha); void loadCommit(commit.sha); }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      setSelectedSha(commit.sha);
+                      void loadCommit(commit.sha);
+                    }}
                   >
                     <span className="mono git-sha">{commit.shortSha}</span>
                     <span className="git-subject ellipsis" title={commit.subject}>{commit.subject}</span>

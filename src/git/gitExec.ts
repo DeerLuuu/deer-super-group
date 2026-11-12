@@ -143,6 +143,7 @@ export function validateGitArgs(
       "-M",
       "-C",
       "--no-renames",
+      "--no-index",
       "-z",
     ]);
     let unified = false;

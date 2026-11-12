@@ -34,8 +34,17 @@ pnpm test -- --testTimeout=20000 --maxWorkers=2
 
 - 1440 面板：三栏、选中提交、commit files/diff。
 - 1440 工作区：选中 tracked 文件后显示 `@@` diff（先临时改一行 tracked 文档，截图后已恢复）。
+- 480 工作区：选中 tracked 文件后显示 `@@` diff，bodyWidth=480。
 - 960：详情下沉。
 - 480：顶部图/详情/工作区 tab，bodyWidth=480 无横向溢出。
+
+## t307 复验修复
+
+- F1：untracked diff 使用 `git diff --no-index -- /dev/null <path>`；真实临时 repo 测试验证文本 hunk 与二进制标记。
+- F2：`loadCommit` 增加代际 token；测试快速 B→A 倒序响应仍显示 B。
+- F3：500/2000 精确边界、1MB 截断、timeout、非 git、shallow、bare、binary 测试。
+- F4：补 [480 工作区 diff](t307-480-workspace-diff.png)。
+- F5：直接对提交 option 触发 Enter，断言单次 `gitCommit`。
 
 ## 遗留
 

@@ -136,11 +136,10 @@ describe("GitGraphPanel", () => {
       expect(root.findByProps({ role: "option" }).props["aria-selected"]).toBe(true);
       await act(async () => {
         listbox.props.onKeyDown({ key: "ArrowDown", preventDefault() {} });
-        listbox.props.onKeyDown({ key: "Enter", preventDefault() {} });
       });
       const row = root.findByProps({ role: "option" });
       await act(async () => {
-        row.props.onClick();
+        row.props.onKeyDown({ key: "Enter", preventDefault() {} });
         await Promise.resolve();
       });
       expect(commitCalls).toBe(2);
@@ -163,6 +162,97 @@ describe("GitGraphPanel", () => {
       });
       expect(JSON.stringify(renderer!.toJSON())).toContain("文件 diff");
       expect(JSON.stringify(renderer!.toJSON())).toContain("diff text");
+      renderer!.unmount();
+    } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
+  });
+
+  it("ignores a stale loadCommit response after a newer selection", async () => {
+    const shaA = "a".repeat(40);
+    const shaB = "b".repeat(40);
+    const makeCommit = (sha: string, subject: string) => ({
+      sha,
+      shortSha: sha.slice(0, 8),
+      parents: [],
+      authorName: "Read",
+      authorTime: "2026-01-01T00:00:00Z",
+      committerTime: "2026-01-01T00:00:00Z",
+      subject,
+      refs: [],
+      lane: 0,
+      color: 0,
+      parentLanes: [],
+      openEdges: [],
+    });
+    const commitA = makeCommit(shaA, "A");
+    const commitB = makeCommit(shaB, "B");
+    const repo = {
+      workspaceId: "ws1",
+      workspacePath: "/tmp/repo",
+      root: "/tmp/repo",
+      headSha: shaA,
+      branch: "main",
+      detached: false,
+      ahead: 0,
+      behind: 0,
+      baseBranch: "main",
+      remote: null,
+      shallow: false,
+      bare: false,
+      gitVersion: "2.40.0",
+      generatedAt: "2026-01-01T00:00:00Z",
+    };
+    const graph = {
+      repo,
+      commits: [commitA, commitB],
+      refs: [],
+      graphVersion: "v1",
+      offset: 0,
+      limit: 200,
+      hasMore: false,
+      nextOffset: null,
+      totalLoaded: 2,
+      truncated: false,
+      layout: { laneCount: 1, maxLanes: 16, truncatedLanes: false },
+    };
+    const pending = new Map<string, (value: unknown) => void>();
+    const previous = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      deer: {
+        gitRepo: async () => ({ ok: true, value: repo }),
+        gitGraph: async () => ({ ok: true, value: graph }),
+        gitRefs: async () => ({ ok: true, value: { refs: [], worktrees: [], truncated: false } }),
+        gitCommit: (_workspace: string, sha: string) =>
+          new Promise((resolve) => {
+            pending.set(sha, resolve);
+          }),
+        gitStatus: async () => ({ ok: false }),
+        gitDiff: async () => ({ ok: false }),
+      },
+    };
+    try {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws1" />);
+        await Promise.resolve();
+      });
+      const root = renderer!.root;
+      const rows = root.findAllByProps({ role: "option" });
+      expect(rows).toHaveLength(2);
+      await act(async () => {
+        rows[1].props.onClick();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        pending.get(shaB)!({ ok: true, value: { node: commitB, body: "", changedFiles: [], stats: { files: 0, insertions: 0, deletions: 0 }, diff: { files: [], bytes: 0, truncated: false, binary: false, submodule: false } } });
+        await Promise.resolve();
+      });
+      await act(async () => {
+        pending.get(shaA)!({ ok: true, value: { node: commitA, body: "", changedFiles: [], stats: { files: 0, insertions: 0, deletions: 0 }, diff: { files: [], bytes: 0, truncated: false, binary: false, submodule: false } } });
+        await Promise.resolve();
+      });
+      expect(root.findByType("h2").props.children).toBe("B");
       renderer!.unmount();
     } finally {
       (globalThis as { window?: unknown }).window = previous;
