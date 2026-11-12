@@ -36,7 +36,7 @@
 - `src/git/ui/MergeQueueLayer.test.tsx`：确认 Modal 进入公共 modal stack；Esc 只关闭顶层；focus 归还；设置 Modal 不被误关。
 - `src/shell/mergeQueuePanel.test.ts`：PanelKey/defaultClosed/closable、`mergeQueue` launcher、`?merge=1`、CSS 1440/960/720 contract。
 - 现有 `parseHash` mergeQueue 测试、team/workflow/needsMe 投影、useMergeQueue token/stale 测试保持。
-- 验证：typecheck 0；build 0（441 modules）；extended test 110 files/827 tests 全绿。
+- 验证：typecheck 0；build 0（441 modules）；extended test 111 files/828 tests 全绿。
 
 ## 4.1 t313 复验修复
 
@@ -53,6 +53,11 @@
 - F3：`openPanel("mergeQueue")` 直接 `setMergeQueueOpen(true)` 并 reload，不再只依赖 `activePanelKey` 变化；关闭经 `onPanelClose` 复位。
 - F4：items 非空 + 刷新失败时显示 inline “最近刷新失败 + 重试”，测试覆盖。
 - F5/F6：等待含 queued、冲突汇总保持不变；既有 flake 不归因。
+
+## 4.2 t317 App 级恢复
+
+- 新增 `src/shell/mergeQueueApp.test.tsx`：真实 App 壳（mock DockShell 暴露 openPanel/onPanelClose）中点击 sidebar「合并队列」→ mergeQueue 打开；点击 Dock X → onPanelClose 复位；再次点击 sidebar 重开；点击真实面板启动器菜单项再次打开。测试触及 App 的 mergeQueueOpen/activePanelKey/openPanel，不是本地 Harness 布尔。
+- Team 入口由 App source contract + TeamDashboard onOpenMergeQueue 覆盖；launcher 为 App 真实菜单按钮。
 
 ## 5. 回归与限制
 

@@ -26,6 +26,7 @@ describe("MergeQueue Dock panel contract", () => {
     expect(appSource).toContain('"mergeQueue",');
     expect(appSource).toContain('openPanel("mergeQueue")');
     expect(appSource).toContain('if (key === "mergeQueue") setMergeQueueOpen(false)');
+    expect(appSource).toContain("onOpenMergeQueue={handleOpenMergeQueue}");
     expect(deeplinkSource).toContain('params.get("merge") === "1"');
   });
 });
