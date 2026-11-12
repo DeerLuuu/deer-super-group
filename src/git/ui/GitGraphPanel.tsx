@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layoutGraph } from "../graph.js";
 import "./gitGraph.css";
+import "./gitSourceTree.css";
 import type {
   GitCommitDetail,
   GitDiffPage,
@@ -60,11 +61,22 @@ export default function GitGraphPanel({
     () => lastViewByWorkspace.get(workspaceId) ?? "graph",
   );
   const [filter, setFilter] = useState("");
+  const [authorSearch, setAuthorSearch] = useState("");
+  const [jumpSha, setJumpSha] = useState("");
+  const [sortMode, setSortMode] = useState<"topology" | "date">("topology");
+  const [fileFilter, setFileFilter] = useState("");
+  const [fileSort, setFileSort] = useState<"path" | "status">("path");
+  const [compactFiles, setCompactFiles] = useState(false);
+  const [inspectorMode, setInspectorMode] = useState<"diff" | "commit">("commit");
+  const [navFocus, setNavFocus] = useState<"history" | "files" | "search">("history");
+  const [navOpen, setNavOpen] = useState(false);
+  const [refSearch, setRefSearch] = useState("");
+  const filterInputRef = useRef<HTMLInputElement | null>(null);
+  const commitSearchRef = useRef<HTMLInputElement | null>(null);
   const [refFilter, setRefFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showRefs, setShowRefs] = useState(true);
   const [initProbe, setInitProbe] = useState<GitInitProbe | null>(null);
   const [initOpen, setInitOpen] = useState(false);
   const [initBusy, setInitBusy] = useState(false);
@@ -157,6 +169,7 @@ export default function GitGraphPanel({
 
   useEffect(() => {
     void load(null, initialSha ?? null);
+    void loadWorking();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
@@ -208,6 +221,15 @@ export default function GitGraphPanel({
     if (focus) tabRefs.current[next]?.focus();
   }
 
+  function openCommit(sha: string) {
+    setSelectedSha(sha);
+    setJumpSha(sha);
+    setInspectorMode("commit");
+    setWorkingDiff(null);
+    setView("graph");
+    void loadCommit(sha);
+  }
+
   function onTabKey(event: React.KeyboardEvent<HTMLDivElement>) {
     const order = ["graph", "detail", "workspace"] as const;
     const index = order.indexOf(view);
@@ -227,6 +249,7 @@ export default function GitGraphPanel({
     try {
       const scope = file.staged ? "staged" as const : "working" as const;
       setWorkingDiff(unwrap(await api.gitDiff(workspaceId, { scope, path: file.path, context: 3 })));
+      setInspectorMode("diff");
       setView("workspace");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -328,37 +351,55 @@ export default function GitGraphPanel({
   const commits = useMemo(() => {
     if (!graph) return [];
     const query = filter.trim().toLowerCase();
-    if (!query) return graph.commits;
-    return graph.commits.filter(
-      (commit) => commit.sha.toLowerCase().includes(query) || commit.subject.toLowerCase().includes(query),
-    );
-  }, [graph, filter]);
+    const author = authorSearch.trim().toLowerCase();
+    const result = graph.commits.filter((commit) => {
+      const matchesQuery =
+        !query ||
+        commit.sha.toLowerCase().includes(query) ||
+        commit.subject.toLowerCase().includes(query) ||
+        commit.authorName.toLowerCase().includes(query);
+      const matchesAuthor = !author || commit.authorName.toLowerCase().includes(author);
+      return matchesQuery && matchesAuthor;
+    });
+    if (sortMode === "date") {
+      return [...result].sort(
+        (left, right) => Date.parse(right.authorTime) - Date.parse(left.authorTime),
+      );
+    }
+    return result;
+  }, [graph, filter, authorSearch, sortMode]);
 
-  const commitBySha = useMemo(() => {
-    const map = new Map<string, (NonNullable<typeof graph>["commits"][number])>();
-    for (const commit of graph?.commits ?? []) map.set(commit.sha, commit);
-    return map;
-  }, [graph]);
+  // t398：过滤/排序后若选中提交已不可见，Inspector 跟随第一个可见提交，避免显示被过滤内容。
+  useEffect(() => {
+    if (commits.length === 0) return;
+    if (commits.some((commit) => commit.sha === selectedSha)) return;
+    const first = commits[0];
+    setSelectedSha(first.sha);
+    setJumpSha(first.sha);
+    void loadCommit(first.sha);
+  }, [commits, selectedSha, loadCommit]);
 
   const rows = useMemo(() => {
-    if (!graph) return [];
-    const all = layoutGraph({ commits: graph.commits, maxLanes: 16 }).rows;
-    return all;
-  }, [graph]);
+    return layoutGraph({ commits, maxLanes: 16 }).rows;
+  }, [commits]);
+  // t398：日期排序不是拓扑顺序，lane 坐标无意义；只保留表格，不渲染假 lane。
+  const showLanes = sortMode === "topology";
 
   const onGraphKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!graph) return;
-    const index = Math.max(0, graph.commits.findIndex((commit) => commit.sha === selectedSha));
+    if (!graph || commits.length === 0) return;
+    const found = commits.findIndex((commit) => commit.sha === selectedSha);
+    const index = found >= 0 ? found : 0;
     let next = index;
-    if (event.key === "ArrowDown") next = Math.min(graph.commits.length - 1, index + 1);
+    if (event.key === "ArrowDown") next = Math.min(commits.length - 1, index + 1);
     else if (event.key === "ArrowUp") next = Math.max(0, index - 1);
     else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = graph.commits.length - 1;
+    else if (event.key === "End") next = commits.length - 1;
     else return;
     event.preventDefault();
-    const commit = graph.commits[next];
+    const commit = commits[next];
     if (commit) {
       setSelectedSha(commit.sha);
+      setJumpSha(commit.sha);
       rowRefs.current.get(commit.sha)?.focus();
     }
   };
@@ -433,229 +474,473 @@ export default function GitGraphPanel({
     );
   }
 
+  // t391：SourceTree 风格四区布局。G1 handlers/WorkingTree/DiffView 全部复用。
   return (
-    <section className="git-graph-panel" aria-label="版本图" aria-busy={loading || busy}>
-      <header className="git-graph-top">
-        <div>
+    <section
+      className={`git-graph-panel git-st-panel mobile-view-${view}`}
+      aria-label="版本图"
+      aria-busy={loading || busy}
+    >
+      <header className="git-st-toolbar">
+        <div className="git-st-toolbar-title">
           <h3>版本图</h3>
-          <div className="muted tiny ellipsis" title={repo?.root ?? ""}>
-            {repo?.workspacePath ?? "读取仓库…"}{repo?.branch ? ` · ${repo.branch}` : repo?.detached ? " · detached" : ""}
-          </div>
+          <span className="muted tiny ellipsis" title={repo?.root ?? ""}>
+            {repo?.workspacePath ?? "读取仓库…"}
+            {repo?.branch ? ` · ${repo.branch}` : repo?.detached ? " · detached" : ""}
+          </span>
         </div>
-        <div className="git-graph-top-meta">
-          {repo && (
-            <span className="badge">
-              {repo.ahead > 0 ? `↑${repo.ahead}` : "↑0"} {repo.behind > 0 ? `↓${repo.behind}` : "↓0"}
-            </span>
-          )}
+        <div className="git-st-toolbar-controls">
           <span className="badge" title="查看/暂存/提交均写入本地仓库；不提供 push">本地可写</span>
-          <button type="button" className="ghost small" onClick={() => void load()}>刷新</button>
-          <button type="button" className="ghost small" aria-pressed={showRefs} onClick={() => setShowRefs((value) => !value)}>
-            {showRefs ? "收起引用" : "显示引用"}
+          <button
+            type="button"
+            className="ghost tiny git-st-nav-toggle"
+            aria-expanded={navOpen}
+            aria-controls="git-st-nav"
+            onClick={() => setNavOpen((value) => !value)}
+          >
+            导航
+          </button>
+          <label className="git-st-field">
+            <span className="sr-only">分支范围</span>
+            <select
+              aria-label="分支范围"
+              value={refFilter ?? ""}
+              onChange={(event) => {
+                const next = event.target.value || null;
+                setRefFilter(next);
+                void load(next);
+              }}
+            >
+              <option value="">所有分支</option>
+              {refs.map((ref) => (
+                <option key={ref.fullName} value={ref.name}>
+                  {ref.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="git-st-field">
+            <span className="sr-only">排序</span>
+            <select
+              aria-label="提交排序"
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as "topology" | "date")}
+            >
+              <option value="topology">拓扑排序</option>
+              <option value="date">按日期</option>
+            </select>
+          </label>
+          <label className="git-st-search">
+            <span className="sr-only">搜索描述或提交</span>
+            <input
+              ref={commitSearchRef}
+              type="search"
+              value={filter}
+              placeholder="搜索描述 / 提交"
+              aria-label="搜索描述或提交"
+              onChange={(event) => setFilter(event.target.value)}
+            />
+          </label>
+          <label className="git-st-search">
+            <span className="sr-only">Author Name 搜索</span>
+            <input
+              type="search"
+              value={authorSearch}
+              placeholder="Author Name"
+              aria-label="Author Name 搜索 / 筛选提交"
+              onChange={(event) => setAuthorSearch(event.target.value)}
+            />
+          </label>
+          <label className="git-st-field">
+            <span className="sr-only">跳到提交</span>
+            <select
+              aria-label="跳到提交"
+              value={jumpSha}
+              onChange={(event) => {
+                if (event.target.value) openCommit(event.target.value);
+              }}
+            >
+              <option value="">跳到…</option>
+              {commits.slice(0, 50).map((commit) => (
+                <option key={commit.sha} value={commit.sha}>
+                  {commit.shortSha} {commit.subject.slice(0, 40)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="ghost small"
+            aria-label="刷新 Git 面板"
+            onClick={() => {
+              void load();
+              void loadWorking();
+            }}
+          >
+            刷新
           </button>
         </div>
       </header>
 
       {initSuccess ? <p className="git-init-success" role="status">Git 仓库已初始化（main，尚无提交）。</p> : null}
-      {error ? <div className="git-graph-error" role="alert">{error} <button className="ghost tiny" onClick={() => void load()}>重试</button></div> : null}
+      {error ? (
+        <div className="git-graph-error" role="alert">
+          {error} <button className="ghost tiny" onClick={() => void load()}>重试</button>
+        </div>
+      ) : null}
       {loading && !graph ? <p className="git-graph-loading" role="status">加载版本图…</p> : null}
 
-      <div className="git-graph-tabs" role="tablist" aria-label="版本视图" onKeyDown={onTabKey}>
-        {(["graph", "detail", "workspace"] as const).map((item) => (
-          <button
-            key={item}
-            ref={(node) => { tabRefs.current[item] = node; }}
-            id={`git-graph-tab-${item}`}
-            type="button"
-            role="tab"
-            aria-selected={view === item}
-            aria-controls={`git-graph-panel-${item}`}
-            tabIndex={view === item ? 0 : -1}
-            className={view === item ? "active" : ""}
-            onClick={() => selectView(item)}
-          >
-            {item === "graph" ? "图" : item === "detail" ? "详情" : "工作区"}
-          </button>
-        ))}
-      </div>
-
-      <div className={`git-graph-body ${showRefs ? "with-refs" : ""} view-${view}`}>
-        <aside className="git-graph-refs" aria-label="分支与标签">
+      <div className={`git-st-layout ${navOpen ? "nav-open" : ""} ${showLanes ? "" : "table-only"}`}>
+        <aside
+          className="git-st-nav"
+          id="git-st-nav"
+          aria-label="仓库导航"
+        >
+          <div className="git-st-nav-links" role="group" aria-label="仓库视图">
+            <button
+              type="button"
+              className={navFocus === "history" ? "active" : ""}
+              onClick={() => { setNavFocus("history"); selectView("graph"); }}
+            >
+              文件状态 / History
+            </button>
+            <button
+              type="button"
+              className={navFocus === "files" ? "active" : ""}
+              onClick={() => { setNavFocus("files"); selectView("workspace"); }}
+            >
+              工作区变更
+            </button>
+            <button
+              type="button"
+              className={navFocus === "search" ? "active" : ""}
+              onClick={() => { setNavFocus("search"); commitSearchRef.current?.focus(); }}
+            >
+              Search
+            </button>
+          </div>
           <label className="git-graph-filter">
-            <span className="sr-only">筛选提交</span>
-            <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="筛选提交 / SHA" aria-label="筛选提交" />
+            <span className="sr-only">搜索分支、标签、远程</span>
+            <input
+              value={refSearch}
+              onChange={(event) => setRefSearch(event.target.value)}
+              placeholder="搜索分支 / 标签 / 远程"
+              aria-label="搜索分支、标签、远程"
+            />
           </label>
-          <button type="button" className={`git-ref-row ${refFilter == null ? "active" : ""}`} onClick={() => { setRefFilter(null); void load(null); }}>
+          <button
+            type="button"
+            className={`git-ref-row ${refFilter == null ? "active" : ""}`}
+            onClick={() => { setRefFilter(null); void load(null); }}
+          >
             全部提交
           </button>
-          {refs.map((ref) => (
-            <button
-              key={ref.fullName}
-              type="button"
-              className={`git-ref-row kind-${ref.kind} ${refFilter === ref.name ? "active" : ""}`}
-              onClick={() => { setRefFilter(ref.name); void load(ref.name); }}
-              title={ref.fullName}
-            >
-              <span className="git-ref-kind">{ref.kind === "head" ? "HEAD" : ref.kind === "tag" ? "TAG" : ref.kind === "remote" ? "REMOTE" : "BRANCH"}</span>
-              <span className="ellipsis">{ref.name}</span>
-            </button>
-          ))}
-          {refs.length === 0 && !loading ? <p className="muted tiny">没有分支或标签。</p> : null}
-          <h4>工作树 ({worktrees.length})</h4>
-          {worktrees.map((worktree) => (
-            <div key={worktree.path} className="git-worktree-row" title={worktree.path}>
-              <span className="git-ref-kind">{worktree.bare ? "BARE" : worktree.detached ? "DETACHED" : "WORKTREE"}</span>
-              <span className="ellipsis">{worktree.branch ?? worktree.path}</span>
-            </div>
-          ))}
+
+          {(["local", "tag", "remote", "head"] as const).map((kind) => {
+            const group = refs.filter(
+              (ref) =>
+                ref.kind === kind &&
+                (!refSearch.trim() ||
+                  ref.name.toLowerCase().includes(refSearch.trim().toLowerCase())),
+            );
+            if (group.length === 0 && kind !== "remote") return null;
+            const label = kind === "local" ? "分支" : kind === "tag" ? "标签" : kind === "remote" ? "远程" : "HEAD";
+            return (
+              <details key={kind} open={kind === "local"}>
+                <summary>
+                  {label} <span className="muted tiny">{group.length}</span>
+                </summary>
+                {group.map((ref) => {
+                  const current = kind === "local" && repo?.branch === ref.name;
+                  return (
+                    <button
+                      key={ref.fullName}
+                      type="button"
+                      className={`git-ref-row kind-${ref.kind} ${refFilter === ref.name ? "active" : ""} ${current ? "current" : ""}`}
+                      onClick={() => { setRefFilter(ref.name); void load(ref.name); }}
+                      title={ref.fullName}
+                      aria-current={current ? "true" : undefined}
+                    >
+                      <span className="git-ref-dot" aria-hidden="true">{current ? "●" : "○"}</span>
+                      <span className="ellipsis">{ref.name}</span>
+                      {current ? (
+                        <span className="git-ref-count" title="ahead/behind；分支提交总数待只读 API">
+                          {repo?.ahead ? `↑${repo.ahead}` : ""}{repo?.behind ? `↓${repo.behind}` : ""}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </details>
+            );
+          })}
+
+          <details open>
+            <summary>工作树 <span className="muted tiny">{worktrees.length}</span></summary>
+            {worktrees.map((worktree) => (
+              <div key={worktree.path} className="git-worktree-row" title={worktree.path}>
+                <span className="git-ref-kind">{worktree.bare ? "BARE" : worktree.detached ? "DETACHED" : "WORKTREE"}</span>
+                <span className="ellipsis">{worktree.branch ?? worktree.path}</span>
+              </div>
+            ))}
+          </details>
+          <div className="git-st-stash muted tiny" title="只读 Stash API 尚未接入">
+            Stash（暂存）· 待接入
+          </div>
         </aside>
 
-        <div
-          className="git-graph-center"
-          id="git-graph-panel-graph"
-          role="tabpanel"
-          aria-labelledby="git-graph-tab-graph"
-          aria-label="提交图"
-        >
+        <section className="git-st-history" aria-label="提交历史">
+          <div className="git-st-history-head" role="row">
+            <span className="git-st-col-lane" aria-hidden="true" />
+            <span>描述</span>
+            <span className="git-st-col-date">日期</span>
+            <span className="git-st-col-author">作者</span>
+            <span className="git-st-col-commit">提交</span>
+          </div>
           <div
-            className="git-graph-list-wrap"
+            className="git-st-history-body"
             role="listbox"
             aria-label="提交列表"
-            aria-activedescendant={selectedSha ? `git-commit-${selectedSha}` : undefined}
+            aria-activedescendant={selectedSha ? `git-st-commit-${selectedSha}` : undefined}
             onKeyDown={onGraphKey}
           >
-            <svg
-              className="git-graph-svg"
-              aria-hidden="true"
-              width={Math.max(40, (graph?.layout.laneCount ?? 1) * 18 + 12)}
-              height={Math.max(40, rows.length * 30)}
+            <button
+              type="button"
+              className={`git-st-row git-st-working-row ${view === "workspace" ? "selected" : ""}`}
+              onClick={() => { selectView("workspace"); setInspectorMode("diff"); void loadWorking(); }}
             >
-              {rows.map((row, rowIndex) => (
-                <g key={row.sha}>
-                  {row.parentLanes.map((parent) => {
-                    const parentIndex = rows.findIndex((item) => item.sha === parent.sha);
-                    const y1 = rowIndex * 30 + 15;
-                    const y2 = parentIndex >= 0 ? parentIndex * 30 + 15 : rows.length * 30;
-                    return (
-                      <line
-                        key={`${row.sha}-${parent.sha}`}
-                        x1={8 + row.lane * 18}
-                        y1={y1}
-                        x2={8 + parent.lane * 18}
-                        y2={y2}
-                        className={`git-edge color-${row.color % 10}`}
+              <span className="git-st-lane" aria-hidden="true">◌</span>
+              <span className="git-st-subject">
+                未提交的更改 {working ? working.staged.length + working.unstaged.length + working.untracked.length : 0}
+              </span>
+              <span className="git-st-col-date muted tiny">现在</span>
+              <span className="git-st-col-author muted tiny">—</span>
+              <span className="git-st-col-commit mono">WC</span>
+            </button>
+            <div className={`git-st-rows ${showLanes ? "" : "is-table-only"}`}>
+              {showLanes ? (
+                <svg
+                  className="git-st-lanes"
+                  aria-hidden="true"
+                  width={Math.max(40, (graph?.layout.laneCount ?? 1) * 16 + 12)}
+                  height={Math.max(0, rows.length * 22)}
+                >
+                  {rows.map((row, rowIndex) => (
+                    <g key={row.sha}>
+                      {row.parentLanes.map((parent) => {
+                        const parentIndex = rows.findIndex((item) => item.sha === parent.sha);
+                        return (
+                          <line
+                            key={`${row.sha}-${parent.sha}`}
+                            x1={8 + row.lane * 16}
+                            y1={rowIndex * 22 + 11}
+                            x2={8 + parent.lane * 16}
+                            y2={parentIndex >= 0 ? parentIndex * 22 + 11 : rows.length * 22}
+                            className={`git-edge color-${row.color % 10}`}
+                          />
+                        );
+                      })}
+                      <circle
+                        cx={8 + row.lane * 16}
+                        cy={rowIndex * 22 + 11}
+                        r={3.5}
+                        className={`git-node color-${row.color % 10} ${row.sha === selectedSha ? "selected" : ""}`}
                       />
-                    );
-                  })}
-                  <circle cx={8 + row.lane * 18} cy={rowIndex * 30 + 15} r={4} className={`git-node color-${row.color % 10} ${row.sha === selectedSha ? "selected" : ""}`} />
-                </g>
-              ))}
-            </svg>
-            <div className="git-graph-rows" style={{ paddingLeft: Math.max(18, (graph?.layout.laneCount ?? 1) * 18) }}>
-              {commits.map((commit) => {
-                const row = commitBySha.get(commit.sha);
-                return (
+                    </g>
+                  ))}
+                </svg>
+              ) : null}
+              <div className="git-st-rows-list">
+                {commits.map((commit, index) => (
                   <button
                     key={commit.sha}
                     ref={(node) => {
                       if (node) rowRefs.current.set(commit.sha, node);
                       else rowRefs.current.delete(commit.sha);
                     }}
-                    id={`git-commit-${commit.sha}`}
+                    id={`git-st-commit-${commit.sha}`}
                     type="button"
                     role="option"
                     aria-selected={commit.sha === selectedSha}
                     tabIndex={commit.sha === selectedSha ? 0 : -1}
-                    className={`git-commit-row ${commit.sha === selectedSha ? "selected" : ""}`}
-                    onClick={() => { setSelectedSha(commit.sha); void loadCommit(commit.sha); }}
+                    className={`git-st-row ${commit.sha === selectedSha ? "selected" : ""}`}
+                    onClick={() => openCommit(commit.sha)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter") return;
                       event.preventDefault();
-                      setSelectedSha(commit.sha);
-                      void loadCommit(commit.sha);
+                      openCommit(commit.sha);
                     }}
+                    aria-label={`${commit.shortSha} ${commit.subject}；${commit.authorName}；${commit.authorTime}`}
+                    title={`${commit.subject}\n${commit.authorName} · ${commit.authorTime}`}
                   >
-                    <span className="mono git-sha">{commit.shortSha}</span>
-                    <span className="git-subject ellipsis" title={commit.subject}>{commit.subject}</span>
-                    <span className="muted tiny">{commit.authorName}</span>
-                    {commit.refs.slice(0, 2).map((ref) => <span key={ref} className="badge git-ref-badge">{ref}</span>)}
-                    <span className="muted tiny">{row ? `L${row.lane + 1}` : ""}</span>
+                    <span className="git-st-lane" aria-hidden="true">
+                      {showLanes && rows[index] ? `L${rows[index]!.lane + 1}` : ""}
+                    </span>
+                    <span className="git-st-subject ellipsis">
+                      {commit.subject}
+                      {commit.refs.slice(0, 3).map((ref) => (
+                        <span key={ref} className="badge git-ref-badge">{ref}</span>
+                      ))}
+                    </span>
+                    <span className="git-st-col-date muted tiny">{commit.authorTime.slice(0, 16)}</span>
+                    <span className="git-st-col-author muted tiny ellipsis">{commit.authorName}</span>
+                    <span className="git-st-col-commit mono">{commit.shortSha}</span>
                   </button>
-                );
-              })}
-              {commits.length === 0 && !loading ? (
-                <p className="muted small">
-                  {graph && graph.commits.length === 0
-                    ? `${repo?.branch ?? "main"} 尚无提交。工作区文件已就绪，但尚未创建首个提交。`
-                    : "没有匹配提交。"}
-                </p>
-              ) : null}
+                ))}
+              </div>
             </div>
+            {commits.length === 0 && !loading ? (
+              <p className="muted small git-st-empty">
+                {graph && graph.commits.length === 0
+                  ? `${repo?.branch ?? "main"} 尚无提交。工作区文件已就绪，但尚未创建首个提交。`
+                  : "没有匹配提交。"}
+              </p>
+            ) : null}
           </div>
           {graph?.hasMore ? (
             <button type="button" className="ghost small git-graph-more" onClick={() => void loadMore()} disabled={busy}>
               {busy ? "加载…" : "加载更早提交"}
             </button>
           ) : null}
-          {graph?.truncated ? <p className="muted tiny">仅显示最近 2000 条提交 / 超过 16 lane 已折叠。</p> : null}
+        </section>
+
+        <div className="git-st-filter" role="group" aria-label="文件筛选">
+          <span className="muted tiny">待定的文件 · 按状态排序</span>
+          <label className="git-st-field">
+            <span className="sr-only">按状态排序</span>
+            <select
+              aria-label="文件排序"
+              value={fileSort}
+              onChange={(event) => setFileSort(event.target.value as "path" | "status")}
+            >
+              <option value="path">按路径</option>
+              <option value="status">按状态</option>
+            </select>
+          </label>
+          <label className="git-check">
+            <input
+              type="checkbox"
+              checked={compactFiles}
+              onChange={(event) => setCompactFiles(event.target.checked)}
+            />
+            紧凑列表
+          </label>
+          <label className="git-st-search">
+            <span className="sr-only">搜索文件</span>
+            <input
+              ref={filterInputRef}
+              type="search"
+              value={fileFilter}
+              placeholder="搜索文件 / 状态"
+              aria-label="搜索工作区文件"
+              onChange={(event) => setFileFilter(event.target.value)}
+            />
+          </label>
         </div>
 
-        <aside
-          className="git-graph-detail"
-          id="git-graph-panel-detail"
-          role="tabpanel"
-          aria-labelledby="git-graph-tab-detail"
-          aria-label="提交详情"
-        >
-          {view === "workspace" ? (
-            <div id="git-graph-panel-workspace" role="tabpanel" aria-labelledby="git-graph-tab-workspace">
-              <WorkingTree
-                status={working}
-                loading={busy && !working}
-                onRefresh={() => void loadWorking()}
-                onOpen={openWorkingFile}
-                diff={workingDiff}
-                isFirstCommit={!loading && repo !== null && !repo.headSha}
-                writeBusy={writeBusy}
-                writeError={writeError}
-                onDismissWriteError={() => setWriteError(null)}
-                onStage={handleStage}
-                onUnstage={handleUnstage}
-                onCommit={(title, body) => void handleCommit(title, body)}
-                onIgnorePreview={() => void handleIgnorePreview()}
-                lastCommitSha={lastCommitSha}
-                canWrite={Boolean(api?.gitStage && api?.gitUnstage && api?.gitCreateCommit)}
-              />
-            </div>
-          ) : detail ? (
-            <>
-              <h2 className="git-detail-title">{detail.node.subject}</h2>
-              <div className="muted tiny mono">{detail.node.sha}</div>
-              <div className="git-detail-meta">
-                <span>{detail.node.authorName}</span>
-                <span>{detail.node.authorTime}</span>
-                <span>{detail.stats.files} 文件 · +{detail.stats.insertions} / -{detail.stats.deletions}</span>
+        <section className="git-st-workspace" aria-label="工作区与 Diff">
+          <div className="git-st-working">
+            <WorkingTree
+              status={working}
+              loading={busy && !working}
+              onRefresh={() => void loadWorking()}
+              onOpen={openWorkingFile}
+              diff={null}
+              fileFilter={fileFilter}
+              fileSort={fileSort}
+              compact={compactFiles}
+              isFirstCommit={!loading && repo !== null && !repo.headSha}
+              writeBusy={writeBusy}
+              writeError={writeError}
+              onDismissWriteError={() => setWriteError(null)}
+              onStage={handleStage}
+              onUnstage={handleUnstage}
+              onCommit={(title, body) => void handleCommit(title, body)}
+              onIgnorePreview={() => void handleIgnorePreview()}
+              lastCommitSha={lastCommitSha}
+              canWrite={Boolean(api?.gitStage && api?.gitUnstage && api?.gitCreateCommit)}
+            />
+          </div>
+          <aside className="git-st-inspector" aria-label="Diff 与提交详情">
+            {inspectorMode === "diff" ? (
+              <>
+                <div className="git-st-inspector-head">
+                  <h3>文件 diff</h3>
+                  <button type="button" className="ghost tiny" onClick={() => setInspectorMode("commit")}>
+                    查看提交
+                  </button>
+                </div>
+                {workingDiff ? (
+                  <DiffView diff={workingDiff} />
+                ) : (
+                  <p className="muted small git-st-empty">
+                    选择一个工作区文件查看 diff；也可以选择提交查看详情。
+                  </p>
+                )}
+              </>
+            ) : detail ? (
+              <div className="git-st-commit-detail">
+                <h2 className="git-detail-title">{detail.node.subject}</h2>
+                <div className="muted tiny mono">{detail.node.sha}</div>
+                <div className="git-detail-meta">
+                  <span>{detail.node.authorName}</span>
+                  <span>{detail.node.authorTime}</span>
+                  <span>{detail.stats.files} 文件 · +{detail.stats.insertions} / -{detail.stats.deletions}</span>
+                </div>
+                <div className="row gap">
+                  <button
+                    type="button"
+                    className="ghost tiny"
+                    onClick={() => void navigator.clipboard?.writeText(detail.node.sha)}
+                  >
+                    复制 SHA
+                  </button>
+                  {detail.node.refs.map((ref) => <span key={ref} className="badge">{ref}</span>)}
+                </div>
+                <h3>变更文件</h3>
+                <ul className="git-detail-files" aria-label="变更文件">
+                  {detail.changedFiles.map((file) => (
+                    <li key={file.path}>
+                      <span className="badge">{file.status}</span>{" "}
+                      <span className="ellipsis">{file.path}</span>
+                    </li>
+                  ))}
+                </ul>
+                <DiffView diff={detail.diff} />
               </div>
-              <div className="row gap">
-                <button type="button" className="ghost tiny" onClick={() => void navigator.clipboard?.writeText(detail.node.sha)}>复制 SHA</button>
-                {detail.node.refs.map((ref) => <span key={ref} className="badge">{ref}</span>)}
-              </div>
-              <h3>变更文件</h3>
-              <ul className="git-detail-files" aria-label="变更文件">
-                {detail.changedFiles.map((file) => (
-                  <li key={file.path}><span className="badge">{file.status}</span> <span className="ellipsis">{file.path}</span></li>
-                ))}
-              </ul>
-              <DiffView diff={detail.diff} />
-            </>
-          ) : (
-            <p className="muted small">选择一个提交查看详情。</p>
-          )}
-        </aside>
-      </div>
-      {graph && <footer className="git-graph-footer muted tiny">已加载 {graph.totalLoaded} / 2000 · 本地快照 · 提交仅写入本地（无 push） · {repo?.remote ? "远程已配置" : "无远程"}</footer>}
+            ) : (
+              <p className="muted small git-st-empty">
+                选择一个提交查看详情，或选择一个工作区文件查看 diff。
+              </p>
+            )}
+          </aside>
+        </section>
 
-      {/* t352 G1：.gitignore 预览 Modal（仅追加缺失行，不覆盖现有文件） */}
+        <div className="git-st-tabs" role="tablist" aria-label="版本视图" onKeyDown={onTabKey}>
+          {(["graph", "workspace", "detail"] as const).map((item) => (
+            <button
+              key={item}
+              ref={(node) => { tabRefs.current[item] = node; }}
+              id={`git-graph-tab-${item}`}
+              type="button"
+              role="tab"
+              aria-selected={view === item}
+              aria-controls={`git-graph-panel-${item}`}
+              tabIndex={view === item ? 0 : -1}
+              className={view === item ? "active" : ""}
+              onClick={() => selectView(item)}
+            >
+              {item === "graph" ? "历史" : item === "workspace" ? "工作区" : "Diff"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {graph ? (
+        <footer className="git-graph-footer muted tiny">
+          已加载 {graph.totalLoaded} / 2000 · 本地快照 · 提交仅写入本地（无 push） · {repo?.remote ? "远程已配置" : "无远程"}
+        </footer>
+      ) : null}
+
       {ignoreOpen && ignorePreviewData ? (
         <Modal
           title="生成 .gitignore"
@@ -703,6 +988,7 @@ export default function GitGraphPanel({
       ) : null}
     </section>
   );
+
 }
 
 function WorkingTree({
@@ -711,6 +997,9 @@ function WorkingTree({
   onRefresh,
   onOpen,
   diff,
+  fileFilter = "",
+  fileSort = "path",
+  compact = false,
   isFirstCommit,
   writeBusy,
   writeError,
@@ -727,6 +1016,9 @@ function WorkingTree({
   onRefresh: () => void;
   onOpen: (file: GitWorkingFile) => void;
   diff: GitDiffPage | null;
+  fileFilter?: string;
+  fileSort?: "path" | "status";
+  compact?: boolean;
   /** 空仓库（一键 init 后尚无提交）：显示首次提交引导。 */
   isFirstCommit: boolean;
   writeBusy: boolean;
@@ -777,9 +1069,26 @@ function WorkingTree({
     () => [...(status?.unstaged ?? []), ...(status?.untracked ?? [])],
     [status],
   );
+  const filterFile = (file: GitWorkingFile) => {
+    const needle = fileFilter.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      file.path.toLowerCase().includes(needle) ||
+      file.oldPath?.toLowerCase().includes(needle) ||
+      statusLabel(file).toLowerCase().includes(needle)
+    );
+  };
+  const sortFiles = (files: GitWorkingFile[]) =>
+    [...files].sort((left, right) =>
+      fileSort === "status"
+        ? statusLabel(left).localeCompare(statusLabel(right)) || left.path.localeCompare(right.path)
+        : left.path.localeCompare(right.path),
+    );
+  const visibleStaged = sortFiles((status?.staged ?? []).filter(filterFile));
+  const visibleUnstaged = sortFiles(unstagedFiles.filter(filterFile));
 
   return (
-    <div>
+    <div className={`git-working-tree ${compact ? "compact" : ""}`}>
       <div className="row between">
         <h3>工作区</h3>
         <div className="row gap">
@@ -865,7 +1174,7 @@ function WorkingTree({
               ) : null}
             </div>
             <ul className="git-status-files">
-              {(status.staged ?? []).map((file) => (
+              {(visibleStaged ?? []).map((file) => (
                 <li key={`staged-${file.path}`} className="git-file-row">
                   <label className="git-check ellipsis" title={file.path}>
                     <input
@@ -877,6 +1186,16 @@ function WorkingTree({
                     <span className="badge">{statusLabel(file)}</span>
                     <span className="ellipsis">{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</span>
                   </label>
+                  <button
+                    type="button"
+                    className="ghost tiny git-file-open"
+                    aria-label={`取消暂存 ${file.path}`}
+                    title="取消暂存"
+                    disabled={!canWrite || writeBusy}
+                    onClick={() => onUnstage([file.path])}
+                  >
+                    −
+                  </button>
                   <button type="button" className="ghost tiny git-file-open" onClick={() => onOpen(file)}>
                     diff
                   </button>
@@ -923,7 +1242,7 @@ function WorkingTree({
               ) : null}
             </div>
             <ul className="git-status-files">
-              {unstagedFiles.map((file) => (
+              {visibleUnstaged.map((file) => (
                 <li key={`unstaged-${file.path}`} className="git-file-row">
                   <label className="git-check ellipsis" title={file.path}>
                     <input
@@ -935,6 +1254,16 @@ function WorkingTree({
                     <span className="badge">{statusLabel(file)}</span>
                     <span className="ellipsis">{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</span>
                   </label>
+                  <button
+                    type="button"
+                    className="ghost tiny git-file-open"
+                    aria-label={`暂存 ${file.path}`}
+                    title="暂存"
+                    disabled={!canWrite || writeBusy}
+                    onClick={() => onStage([file.path])}
+                  >
+                    +
+                  </button>
                   <button type="button" className="ghost tiny git-file-open" onClick={() => onOpen(file)}>
                     diff
                   </button>

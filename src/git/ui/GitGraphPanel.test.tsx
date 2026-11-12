@@ -154,7 +154,7 @@ describe("GitGraphPanel", () => {
       });
       // t352 G1：文件行改为 checkbox 行 + 「diff」按钮。
       const diffButton = root.findAllByType("button").find((node: any) =>
-        node.props.className?.includes?.("git-file-open"),
+        node.props.className?.includes?.("git-file-open") && node.props.children === "diff",
       );
       expect(diffButton).toBeTruthy();
       await act(async () => {
@@ -574,6 +574,276 @@ describe("GitGraphPanel", () => {
         String(node.props.children ?? "").includes("提交（0 个文件）"),
       );
       expect(submit?.props.disabled).toBe(true);
+      renderer!.unmount();
+    } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
+  });
+
+  it("renders the SourceTree four-region shell with refs, history columns, filters and working groups", async () => {
+    const sha = "b".repeat(40);
+    const commit = {
+      sha,
+      shortSha: "bbbbbbbb",
+      parents: [],
+      authorName: "Mika",
+      authorTime: "2026-03-02T10:00:00Z",
+      committerTime: "2026-03-02T10:00:00Z",
+      subject: "feat: source tree layout",
+      refs: ["HEAD -> main", "origin/main"],
+      lane: 0,
+      color: 1,
+      parentLanes: [],
+      openEdges: [],
+    };
+    const repo = {
+      workspaceId: "ws1",
+      workspacePath: "/tmp/repo",
+      root: "/tmp/repo",
+      headSha: sha,
+      branch: "main",
+      detached: false,
+      ahead: 2,
+      behind: 1,
+      baseBranch: "main",
+      remote: "origin",
+      shallow: false,
+      bare: false,
+      gitVersion: "2.40.0",
+      generatedAt: "2026-03-02T10:00:00Z",
+    };
+    const refs = [
+      { name: "main", fullName: "refs/heads/main", kind: "local", sha },
+      { name: "v1.0", fullName: "refs/tags/v1.0", kind: "tag", sha },
+      { name: "origin/main", fullName: "refs/remotes/origin/main", kind: "remote", sha },
+    ];
+    const working = {
+      repo,
+      staged: [{ path: "staged.txt", status: "M", staged: true }],
+      unstaged: [{ path: "work.txt", status: "M", staged: false }],
+      untracked: [{ path: "new.txt", status: "?", staged: false }],
+      conflicts: [],
+      submodules: [],
+      truncated: false,
+    };
+    const previous = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      deer: {
+        gitRepo: async () => ({ ok: true, value: repo }),
+        gitGraph: async () => ({
+          ok: true,
+          value: {
+            repo,
+            commits: [commit],
+            refs,
+            graphVersion: "v1",
+            offset: 0,
+            limit: 200,
+            hasMore: false,
+            nextOffset: null,
+            totalLoaded: 1,
+            truncated: false,
+            layout: { laneCount: 1, maxLanes: 16, truncatedLanes: false },
+          },
+        }),
+        gitRefs: async () => ({ ok: true, value: { refs, worktrees: [], truncated: false } }),
+        gitCommit: async () => ({ ok: false }),
+        gitStatus: async () => ({ ok: true, value: working }),
+        gitDiff: async () => ({ ok: false }),
+      },
+    };
+    try {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws1" />);
+        for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      });
+      const json = JSON.stringify(renderer!.toJSON());
+      expect(json).toContain("仓库导航");
+      expect(json).toContain("分支");
+      expect(json).toContain("标签");
+      expect(json).toContain("远程");
+      expect(json).toContain("Stash（暂存）· 待接入");
+      expect(json).toContain("未提交的更改 ");
+      expect(json).toContain("描述");
+      expect(json).toContain("日期");
+      expect(json).toContain("作者");
+      expect(json).toContain("Author Name");
+      expect(json).toContain("待定的文件 · 按状态排序");
+      expect(json).toContain("已暂存 (");
+      expect(json).toContain("未暂存 / 未跟踪 (");
+      expect(json).toContain("选择一个提交查看详情");
+      expect(json).toContain("版本视图");
+      const root = renderer!.root;
+      const author = root
+        .findAllByType("input")
+        .find((input: any) => String(input.props["aria-label"]).includes("Author Name"));
+      await act(async () => {
+        (author!.props.onChange as (event: unknown) => void)({ target: { value: "Nobody" } });
+        await Promise.resolve();
+      });
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("feat: source tree layout");
+      await act(async () => {
+        (author!.props.onChange as (event: unknown) => void)({ target: { value: "Mika" } });
+        await Promise.resolve();
+      });
+      expect(JSON.stringify(renderer!.toJSON())).toContain("feat: source tree layout");
+      const fileSearch = root
+        .findAllByType("input")
+        .find((input: any) => input.props["aria-label"] === "搜索工作区文件");
+      await act(async () => {
+        (fileSearch!.props.onChange as (event: unknown) => void)({ target: { value: "staged" } });
+        await Promise.resolve();
+      });
+      const filtered = JSON.stringify(renderer!.toJSON());
+      expect(filtered).toContain("staged.txt");
+      expect(filtered).not.toContain("work.txt");
+      renderer!.unmount();
+    } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
+  });
+
+  it("t398 hides lanes under date sort and navigates only visible filtered commits", async () => {
+    const repo = {
+      workspaceId: "ws1",
+      workspacePath: "/tmp/repo",
+      root: "/tmp/repo",
+      headSha: "c".repeat(40),
+      branch: "main",
+      detached: false,
+      ahead: 0,
+      behind: 0,
+      baseBranch: "main",
+      remote: null,
+      shallow: false,
+      bare: false,
+      gitVersion: "2.40.0",
+      generatedAt: "2026-04-03T00:00:00Z",
+    };
+    const makeCommit = (shaChar: string, author: string, subject: string, time: string, parents: string[] = []) => ({
+      sha: shaChar.repeat(40),
+      shortSha: shaChar.repeat(8),
+      parents,
+      authorName: author,
+      authorTime: time,
+      committerTime: time,
+      subject,
+      refs: [],
+      lane: 0,
+      color: 0,
+      parentLanes: parents.map((sha, index) => ({ sha, lane: index + 1, kind: "merge" as const })),
+      openEdges: [],
+    });
+    const commits = [
+      makeCommit("a", "Mika", "feat: merge branch", "2026-04-03T10:00:00Z", ["b".repeat(40), "d".repeat(40)]),
+      makeCommit("b", "Ren", "fix: older", "2026-04-02T10:00:00Z"),
+      makeCommit("c", "Mika", "docs: newest", "2026-04-04T10:00:00Z"),
+    ];
+    const previous = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      deer: {
+        gitRepo: async () => ({ ok: true, value: repo }),
+        gitGraph: async () => ({
+          ok: true,
+          value: {
+            repo,
+            commits,
+            refs: [],
+            graphVersion: "v1",
+            offset: 0,
+            limit: 200,
+            hasMore: false,
+            nextOffset: null,
+            totalLoaded: commits.length,
+            truncated: false,
+            layout: { laneCount: 3, maxLanes: 16, truncatedLanes: false },
+          },
+        }),
+        gitRefs: async () => ({ ok: true, value: { refs: [], worktrees: [], truncated: false } }),
+        gitCommit: async (_ws: string, sha: string) => ({
+          ok: true,
+          value: {
+            node: commits.find((commit) => commit.sha === sha) ?? commits[0],
+            body: "",
+            changedFiles: [],
+            stats: { files: 0, insertions: 0, deletions: 0 },
+            diff: { files: [], bytes: 0, truncated: false, binary: false, submodule: false },
+          },
+        }),
+        gitStatus: async () => ({
+          ok: true,
+          value: {
+            repo,
+            staged: [],
+            unstaged: [],
+            untracked: [],
+            conflicts: [],
+            submodules: [],
+            truncated: false,
+          },
+        }),
+        gitDiff: async () => ({ ok: false }),
+      },
+    };
+    try {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(<GitGraphPanel workspaceId="ws1" />);
+        for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      });
+      const root = renderer!.root;
+      const sort = root.findByProps({ "aria-label": "提交排序" });
+      await act(async () => {
+        (sort.props.onChange as (event: unknown) => void)({ target: { value: "date" } });
+        await Promise.resolve();
+      });
+      const dateJson = JSON.stringify(renderer!.toJSON());
+      expect(dateJson).not.toContain("git-st-lanes");
+      expect(dateJson).not.toMatch(/L[1-9]/);
+      const author = root
+        .findAllByType("input")
+        .find((input: any) => String(input.props["aria-label"]).includes("Author Name"));
+      await act(async () => {
+        (author!.props.onChange as (event: unknown) => void)({ target: { value: "Mika" } });
+        await Promise.resolve();
+      });
+      const listbox = root.findByProps({ role: "listbox" });
+      const options = () => root.findAllByProps({ role: "option" });
+      expect(options()).toHaveLength(2);
+      const selectedLabel = () =>
+        options().find((option: any) => option.props["aria-selected"])?.props["aria-label"];
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "Home", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("docs: newest");
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "ArrowDown", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("feat: merge branch");
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "End", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("feat: merge branch");
+      await act(async () => {
+        listbox.props.onKeyDown({ key: "ArrowDown", preventDefault() {} });
+        await Promise.resolve();
+      });
+      expect(selectedLabel()).toContain("feat: merge branch");
+
+      const search = root
+        .findAllByType("input")
+        .find((input: any) => input.props["aria-label"] === "搜索描述或提交");
+      await act(async () => {
+        (author!.props.onChange as (event: unknown) => void)({ target: { value: "" } });
+        (search!.props.onChange as (event: unknown) => void)({ target: { value: "older" } });
+        await Promise.resolve();
+      });
+      expect(JSON.stringify(renderer!.toJSON())).toContain("fix: older");
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("feat: merge branch");
       renderer!.unmount();
     } finally {
       (globalThis as { window?: unknown }).window = previous;
