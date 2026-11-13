@@ -49,6 +49,18 @@ import type { MemorySearchInput, MemorySnapshotOptions } from "../src/memory/typ
 import type { CastPollRequest, ClosePollRequest, CreatePollRequest, PollStatus } from "../src/shared/poll.js";
 import { ReviewService, ensureTargetForPrEvent } from "../src/review/service.js";
 import type { ReviewConfigPatch, ReviewDecision, ReviewSeverity } from "../src/review/types.js";
+import { installProcessGuards } from "./processGuards.js";
+
+// Install before any window/service work. Registering at module scope is the
+// earliest executable point after the static imports are evaluated.
+const processGuardLogPath = (() => {
+  try {
+    return path.join(app.getPath("userData"), "main-process.log");
+  } catch {
+    return path.join(process.cwd(), "main-process.log");
+  }
+})();
+installProcessGuards({ logPath: processGuardLogPath });
 
 let win: BrowserWindow | null = null;
 let service: AppService | null = null;
