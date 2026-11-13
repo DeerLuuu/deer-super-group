@@ -76,6 +76,7 @@ import {
   chatTurnStatusLabel,
   initialVisibleMessageCount,
   nextVisibleMessageCount,
+  nextVisibleAfterServerLoad,
   normalizeTurnRailRatio,
   scrollTopForTurn,
   turnRailRatio,
@@ -1325,7 +1326,7 @@ export default function App() {
     }
   }, [contextTaskId, pushToast]);
 
-  const loadEarlierChatTurns = useCallback(async (): Promise<boolean> => {
+  const loadEarlierChatTurns = useCallback(async (): Promise<boolean | number> => {
     const current = snapshotRef.current;
     const page = chatTurns;
     if (!current || !page?.hasMore || !page.nextBefore || chatTurnsLoading) return false;
@@ -1339,6 +1340,13 @@ export default function App() {
         before: page.nextBefore,
       });
       if (chatAgentIdRef.current !== agentId) return false;
+      const knownTurnIds = new Set(page.turns.map((turn) => turn.turnId));
+      const loadedCount = earlier.turns
+        .filter((turn) => !knownTurnIds.has(turn.turnId))
+        .reduce(
+          (count, turn) => count + (turn.userMessage ? 1 : 0) + turn.assistants.length,
+          0,
+        );
       setChatTurns((previous) => {
         if (!previous) return earlier;
         const seen = new Set(previous.turns.map((turn) => turn.turnId));
@@ -1355,7 +1363,7 @@ export default function App() {
           generatedAt: earlier.generatedAt,
         };
       });
-      return true;
+      return loadedCount;
     } catch (error) {
       setChatTurnsError(errorText(error));
       return false;
@@ -6564,7 +6572,7 @@ export function ChatView({
   historyError?: string | null;
   /** 0 = 全部；默认 40。 */
   historyLimit?: number;
-  onLoadEarlierHistory?: () => Promise<boolean> | boolean | void;
+  onLoadEarlierHistory?: () => Promise<boolean | number> | boolean | number | void;
   loadEarlierMessages?: () => Promise<void>;
   view: "chat" | "trajectory";
   onViewChange: (view: "chat" | "trajectory") => void;
@@ -6653,7 +6661,8 @@ export function ChatView({
     }, 0);
   }
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
-  const serverLoadStartRef = useRef<number | null>(null);
+  const serverLoadStartRef = useRef<{ token: number; previousLength: number } | null>(null);
+  const serverLoadTokenRef = useRef(0);
   const visibleMessages = messages.slice(-Math.max(0, visibleMessageCount));
   // 旧 fixture 没有 external store：给一个空 store 供 hook 稳定调用，实际终端回退 legacy props。
   const fallbackLiveStoreRef = useRef<ChatLiveStore | null>(null);
@@ -6778,6 +6787,11 @@ export function ChatView({
 
   useEffect(() => {
     stickToBottomRef.current = true;
+    // t475：切换 agent/limit 时让飞行中的 server 页失效，避免旧页回写新会话。
+    serverLoadTokenRef.current += 1;
+    serverLoadStartRef.current = null;
+    setMessagePageLoading(false);
+    setMessagePageError(null);
     setVisibleMessageCount(initialVisibleMessageCount(messages.length, historyLimit));
     const frame =
       typeof requestAnimationFrame === "function"
@@ -6824,15 +6838,6 @@ export function ChatView({
   }, [messages.length, visibleMessageCount]);
 
   useEffect(() => {
-    const start = serverLoadStartRef.current;
-    if (start === null || messages.length <= start) return;
-    const node = scrollRef.current;
-    if (node) preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
-    serverLoadStartRef.current = null;
-    setVisibleMessageCount(messages.length);
-  }, [messages.length]);
-
-  useEffect(() => {
     const node = contentRef.current;
     if (!node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
@@ -6846,38 +6851,63 @@ export function ChatView({
   async function loadEarlierHistory() {
     const hasEarlierMessages = visibleMessageCount < messages.length;
     if (messagePageLoading || (!hasEarlierMessages && !historyHasMore)) return;
-    if (!hasEarlierMessages) serverLoadStartRef.current = messages.length;
+    const loadToken = ++serverLoadTokenRef.current;
+    const serverPage = !hasEarlierMessages;
+    if (serverPage) {
+      serverLoadStartRef.current = { token: loadToken, previousLength: messages.length };
+    }
     const node = scrollRef.current;
     if (node) {
       preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
     }
     setMessagePageLoading(true);
     setMessagePageError(null);
+    let loadedCount: number | null = null;
     try {
       if (loadEarlierMessages) await loadEarlierMessages();
+      if (serverLoadTokenRef.current !== loadToken) return;
       if (onLoadEarlierHistory) {
         const committed = await onLoadEarlierHistory();
+        if (serverLoadTokenRef.current !== loadToken) return;
         if (committed === false) {
-          serverLoadStartRef.current = null;
           preserveScrollRef.current = null;
           setMessagePageError("更早历史加载失败，可重试");
           return;
         }
+        if (typeof committed === "number") loadedCount = committed;
       }
       if (hasEarlierMessages) {
         setVisibleMessageCount((current) =>
           nextVisibleMessageCount(current, messages.length, CHAT_MESSAGE_PAGE),
         );
+      } else if (serverPage) {
+        const pending = serverLoadStartRef.current;
+        const previousLength = pending?.previousLength ?? messages.length;
+        if (loadedCount !== null && loadedCount > 0) {
+          // 用户加载期间发送时 sendAndFollow 已置 following：不要用旧锚点把视口拉回。
+          if (stickToBottomRef.current) {
+            preserveScrollRef.current = null;
+          } else if (node) {
+            preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
+          }
+          setVisibleMessageCount((current) =>
+            nextVisibleAfterServerLoad(current, previousLength, loadedCount!),
+          );
+        } else {
+          // server 返回 true/0 或仅 turn 元数据：不得残留 preserve/server 标记。
+          preserveScrollRef.current = null;
+        }
+      } else {
+        preserveScrollRef.current = null;
       }
     } catch (error) {
-      serverLoadStartRef.current = null;
       preserveScrollRef.current = null;
       setMessagePageError(error instanceof Error ? error.message : String(error));
     } finally {
+      serverLoadStartRef.current = null;
       setMessagePageLoading(false);
     }
   }
-
   const historyLoadingNow = messagePageLoading || Boolean(historyLoading);
   const historyErrorNow = messagePageError ?? historyError ?? null;
   const hasEarlierHistory = visibleMessageCount < messages.length || Boolean(historyHasMore);

@@ -18,7 +18,7 @@
 ## 2. 加载更早 / 视口锚点
 
 - 顶部「加载更早」只在 `nearTop`（滚动到顶部 80px 内）或测试无 DOM 节点时显示；加载中显示 `加载更早…`，失败显示可重试错误。
-- **server-only hasMore**：当 `visibleMessageCount === messages.length` 但 server `historyHasMore` 时，会真正请求更早页并追加 messages；`messages.length` 增长后 effect 自动把 `visibleMessageCount` 提升到新长度、重新记录并消费 preserve 锚点，成功后 `preserveScrollRef=null`，发送仍贴底。
+- **server-only hasMore**：当 `visibleMessageCount === messages.length` 但 server `historyHasMore` 时，`onLoadEarlierHistory` 返回显式 `loadedCount`；ChatView 在 pending token 保护下只把 `visibleMessageCount` 增加 server 返回条数（`nextVisibleAfterServerLoad`），不读取裸 `messages.length`、不一次显示全部。`finally` 无条件清 `serverLoadStartRef`；server 空页/true/0 清 preserve；加载期间发送会因 `sendAndFollow` 置 following 而不使用旧视口锚点。
 - 加载前记录 `{height, scrollTop}`，使用既有 `applyHistoryScrollPreservation` 补偿 `scrollTop`，不跳动。
 - 无更早历史显示「已到最早（N 条消息）」。
 - 分页大小改为设置项 `chatHistoryLimit`（20/40/80；0=全部），`nextVisibleMessageCount` 保留已显示条数。
@@ -69,3 +69,27 @@ pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
 - 流式 token 跟随现在受用户上滚状态控制；用户回到底部后恢复。
 - 刻度 rail 按当前已显示 user turn 生成；加载更早后增加刻度。
 - 回滚：移除 `chatHistoryLimit`/ChatView 刻度与 stick 逻辑，恢复无条件底部跟随。
+
+## 8. t475 repair round 3：server 分页状态机
+
+- `loadEarlierHistory` 使用 `serverLoadTokenRef` pending token；`serverLoadStartRef` 只记录 `{token, previousLength}`。`finally` 无条件清 `serverLoadStartRef` 并结束 loading。
+- **不再用 `messages.length` 增长判断 server 页**：删除旧 `messages.length` effect。server 分支仅信任 `onLoadEarlierHistory` 的显式 `loadedCount`；local 分页仍走 `nextVisibleMessageCount`。
+- `onLoadEarlierHistory` 返回 `boolean | number`：数字为 server 返回的新消息条数（App 按 turn 去重后统计 user+assistants）；`false` 失败；`true`/`0`/仅 turn 元数据视为空页，不增加 visible、不残留 preserve 锚点。
+- `visibleMessageCount` 仅按 server 返回条数增加（`nextVisibleAfterServerLoad(current, previousLength, loadedCount)`），不设置成 messages.length；本地隐藏历史保留。
+- 加载期间发送：`sendAndFollow` 置 following，server 完成时不恢复旧锚点，视图保持底部；加载完成后再次发送仍贴底。
+- 切换 agent/historyLimit：递增 token、清 `serverLoadStartRef`、清错误，旧 server 页的后到响应不会回写新会话。
+- 失败/空页/reject 均清 `preserveScrollRef`，`data-scroll-preserve=0`。
+
+### t475 测试
+
+- `chatViewIsolation.test`：空 true 页后发送仍贴底；加载期间发送两条 + server 返回 20，visible 只从 40→60（不是 42/62 全量），user/assistant 行数 31/29，preserve 0；后续发送再次贴底；reject 清 preserve。
+- `chatScrollTurns.test`：`nextVisibleAfterServerLoad` 前后长度/0 条分支。
+- `chatSentTokens.test`：本地 OpenAI-compatible SSE 的真实 `AppService.sendChat` token 路径（非 store mock），3 段 delta 拼接 `你好，t475`；仅因外部模型环境不可用改用可控 SSE，不伪造外部模型。
+- 既有 contentRef 0/100、jump 首轮 0、中文状态、t443 三档/性能测试保留。
+
+### 验证
+
+- typecheck 0
+- build 0（458 modules）
+- test 串行 148 files / 1011 tests（`--maxWorkers=2 --testTimeout=20000`）
+

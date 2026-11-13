@@ -35,6 +35,15 @@ export function nextVisibleMessageCount(
   return Math.min(total, Math.max(current, current + Math.max(1, pageSize)));
 }
 
+/** server-only 页只允许按 server 返回条数增加可见数；客户端新发送不计入。 */
+export function nextVisibleAfterServerLoad(
+  current: number,
+  previousLength: number,
+  loadedCount: number,
+): number {
+  return Math.min(previousLength + loadedCount, current + loadedCount);
+}
+
 /** 点击刻度后的 scrollTop：首轮钳制到 0，避免负值。 */
 export function scrollTopForTurn(
   anchorTop: number,

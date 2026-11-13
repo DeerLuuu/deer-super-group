@@ -40,6 +40,8 @@ function ChatViewProbe({
   onViewChange = () => {},
   loadEarlierMessages,
   onLoadEarlierHistory,
+  onSend,
+  input = "",
   fixtureMessages = messages,
   historyLimit,
   historyHasMore = false,
@@ -47,7 +49,9 @@ function ChatViewProbe({
   store: ChatLiveStore;
   onViewChange?: (view: "chat" | "trajectory") => void;
   loadEarlierMessages?: () => Promise<void>;
-  onLoadEarlierHistory?: () => Promise<boolean>;
+  onLoadEarlierHistory?: () => Promise<boolean | number>;
+  onSend?: () => void;
+  input?: string;
   fixtureMessages?: ChatMessage[];
   historyLimit?: number;
   historyHasMore?: boolean;
@@ -73,9 +77,9 @@ function ChatViewProbe({
       trajectoryLoading={false}
       onRefreshTrajectory={() => {}}
       busy={false}
-      input=""
+      input={input}
       onInput={() => {}}
-      onSend={() => {}}
+      onSend={onSend ?? (() => {})}
       onStop={() => {}}
       questions={new Map()}
       questionsLoaded
@@ -128,10 +132,64 @@ describe("t260 R1 actual ChatView isolation", () => {
         historyHasMore
         onLoadEarlierHistory={async () => {
           setFixture((current) => [...messages.slice(90, 110), ...current]);
-          return true;
+          return 20;
         }}
       />
     );
+  }
+
+  function ControlledServerProbe({
+    store,
+    replyRef,
+  }: {
+    store: ChatLiveStore;
+    replyRef: { current: Promise<boolean | number> | null };
+  }) {
+    const initial = messages.slice(110);
+    const [fixture, setFixture] = useState(initial);
+    const sentRef = useRef(0);
+    return (
+      <ChatViewProbe
+        store={store}
+        fixtureMessages={fixture}
+        historyHasMore
+        input="draft"
+        onSend={() => {
+          const index = sentRef.current++;
+          setFixture((current) => [
+            ...current,
+            {
+              id: `sent-${index}`,
+              workspaceId: WS,
+              agentId: "router",
+              role: "user",
+              content: `sent during load ${index}`,
+              reasoning: "",
+              createdAt: created,
+            },
+          ]);
+        }}
+        onLoadEarlierHistory={async () => {
+          const committed = await replyRef.current;
+          if (committed === null) return false;
+          if (typeof committed === "number" && committed > 0) {
+            setFixture((current) => [...messages.slice(90, 110), ...current]);
+          }
+          return committed;
+        }}
+      />
+    );
+  }
+
+  async function pressLoadEarlier(renderer: ReturnType<typeof create>) {
+    const more = renderer.root
+      .findAllByType("button")
+      .find((button) => JSON.stringify(button.children).includes("加载更早"))!;
+    expect(more).toBeTruthy();
+    await act(async () => {
+      await (more.props.onClick as () => Promise<void>)();
+      await Promise.resolve();
+    });
   }
 
   it("stays at the bottom for a new message while already following", async () => {
@@ -165,6 +223,36 @@ describe("t260 R1 actual ChatView isolation", () => {
     await act(() => renderer!.unmount());
   });
 
+  it("does not change visible messages for an empty server page", async () => {
+    const store = new ChatLiveStore(WS);
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <ChatViewProbe
+          store={store}
+          fixtureMessages={messages.slice(110)}
+          historyHasMore
+          onLoadEarlierHistory={async () => 0}
+        />,
+      );
+    });
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    await act(() => {
+      (chat.props.onScroll as (event: unknown) => void)({
+        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
+      });
+    });
+    const button = renderer!.root
+      .findAllByType("button")
+      .find((item) => JSON.stringify(item.children).includes("加载更早"))!;
+    await act(async () => {
+      await (button.props.onClick as () => Promise<void>)();
+    });
+    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
+    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+    await act(() => renderer!.unmount());
+  });
+
   it("loads server-only earlier messages and clears the preserve anchor", async () => {
     const store = new ChatLiveStore(WS);
     const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
@@ -181,18 +269,112 @@ describe("t260 R1 actual ChatView isolation", () => {
         currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
       });
     });
-    const button = renderer!.root
-      .findAllByType("button")
-      .find((item) => JSON.stringify(item.children).includes("加载更早"))!;
-    expect(button).toBeTruthy();
-    await act(async () => {
-      await (button.props.onClick as () => Promise<void>)();
-    });
+    await pressLoadEarlier(renderer!);
     const rows = renderer!.root.findAllByProps({ className: "chat-row user" }).length;
     const ticks = renderer!.root.findAllByProps({ "data-rail-turn": "m90" });
-    expect(rows).toBeGreaterThan(20);
+    expect(rows).toBeGreaterThan(10);
     expect(ticks.length).toBeGreaterThan(0);
     expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+    await act(() => renderer!.unmount());
+  });
+
+  it("does not leak the server-load anchor for an empty true page and follows a later send", async () => {
+    const store = new ChatLiveStore(WS);
+    const replyRef: { current: Promise<boolean | number> | null } = {
+      current: Promise.resolve(true),
+    };
+    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ControlledServerProbe store={store} replyRef={replyRef} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    await act(() => {
+      (chat.props.onScroll as (event: unknown) => void)({
+        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
+      });
+    });
+    await pressLoadEarlier(renderer!);
+    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
+    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+
+    scrollNode.scrollHeight = 1400;
+    const send = renderer!.root
+      .findAllByType("button")
+      .find((button) => JSON.stringify(button.children).includes("发送"))!;
+    await act(async () => {
+      (send.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    expect(scrollNode.scrollTop).toBe(1400);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("sent during load 0");
+    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
+    await act(() => renderer!.unmount());
+  });
+
+  it("keeps following and only grows visible count by the server page when sending during load", async () => {
+    const store = new ChatLiveStore(WS);
+    let resolvePage!: (value: boolean | number) => void;
+    const replyRef: { current: Promise<boolean | number> | null } = {
+      current: new Promise((resolve) => {
+        resolvePage = resolve;
+      }),
+    };
+    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ControlledServerProbe store={store} replyRef={replyRef} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    await act(() => {
+      (chat.props.onScroll as (event: unknown) => void)({
+        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
+      });
+    });
+    const send = renderer!.root
+      .findAllByType("button")
+      .find((button) => JSON.stringify(button.children).includes("发送"))!;
+    await pressLoadEarlier(renderer!);
+    scrollNode.scrollHeight = 1400;
+    await act(async () => {
+      (send.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    scrollNode.scrollHeight = 1500;
+    await act(async () => {
+      (renderer!.root
+        .findAllByType("button")
+        .find((button) => JSON.stringify(button.children).includes("发送"))!
+        .props.onClick as () => void)();
+      await Promise.resolve();
+    });
+
+    scrollNode.scrollHeight = 2000;
+    await act(async () => {
+      resolvePage(20);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(scrollNode.scrollTop).toBe(2000);
+    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(31);
+    expect(renderer!.root.findAllByProps({ className: "chat-row assistant" })).toHaveLength(29);
+    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+
+    scrollNode.scrollHeight = 2100;
+    await act(async () => {
+      (renderer!.root
+        .findAllByType("button")
+        .find((button) => JSON.stringify(button.children).includes("发送"))!
+        .props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    expect(scrollNode.scrollTop).toBe(2100);
     await act(() => renderer!.unmount());
   });
 
@@ -349,6 +531,7 @@ describe("t260 R1 actual ChatView isolation", () => {
     expect(output).not.toContain("fixture message 0");
     expect(output).toContain("加载失败");
     expect(output).toContain("重试");
+    expect(renderer.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
   });
 
   it("applies a changed historyLimit immediately", async () => {

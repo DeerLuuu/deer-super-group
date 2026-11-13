@@ -3,6 +3,7 @@ import {
   chatTurnStatusLabel,
   initialVisibleMessageCount,
   nextVisibleMessageCount,
+  nextVisibleAfterServerLoad,
   normalizeTurnRailRatio,
   scrollTopForTurn,
   turnRailRatio,
@@ -27,6 +28,15 @@ describe("t443 chat scroll / history limit", () => {
     expect(initialVisibleMessageCount(12, 40)).toBe(12);
     expect(nextVisibleMessageCount(40, 150, 40)).toBe(80);
     expect(nextVisibleMessageCount(140, 150, 40)).toBe(150);
+    expect(nextVisibleAfterServerLoad(40, 40, 20)).toBe(60);
+    expect(nextVisibleAfterServerLoad(40, 40, 0)).toBe(40);
+    expect(nextVisibleAfterServerLoad(40, 42, 20)).toBe(60);
+  });
+
+  it("keeps server-only visible growth to the loaded count during sends", () => {
+    expect(nextVisibleAfterServerLoad(40, 42, 20)).toBe(60);
+    expect(nextVisibleAfterServerLoad(40, 42, 0)).toBe(40);
+    expect(nextVisibleAfterServerLoad(60, 62, 20)).toBe(80);
   });
 
   it("positions ticks by turn top and falls back to even spacing", () => {
