@@ -481,6 +481,8 @@ export default function App() {
   const [taskWorkspaceSource, setTaskWorkspaceSource] = useState<TaskWorkspaceSource>("tasks");
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const chatMessagesRef = useRef<ChatMessage[]>([]);
+  chatMessagesRef.current = chatMessages;
   // P0-4：Plan Draft 仅 session 内存；确认前不创建任务/事件。
   const [planSource, setPlanSource] = useState<PlanSource | null>(null);
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
@@ -1292,7 +1294,11 @@ export default function App() {
         return null;
       });
     const [messages, contextSnapshot, turns] = await Promise.all([
-      window.deer.listChat(current.workspace.id, agent.id),
+      chatMessagesRef.current.length > 100
+        ? window.deer.listChat(current.workspace.id, agent.id, {
+            limit: Math.min(500, chatMessagesRef.current.length),
+          })
+        : window.deer.listChat(current.workspace.id, agent.id),
       window.deer.getContext(current.workspace.id, agent.id, contextTaskId ?? undefined),
       turnsPromise,
     ]);
@@ -1329,40 +1335,58 @@ export default function App() {
   const loadEarlierChatTurns = useCallback(async (): Promise<boolean | number> => {
     const current = snapshotRef.current;
     const page = chatTurns;
-    if (!current || !page?.hasMore || !page.nextBefore || chatTurnsLoading) return false;
     const agentId = chatAgentIdRef.current;
-    if (!agentId) return false;
+    if (!current || !agentId || chatTurnsLoading) return 0;
+    const oldest = chatMessages[0];
+    if (!page?.hasMore || !page.nextBefore || !oldest) {
+      if (page) setChatTurns((previous) => (previous ? { ...previous, hasMore: false, nextBefore: null } : previous));
+      return 0;
+    }
     setChatTurnsLoading(true);
     setChatTurnsError(null);
     try {
-      const earlier = await window.deer.getChatTurns(current.workspace.id, agentId, {
-        limit: 20,
-        before: page.nextBefore,
-      });
-      if (chatAgentIdRef.current !== agentId) return false;
-      const knownTurnIds = new Set(page.turns.map((turn) => turn.turnId));
-      const loadedCount = earlier.turns
-        .filter((turn) => !knownTurnIds.has(turn.turnId))
-        .reduce(
-          (count, turn) => count + (turn.userMessage ? 1 : 0) + turn.assistants.length,
-          0,
+      const cursor = { createdAt: oldest.createdAt, id: oldest.id };
+      const [earlierMessages, earlier] = await Promise.all([
+        window.deer.listChat(current.workspace.id, agentId, { limit: 20, before: cursor }),
+        window.deer.getChatTurns(current.workspace.id, agentId, {
+          limit: 20,
+          before: page.nextBefore,
+        }),
+      ]);
+      if (chatAgentIdRef.current !== agentId) return 0;
+      const knownMessageIds = new Set(chatMessages.map((message) => message.id));
+      const insertedMessages = earlierMessages.filter(
+        (message) => !knownMessageIds.has(message.id),
+      );
+      const loadedCount = insertedMessages.length;
+      if (loadedCount > 0) {
+        setChatMessages((previous) => {
+          const seen = new Set(previous.map((message) => message.id));
+          const prefix = insertedMessages.filter((message) => !seen.has(message.id));
+          return [...prefix, ...previous];
+        });
+        setChatTurns((previous) => {
+          if (!previous) return earlier;
+          const seen = new Set(previous.turns.map((turn) => turn.turnId));
+          const merged = [
+            ...earlier.turns.filter((turn) => !seen.has(turn.turnId)),
+            ...previous.turns,
+          ];
+          return {
+            ...previous,
+            turns: merged,
+            hasMore: earlier.hasMore,
+            nextBefore: earlier.nextBefore,
+            truncated: previous.truncated || earlier.truncated,
+            generatedAt: earlier.generatedAt,
+          };
+        });
+      } else {
+        // 消息页空：不能只吞 turns 元数据，否则 ChatView 会一直显示"加载更早"。
+        setChatTurns((previous) =>
+          previous ? { ...previous, hasMore: false, nextBefore: null } : previous,
         );
-      setChatTurns((previous) => {
-        if (!previous) return earlier;
-        const seen = new Set(previous.turns.map((turn) => turn.turnId));
-        const merged = [
-          ...earlier.turns.filter((turn) => !seen.has(turn.turnId)),
-          ...previous.turns,
-        ];
-        return {
-          ...previous,
-          turns: merged,
-          hasMore: earlier.hasMore,
-          nextBefore: earlier.nextBefore,
-          truncated: previous.truncated || earlier.truncated,
-          generatedAt: earlier.generatedAt,
-        };
-      });
+      }
       return loadedCount;
     } catch (error) {
       setChatTurnsError(errorText(error));
@@ -1370,7 +1394,7 @@ export default function App() {
     } finally {
       setChatTurnsLoading(false);
     }
-  }, [chatTurns, chatTurnsLoading]);
+  }, [chatMessages, chatTurns, chatTurnsLoading]);
 
   const loadChatTrajectory = useCallback(async () => {
     const current = snapshotRef.current;

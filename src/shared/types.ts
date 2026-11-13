@@ -227,6 +227,12 @@ export interface ChatMessage {
   createdAt: IsoDate;
 }
 
+/** t477：server-only 更早消息分页游标；无 options 时保持旧版最近 100 条。 */
+export interface ChatMessagePageOptions {
+  limit?: number;
+  before?: { createdAt: string; id: string } | null;
+}
+
 /** t175：Chat 轨迹账本条目（消息 + 工具事件 + 上下文操作的只读投影）。 */
 export type ChatTrajectoryKind =
   | "user"

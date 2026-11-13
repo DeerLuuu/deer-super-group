@@ -4,6 +4,7 @@ import type {
   AnswerChatQuestionInput,
   CancelChatQuestionInput,
   ChatEvent,
+  ChatMessagePageOptions,
   CreateAgentInput,
   CreateTaskInput,
   RecommendMembersRequest,
@@ -75,8 +76,8 @@ const api: DeerApi = {
   saveSettings: (settings: LlmSettings) => ipcRenderer.invoke("settings:save", settings),
   listModels: (settings: LlmSettings, providerId?: string) =>
     ipcRenderer.invoke("llm:models", settings, providerId),
-  listChat: (workspaceId: string, agentId?: string) =>
-    ipcRenderer.invoke("chat:list", workspaceId, agentId),
+  listChat: (workspaceId: string, agentId?: string, options?: ChatMessagePageOptions) =>
+    ipcRenderer.invoke("chat:list", workspaceId, agentId, options),
   getChatTrajectory: (workspaceId: string, agentId?: string) =>
     ipcRenderer.invoke("chat:trajectory", workspaceId, agentId),
   getChatTurns: (workspaceId: string, agentId?: string, options?: unknown) =>

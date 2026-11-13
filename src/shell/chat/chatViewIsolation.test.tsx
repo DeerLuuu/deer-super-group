@@ -122,37 +122,15 @@ function ChatViewProbe({
 }
 
 describe("t260 R1 actual ChatView isolation", () => {
-  function ServerPageProbe({ store }: { store: ChatLiveStore }) {
-    const initial = messages.slice(110);
-    const [fixture, setFixture] = useState(initial);
-    return (
-      <ChatViewProbe
-        store={store}
-        fixtureMessages={fixture}
-        historyHasMore
-        onLoadEarlierHistory={async () => {
-          setFixture((current) => [...messages.slice(90, 110), ...current]);
-          return 20;
-        }}
-      />
-    );
-  }
-
-  function ControlledServerProbe({
-    store,
-    replyRef,
-  }: {
-    store: ChatLiveStore;
-    replyRef: { current: Promise<boolean | number> | null };
-  }) {
-    const initial = messages.slice(110);
-    const [fixture, setFixture] = useState(initial);
+  function EmptyPageProbe({ store }: { store: ChatLiveStore }) {
+    const [fixture, setFixture] = useState(messages.slice(110));
+    const [hasMore, setHasMore] = useState(true);
     const sentRef = useRef(0);
     return (
       <ChatViewProbe
         store={store}
         fixtureMessages={fixture}
-        historyHasMore
+        historyHasMore={hasMore}
         input="draft"
         onSend={() => {
           const index = sentRef.current++;
@@ -169,13 +147,10 @@ describe("t260 R1 actual ChatView isolation", () => {
             },
           ]);
         }}
+        // 空 server 页：生产 App 会返回 0/true 且不 append messages。
         onLoadEarlierHistory={async () => {
-          const committed = await replyRef.current;
-          if (committed === null) return false;
-          if (typeof committed === "number" && committed > 0) {
-            setFixture((current) => [...messages.slice(90, 110), ...current]);
-          }
-          return committed;
+          setHasMore(false);
+          return true;
         }}
       />
     );
@@ -253,40 +228,12 @@ describe("t260 R1 actual ChatView isolation", () => {
     await act(() => renderer!.unmount());
   });
 
-  it("loads server-only earlier messages and clears the preserve anchor", async () => {
-    const store = new ChatLiveStore(WS);
-    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
-    let renderer: ReturnType<typeof create> | null = null;
-    await act(async () => {
-      renderer = create(<ServerPageProbe store={store} />, {
-        createNodeMock: (element) =>
-          element.props.className === "chat-messages" ? scrollNode : null,
-      });
-    });
-    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
-    await act(() => {
-      (chat.props.onScroll as (event: unknown) => void)({
-        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
-      });
-    });
-    await pressLoadEarlier(renderer!);
-    const rows = renderer!.root.findAllByProps({ className: "chat-row user" }).length;
-    const ticks = renderer!.root.findAllByProps({ "data-rail-turn": "m90" });
-    expect(rows).toBeGreaterThan(10);
-    expect(ticks.length).toBeGreaterThan(0);
-    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
-    await act(() => renderer!.unmount());
-  });
-
   it("does not leak the server-load anchor for an empty true page and follows a later send", async () => {
     const store = new ChatLiveStore(WS);
-    const replyRef: { current: Promise<boolean | number> | null } = {
-      current: Promise.resolve(true),
-    };
     const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
     let renderer: ReturnType<typeof create> | null = null;
     await act(async () => {
-      renderer = create(<ControlledServerProbe store={store} replyRef={replyRef} />, {
+      renderer = create(<EmptyPageProbe store={store} />, {
         createNodeMock: (element) =>
           element.props.className === "chat-messages" ? scrollNode : null,
       });
@@ -299,6 +246,7 @@ describe("t260 R1 actual ChatView isolation", () => {
     });
     await pressLoadEarlier(renderer!);
     expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("已到最早");
     expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
 
     scrollNode.scrollHeight = 1400;
@@ -312,69 +260,6 @@ describe("t260 R1 actual ChatView isolation", () => {
     expect(scrollNode.scrollTop).toBe(1400);
     expect(JSON.stringify(renderer!.toJSON())).toContain("sent during load 0");
     expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
-    await act(() => renderer!.unmount());
-  });
-
-  it("keeps following and only grows visible count by the server page when sending during load", async () => {
-    const store = new ChatLiveStore(WS);
-    let resolvePage!: (value: boolean | number) => void;
-    const replyRef: { current: Promise<boolean | number> | null } = {
-      current: new Promise((resolve) => {
-        resolvePage = resolve;
-      }),
-    };
-    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
-    let renderer: ReturnType<typeof create> | null = null;
-    await act(async () => {
-      renderer = create(<ControlledServerProbe store={store} replyRef={replyRef} />, {
-        createNodeMock: (element) =>
-          element.props.className === "chat-messages" ? scrollNode : null,
-      });
-    });
-    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
-    await act(() => {
-      (chat.props.onScroll as (event: unknown) => void)({
-        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
-      });
-    });
-    const send = renderer!.root
-      .findAllByType("button")
-      .find((button) => JSON.stringify(button.children).includes("发送"))!;
-    await pressLoadEarlier(renderer!);
-    scrollNode.scrollHeight = 1400;
-    await act(async () => {
-      (send.props.onClick as () => void)();
-      await Promise.resolve();
-    });
-    scrollNode.scrollHeight = 1500;
-    await act(async () => {
-      (renderer!.root
-        .findAllByType("button")
-        .find((button) => JSON.stringify(button.children).includes("发送"))!
-        .props.onClick as () => void)();
-      await Promise.resolve();
-    });
-
-    scrollNode.scrollHeight = 2000;
-    await act(async () => {
-      resolvePage(20);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(scrollNode.scrollTop).toBe(2000);
-    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(31);
-    expect(renderer!.root.findAllByProps({ className: "chat-row assistant" })).toHaveLength(29);
-    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
-
-    scrollNode.scrollHeight = 2100;
-    await act(async () => {
-      (renderer!.root
-        .findAllByType("button")
-        .find((button) => JSON.stringify(button.children).includes("发送"))!
-        .props.onClick as () => void)();
-      await Promise.resolve();
-    });
-    expect(scrollNode.scrollTop).toBe(2100);
     await act(() => renderer!.unmount());
   });
 

@@ -11,6 +11,7 @@ import type {
   ChatArtifactRecord,
   ChatEvent,
   ChatMessage,
+  ChatMessagePageOptions,
   ChatQuestionRecord,
   ChatTrajectoryEntry,
   ChatTurnHistoryOptions,
@@ -846,11 +847,28 @@ export class AppService {
     return result;
   }
 
-  listChat(workspaceId: string, agentId?: string): ChatMessage[] {
+  listChat(
+    workspaceId: string,
+    agentId?: string,
+    options: ChatMessagePageOptions = {},
+  ): ChatMessage[] {
     const workspace = this.store.getWorkspace(workspaceId);
     if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
     const router = this.ensureRouter(workspaceId);
-    return this.store.listChatMessages(workspaceId, agentId ?? router.id, 100);
+    const resolvedAgent = agentId ? this.store.getAgent(agentId) : router;
+    if (!resolvedAgent || resolvedAgent.workspaceId !== workspaceId) {
+      throw new Error(`agent not found in workspace: ${agentId ?? "unknown"}`);
+    }
+    if (!options.before && !options.limit) {
+      return this.store.listChatMessages(workspaceId, resolvedAgent.id, 100);
+    }
+    const limit = Math.max(1, Math.min(options.limit ?? 100, 500));
+    return this.store.listChatMessagesPage(
+      workspaceId,
+      resolvedAgent.id,
+      limit,
+      options.before ?? null,
+    );
   }
 
   /**

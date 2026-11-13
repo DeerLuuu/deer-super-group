@@ -6,6 +6,7 @@ import { stripCreateAgentPermission } from "../src/shared/memberRecommendation.j
 import type {
   AnswerChatQuestionInput,
   CancelChatQuestionInput,
+  ChatMessagePageOptions,
   ChatTurnHistoryOptions,
   CreateAgentInput,
   RecommendMembersRequest,
@@ -247,8 +248,10 @@ app.whenReady().then(() => {
   handle("llm:models", (settings: LlmSettings, providerId?: string) =>
     getService().listModels(settings, providerId),
   );
-  handle("chat:list", (workspaceId: string, agentId?: string) =>
-    getService().listChat(workspaceId, agentId),
+  handle(
+    "chat:list",
+    (workspaceId: string, agentId?: string, options?: ChatMessagePageOptions) =>
+      getService().listChat(workspaceId, agentId, options),
   );
   handle("chat:trajectory", (workspaceId: string, agentId?: string) =>
     getService().getChatTrajectory(workspaceId, agentId),

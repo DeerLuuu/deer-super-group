@@ -8,6 +8,7 @@ import type {
   ChatArtifactRecord,
   ChatEvent,
   ChatMessage,
+  ChatMessagePageOptions,
   ChatQuestionRecord,
   ChatTrajectoryEntry,
   ChatTurnHistoryOptions,
@@ -148,7 +149,11 @@ export interface DeerApi {
   getSettings(): Promise<LlmSettingsInfo>;
   saveSettings(settings: LlmSettings): Promise<LlmSettingsInfo>;
   listModels(settings: LlmSettings, providerId?: string): Promise<ModelListResult>;
-  listChat(workspaceId: string, agentId?: string): Promise<ChatMessage[]>;
+  listChat(
+    workspaceId: string,
+    agentId?: string,
+    options?: ChatMessagePageOptions,
+  ): Promise<ChatMessage[]>;
   sendChat(workspaceId: string, agentId: string, message: string): Promise<ChatMessage | null>;
   cancelChat(workspaceId: string, agentId: string): Promise<void>;
   /** t170：/clear 命令——清空当前 Router 对话、画布索引与提问。 */

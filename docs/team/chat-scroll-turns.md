@@ -74,15 +74,17 @@ pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
 
 - `loadEarlierHistory` 使用 `serverLoadTokenRef` pending token；`serverLoadStartRef` 只记录 `{token, previousLength}`。`finally` 无条件清 `serverLoadStartRef` 并结束 loading。
 - **不再用 `messages.length` 增长判断 server 页**：删除旧 `messages.length` effect。server 分支仅信任 `onLoadEarlierHistory` 的显式 `loadedCount`；local 分页仍走 `nextVisibleMessageCount`。
-- `onLoadEarlierHistory` 返回 `boolean | number`：数字为 server 返回的新消息条数（App 按 turn 去重后统计 user+assistants）；`false` 失败；`true`/`0`/仅 turn 元数据视为空页，不增加 visible、不残留 preserve 锚点。
-- `visibleMessageCount` 仅按 server 返回条数增加（`nextVisibleAfterServerLoad(current, previousLength, loadedCount)`），不设置成 messages.length；本地隐藏历史保留。
+- `onLoadEarlierHistory` 返回 `boolean | number`：数字为真实追加的新消息条数（t477 由 App 用真实 SQLite 消息页计算）；`false` 失败；`true`/`0`/仅 turn 元数据视为空页，不增加 visible、不残留 preserve 锚点。
+- `visibleMessageCount` 仅按真实追加条数增加（`nextVisibleAfterServerLoad(current, previousLength, loadedCount)`），不设置成 messages.length；本地隐藏历史保留。
 - 加载期间发送：`sendAndFollow` 置 following，server 完成时不恢复旧锚点，视图保持底部；加载完成后再次发送仍贴底。
 - 切换 agent/historyLimit：递增 token、清 `serverLoadStartRef`、清错误，旧 server 页的后到响应不会回写新会话。
 - 失败/空页/reject 均清 `preserveScrollRef`，`data-scroll-preserve=0`。
 
-### t475 测试
+### t475/t477 测试
 
-- `chatViewIsolation.test`：空 true 页后发送仍贴底；加载期间发送两条 + server 返回 20，visible 只从 40→60（不是 42/62 全量），user/assistant 行数 31/29，preserve 0；后续发送再次贴底；reject 清 preserve。
+- `chatEarlierHistoryApp.test`：真实 SQLite 300 条消息 + 真实 App/Service；初始 `listChat` 无 options 取最近 100；「加载更早」后 `listChat{limit:20,before}` 真实追加，rows/rail 增加、preserve=0；不再由测试 probe 自己 prepend fixture。
+- `chatMessagePage.test`：service 旧无参 100 条兼容、`{limit,before}` 按 `(createdAt,id)` 往回分页、跨 workspace agent 拒绝。
+- `chatViewIsolation.test`：空 true 页后发送仍贴底、reject 清 preserve；server 真实增长由 App 集成测试覆盖。
 - `chatScrollTurns.test`：`nextVisibleAfterServerLoad` 前后长度/0 条分支。
 - `chatSentTokens.test`：本地 OpenAI-compatible SSE 的真实 `AppService.sendChat` token 路径（非 store mock），3 段 delta 拼接 `你好，t475`；仅因外部模型环境不可用改用可控 SSE，不伪造外部模型。
 - 既有 contentRef 0/100、jump 首轮 0、中文状态、t443 三档/性能测试保留。
@@ -91,5 +93,34 @@ pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
 
 - typecheck 0
 - build 0（458 modules）
-- test 串行 148 files / 1011 tests（`--maxWorkers=2 --testTimeout=20000`）
+- test 150 files / 1012 tests（串行 `--maxWorkers=1 --no-file-parallelism --testTimeout=20000`）
+
+## 9. t477 repair round 3：真实 append 更早 messages
+
+### 分页 IPC / service
+
+- `ChatMessagePageOptions { limit?, before? }`（`src/shared/types.ts`）；`DeerApi.listChat(workspaceId, agentId?, options?)`。
+- preload/main 透传第三参；service 校验 workspace/agent，`options` 为空时保持旧版 `listChatMessages(...,100)`，有 `limit/before` 时走 `listChatMessagesPage`（limit clamp 1–500，`(createdAt,id)` 游标、升序返回）。
+- 旧无参调用兼容：仍返回最近 100 条；`chatMessagePage.test` 断言。
+
+### App.loadEarlierChatTurns
+
+- 用当前 `chatMessages[0]` 作为 `before` 游标；并行取 `listChat({limit:20,before})` 与 `getChatTurns({limit:20,before:page.nextBefore})`。
+- 消息 append：按 id 去重后前缀插入，保持时间顺序；**loadedCount = 实际插入条数**，不是 turn 元数据或裸 messages.length。
+- `loadChat` 重载：已加载超过 100 条时按当前条数（≤500）请求最近页，避免发送后 reload 丢掉刚加载的更早消息；初次仍走无参最近 100。
+- turns 合并：按 turnId 去重前缀；消息空页不吞 turns 元数据，直接把 `hasMore=false/nextBefore=null`，ChatView 显示已到最早并清 preserve。
+- 切换 agent 后旧请求返回 0，不写新会话。
+
+### 测试（生产级）
+
+- `chatEarlierHistoryApp.test`：真实 `AppService` + 临时 SQLite（300 条消息），真实 App + 真实 bridge 调用；初始最近 100 条，点击后 rows/rail 增加、preserve=0、`listChat` 收到 before。
+- `chatMessagePage.test`：旧无参 100、`before` 20、`limit` 5、跨 workspace 拒绝。
+- `chatViewIsolation.test` 删除自造 `messages.slice(...)` prepend 的 `ServerPageProbe`/`ControlledServerProbe`；仅保留空 true、reject、本地发送等 ChatView 行为测试。
+- 真实 `sendChat` token 证据同 t475（本地 SSE，外部模型环境不可用已标注）。
+
+### 100 turn / 分页口径
+
+- `getChatTurns` 仍按 `CHAT_TURNS_MESSAGE_LIMIT=200` 消息（约 100 turn）做首屏 turn 窗口；消息页按 `limit=20` 追加，二者游标独立。
+- ChatView 初始显示最近 `chatHistoryLimit`（0=全部，默认 40）；server-only 页只在 visible 已达 messages.length 时触发。
+- 分页上限：service 单页 limit clamp 1–500；messages IPC 无 before 时保持最近 100，不做隐式全量。
 
