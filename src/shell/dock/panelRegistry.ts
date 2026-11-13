@@ -3,6 +3,7 @@
  * 稳定 spec 只在本文件维护；dockview 的 toJSON 快照作为不透明负载存入 localStorage。
  */
 import { MIN_SPLIT_DOCK_WIDTH, NARROW_WINDOW_MAX } from "./narrowWindow";
+import { LAYOUT_KEYS } from "../../shared/layoutPersistence.js";
 
 export type RouteTabString =
   | "tasks"
@@ -272,7 +273,7 @@ export type DockStore = {
 };
 
 export function storageKey(workspaceId: string): string {
-  return `deer.dock.v1.${workspaceId}`;
+  return `${LAYOUT_KEYS.dockPrefix}${workspaceId}`;
 }
 
 const MAX_STORE_BYTES = 64 * 1024;

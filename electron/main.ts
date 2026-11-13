@@ -1,8 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { AppService } from "../src/kernel/service.js";
 import { stripCreateAgentPermission } from "../src/shared/memberRecommendation.js";
+import {
+  DEFAULT_WINDOW_MIN_HEIGHT,
+  DEFAULT_WINDOW_MIN_WIDTH,
+  normalizeWindowState,
+  readWindowState,
+  writeWindowState,
+  type WorkArea,
+} from "./windowState.js";
 import type {
   AnswerChatQuestionInput,
   CancelChatQuestionInput,
@@ -74,13 +82,32 @@ function getReview(): ReviewService {
 }
 
 function createWindow(): void {
+  const stateFile = path.join(app.getPath("userData"), "window-state.json");
+  const primary = screen.getPrimaryDisplay();
+  const areas: WorkArea[] = [
+    primary.workArea,
+    ...screen
+      .getAllDisplays()
+      .filter((display) => display.id !== primary.id)
+      .map((display) => display.workArea),
+  ];
+  const restored = normalizeWindowState(
+    readWindowState(stateFile),
+    areas,
+    DEFAULT_WINDOW_MIN_WIDTH,
+    DEFAULT_WINDOW_MIN_HEIGHT,
+  );
+  const bounds = restored.state;
+
   win = new BrowserWindow({
-    width: 1440,
-    height: 920,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     // t56（bb-83 裁决 F2）：minWidth 1100 → 960，让 dock 的 single 变体（<760）可达；
     // minHeight 保持 700 不变。
-    minWidth: 960,
-    minHeight: 700,
+    minWidth: DEFAULT_WINDOW_MIN_WIDTH,
+    minHeight: DEFAULT_WINDOW_MIN_HEIGHT,
     backgroundColor: "#0d1117",
     autoHideMenuBar: true,
     title: "DeerSuperGroup",
@@ -90,6 +117,33 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
+  if (bounds.maximized) win.maximize();
+
+  const persist = () => {
+    if (!win || win.isDestroyed()) return;
+    const normal = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
+    writeWindowState(stateFile, {
+      x: normal.x,
+      y: normal.y,
+      width: normal.width,
+      height: normal.height,
+      maximized: win.isMaximized(),
+    });
+  };
+  let saveTimer: NodeJS.Timeout | null = null;
+  const schedule = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      persist();
+    }, 400);
+  };
+  win.on("resize", schedule);
+  win.on("move", schedule);
+  win.on("maximize", schedule);
+  win.on("unmaximize", schedule);
+  win.on("minimize", schedule);
+  win.on("close", persist);
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
@@ -99,6 +153,8 @@ function createWindow(): void {
   }
 
   win.on("closed", () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = null;
     win = null;
   });
 }
