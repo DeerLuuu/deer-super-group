@@ -1,0 +1,46 @@
+{
+  "at": "2026-11-13T16:05:58.285Z",
+  "mode": "component-harness (real React/CSS, not full App dock)",
+  "results": [
+    {
+      "id": "default-collapsed-1440",
+      "ok": true,
+      "detail": "{\"rows\":40,\"expanded\":0,\"hidden\":40,\"summary\":\"08:00:00\\n思考\\n思考摘录\\nstep 1\\n运行中\",\"scrollWidth\":1440,\"innerWidth\":1440}"
+    },
+    {
+      "id": "click-expand",
+      "ok": true,
+      "detail": "{\"aria\":\"true\",\"hidden\":false,\"text\":\"第 1 条轨迹详情。这里展示折叠后的 summary；默认不展开，点击或键盘 Enter/Space 才显示完整内容。\"}"
+    },
+    {
+      "id": "keyboard-enter",
+      "ok": true,
+      "detail": "[\"true\",\"true\",\"false\"]"
+    },
+    {
+      "id": "filter-preserves-expanded",
+      "ok": true,
+      "detail": "[\"true\",\"true\",\"false\"]"
+    },
+    {
+      "id": "expand-preserves-scroll",
+      "ok": true,
+      "detail": "{\"top\":160,\"height\":1686}"
+    },
+    {
+      "id": "long-detail-6000",
+      "ok": true,
+      "detail": "{\"length\":6001}"
+    },
+    {
+      "id": "responsive-960",
+      "ok": true,
+      "detail": "{\"rows\":40,\"scrollWidth\":960,\"innerWidth\":960}"
+    },
+    {
+      "id": "responsive-480",
+      "ok": true,
+      "detail": "{\"rows\":40,\"scrollWidth\":480,\"innerWidth\":480}"
+    }
+  ]
+}
