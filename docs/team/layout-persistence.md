@@ -14,7 +14,7 @@
 | `deer.lastWorkspaceId` | renderer localStorage | 上次工作区 id | saved 不存在/空/超长 → 第一个 workspace，并删除 stale 键 |
 | `deer.sidebarWidth` | localStorage | sidebar 首选宽度 | `clampSidebarWidth` 既有窄窗 clamp；非法值回默认 |
 | `deer.sidebarCollapsed` | localStorage | `"1"`/`"0"` | 缺省 false |
-| `deer.taskListWidth` | localStorage | 任务列表首选宽度 | `clampTaskListWidth` 既有 clamp；默认 380 |
+| `deer.taskListWidth` | localStorage | 任务列表 preferred 宽度 | `preferred/displayed`：窄布局只改 displayed，onUp/step 不覆盖 preferred；宽布局 clamp 后持久化；默认 380 |
 | `deer.taskListCollapsed` | localStorage | `"1"`/`"0"` | 缺省 false |
 | `deer.dock.v1.<workspaceId>` | localStorage | Dock `{schema:"deer.dock.state",version:1,variants}`，按 workspace×variant 存 dockview `toJSON` + activePanel | schema/version 不匹配/超 64KB/JSON 坏 → 删除并回默认布局 |
 | `deer.git.workspaceHeight.<workspaceId>` | localStorage | Git history/workspace 分隔高度（G9） | 160..container−216；非法回 300；短高/≤719 隐藏 |
@@ -38,7 +38,7 @@
 
 - 窗口恢复只接受可见 display workArea 内的位置；标题栏至少 40px 垂直重叠、水平至少 160px 或窗口宽度；屏幕拔除/坐标越界回默认居中。
 - 尺寸低于 960×700（窗口 minWidth/minHeight）回默认 1440×920；多显示器跨屏保留，只要标题栏可达。
-- 窗口状态 JSON 读取失败/缺字段/NaN/字符串 → 默认；写入失败静默（不阻止应用退出）。
+- 窗口状态 JSON 读取失败/缺字段/NaN/字符串 → 默认；invalid/offscreen/too-small/no-display 时 main 输出一次 `[window-state] ... using default window bounds` 诊断；首次缺失静默。写入失败静默（不阻止应用退出）。
 - last workspace 只接受 ≤200 字符；无效/不存在回退第一个并删除 stale key。
 - 所有布局使用既有 clamp；不改变权限/数据/DB schema；不做历史迁移；无新依赖。
 
@@ -59,6 +59,8 @@
 - `electron/windowState.test.ts`：valid secondary、maximized normal bounds、missing/malformed/small/offscreen、拔屏、跨屏、no-display、读写/坏文件。
 - `src/shared/layoutPersistence.test.ts`：稳定键、last workspace 恢复/stale/空列表/trim/清除/不可用 storage。
 - `src/shell/lastWorkspaceApp.test.tsx`：真实 App boot 选 saved workspace；stale 回退第一个并清键。
+- `src/shell/taskListWidth.test.ts`：preferred/displayed 分离；窄拖→宽恢复 preferred；onUp/step 语义。
+- `electron/windowStateWiring.test.ts`：main read/normalize/diagnostic/close/事件 wiring。
 - 既有：sidebar/task separator clamp、Dock store schema/variant、Git split 读取/clamp/隐藏。
 - 三档截图/重启验证见 `docs/team/layout-persistence-evidence.md`（实现阶段产物）。
 
@@ -67,5 +69,5 @@
 ```text
 pnpm typecheck
 pnpm build
-pnpm test -- --testTimeout=20000 --maxWorkers=2
+pnpm test -- --testTimeout=20000 --maxWorkers=1
 ```

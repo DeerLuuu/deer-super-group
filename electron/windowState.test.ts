@@ -8,6 +8,8 @@ import {
   defaultWindowState,
   normalizeWindowState,
   readWindowState,
+  windowStateDiagnostic,
+  windowStateForPersist,
   writeWindowState,
   type WorkArea,
 } from "./windowState.js";
@@ -91,6 +93,24 @@ describe("window state persistence", () => {
     expect(result.reason).toBe("no-display");
     expect(result.state.width).toBeGreaterThanOrEqual(DEFAULT_WINDOW_MIN_WIDTH);
     expect(result.state.height).toBeGreaterThanOrEqual(DEFAULT_WINDOW_MIN_HEIGHT);
+  });
+
+  it("normalizes BrowserWindow normal bounds for persistence", () => {
+    expect(windowStateForPersist({ x: 10.4, y: 20.6, width: 1200.2, height: 800.8 }, true)).toEqual({
+      x: 10,
+      y: 21,
+      width: 1200,
+      height: 801,
+      maximized: true,
+    });
+  });
+
+  it("reports diagnostics for fallbacks but stays quiet on first run", () => {
+    expect(windowStateDiagnostic("missing")).toBeNull();
+    expect(windowStateDiagnostic("invalid")).toContain("invalid");
+    expect(windowStateDiagnostic("offscreen")).toContain("offscreen");
+    expect(windowStateDiagnostic("too-small")).toContain("too-small");
+    expect(windowStateDiagnostic("no-display")).toContain("no-display");
   });
 
   it("writes and reads a window state file; malformed files read as null", () => {

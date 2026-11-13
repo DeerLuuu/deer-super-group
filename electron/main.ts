@@ -8,6 +8,8 @@ import {
   DEFAULT_WINDOW_MIN_WIDTH,
   normalizeWindowState,
   readWindowState,
+  windowStateDiagnostic,
+  windowStateForPersist,
   writeWindowState,
   type WorkArea,
 } from "./windowState.js";
@@ -97,6 +99,10 @@ function createWindow(): void {
     DEFAULT_WINDOW_MIN_WIDTH,
     DEFAULT_WINDOW_MIN_HEIGHT,
   );
+  if (!restored.restored) {
+    const diagnostic = windowStateDiagnostic(restored.reason);
+    if (diagnostic) console.warn(diagnostic);
+  }
   const bounds = restored.state;
 
   win = new BrowserWindow({
@@ -122,13 +128,10 @@ function createWindow(): void {
   const persist = () => {
     if (!win || win.isDestroyed()) return;
     const normal = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
-    writeWindowState(stateFile, {
-      x: normal.x,
-      y: normal.y,
-      width: normal.width,
-      height: normal.height,
-      maximized: win.isMaximized(),
-    });
+    writeWindowState(
+      stateFile,
+      windowStateForPersist(normal, win.isMaximized()),
+    );
   };
   let saveTimer: NodeJS.Timeout | null = null;
   const schedule = () => {

@@ -109,6 +109,29 @@ export function normalizeWindowState(
   };
 }
 
+/** Convert BrowserWindow normal bounds + maximized flag into the persisted shape. */
+export function windowStateForPersist(
+  bounds: { x: number; y: number; width: number; height: number },
+  maximized: boolean,
+): WindowState {
+  return {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+    maximized,
+  };
+}
+
+/**
+ * Diagnostic line for a restore fallback. A missing file is the normal first
+ * run, so it stays quiet; invalid/offscreen/too-small states are logged once.
+ */
+export function windowStateDiagnostic(reason: WindowStateNormalization["reason"]): string | null {
+  if (reason === "missing") return null;
+  return `[window-state] ${reason}; using default window bounds`;
+}
+
 export function readWindowState(filePath: string): unknown {
   try {
     return JSON.parse(readFileSync(filePath, "utf8"));

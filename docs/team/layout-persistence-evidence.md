@@ -62,10 +62,20 @@ RESTORED {"x":-8,"y":24,"width":3456,"height":1424} maximized=true
 
 截图：`t458-e2e-before-1440.png`（改值后、Git 打开）、`t458-e2e-restored-1440.png`（重启后、侧栏/任务折叠、Dock tasks 激活）、`t458-e2e-git-1440.png`（重启后重新打开 Git，高度 332）；`t458-e2e-git-960.png`、`t458-e2e-git-480.png`（960/480 CDP 视口）。
 
-## 5. 命令
+## 5. t481 preferred/displayed + 删除 workspace 复查
+
+- 任务列表现在与 Sidebar 同语义：`preferred` 持久化、`displayed` 仅窄布局临时覆盖。
+  - 760px CDP viewport（真实窗口仍 1440×900）：任务列表 separator ArrowRight 后 displayed/aria 从 291→323，但 `localStorage.deer.taskListWidth` 仍为 291；返回 1440 后 aria 恢复 291。
+  - 宽布局拖动/键盘仍更新 preferred；窄布局 onUp 不写 localStorage（`commitTaskListWidth.persist=false`）。
+  - 纯 helper 测试 `src/shell/taskListWidth.test.ts` 覆盖窄拖→宽恢复 preferred、onUp/step 只改 displayed、宽布局 clamp 持久化。
+- 真实删除 workspace：隔离 DB `DELETE FROM workspaces WHERE id=ws_mwf3obyy...`（changes=1，现有 3→2）；last id 仍指向已删除 ws-b；重启后 boot 到第一个 workspace「按钮工厂」、`deer.lastWorkspaceId=ws_mw8tntlt...`，stale 被清理。
+- 窗口回退诊断：`windowStateDiagnostic` 对 invalid/offscreen/too-small/no-display 输出 `[window-state] ... using default window bounds`，main 在 restore fallback 时 `console.warn`；首次缺失静默。实际用 offscreen `{x:99999,y:99999,1200×800}` 启动，stderr=`[window-state] offscreen; using default window bounds`，恢复默认 1440×920 居中。`electron/windowStateWiring.test.ts` 断言 read/normalize/diagnostic/close/事件 wiring。
+- 截图：`t458-e2e-deleted-workspace-1440.png`（删除 workspace 后重启回退第一个）；任务列表数值见 JSON（窄布局只改 displayed，不冒充看板截图）。
+
+## 6. 命令
 
 ```text
 pnpm typecheck
 pnpm build
-pnpm test -- --testTimeout=20000 --maxWorkers=2
+pnpm test -- --testTimeout=20000 --maxWorkers=1
 ```
