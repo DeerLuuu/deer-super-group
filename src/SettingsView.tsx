@@ -7,7 +7,13 @@ import type {
   ThinkingEffort,
   TranslationSettings,
 } from "./shared/types";
-import { DEFAULT_MAX_DOCK_GROUPS, normalizeMaxDockGroups } from "./shared/types";
+import {
+  CHAT_HISTORY_LIMIT_OPTIONS,
+  DEFAULT_CHAT_HISTORY_LIMIT,
+  DEFAULT_MAX_DOCK_GROUPS,
+  normalizeChatHistoryLimit,
+  normalizeMaxDockGroups,
+} from "./shared/types";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models";
 import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation";
 import { formatError } from "./shared/copy";
@@ -86,6 +92,9 @@ export default function SettingsView({
   const [maxDockGroups, setMaxDockGroups] = useState(
     snapshot.settings.layout?.maxDockGroups ?? DEFAULT_MAX_DOCK_GROUPS,
   );
+  const [chatHistoryLimit, setChatHistoryLimit] = useState(
+    normalizeChatHistoryLimit(snapshot.settings.layout?.chatHistoryLimit),
+  );
   const [activeProviderId, setActiveProviderId] = useState(
     snapshot.settings.providers[0]?.id ?? "",
   );
@@ -115,7 +124,10 @@ export default function SettingsView({
   );
   const translationBaselineRef = useRef<string | null>(null);
   const layoutBaselineRef = useRef(
-    JSON.stringify({ maxDockGroups: normalizeMaxDockGroups(snapshot.settings.layout?.maxDockGroups) }),
+    JSON.stringify({
+      maxDockGroups: normalizeMaxDockGroups(snapshot.settings.layout?.maxDockGroups),
+      chatHistoryLimit: normalizeChatHistoryLimit(snapshot.settings.layout?.chatHistoryLimit),
+    }),
   );
 
   const modelFingerprint = useMemo(
@@ -129,7 +141,7 @@ export default function SettingsView({
     [defaultModel, mock, models, providers],
   );
   const translationFingerprint = translation ? JSON.stringify(translation) : null;
-  const layoutFingerprint = JSON.stringify({ maxDockGroups });
+  const layoutFingerprint = JSON.stringify({ maxDockGroups, chatHistoryLimit });
   const dirty =
     modelFingerprint !== modelBaselineRef.current ||
     layoutFingerprint !== layoutBaselineRef.current ||
@@ -348,6 +360,7 @@ export default function SettingsView({
     if (validateModels) setModelValidationError(null);
     const first = providers[0] ?? defaultProviderProfile();
     const nextMaxDockGroups = normalizeMaxDockGroups(maxDockGroups);
+    const nextChatHistoryLimit = normalizeChatHistoryLimit(chatHistoryLimit);
     const payload: LlmSettings = {
       baseUrl: first.baseUrl,
       baseUrlEnv: first.baseUrlEnv,
@@ -357,7 +370,10 @@ export default function SettingsView({
       model: defaultModel,
       models,
       mock,
-      layout: { maxDockGroups: nextMaxDockGroups },
+      layout: {
+        maxDockGroups: nextMaxDockGroups,
+        chatHistoryLimit: nextChatHistoryLimit,
+      },
     };
     const fingerprint = JSON.stringify({
       mock: payload.mock,
@@ -372,7 +388,11 @@ export default function SettingsView({
       if (result.ok) {
         modelBaselineRef.current = fingerprint;
         setMaxDockGroups(nextMaxDockGroups);
-        layoutBaselineRef.current = JSON.stringify({ maxDockGroups: nextMaxDockGroups });
+        setChatHistoryLimit(nextChatHistoryLimit);
+        layoutBaselineRef.current = JSON.stringify({
+          maxDockGroups: nextMaxDockGroups,
+          chatHistoryLimit: nextChatHistoryLimit,
+        });
         setSaveStatus({ kind: "success", message: "已保存" });
       } else {
         setSaveStatus({ kind: "error", message: `保存失败：${result.error}` });
@@ -856,6 +876,24 @@ export default function SettingsView({
               <div className="muted tiny">
                 Dock 最多可拆分的分栏数，范围 2–8，默认 {DEFAULT_MAX_DOCK_GROUPS}。
                 保存后立即生效，不会重置当前布局；已超过新上限的现有分栏会保留，只拒绝继续拆分。
+              </div>
+              <label>
+                对话显示最近
+                <select
+                  aria-label="对话显示最近消息条数"
+                  value={chatHistoryLimit}
+                  onChange={(event) => setChatHistoryLimit(normalizeChatHistoryLimit(event.target.value))}
+                >
+                  {CHAT_HISTORY_LIMIT_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value === 0 ? "全部" : `${value} 条`}
+                      {value === DEFAULT_CHAT_HISTORY_LIMIT ? "（默认）" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="muted tiny">
+                首次加载/切换成员显示最近 20/40/80 条或全部；向上滚动可继续加载更早，保存后立即生效。
               </div>
             </div>
             <div className="settings-block-foot">

@@ -1,6 +1,6 @@
 // @ts-expect-error React 19 test renderer is shipped as JS without bundled types in this repo.
 import TestRenderer from "react-test-renderer";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Agent, ChatMessage } from "../../shared/types.js";
 import { ChatView } from "../../App.js";
@@ -8,12 +8,13 @@ import { ChatLiveStore } from "./chatLiveStore.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
-  create: (element: unknown) => {
+  create: (element: unknown, options?: { createNodeMock?: (element: { props: Record<string, unknown> }) => unknown }) => {
     root: {
       findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }>;
       findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
     };
     toJSON: () => unknown;
+    update: (element: unknown) => void;
     unmount: () => void;
   };
 };
@@ -39,20 +40,32 @@ function ChatViewProbe({
   onViewChange = () => {},
   loadEarlierMessages,
   onLoadEarlierHistory,
+  onSend,
+  input = "",
+  fixtureMessages = messages,
+  historyLimit,
+  historyHasMore = false,
 }: {
   store: ChatLiveStore;
   onViewChange?: (view: "chat" | "trajectory") => void;
   loadEarlierMessages?: () => Promise<void>;
-  onLoadEarlierHistory?: () => Promise<boolean>;
+  onLoadEarlierHistory?: () => Promise<boolean | number>;
+  onSend?: () => void;
+  input?: string;
+  fixtureMessages?: ChatMessage[];
+  historyLimit?: number;
+  historyHasMore?: boolean;
 }) {
   viewRenders += 1;
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   return (
     <ChatView
       liveStore={store}
-      messages={messages}
+      messages={fixtureMessages}
       turnByAssistant={new Map()}
       turnByUser={new Map()}
+      historyLimit={historyLimit}
+      historyHasMore={historyHasMore}
       onRetryTurn={() => {}}
       composerRef={composerRef}
       translateHistoryText={async (text) => text}
@@ -64,9 +77,9 @@ function ChatViewProbe({
       trajectoryLoading={false}
       onRefreshTrajectory={() => {}}
       busy={false}
-      input=""
+      input={input}
       onInput={() => {}}
-      onSend={() => {}}
+      onSend={onSend ?? (() => {})}
       onStop={() => {}}
       questions={new Map()}
       questionsLoaded
@@ -109,6 +122,169 @@ function ChatViewProbe({
 }
 
 describe("t260 R1 actual ChatView isolation", () => {
+  function EmptyPageProbe({ store }: { store: ChatLiveStore }) {
+    const [fixture, setFixture] = useState(messages.slice(110));
+    const [hasMore, setHasMore] = useState(true);
+    const sentRef = useRef(0);
+    return (
+      <ChatViewProbe
+        store={store}
+        fixtureMessages={fixture}
+        historyHasMore={hasMore}
+        input="draft"
+        onSend={() => {
+          const index = sentRef.current++;
+          setFixture((current) => [
+            ...current,
+            {
+              id: `sent-${index}`,
+              workspaceId: WS,
+              agentId: "router",
+              role: "user",
+              content: `sent during load ${index}`,
+              reasoning: "",
+              createdAt: created,
+            },
+          ]);
+        }}
+        // 空 server 页：生产 App 会返回 0/true 且不 append messages。
+        onLoadEarlierHistory={async () => {
+          setHasMore(false);
+          return true;
+        }}
+      />
+    );
+  }
+
+  async function pressLoadEarlier(renderer: ReturnType<typeof create>) {
+    const more = renderer.root
+      .findAllByType("button")
+      .find((button) => JSON.stringify(button.children).includes("加载更早"))!;
+    expect(more).toBeTruthy();
+    await act(async () => {
+      await (more.props.onClick as () => Promise<void>)();
+      await Promise.resolve();
+    });
+  }
+
+  it("stays at the bottom for a new message while already following", async () => {
+    const store = new ChatLiveStore(WS);
+    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    expect(scrollNode.scrollTop).toBe(1200);
+    scrollNode.scrollHeight = 1500;
+    const next = [
+      ...messages,
+      {
+        id: "new-message",
+        workspaceId: WS,
+        agentId: "router",
+        role: "user" as const,
+        content: "new message after send",
+        reasoning: "",
+        createdAt: created,
+      },
+    ];
+    await act(async () => {
+      renderer!.update(<ChatViewProbe store={store} fixtureMessages={next} />);
+    });
+    expect(scrollNode.scrollTop).toBe(1500);
+    await act(() => renderer!.unmount());
+  });
+
+  it("does not change visible messages for an empty server page", async () => {
+    const store = new ChatLiveStore(WS);
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <ChatViewProbe
+          store={store}
+          fixtureMessages={messages.slice(110)}
+          historyHasMore
+          onLoadEarlierHistory={async () => 0}
+        />,
+      );
+    });
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    await act(() => {
+      (chat.props.onScroll as (event: unknown) => void)({
+        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
+      });
+    });
+    const button = renderer!.root
+      .findAllByType("button")
+      .find((item) => JSON.stringify(item.children).includes("加载更早"))!;
+    await act(async () => {
+      await (button.props.onClick as () => Promise<void>)();
+    });
+    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
+    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+    await act(() => renderer!.unmount());
+  });
+
+  it("does not leak the server-load anchor for an empty true page and follows a later send", async () => {
+    const store = new ChatLiveStore(WS);
+    const scrollNode = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<EmptyPageProbe store={store} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    await act(() => {
+      (chat.props.onScroll as (event: unknown) => void)({
+        currentTarget: { scrollTop: 0, scrollHeight: 1200, clientHeight: 400 },
+      });
+    });
+    await pressLoadEarlier(renderer!);
+    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("已到最早");
+    expect(renderer!.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+
+    scrollNode.scrollHeight = 1400;
+    const send = renderer!.root
+      .findAllByType("button")
+      .find((button) => JSON.stringify(button.children).includes("发送"))!;
+    await act(async () => {
+      (send.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    expect(scrollNode.scrollTop).toBe(1400);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("sent during load 0");
+    expect(renderer!.root.findAllByProps({ className: "chat-row user" })).toHaveLength(20);
+    await act(() => renderer!.unmount());
+  });
+
+
+  it("starts at the newest message and exposes turn ticks", async () => {
+    const store = new ChatLiveStore(WS);
+    const scrollNode = { scrollTop: 0, scrollHeight: 2400, clientHeight: 500 };
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    expect(scrollNode.scrollTop).toBe(2400);
+    expect(renderer!.root.findAllByProps({ "aria-label": "对话轮次导航" })).toHaveLength(1);
+    const ticks = renderer!.root.findAllByProps({ "data-rail-turn": "m110" });
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks[0]!.props.title).toContain("fixture message 110");
+    await act(() => {
+      renderer!.unmount();
+    });
+  });
+
+
   it("keeps ChatView/history stable across token deltas", async () => {
     viewRenders = 0;
     const store = new ChatLiveStore(WS);
@@ -240,5 +416,61 @@ describe("t260 R1 actual ChatView isolation", () => {
     expect(output).not.toContain("fixture message 0");
     expect(output).toContain("加载失败");
     expect(output).toContain("重试");
+    expect(renderer.root.findAllByProps({ className: "chat-messages" })[0]!.props["data-scroll-preserve"]).toBe("0");
+  });
+
+  it("applies a changed historyLimit immediately", async () => {
+    const store = new ChatLiveStore(WS);
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} historyLimit={40} />);
+    });
+    expect(JSON.stringify(renderer!.toJSON())).toContain("已显示最近 40 条");
+    await act(async () => {
+      renderer!.update(<ChatViewProbe store={store} historyLimit={80} />);
+    });
+    expect(JSON.stringify(renderer!.toJSON())).toContain("已显示最近 80 条");
+    await act(() => renderer!.unmount());
+  });
+
+  it("renders and scrolls 300 turns within the performance budget", async () => {
+    const perfMessages: ChatMessage[] = Array.from({ length: 600 }, (_, index) => ({
+      id: `perf-${index}`,
+      workspaceId: WS,
+      agentId: "router",
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `perf turn ${Math.floor(index / 2)} line ${index}`,
+      reasoning: "",
+      createdAt: created,
+    }));
+    const scrollNode = { scrollTop: 0, scrollHeight: 30000, clientHeight: 500 };
+    const store = new ChatLiveStore(WS);
+    const renderStart = performance.now();
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(<ChatViewProbe store={store} fixtureMessages={perfMessages} historyLimit={0} />, {
+        createNodeMock: (element) =>
+          element.props.className === "chat-messages" ? scrollNode : null,
+      });
+    });
+    const renderMs = performance.now() - renderStart;
+    expect(scrollNode.scrollTop).toBe(30000);
+    const chat = renderer!.root.findAllByProps({ className: "chat-messages" })[0]!;
+    const scrollStart = performance.now();
+    await act(async () => {
+      for (let index = 0; index < 60; index += 1) {
+        (chat.props.onScroll as (event: unknown) => void)({
+          currentTarget: { scrollTop: (index % 30) * 100, scrollHeight: 30000, clientHeight: 500 },
+        });
+      }
+    });
+    const scrollMs = performance.now() - scrollStart;
+    const json = JSON.stringify(renderer!.toJSON());
+    const nodes = (json.match(/"type":/g) ?? []).length;
+    console.info("t443 perf 300 turns", { renderMs: Math.round(renderMs), scroll60Ms: Math.round(scrollMs), nodes });
+    expect(renderMs).toBeLessThan(2500);
+    expect(scrollMs).toBeLessThan(600);
+    expect(nodes).toBeLessThan(7000);
+    await act(() => renderer!.unmount());
   });
 });

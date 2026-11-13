@@ -227,6 +227,12 @@ export interface ChatMessage {
   createdAt: IsoDate;
 }
 
+/** t477：server-only 更早消息分页游标；无 options 时保持旧版最近 100 条。 */
+export interface ChatMessagePageOptions {
+  limit?: number;
+  before?: { createdAt: string; id: string } | null;
+}
+
 /** t175：Chat 轨迹账本条目（消息 + 工具事件 + 上下文操作的只读投影）。 */
 export type ChatTrajectoryKind =
   | "user"
@@ -574,6 +580,8 @@ export interface ModelProfile {
 export interface LayoutSettings {
   /** Dock 最大分栏/分组数；默认 6，范围 2–8。 */
   maxDockGroups: number;
+  /** 对话初始/加载更早的条数；0 表示全部，默认 40。 */
+  chatHistoryLimit?: number;
 }
 
 export const MIN_MAX_DOCK_GROUPS = 2;
@@ -581,7 +589,19 @@ export const MAX_MAX_DOCK_GROUPS = 8;
 export const DEFAULT_MAX_DOCK_GROUPS = 6;
 export const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
   maxDockGroups: DEFAULT_MAX_DOCK_GROUPS,
+  chatHistoryLimit: 40,
 };
+
+export const CHAT_HISTORY_LIMIT_OPTIONS = [20, 40, 80, 0] as const;
+export const DEFAULT_CHAT_HISTORY_LIMIT = 40;
+
+export function normalizeChatHistoryLimit(value: unknown): number {
+  const numeric =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  if (!Number.isFinite(numeric)) return DEFAULT_CHAT_HISTORY_LIMIT;
+  if (numeric === 0) return 0;
+  return Math.min(80, Math.max(20, Math.round(numeric)));
+}
 
 /** 非法/越界值 clamp 到 2–8；非数字回默认 6。 */
 export function normalizeMaxDockGroups(value: unknown): number {
@@ -593,8 +613,11 @@ export function normalizeMaxDockGroups(value: unknown): number {
 
 export function normalizeLayoutSettings(value: unknown): LayoutSettings {
   if (!value || typeof value !== "object") return { ...DEFAULT_LAYOUT_SETTINGS };
-  const input = value as { maxDockGroups?: unknown };
-  return { maxDockGroups: normalizeMaxDockGroups(input.maxDockGroups) };
+  const input = value as { maxDockGroups?: unknown; chatHistoryLimit?: unknown };
+  return {
+    maxDockGroups: normalizeMaxDockGroups(input.maxDockGroups),
+    chatHistoryLimit: normalizeChatHistoryLimit(input.chatHistoryLimit),
+  };
 }
 
 export interface LlmSettings {

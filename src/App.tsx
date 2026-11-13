@@ -40,7 +40,7 @@ import type {
   UpdateAgentInput,
   Workspace,
 } from "./shared/types";
-import { DEFAULT_MAX_DOCK_GROUPS } from "./shared/types";
+import { DEFAULT_MAX_DOCK_GROUPS, normalizeChatHistoryLimit } from "./shared/types";
 import {
   MAILBOX_MAX_INDENT,
   deriveMailboxThreads,
@@ -73,7 +73,13 @@ import { dispatchChatSubmission, extractRecommendationCandidates } from "./share
 import { translationCacheNeedsInvalidation } from "./shared/translationCache";
 import {
   applyHistoryScrollPreservation,
+  chatTurnStatusLabel,
+  initialVisibleMessageCount,
   nextVisibleMessageCount,
+  nextVisibleAfterServerLoad,
+  normalizeTurnRailRatio,
+  scrollTopForTurn,
+  turnRailRatio,
 } from "./shared/chatHistory";
 import {
   WatchdogAlertBanner,
@@ -475,6 +481,8 @@ export default function App() {
   const [taskWorkspaceSource, setTaskWorkspaceSource] = useState<TaskWorkspaceSource>("tasks");
   const [trace, setTrace] = useState<EventRecord[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const chatMessagesRef = useRef<ChatMessage[]>([]);
+  chatMessagesRef.current = chatMessages;
   // P0-4：Plan Draft 仅 session 内存；确认前不创建任务/事件。
   const [planSource, setPlanSource] = useState<PlanSource | null>(null);
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
@@ -1286,7 +1294,11 @@ export default function App() {
         return null;
       });
     const [messages, contextSnapshot, turns] = await Promise.all([
-      window.deer.listChat(current.workspace.id, agent.id),
+      chatMessagesRef.current.length > 100
+        ? window.deer.listChat(current.workspace.id, agent.id, {
+            limit: Math.min(500, chatMessagesRef.current.length),
+          })
+        : window.deer.listChat(current.workspace.id, agent.id),
       window.deer.getContext(current.workspace.id, agent.id, contextTaskId ?? undefined),
       turnsPromise,
     ]);
@@ -1320,44 +1332,69 @@ export default function App() {
     }
   }, [contextTaskId, pushToast]);
 
-  const loadEarlierChatTurns = useCallback(async (): Promise<boolean> => {
+  const loadEarlierChatTurns = useCallback(async (): Promise<boolean | number> => {
     const current = snapshotRef.current;
     const page = chatTurns;
-    if (!current || !page?.hasMore || !page.nextBefore || chatTurnsLoading) return false;
     const agentId = chatAgentIdRef.current;
-    if (!agentId) return false;
+    if (!current || !agentId || chatTurnsLoading) return 0;
+    const oldest = chatMessages[0];
+    if (!page?.hasMore || !page.nextBefore || !oldest) {
+      if (page) setChatTurns((previous) => (previous ? { ...previous, hasMore: false, nextBefore: null } : previous));
+      return 0;
+    }
     setChatTurnsLoading(true);
     setChatTurnsError(null);
     try {
-      const earlier = await window.deer.getChatTurns(current.workspace.id, agentId, {
-        limit: 20,
-        before: page.nextBefore,
-      });
-      if (chatAgentIdRef.current !== agentId) return false;
-      setChatTurns((previous) => {
-        if (!previous) return earlier;
-        const seen = new Set(previous.turns.map((turn) => turn.turnId));
-        const merged = [
-          ...earlier.turns.filter((turn) => !seen.has(turn.turnId)),
-          ...previous.turns,
-        ];
-        return {
-          ...previous,
-          turns: merged,
-          hasMore: earlier.hasMore,
-          nextBefore: earlier.nextBefore,
-          truncated: previous.truncated || earlier.truncated,
-          generatedAt: earlier.generatedAt,
-        };
-      });
-      return true;
+      const cursor = { createdAt: oldest.createdAt, id: oldest.id };
+      const [earlierMessages, earlier] = await Promise.all([
+        window.deer.listChat(current.workspace.id, agentId, { limit: 20, before: cursor }),
+        window.deer.getChatTurns(current.workspace.id, agentId, {
+          limit: 20,
+          before: page.nextBefore,
+        }),
+      ]);
+      if (chatAgentIdRef.current !== agentId) return 0;
+      const knownMessageIds = new Set(chatMessages.map((message) => message.id));
+      const insertedMessages = earlierMessages.filter(
+        (message) => !knownMessageIds.has(message.id),
+      );
+      const loadedCount = insertedMessages.length;
+      if (loadedCount > 0) {
+        setChatMessages((previous) => {
+          const seen = new Set(previous.map((message) => message.id));
+          const prefix = insertedMessages.filter((message) => !seen.has(message.id));
+          return [...prefix, ...previous];
+        });
+        setChatTurns((previous) => {
+          if (!previous) return earlier;
+          const seen = new Set(previous.turns.map((turn) => turn.turnId));
+          const merged = [
+            ...earlier.turns.filter((turn) => !seen.has(turn.turnId)),
+            ...previous.turns,
+          ];
+          return {
+            ...previous,
+            turns: merged,
+            hasMore: earlier.hasMore,
+            nextBefore: earlier.nextBefore,
+            truncated: previous.truncated || earlier.truncated,
+            generatedAt: earlier.generatedAt,
+          };
+        });
+      } else {
+        // 消息页空：不能只吞 turns 元数据，否则 ChatView 会一直显示"加载更早"。
+        setChatTurns((previous) =>
+          previous ? { ...previous, hasMore: false, nextBefore: null } : previous,
+        );
+      }
+      return loadedCount;
     } catch (error) {
       setChatTurnsError(errorText(error));
       return false;
     } finally {
       setChatTurnsLoading(false);
     }
-  }, [chatTurns, chatTurnsLoading]);
+  }, [chatMessages, chatTurns, chatTurnsLoading]);
 
   const loadChatTrajectory = useCallback(async () => {
     const current = snapshotRef.current;
@@ -3697,6 +3734,9 @@ export default function App() {
                       historyHasMore={Boolean(chatTurns?.hasMore)}
                       historyLoading={chatTurnsLoading}
                       historyError={chatTurnsError}
+                      historyLimit={normalizeChatHistoryLimit(
+                        snapshot.settings.layout?.chatHistoryLimit,
+                      )}
                       onLoadEarlierHistory={loadEarlierChatTurns}
                       view={chatView}
                       onViewChange={setChatView}
@@ -6499,6 +6539,7 @@ export function ChatView({
   historyHasMore,
   historyLoading,
   historyError,
+  historyLimit = 40,
   onLoadEarlierHistory,
   loadEarlierMessages,
   view,
@@ -6553,7 +6594,9 @@ export function ChatView({
   historyHasMore?: boolean;
   historyLoading?: boolean;
   historyError?: string | null;
-  onLoadEarlierHistory?: () => Promise<boolean> | boolean | void;
+  /** 0 = 全部；默认 40。 */
+  historyLimit?: number;
+  onLoadEarlierHistory?: () => Promise<boolean | number> | boolean | number | void;
   loadEarlierMessages?: () => Promise<void>;
   view: "chat" | "trajectory";
   onViewChange: (view: "chat" | "trajectory") => void;
@@ -6597,11 +6640,15 @@ export function ChatView({
   onFullThrottleChange: (enabled: boolean) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const CHAT_MESSAGE_PAGE = 40;
-  const [visibleMessageCount, setVisibleMessageCount] = useState(() =>
-    Math.min(CHAT_MESSAGE_PAGE, messages.length),
-  );
-  const [messagePageLoading, setMessagePageLoading] = useState(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const turnAnchorRefs = useRef(new Map<string, HTMLSpanElement>());
+  const stickToBottomRef = useRef(true);
+  const CHAT_MESSAGE_PAGE = historyLimit > 0 ? historyLimit : 40;
+  const initialVisibleCount = initialVisibleMessageCount(messages.length, historyLimit);
+  const [visibleMessageCount, setVisibleMessageCount] = useState(() => initialVisibleCount);
+  const [nearTop, setNearTop] = useState(false);
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
+  const [railHint, setRailHint] = useState<string | null>(null);  const [messagePageLoading, setMessagePageLoading] = useState(false);
   const [messagePageError, setMessagePageError] = useState<string | null>(null);
   const [commandDismissed, setCommandDismissed] = useState(false);
   const [commandIndex, setCommandIndex] = useState(0);
@@ -6638,6 +6685,8 @@ export function ChatView({
     }, 0);
   }
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const serverLoadStartRef = useRef<{ token: number; previousLength: number } | null>(null);
+  const serverLoadTokenRef = useRef(0);
   const visibleMessages = messages.slice(-Math.max(0, visibleMessageCount));
   // 旧 fixture 没有 external store：给一个空 store 供 hook 稳定调用，实际终端回退 legacy props。
   const fallbackLiveStoreRef = useRef<ChatLiveStore | null>(null);
@@ -6663,11 +6712,139 @@ export function ChatView({
     (Boolean(legacyStream?.trim() || legacyReasoning?.trim()) ||
       (busy && Boolean(legacyProcess)));
 
+  const railRafRef = useRef<number | null>(null);
+  const userMessages = visibleMessages.filter((message) => message.role === "user");
+
+  function scrollChatToBottom() {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }
+
+  function refreshRail() {
+    const node = scrollRef.current;
+    const top = node?.scrollTop ?? 0;
+    const current = [...userMessages]
+      .reverse()
+      .find((message) => {
+        const anchor = turnAnchorRefs.current.get(message.id);
+        if (!node || !anchor) return false;
+        const offset =
+          anchor.getBoundingClientRect().top -
+          node.getBoundingClientRect().top +
+          node.scrollTop;
+        return offset <= top + 16;
+      });
+    setActiveTurnId(current?.id ?? userMessages[0]?.id ?? null);
+  }
+
+  function measuredTurnRatio(messageId: string, index: number): number {
+    const node = scrollRef.current;
+    const content = contentRef.current;
+    const anchor = turnAnchorRefs.current.get(messageId);
+    if (content && anchor) {
+      const contentRect = content.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      const firstAnchor = turnAnchorRefs.current.get(userMessages[0]?.id ?? "");
+      const lastAnchor = turnAnchorRefs.current.get(userMessages[userMessages.length - 1]?.id ?? "");
+      const firstOffset = firstAnchor
+        ? firstAnchor.getBoundingClientRect().top - contentRect.top
+        : 0;
+      const lastOffset = lastAnchor
+        ? lastAnchor.getBoundingClientRect().top - contentRect.top
+        : contentRect.height;
+      return normalizeTurnRailRatio(
+        anchorRect.top - contentRect.top,
+        firstOffset,
+        lastOffset,
+        index,
+        userMessages.length,
+      );
+    }
+    if (node && anchor) {
+      const offset =
+        anchor.getBoundingClientRect().top -
+        node.getBoundingClientRect().top +
+        node.scrollTop;
+      return turnRailRatio(offset, node.scrollHeight, index, userMessages.length);
+    }
+    return (index + 1) / (userMessages.length + 1);
+  }
+
+  function scheduleRailRefresh() {
+    if (railRafRef.current !== null) return;
+    const run = () => {
+      railRafRef.current = null;
+      refreshRail();
+    };
+    railRafRef.current =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame(run)
+        : (setTimeout(run, 0) as unknown as number);
+  }
+
+  function handleChatScroll(event: React.UIEvent<HTMLDivElement>) {
+    const node = event.currentTarget;
+    const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+    stickToBottomRef.current = distance < 96;
+    setNearTop(node.scrollTop < 80);
+    scheduleRailRefresh();
+  }
+
+  function sendAndFollow() {
+    stickToBottomRef.current = true;
+    onSend();
+  }
+
+  function jumpToTurn(turnId: string) {
+    const node = scrollRef.current;
+    const anchor = turnAnchorRefs.current.get(turnId);
+    if (!node || !anchor) return;
+    node.scrollTop = scrollTopForTurn(
+      anchor.getBoundingClientRect().top,
+      node.getBoundingClientRect().top,
+      node.scrollTop,
+    );
+    setActiveTurnId(turnId);
+    stickToBottomRef.current = false;
+    scheduleRailRefresh();
+  }
+
+  useEffect(() => {
+    stickToBottomRef.current = true;
+    // t475：切换 agent/limit 时让飞行中的 server 页失效，避免旧页回写新会话。
+    serverLoadTokenRef.current += 1;
+    serverLoadStartRef.current = null;
+    setMessagePageLoading(false);
+    setMessagePageError(null);
+    setVisibleMessageCount(initialVisibleMessageCount(messages.length, historyLimit));
+    const frame =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame(scrollChatToBottom)
+        : (setTimeout(scrollChatToBottom, 0) as unknown as number);
+    return () => {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      else clearTimeout(frame);
+    };
+  }, [agent.id, historyLimit]);
+
   useEffect(() => {
     setVisibleMessageCount((current) =>
-      Math.min(Math.max(current, Math.min(CHAT_MESSAGE_PAGE, messages.length)), messages.length),
+      Math.min(
+        Math.max(current, Math.min(historyLimit === 0 ? messages.length : CHAT_MESSAGE_PAGE, messages.length)),
+        messages.length,
+      ),
     );
-  }, [messages.length]);
+  }, [messages.length, historyLimit, CHAT_MESSAGE_PAGE]);
+
+  useEffect(() => {
+    setActiveTurnId(null);
+  }, [agent.id]);
+
+  useEffect(() => {
+    if (activeTurnId) return;
+    const last = userMessages[userMessages.length - 1];
+    if (last) setActiveTurnId(last.id);
+  }, [activeTurnId, userMessages.length]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -6676,45 +6853,85 @@ export function ChatView({
     if (preserve) {
       applyHistoryScrollPreservation(node, preserve);
       preserveScrollRef.current = null;
+      refreshRail();
       return;
     }
-    if (node.scrollHeight - node.scrollTop - node.clientHeight < 120) {
-      node.scrollTop = node.scrollHeight;
-    }
+    if (stickToBottomRef.current) node.scrollTop = node.scrollHeight;
+    setNearTop(node.scrollTop < 80);
+    refreshRail();
   }, [messages.length, visibleMessageCount]);
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current) scrollChatToBottom();
+      scheduleRailRefresh();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   async function loadEarlierHistory() {
     const hasEarlierMessages = visibleMessageCount < messages.length;
     if (messagePageLoading || (!hasEarlierMessages && !historyHasMore)) return;
+    const loadToken = ++serverLoadTokenRef.current;
+    const serverPage = !hasEarlierMessages;
+    if (serverPage) {
+      serverLoadStartRef.current = { token: loadToken, previousLength: messages.length };
+    }
     const node = scrollRef.current;
     if (node) {
       preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
     }
     setMessagePageLoading(true);
     setMessagePageError(null);
+    let loadedCount: number | null = null;
     try {
       if (loadEarlierMessages) await loadEarlierMessages();
+      if (serverLoadTokenRef.current !== loadToken) return;
       if (onLoadEarlierHistory) {
         const committed = await onLoadEarlierHistory();
+        if (serverLoadTokenRef.current !== loadToken) return;
         if (committed === false) {
           preserveScrollRef.current = null;
           setMessagePageError("更早历史加载失败，可重试");
           return;
         }
+        if (typeof committed === "number") loadedCount = committed;
       }
       if (hasEarlierMessages) {
         setVisibleMessageCount((current) =>
           nextVisibleMessageCount(current, messages.length, CHAT_MESSAGE_PAGE),
         );
+      } else if (serverPage) {
+        const pending = serverLoadStartRef.current;
+        const previousLength = pending?.previousLength ?? messages.length;
+        if (loadedCount !== null && loadedCount > 0) {
+          // 用户加载期间发送时 sendAndFollow 已置 following：不要用旧锚点把视口拉回。
+          if (stickToBottomRef.current) {
+            preserveScrollRef.current = null;
+          } else if (node) {
+            preserveScrollRef.current = { height: node.scrollHeight, top: node.scrollTop };
+          }
+          setVisibleMessageCount((current) =>
+            nextVisibleAfterServerLoad(current, previousLength, loadedCount!),
+          );
+        } else {
+          // server 返回 true/0 或仅 turn 元数据：不得残留 preserve/server 标记。
+          preserveScrollRef.current = null;
+        }
+      } else {
+        preserveScrollRef.current = null;
       }
     } catch (error) {
       preserveScrollRef.current = null;
       setMessagePageError(error instanceof Error ? error.message : String(error));
     } finally {
+      serverLoadStartRef.current = null;
       setMessagePageLoading(false);
     }
   }
-
   const historyLoadingNow = messagePageLoading || Boolean(historyLoading);
   const historyErrorNow = messagePageError ?? historyError ?? null;
   const hasEarlierHistory = visibleMessageCount < messages.length || Boolean(historyHasMore);
@@ -6892,7 +7109,7 @@ export function ChatView({
           </details>
         )}
 
-        <div className="chat-messages" ref={scrollRef}>
+        <div className="chat-messages" ref={scrollRef} onScroll={handleChatScroll} data-scroll-preserve={preserveScrollRef.current ? "1" : "0"}>
           {messages.length === 0 && !busy && (
             // C24：空状态给可点击示例，一步发起对话。
             <EmptyState
@@ -6912,7 +7129,7 @@ export function ChatView({
               ]}
             />
           )}
-          {hasEarlierHistory ? (
+          {hasEarlierHistory && (nearTop || !scrollRef.current) ? (
             <div className="chat-history-more">
               <button
                 type="button"
@@ -6929,11 +7146,12 @@ export function ChatView({
                   : `${messages.length} 条消息，已显示最近 ${visibleMessageCount} 条`}
               </span>
             </div>
-          ) : messages.length > 0 ? (
+          ) : hasEarlierHistory ? null : messages.length > 0 ? (
             <div className="chat-history-more muted tiny" aria-live="polite">
               已到最早（{messages.length} 条消息）
             </div>
           ) : null}
+          <div className="chat-messages-content" ref={contentRef}>
           {visibleMessages.map((message) => {
             const historical =
               message.role === "assistant" ? turnByAssistant.get(message.id) : undefined;
@@ -6958,6 +7176,17 @@ export function ChatView({
               : Boolean(legacyUnresolved || legacyError);
             return (
               <Fragment key={message.id}>
+                {message.role === "user" && (
+                  <span
+                    className="chat-turn-anchor"
+                    data-turn-id={message.id}
+                    aria-hidden="true"
+                    ref={(element) => {
+                      if (element) turnAnchorRefs.current.set(message.id, element);
+                      else turnAnchorRefs.current.delete(message.id);
+                    }}
+                  />
+                )}
                 <ChatBubble
                   messageId={message.id}
                   role={message.role}
@@ -7000,6 +7229,7 @@ export function ChatView({
               assistantName={agent.name}
               busy={busy}
               scrollRef={scrollRef}
+              stickToBottomRef={stickToBottomRef}
               questions={questions}
               questionsLoaded={questionsLoaded}
               onAnswerQuestion={onAnswerQuestion}
@@ -7021,7 +7251,68 @@ export function ChatView({
               onToast={onToast}
             />
           )}
+          </div>
         </div>
+
+        {userMessages.length > 0 && (
+          <nav
+            className="chat-scroll-rail"
+            aria-label="对话轮次导航"
+            onKeyDown={(event) => {
+              const current = activeTurnId ?? userMessages[0]?.id;
+              const index = userMessages.findIndex((message) => message.id === current);
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const delta = event.key === "ArrowDown" ? 1 : -1;
+                const next = userMessages[Math.min(userMessages.length - 1, Math.max(0, index + delta))];
+                if (next) {
+                  setActiveTurnId(next.id);
+                  document.querySelector<HTMLButtonElement>(`[data-rail-turn="${next.id}"]`)?.focus();
+                }
+              }
+              if (event.key === "Enter" && current) {
+                event.preventDefault();
+                jumpToTurn(current);
+              }
+            }}
+          >
+            {userMessages.map((message, index) => {
+              const active = activeTurnId ? message.id === activeTurnId : index === userMessages.length - 1;
+              const turn = turnByUser.get(message.id);
+              const firstLine = message.content.replace(/\s+/g, " ").trim().slice(0, 80) || "（空消息）";
+              const time = message.createdAt
+                ? new Date(message.createdAt).toLocaleTimeString()
+                : "时间未知";
+              const status = turn?.status ?? "pending";
+              const statusLabel = chatTurnStatusLabel(status);
+              return (
+                <button
+                  key={message.id}
+                  type="button"
+                  className={`chat-scroll-tick ${active ? "is-active" : ""}`}
+                  data-rail-turn={message.id}
+                  tabIndex={active ? 0 : -1}
+                  aria-label={`第 ${index + 1} 轮：${firstLine}，${time}，${statusLabel}`}
+                  title={`${firstLine}\n${time} · ${statusLabel}`}
+                  style={{ top: `${Math.round(measuredTurnRatio(message.id, index) * 100)}%` }}
+                  onClick={() => jumpToTurn(message.id)}
+                  onFocus={() => {
+                    setActiveTurnId(message.id);
+                    setRailHint(`${firstLine}\n${time} · ${statusLabel}`);
+                  }}
+                  onMouseEnter={() => setRailHint(`${firstLine}\n${time} · ${statusLabel}`)}
+                  onMouseLeave={() => setRailHint(null)}
+                  onBlur={() => setRailHint(null)}
+                />
+              );
+            })}
+            {railHint ? (
+              <div className="chat-scroll-hint" role="status">
+                {railHint}
+              </div>
+            ) : null}
+          </nav>
+        )}
 
         <div className="chat-composer">
           {commandOpen ? (
@@ -7086,7 +7377,7 @@ export function ChatView({
                   if (command) chooseCommand(command);
                   else {
                     setCommandDismissed(true);
-                    onSend();
+                    sendAndFollow();
                   }
                   return;
                 }
@@ -7104,7 +7395,7 @@ export function ChatView({
               }
               if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
-                onSend();
+                sendAndFollow();
               }
             }}
             rows={3}
@@ -7141,7 +7432,7 @@ export function ChatView({
                   停止
                 </button>
               )}
-              <button className="primary small" onClick={onSend} disabled={busy || !input.trim()}>
+              <button className="primary small" onClick={sendAndFollow} disabled={busy || !input.trim()}>
                 {busy ? "回复中…" : "发送"}
               </button>
             </div>
@@ -7221,11 +7512,12 @@ export function ChatView({
  * t260（R1）：唯一订阅 ChatLiveStore 的渲染组件。
  * token/tool/reasoning 只更新此子树；历史消息、Dock、Rail/Workflow/NeedsMe 不参与。
  */
-function ChatLiveTail({
+export function ChatLiveTail({
   store,
   assistantName,
   busy,
   scrollRef,
+  stickToBottomRef,
   questions,
   questionsLoaded,
   onAnswerQuestion,
@@ -7236,6 +7528,7 @@ function ChatLiveTail({
   assistantName: string;
   busy: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
+  stickToBottomRef?: RefObject<boolean>;
   questions: ReadonlyMap<string, ChatQuestionRecord>;
   questionsLoaded: boolean;
   onAnswerQuestion: (questionId: string) => void;
@@ -7246,8 +7539,8 @@ function ChatLiveTail({
 
   useEffect(() => {
     const node = scrollRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [live.stream, live.reasoning, live.segments, live.tools, scrollRef]);
+    if (node && (stickToBottomRef?.current ?? true)) node.scrollTop = node.scrollHeight;
+  }, [live.stream, live.reasoning, live.segments, live.tools, scrollRef, stickToBottomRef]);
 
   // 思考段完成后才翻译；store 记请求 id，避免重挂载/重渲染重复打 Bing。
   useEffect(() => {
