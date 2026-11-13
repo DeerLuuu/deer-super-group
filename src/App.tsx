@@ -7656,7 +7656,7 @@ export function ChatLiveTail({
   );
 }
 
-function ChatTrajectoryPanel({
+export function ChatTrajectoryPanel({
   entries,
   loading,
   onRefresh,
@@ -7667,10 +7667,20 @@ function ChatTrajectoryPanel({
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [filter, setFilter] = useState<"all" | "conversation" | "reasoning" | "tools">("all");
+  // t462：默认全部折叠；展开状态按 entry id 保持（切过滤后回来仍保持）。
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [entries.length, filter]);
+  function toggleEntry(id: string) {
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
   const isConversation = (kind: ChatTrajectoryEntry["kind"]) =>
     kind === "user" || kind === "assistant" || kind === "system" || kind === "context";
   const isTool = (kind: ChatTrajectoryEntry["kind"]) =>
@@ -7739,43 +7749,65 @@ function ChatTrajectoryPanel({
           <div className="muted tiny chat-trajectory-loading">该分类暂无记录。</div>
         ) : (
           <ol className="chat-trajectory-ledger" aria-label="Chat 运行轨迹">
-            {visible.map((entry) => (
-              <li key={entry.id} className={`chat-trajectory-row kind-${entry.kind}`}>
-                <span className="chat-trajectory-time mono">{time(entry.createdAt)}</span>
-                <span className="chat-trajectory-marker" aria-hidden="true" />
-                <span className="chat-trajectory-body">
-                  <span className="chat-trajectory-head">
-                    <span className="chat-trajectory-kind">
-                      {CHAT_TRAJECTORY_KIND_LABEL[entry.kind]}
-                    </span>
-                    <strong
-                      title={
-                        entry.kind === "tool_call" || entry.kind === "tool_result"
-                          ? entry.title
-                          : undefined
-                      }
-                    >
-                      {entry.kind === "tool_call" || entry.kind === "tool_result"
-                        ? toolLabel(entry.title)
-                        : entry.title}
-                    </strong>
-                    {entry.step ? (
-                      <span className="chat-trajectory-step">step {entry.step}</span>
-                    ) : null}
-                    {entry.status && (
-                      <span className={`chat-trajectory-status is-${entry.status}`}>
-                        {entry.status === "running"
-                          ? "运行中"
-                          : entry.status === "ok"
-                            ? "完成"
-                            : "失败"}
+            {visible.map((entry) => {
+              const isOpen = expanded.has(entry.id);
+              const detailId = `chat-trajectory-detail-${entry.id}`;
+              return (
+                <li key={entry.id} className={`chat-trajectory-row kind-${entry.kind}`}>
+                  <button
+                    type="button"
+                    className="chat-trajectory-summary"
+                    aria-expanded={isOpen}
+                    aria-controls={detailId}
+                    onClick={() => toggleEntry(entry.id)}
+                  >
+                    <span className="chat-trajectory-time mono">{time(entry.createdAt)}</span>
+                    <span className="chat-trajectory-marker" aria-hidden="true" />
+                    <span className="chat-trajectory-body">
+                      <span className="chat-trajectory-head">
+                        <span className="chat-trajectory-kind">
+                          {CHAT_TRAJECTORY_KIND_LABEL[entry.kind]}
+                        </span>
+                        <strong
+                          title={
+                            entry.kind === "tool_call" || entry.kind === "tool_result"
+                              ? entry.title
+                              : undefined
+                          }
+                        >
+                          {entry.kind === "tool_call" || entry.kind === "tool_result"
+                            ? toolLabel(entry.title)
+                            : entry.title}
+                        </strong>
+                        {entry.step ? (
+                          <span className="chat-trajectory-step">step {entry.step}</span>
+                        ) : null}
+                        {entry.status && (
+                          <span className={`chat-trajectory-status is-${entry.status}`}>
+                            {entry.status === "running"
+                              ? "运行中"
+                              : entry.status === "ok"
+                                ? "完成"
+                                : "失败"}
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <pre>{entry.detail.length > 6_000 ? `${entry.detail.slice(0, 6_000)}…` : entry.detail}</pre>
-                </span>
-              </li>
-            ))}
+                    </span>
+                  </button>
+                  <div
+                    id={detailId}
+                    className="chat-trajectory-detail"
+                    hidden={!isOpen}
+                    role="region"
+                    aria-label="轨迹详情"
+                  >
+                    <pre>
+                      {entry.detail.length > 6_000 ? `${entry.detail.slice(0, 6_000)}…` : entry.detail}
+                    </pre>
+                  </div>
+                </li>
+              );
+            })}
           </ol>
         )}
       </div>
