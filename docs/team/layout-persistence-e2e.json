@@ -1,0 +1,107 @@
+{
+  "task": "t481",
+  "generatedAt": "2026-11-13T23:38:00+08:00",
+  "pr": 65,
+  "harness": {
+    "isolatedUserData": "%TEMP%/t458-e2e-userdata",
+    "wsA": "ws_mw8tntlt_52e4fc39fa",
+    "wsB": "ws_mwf3obyy_f6afa67c4d",
+    "wsBPath": "%TEMP%/t458-ws-b",
+    "nativeWorkspacePicker": "stubbed in harness to return wsB path; UI click and service openWorkspace are real",
+    "windowOuter": { "x": 40, "y": 40, "width": 1440, "height": 900 },
+    "windowStateFile": { "x": 40, "y": 40, "width": 1440, "height": 900, "maximized": false },
+    "contentSizeActual": { "width": 1424, "height": 861 },
+    "screenshotViewport": "before=1440x900 CDP; restored/git=1424x861 actual content; 480/760=CDP emulation"
+  },
+  "beforeSwitch": {
+    "title": "按钮工厂 · 对话 — DeerSuperGroup",
+    "lastWorkspaceIdBefore": "ws_mw8tntlt_52e4fc39fa"
+  },
+  "workspaceSwitch": {
+    "action": "clicked 切换工作区 with native picker stubbed to ws-b",
+    "afterSwitchTitle": "t458-ws-b · 对话 — DeerSuperGroup",
+    "lastWorkspaceId": "ws_mwf3obyy_f6afa67c4d"
+  },
+  "sidebar": {
+    "change": "keyboard ArrowRight x3 on aria-label=调整侧栏宽度, then click 折叠侧栏",
+    "beforeRestart": { "width": 298, "collapsed": "1", "ariaWidth": 298 },
+    "afterRestart": { "width": 298, "collapsed": "1", "expandedAriaWidth": 298, "collapsedAfterVerify": "1" }
+  },
+  "taskList": {
+    "fixture": "t458 layout fixture task created through window.deer.createTask in ws-b",
+    "change": "keyboard ArrowLeft x3 on aria-label=调整任务列表宽度, select task, click 收起任务列表",
+    "beforeRestart": { "width": 291, "collapsed": "1" },
+    "afterRestart": { "width": 291, "collapsed": "1", "expandedAriaWidth": 291, "collapsedAfterVerify": "1" }
+  },
+  "taskListPreferredDisplayed": {
+    "viewportNarrow": { "width": 760, "height": 900, "method": "CDP Emulation.setDeviceMetricsOverride (window is 1440x900)" },
+    "beforeStep": { "preferred": 291, "displayedAria": 291, "stored": 291 },
+    "afterArrowRight": { "preferred": 291, "displayedAria": 323, "stored": 291 },
+    "afterReturnWide": { "width": 1440, "displayedAria": 291, "stored": 291 }
+  },
+  "git": {
+    "workspaceId": "ws_mwf3obyy_f6afa67c4d",
+    "change": "keyboard ArrowUp on aria-label=调整历史与工作区高度",
+    "beforeRestart": { "workspaceHeight": 332 },
+    "afterRestart": { "workspaceHeight": 332, "separatorAria": 332 }
+  },
+  "dock": {
+    "change": "drag dv-sash 80px then close 版本图 tab",
+    "beforeRestart": {
+      "activePanel": "tasks",
+      "views": ["tasks", "team"],
+      "sizes": [581, 555]
+    },
+    "afterRestart": {
+      "activePanel": "tasks",
+      "views": ["tasks", "team"],
+      "sizes": [581, 555],
+      "tabs": ["对话", "任务", "邮箱", "记忆", "团队"]
+    },
+    "afterReopenGit": {
+      "activePanel": "gitGraph",
+      "views": ["gitGraph", "team"]
+    }
+  },
+  "lastWorkspace": {
+    "afterRestartTitle": "t458-ws-b · 任务 — DeerSuperGroup",
+    "lastWorkspaceId": "ws_mwf3obyy_f6afa67c4d",
+    "bootSelectedB": true
+  },
+  "workspaceDeletion": {
+    "method": "DELETE FROM workspaces WHERE id=ws_mwf3obyy_f6afa67c4d in isolated deer.db",
+    "before": [
+      "ws_mw8tntlt_52e4fc39fa",
+      "ws_mwdsh3bd_e4c665e037",
+      "ws_mwf3obyy_f6afa67c4d"
+    ],
+    "changes": 1,
+    "after": [
+      "ws_mw8tntlt_52e4fc39fa",
+      "ws_mwdsh3bd_e4c665e037"
+    ],
+    "restart": {
+      "title": "按钮工厂 · 对话 — DeerSuperGroup",
+      "lastWorkspaceId": "ws_mw8tntlt_52e4fc39fa",
+      "staleBRemoved": true
+    }
+  },
+  "diagnostics": {
+    "windowState": "windowStateDiagnostic(invalid/offscreen/too-small/no-display) -> console.warn in main; missing first run is silent",
+    "actualFallback": {
+      "saved": { "x": 99999, "y": 99999, "width": 1200, "height": 800, "maximized": false },
+      "stderr": "[window-state] offscreen; using default window bounds",
+      "restored": { "x": 1000, "y": 276, "width": 1440, "height": 920, "maximized": false }
+    },
+    "mainWiringTest": "electron/windowStateWiring.test.ts asserts read/normalize/diagnostic/close/event wiring",
+    "unitTests": "electron/windowState.test.ts 9 tests; src/shell/taskListWidth.test.ts 4 tests"
+  },
+  "screenshots": [
+    "t458-e2e-before-1440.png",
+    "t458-e2e-restored-1440.png",
+    "t458-e2e-git-1440.png",
+    "t458-e2e-git-960.png",
+    "t458-e2e-git-480.png",
+    "t458-e2e-deleted-workspace-1440.png"
+  ]
+}

@@ -72,6 +72,13 @@ import { createChatTranslationMemo } from "./kernel/chatTranslationMemo";
 import { dispatchChatSubmission, extractRecommendationCandidates } from "./shared/routerMemberHandoff";
 import { translationCacheNeedsInvalidation } from "./shared/translationCache";
 import {
+  LAYOUT_KEYS,
+  chooseLastWorkspace,
+  forgetLastWorkspaceId,
+  readLastWorkspaceId,
+  rememberLastWorkspaceId,
+} from "./shared/layoutPersistence";
+import {
   applyHistoryScrollPreservation,
   chatTurnStatusLabel,
   initialVisibleMessageCount,
@@ -226,7 +233,14 @@ import {
 import PrimaryRail, { usePrimaryRailFocus } from "./shell/PrimaryRail";
 import SeparatorControl from "./shell/SeparatorControl";
 import SkipLink from "./shell/SkipLink";
-import { clampTaskListWidth, taskListMaxWidth } from "./shell/taskListWidth";
+import {
+  commitTaskListWidth,
+  displayedTaskListWidth,
+  isNarrowTaskListWidth,
+  resizeTaskListWidth,
+  taskListMaxWidth,
+  taskListWidthStateForLayout,
+} from "./shell/taskListWidth";
 import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
@@ -550,7 +564,7 @@ export default function App() {
   } | null>(null);
   const [firstRunCollapsed, setFirstRunCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = Number(localStorage.getItem("deer.sidebarWidth"));
+    const saved = Number(localStorage.getItem(LAYOUT_KEYS.sidebarWidth));
     return Number.isFinite(saved) && saved >= 180 && saved <= 480 ? saved : 250;
   });
   // t212：displayed 是窄窗拖拽的会话内显示值；不写入 preferred/localStorage，
@@ -722,7 +736,7 @@ export default function App() {
   const resizingRef = useRef(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () =>
-      localStorage.getItem("deer.sidebarCollapsed") === "1" ||
+      localStorage.getItem(LAYOUT_KEYS.sidebarCollapsed) === "1" ||
       window.innerWidth <= SIDEBAR_AUTO_COLLAPSE_WIDTH,
   );
   const prevViewportWidthRef = useRef<number | null>(null);
@@ -1058,7 +1072,7 @@ export default function App() {
     prevViewportWidthRef.current = viewportWidth;
     if (!shouldAutoCollapseSidebar(prev, viewportWidth)) return;
     setSidebarCollapsed(true);
-    localStorage.setItem("deer.sidebarCollapsed", "1");
+    localStorage.setItem(LAYOUT_KEYS.sidebarCollapsed, "1");
   }, [viewportWidth]);
 
   // C09/C11：全局快捷键——Ctrl/⌘+B 折叠侧栏、Ctrl/⌘+K 命令面板、Alt+1–6 切换页面。
@@ -1070,7 +1084,7 @@ export default function App() {
         event.preventDefault();
         setSidebarCollapsed((collapsed) => {
           const next = !collapsed;
-          localStorage.setItem("deer.sidebarCollapsed", next ? "1" : "0");
+          localStorage.setItem(LAYOUT_KEYS.sidebarCollapsed, next ? "1" : "0");
           return next;
         });
         return;
@@ -1093,7 +1107,7 @@ export default function App() {
   function toggleSidebarCollapsed() {
     setSidebarCollapsed((collapsed) => {
       const next = !collapsed;
-      localStorage.setItem("deer.sidebarCollapsed", next ? "1" : "0");
+      localStorage.setItem(LAYOUT_KEYS.sidebarCollapsed, next ? "1" : "0");
       return next;
     });
   }
@@ -1131,7 +1145,7 @@ export default function App() {
       sidebarDisplayWidthRef.current = committed.displayed;
       setSidebarDisplayWidth(committed.displayed);
       if (committed.persist) {
-        localStorage.setItem("deer.sidebarWidth", String(committed.preferred));
+        localStorage.setItem(LAYOUT_KEYS.sidebarWidth, String(committed.preferred));
       }
     }
     window.addEventListener("mousemove", onMove);
@@ -1155,7 +1169,7 @@ export default function App() {
     sidebarDisplayWidthRef.current = null;
     setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
     setSidebarDisplayWidth(null);
-    localStorage.setItem("deer.sidebarWidth", String(SIDEBAR_DEFAULT_WIDTH));
+    localStorage.setItem(LAYOUT_KEYS.sidebarWidth, String(SIDEBAR_DEFAULT_WIDTH));
   }
 
   function stepSidebarWidth(delta: number) {
@@ -1174,7 +1188,7 @@ export default function App() {
     setSidebarWidth(next.preferred);
     setSidebarDisplayWidth(next.displayed);
     if (viewportWidthRef.current > 1100) {
-      localStorage.setItem("deer.sidebarWidth", String(next.preferred));
+      localStorage.setItem(LAYOUT_KEYS.sidebarWidth, String(next.preferred));
     }
   }
 
@@ -1738,8 +1752,11 @@ export default function App() {
       try {
         const list = await window.deer.listWorkspaces();
         setWorkspaces(list);
-        if (list.length > 0) {
-          setSnapshot(await window.deer.getSnapshot(list[0].id));
+        const choice = chooseLastWorkspace(list, readLastWorkspaceId());
+        if (choice.stale) forgetLastWorkspaceId();
+        if (choice.id) {
+          setSnapshot(await window.deer.getSnapshot(choice.id));
+          rememberLastWorkspaceId(choice.id);
         }
       } catch (error) {
         setError(errorText(error));
@@ -2093,6 +2110,7 @@ export default function App() {
       await clearFullThrottleBeforeWorkspaceSwitch();
       setWorkspaces(await window.deer.listWorkspaces());
       setSnapshot(await window.deer.getSnapshot(workspace.id));
+      rememberLastWorkspaceId(workspace.id);
       resetForWorkspace();
     } catch (error) {
       setError(errorText(error));
@@ -2108,6 +2126,7 @@ export default function App() {
     try {
       await clearFullThrottleBeforeWorkspaceSwitch();
       setSnapshot(await window.deer.getSnapshot(workspaceId));
+      rememberLastWorkspaceId(workspaceId);
       resetForWorkspace();
     } catch (error) {
       setError(errorText(error));
@@ -4741,14 +4760,18 @@ function TasksView({
   const [search, setSearch] = useState("");
   // C06：任务列表分栏 280–520px 可拖宽、双击复位、可收起，宽度持久化。
   const [listWidth, setListWidth] = useState(() => {
-    const saved = Number(localStorage.getItem("deer.taskListWidth"));
+    const saved = Number(localStorage.getItem(LAYOUT_KEYS.taskListWidth));
     return Number.isFinite(saved) && saved >= 280 && saved <= 520 ? saved : 380;
   });
+  // 与 Sidebar 同语义：listWidth 是 preferred；窄布局拖动只改 displayed，
+  // 不覆盖 localStorage，回到宽布局恢复 preferred。
+  const [listDisplayWidth, setListDisplayWidth] = useState<number | null>(null);
   const [listCollapsed, setListCollapsed] = useState(
-    () => localStorage.getItem("deer.taskListCollapsed") === "1",
+    () => localStorage.getItem(LAYOUT_KEYS.taskListCollapsed) === "1",
   );
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const listWidthRef = useRef(listWidth);
+  const listDisplayWidthRef = useRef<number | null>(listDisplayWidth);
   const listLayoutWidthRef = useRef(0);
   const resizingListRef = useRef(false);
   const [listLayoutWidth, setListLayoutWidth] = useState(0);
@@ -4776,20 +4799,55 @@ function TasksView({
   }, [listWidth]);
 
   useEffect(() => {
+    listDisplayWidthRef.current = listDisplayWidth;
+  }, [listDisplayWidth]);
+
+  useEffect(() => {
+    const state = taskListWidthStateForLayout(
+      { preferred: listWidthRef.current, displayed: listDisplayWidthRef.current },
+      listLayoutWidth,
+    );
+    if (state.displayed !== listDisplayWidthRef.current) {
+      listDisplayWidthRef.current = state.displayed;
+      setListDisplayWidth(state.displayed);
+    }
+  }, [listLayoutWidth]);
+
+  useEffect(() => {
     function onMove(event: MouseEvent) {
       if (!resizingListRef.current) return;
       const rect = layoutRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const next = Math.min(520, Math.max(280, event.clientX - rect.left));
-      listWidthRef.current = next;
-      setListWidth(next);
+      const next = resizeTaskListWidth(
+        {
+          preferred: listWidthRef.current,
+          displayed: listDisplayWidthRef.current,
+        },
+        listLayoutWidthRef.current,
+        event.clientX - rect.left,
+      );
+      listWidthRef.current = next.preferred;
+      listDisplayWidthRef.current = next.displayed;
+      setListWidth(next.preferred);
+      setListDisplayWidth(next.displayed);
     }
     function onUp() {
       if (!resizingListRef.current) return;
       resizingListRef.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      localStorage.setItem("deer.taskListWidth", String(listWidthRef.current));
+      const committed = commitTaskListWidth(
+        {
+          preferred: listWidthRef.current,
+          displayed: listDisplayWidthRef.current,
+        },
+        listLayoutWidthRef.current,
+      );
+      listDisplayWidthRef.current = committed.displayed;
+      setListDisplayWidth(committed.displayed);
+      if (committed.persist) {
+        localStorage.setItem(LAYOUT_KEYS.taskListWidth, String(committed.preferred));
+      }
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -4800,7 +4858,10 @@ function TasksView({
   }, []);
 
   const taskListMax = taskListMaxWidth(listLayoutWidth);
-  const actualListWidth = clampTaskListWidth(listWidth, listLayoutWidth);
+  const actualListWidth = displayedTaskListWidth(
+    { preferred: listWidth, displayed: listDisplayWidth },
+    listLayoutWidth,
+  );
 
   function startListResize(event: { preventDefault: () => void }) {
     event.preventDefault();
@@ -4811,22 +4872,32 @@ function TasksView({
 
   function resetListWidth() {
     listWidthRef.current = 380;
+    listDisplayWidthRef.current = null;
     setListWidth(380);
-    localStorage.setItem("deer.taskListWidth", "380");
+    setListDisplayWidth(null);
+    localStorage.setItem(LAYOUT_KEYS.taskListWidth, "380");
   }
 
   function stepListWidth(delta: number) {
-    const actual = clampTaskListWidth(listWidthRef.current, listLayoutWidthRef.current);
-    const next = clampTaskListWidth(actual + delta, listLayoutWidthRef.current);
-    listWidthRef.current = next;
-    setListWidth(next);
-    localStorage.setItem("deer.taskListWidth", String(next));
+    const state = {
+      preferred: listWidthRef.current,
+      displayed: listDisplayWidthRef.current,
+    };
+    const current = displayedTaskListWidth(state, listLayoutWidthRef.current);
+    const next = resizeTaskListWidth(state, listLayoutWidthRef.current, current + delta);
+    listWidthRef.current = next.preferred;
+    listDisplayWidthRef.current = next.displayed;
+    setListWidth(next.preferred);
+    setListDisplayWidth(next.displayed);
+    if (!isNarrowTaskListWidth(listLayoutWidthRef.current)) {
+      localStorage.setItem(LAYOUT_KEYS.taskListWidth, String(next.preferred));
+    }
   }
 
   function toggleListCollapsed() {
     setListCollapsed((collapsed) => {
       const next = !collapsed;
-      localStorage.setItem("deer.taskListCollapsed", next ? "1" : "0");
+      localStorage.setItem(LAYOUT_KEYS.taskListCollapsed, next ? "1" : "0");
       return next;
     });
   }
