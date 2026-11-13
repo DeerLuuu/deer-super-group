@@ -48,7 +48,21 @@ RESTORED {"x":-8,"y":24,"width":3456,"height":1424} maximized=true
 
 无旧格式迁移；读到非法/缺字段直接默认，不写回旧格式。
 
-## 4. 命令
+## 4. t479 四类 split + last workspace 重启 e2e
+
+隔离 userData `%TEMP%/t458-e2e-userdata`，使用 `scripts/layout-persistence-e2e-wrapper.cjs`（真实 Electron 启动/关闭；原生目录选择器为可自动化而 stub 到 `%TEMP%/t458-ws-b`，renderer 点击与 service `openWorkspace` 是真实路径）。窗口 outer 实际 `1440×900`（content 1424×861，Electron 帧扣除）；480 明确使用 CDP Emulation，不冒充真实最小窗口。
+
+完整步骤与数值见 `layout-persistence-e2e.json`：
+
+- 侧栏：键盘 ArrowRight×3 → `deer.sidebarWidth=298`；点击折叠 → `deer.sidebarCollapsed=1`；关闭/重启后同值，展开读回 aria 298。
+- 任务列表：创建 fixture task → 选中 → ArrowLeft×3 → `deer.taskListWidth=291`；点击收起 → `deer.taskListCollapsed=1`；重启后同值，展开读回 aria 291 后再收起。
+- Git：版本图打开 → `deer.git.workspaceHeight.ws_mwf3obyy_f6afa67c4d=332`；重启后重新打开版本图，separator aria=332。
+- Dock：拖动 sash → 581/555；关闭版本图 tab → activePanel=`tasks`、views=`[tasks,team]`；重启后同 activePanel/views/sizes。
+- last workspace：真实点击「切换工作区」（stub picker 指向 ws-b）→ lastWorkspaceId=`ws_mwf3obyy_f6afa67c4d`；关闭/重启 title=`t458-ws-b · 任务`，boot 到 ws-b。stale 回退由 `lastWorkspaceApp.test.tsx`/`layoutPersistence.test.ts` 覆盖。
+
+截图：`t458-e2e-before-1440.png`（改值后、Git 打开）、`t458-e2e-restored-1440.png`（重启后、侧栏/任务折叠、Dock tasks 激活）、`t458-e2e-git-1440.png`（重启后重新打开 Git，高度 332）；`t458-e2e-git-960.png`、`t458-e2e-git-480.png`（960/480 CDP 视口）。
+
+## 5. 命令
 
 ```text
 pnpm typecheck
