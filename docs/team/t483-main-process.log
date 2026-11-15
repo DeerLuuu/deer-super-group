@@ -1,0 +1,14 @@
+[2026-11-15T16:22:36.563Z] stream:stdout:pipe: Error: EPIPE: broken pipe, write
+    at pipeError (S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:44:24)
+    at S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:66:17
+[2026-11-15T16:22:36.564Z] stream:stderr:pipe: Error: EIO: i/o error
+    at pipeError (S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:44:24)
+    at S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:67:15
+[2026-11-15T16:22:36.576Z] uncaughtException:pipe: Error: EPIPE: broken pipe, write
+    at pipeError (S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:44:24)
+    at S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:66:17
+[2026-11-15T16:22:36.577Z] unhandledRejection:pipe: Error: EPIPE: broken pipe, write
+    at pipeError (S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:44:24)
+    at S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:66:17
+[2026-11-15T16:22:36.877Z] unhandledRejection: Error: t483 ordinary rejection: expected log, no exit
+    at S:\DeerSuperGroup\branches\t468-main-process-epipe-guard\scripts\main-process-epipe-harness.cjs:77:5
