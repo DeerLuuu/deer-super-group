@@ -1209,6 +1209,31 @@ label.check input {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* t360 D1：trace 分页/过滤/跳转。 */
+.trace-head .trace-filter select {
+  width: auto;
+  max-width: 180px;
+  height: 24px;
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.trace-more {
+  justify-self: center;
+}
+
+.trace-jump-row {
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.trace-jump-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .trace {

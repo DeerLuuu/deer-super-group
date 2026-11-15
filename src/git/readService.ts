@@ -519,11 +519,13 @@ export class GitReadService {
       else args.push("--", params.path);
     }
     const output = await this.run(args, 15_000, 8 * 1024 * 1024);
+    // t485：maxBuffer 失败必须先于 noIndex(code=1=有差异) 的成功语义判定——
+    // 否则未跟踪超大文件的 --no-index diff 会被误判成功并返回空 diff。
+    if (/maxBuffer|ERR_CHILD_PROCESS_STDIO_MAXBUFFER|stdout maxBuffer/i.test(output.stderr)) {
+      return fail("GIT_READ_TOO_LARGE", "diff exceeds 8MB stdout limit");
+    }
     if (output.code !== 0 && !(noIndex && output.code === 1)) {
       if (/unknown revision|bad object/i.test(output.stderr)) return fail("GIT_REF_NOT_FOUND", "commit not found");
-      if (/maxBuffer|ERR_CHILD_PROCESS_STDIO_MAXBUFFER|stdout maxBuffer/i.test(output.stderr)) {
-        return fail("GIT_READ_TOO_LARGE", "diff exceeds 8MB stdout limit");
-      }
       if (/timed out|ETIMEDOUT/i.test(output.stderr)) return fail("GIT_READ_TIMEOUT", "diff timed out");
       return fail("GIT_READ_INTERNAL", output.stderr || "cannot read diff");
     }

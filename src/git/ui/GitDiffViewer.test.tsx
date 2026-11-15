@@ -46,7 +46,7 @@ describe("t401 GitDiffViewer", () => {
     expect(html).toContain("@@ -10,4 +10,4 @@");
     expect(html).toContain("diff-add");
     expect(html).toContain("diff-del");
-    expect(html).toContain("搜索 diff（即将支持）");
+    expect(html).toContain("搜索 diff");
     expect(html).toContain("复制路径");
     expect(html).toContain("统一");
     expect(html).toContain("并排");
@@ -356,6 +356,303 @@ describe("t401 GitDiffViewer", () => {
     expect(
       renderer.root.findAll((node: any) => typeof node.type === "string").length,
     ).toBeLessThan(10_000);
+    renderer.unmount();
+  });
+});
+
+describe("t360 D1：diff 搜索与加载完整 diff", () => {
+  const searchDiff: GitDiffPage = {
+    bytes: 200,
+    truncated: false,
+    binary: false,
+    submodule: false,
+    files: [
+      {
+        path: "src/a.ts",
+        status: "M",
+        binary: false,
+        submodule: false,
+        truncated: false,
+        hunks: [
+          {
+            header: "@@ -1,3 +1,3 @@",
+            lines: [
+              { kind: " ", text: "context line" },
+              { kind: "-", text: "remove legacy token" },
+              { kind: "+", text: "add fresh token" },
+            ],
+          },
+        ],
+      },
+      {
+        path: "src/b.ts",
+        status: "M",
+        binary: false,
+        submodule: false,
+        truncated: false,
+        hunks: [
+          {
+            header: "@@ -1,2 +1,2 @@",
+            lines: [
+              { kind: " ", text: "unrelated" },
+              { kind: "+", text: "also unrelated" },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  function findSearchInput(root: any) {
+    return root.findByProps({ "aria-label": "搜索 diff 行文本" });
+  }
+
+  /** 汇总某节点子树的全部文本（react-test-renderer 会把字符串拆成数组）。 */
+  function deepText(node: any): string {
+    if (node == null) return "";
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(deepText).join("");
+    if (node.props && node.props.children !== undefined) return deepText(node.props.children);
+    return "";
+  }
+
+  function statusCountText(root: any): string {
+    const span = root.findAll(
+      (node: any) => String(node.props.className ?? "").includes("git-diff-search-count"),
+    )[0];
+    return span ? deepText(span) : "";
+  }
+
+  it("输入即过滤：仅命中文件/行渲染，命中计数与高亮出现", async () => {
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={searchDiff} />);
+    });
+    const input = findSearchInput(renderer.root);
+    expect(input.props.disabled).toBeFalsy();
+    await act(async () => {
+      input.props.onChange({ target: { value: "token" } });
+    });
+    const json = JSON.stringify(renderer.toJSON());
+    expect(json).toContain("src/a.ts");
+    expect(json).not.toContain("src/b.ts");
+    expect(json).toContain("diff-hit");
+    expect(statusCountText(renderer.root)).toBe("1/2 行 · 2 处");
+    renderer.unmount();
+  });
+
+  it("无结果态；清空恢复全部文件", async () => {
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={searchDiff} />);
+    });
+    const input = findSearchInput(renderer.root);
+    await act(async () => {
+      input.props.onChange({ target: { value: "zzz-not-there" } });
+    });
+    expect(JSON.stringify(renderer.toJSON())).toContain("无匹配");
+    expect(JSON.stringify(renderer.toJSON())).toContain("没有匹配");
+    await act(async () => {
+      input.props.onChange({ target: { value: "" } });
+    });
+    const json = JSON.stringify(renderer.toJSON());
+    expect(json).toContain("src/a.ts");
+    expect(json).toContain("src/b.ts");
+    expect(json).not.toContain("无匹配");
+    renderer.unmount();
+  });
+
+  it("Enter/Shift+Enter 循环跳转索引", async () => {
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={searchDiff} />);
+    });
+    const input = findSearchInput(renderer.root);
+    await act(async () => {
+      input.props.onChange({ target: { value: "token" } });
+    });
+    expect(statusCountText(renderer.root)).toBe("1/2 行 · 2 处");
+    await act(async () => {
+      input.props.onKeyDown({ key: "Enter", preventDefault() {} });
+    });
+    expect(statusCountText(renderer.root)).toBe("2/2 行 · 2 处");
+    await act(async () => {
+      input.props.onKeyDown({ key: "Enter", shiftKey: true, preventDefault() {} });
+    });
+    expect(statusCountText(renderer.root)).toBe("1/2 行 · 2 处");
+    renderer.unmount();
+  });
+
+  it("并排视图搜索过滤旧/新任一侧命中并高亮", async () => {
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={searchDiff} availableWidth={900} />);
+    });
+    const sideButton = renderer.root
+      .findAllByType("button")
+      .find((node: any) => String(node.props.children) === "并排");
+    await act(async () => {
+      sideButton.props.onClick();
+    });
+    const input = findSearchInput(renderer.root);
+    await act(async () => {
+      input.props.onChange({ target: { value: "token" } });
+    });
+    const json = JSON.stringify(renderer.toJSON());
+    expect(json).toContain("src/a.ts");
+    expect(json).not.toContain("src/b.ts");
+    expect(json).toContain("diff-hit");
+    renderer.unmount();
+  });
+
+  it("截断文件显示「加载完整 diff」两步确认并回调路径", async () => {
+    const truncatedDiff: GitDiffPage = {
+      ...searchDiff,
+      files: [
+        {
+          ...searchDiff.files[0]!,
+          truncated: true,
+        },
+      ],
+    };
+    const onLoadFull = vi.fn();
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={truncatedDiff} onLoadFull={onLoadFull} />);
+    });
+    const armButton = renderer.root
+      .findAllByType("button")
+      .find((node: any) => String(node.props.children ?? "").includes("加载完整 diff"));
+    expect(armButton).toBeTruthy();
+    await act(async () => {
+      armButton.props.onClick();
+    });
+    const confirmButton = renderer.root
+      .findAllByType("button")
+      .find((node: any) => String(node.props.children ?? "").includes("确认加载完整 diff"));
+    expect(confirmButton).toBeTruthy();
+    expect(JSON.stringify(renderer.toJSON())).toContain("展示上限 1MB");
+    await act(async () => {
+      confirmButton.props.onClick();
+    });
+    expect(onLoadFull).toHaveBeenCalledWith("src/a.ts", null);
+    renderer.unmount();
+  });
+
+  it("TOO_LARGE 错误态渲染（不卡顿、role=alert）", () => {
+    const html = renderToStaticMarkup(
+      <GitDiffViewer diff={null} error="GIT_READ_TOO_LARGE: diff exceeds 8MB stdout limit" />,
+    );
+    expect(html).toContain("TOO_LARGE");
+    expect(html).toContain('role="alert"');
+  });
+
+  it("20k 行大 diff：搜索后 DOM 收敛到命中行", async () => {
+    const lines = Array.from({ length: 20_000 }, (_, index) => ({
+      kind: (index % 400 === 0 ? "+" : " ") as "+" | " ",
+      text: `line ${index} of the huge file`,
+    }));
+    const big: GitDiffPage = {
+      bytes: 900_000,
+      truncated: false,
+      binary: false,
+      submodule: false,
+      files: [
+        {
+          path: "big.ts",
+          status: "M",
+          binary: false,
+          submodule: false,
+          truncated: false,
+          hunks: [{ header: "@@ -1 +1 @@", lines }],
+        },
+      ],
+    };
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={big} />);
+    });
+    const input = findSearchInput(renderer.root);
+    await act(async () => {
+      input.props.onChange({ target: { value: "199" } });
+    });
+    const rows = renderer.root.findAll((node: any) =>
+      String(node.props.className ?? "").includes("git-diff-row"),
+    );
+    expect(rows.length).toBeGreaterThan(20);
+    expect(rows.length).toBeLessThan(200);
+    expect(JSON.stringify(renderer.toJSON())).toContain("diff-hit");
+    renderer.unmount();
+  });
+
+  it("t489：并排 old+new 同词——hitRows 以过滤 SideRow 为准，Enter 循环一致", async () => {
+    // 结构：delete "old token" → add "new token"（buildSideBySide 配成一行旧/新同词命中）。
+    const sideDiff: GitDiffPage = {
+      bytes: 100,
+      truncated: false,
+      binary: false,
+      submodule: false,
+      files: [
+        {
+          path: "src/side.ts",
+          status: "M",
+          binary: false,
+          submodule: false,
+          truncated: false,
+          hunks: [
+            {
+              header: "@@ -1,4 +1,4 @@",
+              lines: [
+                { kind: " ", text: "context" },
+                { kind: "-", text: "alpha token v1" },
+                { kind: "+", text: "alpha token v2" },
+                { kind: " ", text: "gap" },
+                { kind: "-", text: "beta plain" },
+                { kind: "+", text: "beta token v3" },
+                { kind: " ", text: "tail" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={sideDiff} availableWidth={900} />);
+    });
+    const sideButton = renderer.root
+      .findAllByType("button")
+      .find((node: any) => String(node.props.children) === "并排");
+    await act(async () => {
+      sideButton.props.onClick();
+    });
+    const input = findSearchInput(renderer.root);
+    await act(async () => {
+      input.props.onChange({ target: { value: "token" } });
+    });
+    // 过滤后的 SideRow：alpha（旧+新同词=1 行）+ beta（新侧=1 行）→ 2 行 3 处。
+    const sideRows = renderer.root.findAll((node: any) =>
+      String(node.props.className ?? "").includes("git-diff-side-row"),
+    );
+    expect(sideRows.length).toBe(2);
+    expect(statusCountText(renderer.root)).toBe("1/2 行 · 3 处");
+    // Enter 循环 total 与 DOM 行数一致：0→1→回绕 0。
+    await act(async () => {
+      input.props.onKeyDown({ key: "Enter", preventDefault() {} });
+    });
+    expect(statusCountText(renderer.root)).toBe("2/2 行 · 3 处");
+    await act(async () => {
+      input.props.onKeyDown({ key: "Enter", preventDefault() {} });
+    });
+    expect(statusCountText(renderer.root)).toBe("1/2 行 · 3 处");
+    expect(JSON.stringify(renderer.toJSON())).toContain("diff-hit");
     renderer.unmount();
   });
 });

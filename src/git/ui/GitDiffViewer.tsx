@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GitDiffFile, GitDiffPage } from "../readTypes.js";
+import {
+  filterSideRows,
+  filterUnifiedHunks,
+  lineMatches,
+  matchStats,
+  nextMatchIndex,
+  sideMatchStats,
+  splitHighlight,
+} from "./gitDiffSearch.js";
 import "./gitWorkingDiff.css";
 
 type DiffLine = GitDiffFile["hunks"][number]["lines"][number];
@@ -124,35 +133,51 @@ function HunkBlock({
   hunkIndex,
   totalLines,
   large,
+  search,
 }: {
   hunk: HunkModel;
   fileIndex: number;
   hunkIndex: number;
   totalLines: number;
   large: boolean;
+  search: string;
 }) {
   const [open, setOpen] = useState(!large);
   const [limit, setLimit] = useState(400);
   const [expandedContext, setExpandedContext] = useState(false);
-  const shown = hunk.rows.slice(0, limit);
-  const groups = useMemo(() => groupRows(shown, expandedContext), [shown, expandedContext]);
+  const searching = search.trim().length > 0;
+  const effectiveHunk = searching ? filterUnifiedHunks([hunk], search)[0] ?? { header: hunk.header, rows: [] } : hunk;
+  const rowsPool = searching ? effectiveHunk.rows : effectiveHunk.rows;
+  const shown = searching ? rowsPool : rowsPool.slice(0, limit);
+  const groups = useMemo(
+    () => (searching ? shown.map((row) => ({ kind: "row" as const, row })) : groupRows(shown, expandedContext)),
+    [shown, expandedContext, searching],
+  );
+  // 搜索模式强制展开（过滤后的行才有意义）。
+  const openState = searching ? true : open;
+
+  if (searching && effectiveHunk.rows.length === 0) return null;
 
   return (
     <section className="git-diff-hunk" aria-label={hunk.header}>
       <button
         type="button"
         className="git-diff-hunk-head"
-        aria-expanded={open}
+        aria-expanded={openState}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="mono">{hunk.header}</span>
         <span className="git-diff-hunk-stats">
           {hunk.insertions > 0 ? <span className="diff-add">+{hunk.insertions}</span> : null}
           {hunk.deletions > 0 ? <span className="diff-del">−{hunk.deletions}</span> : null}
-          {hunk.rows.length > 400 ? <span className="muted tiny">{hunk.rows.length} 行</span> : null}
+          {searching ? (
+            <span className="muted tiny">命中 {effectiveHunk.rows.length} 行</span>
+          ) : hunk.rows.length > 400 ? (
+            <span className="muted tiny">{hunk.rows.length} 行</span>
+          ) : null}
         </span>
       </button>
-      {open ? (
+      {openState ? (
         <div className="git-diff-hunk-body">
           {groups.map((group, groupIndex) =>
             group.kind === "context-fold" ? (
@@ -171,6 +196,8 @@ function HunkBlock({
                 role="row"
                 className={`git-diff-row diff-${group.row.kind === "+" ? "add" : group.row.kind === "-" ? "del" : "context"}`}
                 tabIndex={0}
+                data-diff-row-text={group.row.text}
+                data-match-key={`${fileIndex}:${hunkIndex}:${groupIndex}`}
                 aria-label={`旧行 ${group.row.oldLine ?? "无"}，新行 ${group.row.newLine ?? "无"}，${group.row.kind === "+" ? "新增" : group.row.kind === "-" ? "删除" : "上下文"}：${group.row.text}`}
               >
                 <span className="git-diff-num" role="gridcell" aria-label={`旧行 ${group.row.oldLine ?? "无"}`}>
@@ -180,11 +207,23 @@ function HunkBlock({
                   {group.row.newLine ?? ""}
                 </span>
                 <span className="git-diff-sign" role="gridcell">{group.row.kind === " " ? " " : group.row.kind}</span>
-                <span className="git-diff-text" role="gridcell">{group.row.text || " "}</span>
+                <span className="git-diff-text" role="gridcell">
+                  {searching
+                    ? splitHighlight(group.row.text, search).map((segment, segmentIndex) =>
+                        segment.hit ? (
+                          <mark key={`hit-${segmentIndex}`} className="diff-hit">
+                            {segment.text}
+                          </mark>
+                        ) : (
+                          <span key={`seg-${segmentIndex}`}>{segment.text}</span>
+                        ),
+                      )
+                    : group.row.text || " "}
+                </span>
               </div>
             ),
           )}
-          {hunk.rows.length > limit ? (
+          {!searching && hunk.rows.length > limit ? (
             <button
               type="button"
               className="ghost tiny git-diff-more"
@@ -193,7 +232,7 @@ function HunkBlock({
               继续加载 hunk（剩余 {hunk.rows.length - limit} 行）
             </button>
           ) : null}
-          {large && totalLines > 500 && !open ? (
+          {large && totalLines > 500 && !openState ? (
             <p className="muted tiny">大 diff 默认折叠 hunk，点击标题展开。</p>
           ) : null}
         </div>
@@ -207,42 +246,54 @@ function SideHunkBlock({
   fileIndex,
   hunkIndex,
   large,
+  search,
 }: {
   hunk: HunkModel;
   fileIndex: number;
   hunkIndex: number;
   large: boolean;
+  search: string;
 }) {
   const [open, setOpen] = useState(!large);
   const [limit, setLimit] = useState(400);
   const rows = useMemo(() => buildSideBySide(hunk.rows), [hunk.rows]);
-  const shown = rows.slice(0, limit);
+  const searching = search.trim().length > 0;
+  const filtered = useMemo(() => (searching ? filterSideRows(rows, search) : rows), [rows, search, searching]);
+  const shown = searching ? filtered : filtered.slice(0, limit);
+  const openState = searching ? true : open;
+
+  if (searching && shown.length === 0) return null;
 
   return (
     <section className="git-diff-hunk" aria-label={hunk.header}>
       <button
         type="button"
         className="git-diff-hunk-head"
-        aria-expanded={open}
+        aria-expanded={openState}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="mono">{hunk.header}</span>
         <span className="git-diff-hunk-stats">
           {hunk.insertions > 0 ? <span className="diff-add">+{hunk.insertions}</span> : null}
           {hunk.deletions > 0 ? <span className="diff-del">−{hunk.deletions}</span> : null}
-          {rows.length > 400 ? <span className="muted tiny">{rows.length} 行</span> : null}
+          {searching ? (
+            <span className="muted tiny">命中 {shown.length} 行</span>
+          ) : rows.length > 400 ? (
+            <span className="muted tiny">{rows.length} 行</span>
+          ) : null}
         </span>
       </button>
-      {open ? (
+      {openState ? (
         <div className="git-diff-hunk-body">
           {shown.map((row, index) => (
             <SideRowView
               key={`${fileIndex}-${hunkIndex}-side-${index}`}
               row={row}
               index={index}
+              search={search}
             />
           ))}
-          {rows.length > limit ? (
+          {!searching && rows.length > limit ? (
             <button
               type="button"
               className="ghost tiny git-diff-more"
@@ -297,9 +348,21 @@ function groupRows(
   return groups;
 }
 
-function SideRowView({ row, index }: { row: SideRow; index: number }) {
+function SideRowView({ row, index, search }: { row: SideRow; index: number; search: string }) {
   const leftClass = row.oldText === null ? "diff-empty" : row.kind === "-" || row.oldText !== row.newText ? "diff-del" : "diff-context";
   const rightClass = row.newText === null ? "diff-empty" : row.kind === "+" || row.oldText !== row.newText ? "diff-add" : "diff-context";
+  const searching = search.trim().length > 0;
+  const highlight = (text: string | null) => {
+    if (text == null) return "";
+    if (!searching) return text;
+    return splitHighlight(text, search).map((segment, segmentIndex) =>
+      segment.hit ? (
+        <mark key={`hit-${segmentIndex}`} className="diff-hit">{segment.text}</mark>
+      ) : (
+        <span key={`seg-${segmentIndex}`}>{segment.text}</span>
+      ),
+    );
+  };
   return (
     <div
       className="git-diff-side-row"
@@ -316,7 +379,7 @@ function SideRowView({ row, index }: { row: SideRow; index: number }) {
         role="gridcell"
         aria-label={`旧文本 ${row.oldText ?? "无"}`}
       >
-        {row.oldText ?? ""}
+        {highlight(row.oldText)}
       </span>
       <span className="git-diff-num" role="gridcell" aria-label={`新行 ${row.newLine ?? "无"}`}>
         {row.newLine ?? ""}
@@ -326,7 +389,7 @@ function SideRowView({ row, index }: { row: SideRow; index: number }) {
         role="gridcell"
         aria-label={`新文本 ${row.newText ?? "无"}`}
       >
-        {row.newText ?? ""}
+        {highlight(row.newText)}
       </span>
     </div>
   );
@@ -337,12 +400,17 @@ export function GitDiffViewer({
   loading = false,
   error = null,
   availableWidth,
+  onLoadFull,
+  fullLoading = false,
 }: {
   diff: GitDiffPage | null;
   loading?: boolean;
   error?: string | null;
   /** 测试/嵌入场景可显式给出 diff pane 宽度；生产环境使用 ResizeObserver。 */
   availableWidth?: number;
+  /** t360 D1：按文件「加载完整 diff」（context=20 / maxBytes=1MB 展示上限；8MB 管道超限返回 TOO_LARGE）。 */
+  onLoadFull?: (path: string, oldPath: string | null) => void;
+  fullLoading?: boolean;
 }) {
   const [mode, setMode] = useState<"unified" | "side">("unified");
   const [wrap, setWrap] = useState(false);
@@ -350,7 +418,13 @@ export function GitDiffViewer({
     availableWidth == null ? false : canUseSideBySide(availableWidth),
   );
   const [copied, setCopied] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [fullConfirmPath, setFullConfirmPath] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const trimmed = search.trim();
+  const searching = trimmed.length > 0;
 
   useEffect(() => {
     if (availableWidth != null) {
@@ -365,6 +439,60 @@ export function GitDiffViewer({
   useEffect(() => {
     if (!wide) setMode("unified");
   }, [wide]);
+
+  // t360 D1：搜索变化时重置跳转索引。
+  useEffect(() => {
+    setMatchIndex(0);
+  }, [trimmed]);
+
+  // t360 D1 / t489：命中统计（对全量行，不受 400 行渲染窗口影响）。
+  // 并排模式以过滤后的 SideRow 行数为准（一行可同时含旧/新命中），Enter 循环 total 与 DOM 行数一致。
+  const allRowTexts = useMemo(() => {
+    if (!diff) return [] as Array<{ text: string }>;
+    const texts: Array<{ text: string }> = [];
+    for (const file of diff.files) {
+      for (const hunk of file.hunks) {
+        for (const line of hunk.lines) texts.push({ text: line.text });
+      }
+    }
+    return texts;
+  }, [diff]);
+  const allSideRows = useMemo(() => {
+    if (!diff) return [] as SideRow[];
+    const rows: SideRow[] = [];
+    for (const file of diff.files) {
+      for (const hunk of numberHunk(file)) {
+        rows.push(...buildSideBySide(hunk.rows));
+      }
+    }
+    return rows;
+  }, [diff]);
+  const stats = useMemo(
+    () =>
+      mode === "side"
+        ? sideMatchStats(allSideRows, trimmed)
+        : matchStats(allRowTexts, trimmed),
+    [mode, allSideRows, allRowTexts, trimmed],
+  );
+
+  function focusMatch(direction: 1 | -1) {
+    if (!searching || stats.hitRows === 0) return;
+    const next = nextMatchIndex(matchIndex, stats.hitRows, direction === -1);
+    setMatchIndex(next);
+    const container = ref.current;
+    if (!container) return;
+    const rows = [...container.querySelectorAll<HTMLElement>(".git-diff-row[data-match-key], .git-diff-side-row")];
+    // 命中行在 DOM 中的顺序即跳转顺序（搜索模式下只渲染命中行）。
+    const target = rows[next] ?? rows[0];
+    target?.scrollIntoView?.({ block: "center" });
+    target?.focus?.();
+  }
+
+  function onSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    focusMatch(event.shiftKey ? -1 : 1);
+  }
 
   function onDiffKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -464,13 +592,27 @@ export function GitDiffViewer({
             换行
           </button>
           <input
+            ref={searchRef}
             type="search"
             className="git-diff-search"
-            placeholder="搜索 diff（即将支持）"
-            aria-label="搜索 diff（即将支持）"
-            disabled
-            title="D1 扩展点：diff 搜索"
+            placeholder="搜索 diff"
+            aria-label="搜索 diff 行文本"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={onSearchKeyDown}
+            title="输入即过滤并高亮；Enter 下一个，Shift+Enter 上一个；清空恢复"
           />
+          {searching ? (
+            stats.hitRows > 0 ? (
+              <span className="git-diff-search-count" role="status" aria-live="polite">
+                {matchIndex + 1}/{stats.hitRows} 行 · {stats.totalMatches} 处
+              </span>
+            ) : (
+              <span className="git-diff-search-count is-empty" role="status">
+                无匹配
+              </span>
+            )
+          ) : null}
         </div>
       </div>
       {diff.truncated ? (
@@ -485,6 +627,13 @@ export function GitDiffViewer({
         const hunks = numberHunk(file);
         const insertions = hunks.reduce((sum, hunk) => sum + hunk.insertions, 0);
         const deletions = hunks.reduce((sum, hunk) => sum + hunk.deletions, 0);
+        // t360 D1：搜索模式下无命中的文件整体隐藏。
+        if (searching) {
+          const hasHit = file.hunks.some((hunk) =>
+            hunk.lines.some((line) => lineMatches(line.text, trimmed)),
+          );
+          if (!hasHit) return null;
+        }
         return (
           <section className="git-diff-file" key={`${file.path}-${fileIndex}`} aria-label={`diff ${file.path}`}>
             <header className="git-diff-file-head">
@@ -510,8 +659,44 @@ export function GitDiffViewer({
               <p className="git-diff-state">二进制文件不显示 diff。</p>
             ) : file.submodule ? (
               <p className="git-diff-state">子模块变更不展开。</p>
-            ) : file.truncated ? (
-              <p className="git-diff-state is-warn">该文件 diff 已截断。</p>
+            ) : file.truncated || (diff.truncated && diff.files.length === 1) ? (
+              <div className="git-diff-state is-warn">
+                <p>该文件 diff 已截断。</p>
+                {onLoadFull ? (
+                  fullConfirmPath === file.path ? (
+                    <span className="row gap">
+                      <button
+                        type="button"
+                        className="primary tiny"
+                        disabled={fullLoading}
+                        onClick={() => {
+                          onLoadFull(file.path, file.oldPath ?? null);
+                          setFullConfirmPath(null);
+                        }}
+                      >
+                        {fullLoading ? "加载中…" : "确认加载完整 diff"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost tiny"
+                        onClick={() => setFullConfirmPath(null)}
+                      >
+                        取消
+                      </button>
+                      <span className="muted tiny">展示上限 1MB；管道上限 8MB，超限返回 TOO_LARGE。</span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="ghost tiny"
+                      onClick={() => setFullConfirmPath(file.path)}
+                      aria-label={`加载 ${file.path} 的完整 diff`}
+                    >
+                      加载完整 diff
+                    </button>
+                  )
+                ) : null}
+              </div>
             ) : file.hunks.length === 0 ? (
               <p className="git-diff-state">该文件没有文本改动。</p>
             ) : mode === "side" && wide ? (
@@ -523,6 +708,7 @@ export function GitDiffViewer({
                     fileIndex={fileIndex}
                     hunkIndex={hunkIndex}
                     large={large}
+                    search={trimmed}
                   />
                 ))}
               </div>
@@ -540,6 +726,7 @@ export function GitDiffViewer({
                     hunkIndex={hunkIndex}
                     totalLines={totalLines}
                     large={large}
+                    search={trimmed}
                   />
                 ))}
               </div>
@@ -547,6 +734,9 @@ export function GitDiffViewer({
           </section>
         );
       })}
+      {searching && stats.hitRows === 0 ? (
+        <p className="git-diff-state" role="status">没有匹配「{trimmed}」的行。</p>
+      ) : null}
     </div>
   );
 }

@@ -1,0 +1,206 @@
+{
+  "results": [
+    {
+      "id": "app-ready",
+      "ok": true,
+      "detail": "窗口已渲染"
+    },
+    {
+      "id": "trace: 打开任务",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "trace: 切到历史 tab",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "trace: 最新 100 窗口",
+      "ok": true,
+      "detail": "visible=100 label=最近 100 / 共 263 条"
+    },
+    {
+      "id": "trace: 类型过滤 tool.call",
+      "ok": true,
+      "detail": "filtered=52"
+    },
+    {
+      "id": "trace: 跳转 focus data-trace-seq（点击 7 → focus 7）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "trace: 加载更早 100→200",
+      "ok": true,
+      "detail": "rows=200"
+    },
+    {
+      "id": "trace: 滚动保持（前视锚未跳顶）",
+      "ok": true,
+      "detail": "scrollTop 0→0, height 8332→16572"
+    },
+    {
+      "id": "t485-trace-1440.png saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "diff: 打开 Git 面板",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "diff: 打开 searchable.ts",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "diff: 搜索过滤+高亮+计数",
+      "ok": true,
+      "detail": "{\"marks\":10,\"rows\":10,\"count\":\"1/10 行 · 10 处\"}"
+    },
+    {
+      "id": "diff: Enter/Shift+Enter 循环",
+      "ok": true,
+      "detail": "count=2/10 行 · 10 处"
+    },
+    {
+      "id": "t485-diff-search-1440.png saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "diff: 无结果态",
+      "ok": true,
+      "detail": "text=无匹配"
+    },
+    {
+      "id": "diff: 清除恢复",
+      "ok": true,
+      "detail": "files=1"
+    },
+    {
+      "id": "diff: 并排视图搜索（1440 pane <560 自动 unified）",
+      "ok": true,
+      "detail": "并排按钮禁用——以统一视图为准（已由组件测试覆盖并排逻辑）；disclosed"
+    },
+    {
+      "id": "bigdiff: 打开 big.txt",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "bigdiff: 默认截断+「加载完整 diff」按钮",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "bigdiff: 两步确认出现",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "t485-bigdiff-confirm-1440.png saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "bigdiff: 1MB 全量加载成功（截断消失）",
+      "ok": true,
+      "detail": "{\"truncBanner\":false,\"hunks\":1,\"rowsAfterExpand\":400}"
+    },
+    {
+      "id": "tolarge: 打开 huge.txt",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "tolarge: TOO_LARGE role=alert 且不卡顿",
+      "ok": true,
+      "detail": "alert=true alive=true"
+    },
+    {
+      "id": "t485-toolarge-1440.png saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "960: diff 搜索框可见",
+      "ok": true,
+      "detail": "{\"w\":960,\"searchVisible\":true}"
+    },
+    {
+      "id": "t485-git-960.png saved",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "480: 无横向溢出",
+      "ok": true,
+      "detail": "{\"w\":480,\"horizontal\":false}"
+    },
+    {
+      "id": "t485-git-480.png saved",
+      "ok": true,
+      "detail": null
+    }
+  ],
+  "failures": [],
+  "walk": {
+    "steps": [
+      {
+        "name": "trace-window-100",
+        "visible": 100,
+        "label": "最近 100 / 共 263 条"
+      },
+      {
+        "name": "trace-filter-toolcall",
+        "filtered": 52
+      },
+      {
+        "name": "trace-jump-focus",
+        "clicked": "7",
+        "focused": "7"
+      },
+      {
+        "name": "trace-load-earlier",
+        "before": {
+          "top": 0,
+          "height": 8332
+        },
+        "after": {
+          "top": 0,
+          "height": 16572,
+          "rows": 200
+        }
+      },
+      {
+        "name": "diff-search-token",
+        "marks": 10,
+        "rows": 10,
+        "count": "1/10 行 · 10 处"
+      },
+      {
+        "name": "diff-enter-cycle",
+        "count": "2/10 行 · 10 处"
+      },
+      {
+        "name": "diff-noresult-clear",
+        "noResult": "无匹配",
+        "restoredFiles": 1
+      },
+      {
+        "name": "bigdiff-full-load",
+        "truncBanner": false,
+        "hunks": 1,
+        "rowsAfterExpand": 400
+      },
+      {
+        "name": "toolarge",
+        "tooLarge": true,
+        "alive": true
+      }
+    ]
+  }
+}

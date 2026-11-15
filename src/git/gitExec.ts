@@ -439,9 +439,16 @@ export class GitExec {
       };
     } catch (error) {
       const err = error as { stdout?: string; stderr?: string; code?: number | string; message?: string };
+      // t485：maxBuffer 超限时 err.stderr 可能是 git 的普通警告（如 CRLF 提示），
+      // 会掩盖 err.message 中的 maxBuffer 信号——显式合并，保证 readService 能映射 TOO_LARGE。
+      const maxBufferHit =
+        err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || /maxBuffer/i.test(err.message ?? "");
+      const stderr = maxBufferHit
+        ? `${err.message ?? "stdout maxBuffer length exceeded"}\n${err.stderr ?? ""}`
+        : err.stderr || err.message || "git failed";
       return {
         stdout: redactSecrets(err.stdout ?? ""),
-        stderr: redactSecrets(err.stderr || err.message || "git failed"),
+        stderr: redactSecrets(stderr),
         code: typeof err.code === "number" ? err.code : 1,
       };
     }
