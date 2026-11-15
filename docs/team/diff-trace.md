@@ -53,7 +53,14 @@
 2. trace 过滤跳转用 `requestAnimationFrame` 可能早于 React 提交且目标 seq 可能在最新 100 窗口之外 → 改 pending-jump ref + `useLayoutEffect`，跳转时同时展开全量窗口；行 wrapper 常态 `tabIndex=-1` 保证可编程聚焦。
 3. `readService.diff` 的 page 级 max-bytes 截断（单文件场景）现在也显示「加载完整 diff」（此前仅 `file.truncated`）；diff 读取错误（含 TOO_LARGE）内联进 DiffView `role=alert`，不再只进全局 banner。
 
-## 6. 边界与后续
+## 6. t489 repair-round-2：并排命中统计 + 1440×900 补充
+
+- **并排 stats/focus 修正**：此前 `matchStats` 以 unified 原始行为基准，并排视图下一行 SideRow 可同时含旧/新命中，Enter 循环的 total 与过滤后 DOM 行数不一致。新增 `sideMatchStats`（`gitDiffSearch.ts`）——并排模式命中统计以**过滤后的 SideRow 行数**为 hitRows、旧/新两侧命中次数之和为 totalMatches；`GitDiffViewer` 按 mode 分派（unified→matchStats / side→sideMatchStats），Enter 循环 total 与 DOM 行数严格一致。
+- **测试**：`gitDiffSearch.test.ts` +3（old+new 同词一行计 1 hitRow/2 处、500 行 hitRows==filterSideRows.length 且 Enter 回绕、空查询）；`GitDiffViewer.test.tsx` +1（并排 old+new 同词组件级：过滤 SideRow=2、计数 1/2 行 · 3 处、Enter 0→1→回绕 0）。
+- **1440×900 补充**：`t489-diff-search-1440x900.png` + `t489-walkthrough-1440x900.json`（真实 Electron，viewport 1440×900，真实键盘输入 token：marks=10、计数 1/10 行 · 10 处；并排按钮在该 Dock 布局下仍禁用——pane<560，与 §5 披露一致）。
+- **后续（记录）**：真实 20k 行帧率/输入延迟量化（当前量化以 DOM 收敛行数与串行测试为准）。
+
+## 7. 边界与后续
 
 - trace 服务端游标分页（`listEventsForTask` 带 beforeSeq）留待后续——当前 2000 条上限下客户端分页已满足「不截断丢失」。
 - 1440 Dock 双栏下 Git 面板 <560 宽时并排按钮禁用（自动 unified），属既有宽度断点；并排搜索已由组件测试覆盖，真实浏览器并排截图待面板更宽场景补充。

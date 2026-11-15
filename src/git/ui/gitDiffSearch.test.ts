@@ -7,6 +7,7 @@ import {
   lineMatches,
   matchStats,
   nextMatchIndex,
+  sideMatchStats,
   sideRowMatches,
   splitHighlight,
   unifiedRowMatches,
@@ -96,5 +97,34 @@ describe("t360 gitDiffSearch：过滤", () => {
     expect(stats.hitRows).toBe(filtered[0]!.rows.length);
     expect(stats.hitRows).toBeGreaterThan(20);
     expect(stats.hitRows).toBeLessThan(200);
+  });
+});
+
+describe("t489 sideMatchStats：并排命中统计（old+new 同词）", () => {
+  it("一行旧/新同时命中只计 1 hitRow，两处 totalMatches", () => {
+    const rows = [
+      { oldText: "const token = 1;", newText: "const token = 2;" }, // 同词双命中 → 1 行 2 处
+      { oldText: "unrelated", newText: "also unrelated" },
+      { oldText: "token old only", newText: "something else" }, // 1 行 1 处
+    ];
+    expect(sideMatchStats(rows, "token")).toEqual({ hitRows: 2, totalMatches: 3 });
+  });
+
+  it("hitRows 与 filterSideRows 行数一致（Enter 循环 total = DOM 行数）", () => {
+    const rows = Array.from({ length: 500 }, (_, index) => ({
+      oldText: `old token ${index}`,
+      newText: index % 2 === 0 ? `new token ${index}` : `new plain ${index}`,
+    }));
+    const filtered = filterSideRows(rows, "token");
+    const stats = sideMatchStats(rows, "token");
+    expect(stats.hitRows).toBe(filtered.length);
+    expect(stats.hitRows).toBe(500);
+    expect(stats.totalMatches).toBe(750); // 500 旧 + 250 新
+    // Enter 循环按 hitRows 回绕。
+    expect(nextMatchIndex(stats.hitRows - 1, stats.hitRows, false)).toBe(0);
+  });
+
+  it("空查询返回 0", () => {
+    expect(sideMatchStats([{ oldText: "a", newText: "b" }], "")).toEqual({ hitRows: 0, totalMatches: 0 });
   });
 });

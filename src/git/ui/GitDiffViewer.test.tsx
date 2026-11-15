@@ -590,4 +590,69 @@ describe("t360 D1：diff 搜索与加载完整 diff", () => {
     expect(JSON.stringify(renderer.toJSON())).toContain("diff-hit");
     renderer.unmount();
   });
+
+  it("t489：并排 old+new 同词——hitRows 以过滤 SideRow 为准，Enter 循环一致", async () => {
+    // 结构：delete "old token" → add "new token"（buildSideBySide 配成一行旧/新同词命中）。
+    const sideDiff: GitDiffPage = {
+      bytes: 100,
+      truncated: false,
+      binary: false,
+      submodule: false,
+      files: [
+        {
+          path: "src/side.ts",
+          status: "M",
+          binary: false,
+          submodule: false,
+          truncated: false,
+          hunks: [
+            {
+              header: "@@ -1,4 +1,4 @@",
+              lines: [
+                { kind: " ", text: "context" },
+                { kind: "-", text: "alpha token v1" },
+                { kind: "+", text: "alpha token v2" },
+                { kind: " ", text: "gap" },
+                { kind: "-", text: "beta plain" },
+                { kind: "+", text: "beta token v3" },
+                { kind: " ", text: "tail" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const { act, create } = TestRenderer as any;
+    let renderer: any;
+    await act(async () => {
+      renderer = create(<GitDiffViewer diff={sideDiff} availableWidth={900} />);
+    });
+    const sideButton = renderer.root
+      .findAllByType("button")
+      .find((node: any) => String(node.props.children) === "并排");
+    await act(async () => {
+      sideButton.props.onClick();
+    });
+    const input = findSearchInput(renderer.root);
+    await act(async () => {
+      input.props.onChange({ target: { value: "token" } });
+    });
+    // 过滤后的 SideRow：alpha（旧+新同词=1 行）+ beta（新侧=1 行）→ 2 行 3 处。
+    const sideRows = renderer.root.findAll((node: any) =>
+      String(node.props.className ?? "").includes("git-diff-side-row"),
+    );
+    expect(sideRows.length).toBe(2);
+    expect(statusCountText(renderer.root)).toBe("1/2 行 · 3 处");
+    // Enter 循环 total 与 DOM 行数一致：0→1→回绕 0。
+    await act(async () => {
+      input.props.onKeyDown({ key: "Enter", preventDefault() {} });
+    });
+    expect(statusCountText(renderer.root)).toBe("2/2 行 · 3 处");
+    await act(async () => {
+      input.props.onKeyDown({ key: "Enter", preventDefault() {} });
+    });
+    expect(statusCountText(renderer.root)).toBe("1/2 行 · 3 处");
+    expect(JSON.stringify(renderer.toJSON())).toContain("diff-hit");
+    renderer.unmount();
+  });
 });

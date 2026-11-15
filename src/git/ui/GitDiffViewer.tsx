@@ -6,6 +6,7 @@ import {
   lineMatches,
   matchStats,
   nextMatchIndex,
+  sideMatchStats,
   splitHighlight,
 } from "./gitDiffSearch.js";
 import "./gitWorkingDiff.css";
@@ -444,7 +445,8 @@ export function GitDiffViewer({
     setMatchIndex(0);
   }, [trimmed]);
 
-  // t360 D1：命中统计（对全量行，不受 400 行渲染窗口影响）。
+  // t360 D1 / t489：命中统计（对全量行，不受 400 行渲染窗口影响）。
+  // 并排模式以过滤后的 SideRow 行数为准（一行可同时含旧/新命中），Enter 循环 total 与 DOM 行数一致。
   const allRowTexts = useMemo(() => {
     if (!diff) return [] as Array<{ text: string }>;
     const texts: Array<{ text: string }> = [];
@@ -455,7 +457,23 @@ export function GitDiffViewer({
     }
     return texts;
   }, [diff]);
-  const stats = useMemo(() => matchStats(allRowTexts, trimmed), [allRowTexts, trimmed]);
+  const allSideRows = useMemo(() => {
+    if (!diff) return [] as SideRow[];
+    const rows: SideRow[] = [];
+    for (const file of diff.files) {
+      for (const hunk of numberHunk(file)) {
+        rows.push(...buildSideBySide(hunk.rows));
+      }
+    }
+    return rows;
+  }, [diff]);
+  const stats = useMemo(
+    () =>
+      mode === "side"
+        ? sideMatchStats(allSideRows, trimmed)
+        : matchStats(allRowTexts, trimmed),
+    [mode, allSideRows, allRowTexts, trimmed],
+  );
 
   function focusMatch(direction: 1 | -1) {
     if (!searching || stats.hitRows === 0) return;

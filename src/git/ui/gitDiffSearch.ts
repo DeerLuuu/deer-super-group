@@ -114,3 +114,23 @@ export function nextMatchIndex(current: number, total: number, backward: boolean
   if (backward) return (current - 1 + total) % total;
   return (current + 1) % total;
 }
+
+/**
+ * t489：并排视图命中统计——以过滤后的 SideRow 行数为准（一行可同时含旧/新命中）。
+ * 与 unified 的 matchStats 分开定义：Enter 循环的 total 必须等于 DOM 中过滤行数。
+ */
+export function sideMatchStats<R extends SideRowLike>(
+  rows: R[],
+  query: string,
+): { hitRows: number; totalMatches: number } {
+  if (!query) return { hitRows: 0, totalMatches: 0 };
+  let hitRows = 0;
+  let totalMatches = 0;
+  for (const row of rows) {
+    if (!sideRowMatches(row, query)) continue;
+    hitRows += 1;
+    if (row.oldText != null) totalMatches += countLineMatches(row.oldText, query);
+    if (row.newText != null) totalMatches += countLineMatches(row.newText, query);
+  }
+  return { hitRows, totalMatches };
+}
