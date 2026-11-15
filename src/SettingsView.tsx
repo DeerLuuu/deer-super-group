@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  FontScale,
   LlmSettings,
   ModelProfile,
   ProviderProfile,
@@ -10,8 +11,11 @@ import type {
 import {
   CHAT_HISTORY_LIMIT_OPTIONS,
   DEFAULT_CHAT_HISTORY_LIMIT,
+  DEFAULT_FONT_SCALE,
   DEFAULT_MAX_DOCK_GROUPS,
+  FONT_SCALE_OPTIONS,
   normalizeChatHistoryLimit,
+  normalizeFontScale,
   normalizeMaxDockGroups,
 } from "./shared/types";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models";
@@ -31,7 +35,7 @@ export type SettingsSection =
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string }> = [
   { id: "models", label: "模型", hint: "供应商、模型与参数" },
-  { id: "interface", label: "界面", hint: "Dock 分栏与布局" },
+  { id: "interface", label: "界面", hint: "字号、Dock 分栏与布局" },
   { id: "translation", label: "翻译", hint: "思考机翻源" },
   { id: "git", label: "Git", hint: "分支、worktree 与合并" },
   { id: "plugins", label: "插件", hint: "扩展与工具集" },
@@ -95,6 +99,9 @@ export default function SettingsView({
   const [chatHistoryLimit, setChatHistoryLimit] = useState(
     normalizeChatHistoryLimit(snapshot.settings.layout?.chatHistoryLimit),
   );
+  const [fontScale, setFontScale] = useState<FontScale>(
+    normalizeFontScale(snapshot.settings.layout?.fontScale),
+  );
   const [activeProviderId, setActiveProviderId] = useState(
     snapshot.settings.providers[0]?.id ?? "",
   );
@@ -127,6 +134,7 @@ export default function SettingsView({
     JSON.stringify({
       maxDockGroups: normalizeMaxDockGroups(snapshot.settings.layout?.maxDockGroups),
       chatHistoryLimit: normalizeChatHistoryLimit(snapshot.settings.layout?.chatHistoryLimit),
+      fontScale: normalizeFontScale(snapshot.settings.layout?.fontScale),
     }),
   );
 
@@ -141,7 +149,7 @@ export default function SettingsView({
     [defaultModel, mock, models, providers],
   );
   const translationFingerprint = translation ? JSON.stringify(translation) : null;
-  const layoutFingerprint = JSON.stringify({ maxDockGroups, chatHistoryLimit });
+  const layoutFingerprint = JSON.stringify({ maxDockGroups, chatHistoryLimit, fontScale });
   const dirty =
     modelFingerprint !== modelBaselineRef.current ||
     layoutFingerprint !== layoutBaselineRef.current ||
@@ -361,6 +369,7 @@ export default function SettingsView({
     const first = providers[0] ?? defaultProviderProfile();
     const nextMaxDockGroups = normalizeMaxDockGroups(maxDockGroups);
     const nextChatHistoryLimit = normalizeChatHistoryLimit(chatHistoryLimit);
+    const nextFontScale = normalizeFontScale(fontScale);
     const payload: LlmSettings = {
       baseUrl: first.baseUrl,
       baseUrlEnv: first.baseUrlEnv,
@@ -373,6 +382,7 @@ export default function SettingsView({
       layout: {
         maxDockGroups: nextMaxDockGroups,
         chatHistoryLimit: nextChatHistoryLimit,
+        fontScale: nextFontScale,
       },
     };
     const fingerprint = JSON.stringify({
@@ -389,9 +399,11 @@ export default function SettingsView({
         modelBaselineRef.current = fingerprint;
         setMaxDockGroups(nextMaxDockGroups);
         setChatHistoryLimit(nextChatHistoryLimit);
+        setFontScale(nextFontScale);
         layoutBaselineRef.current = JSON.stringify({
           maxDockGroups: nextMaxDockGroups,
           chatHistoryLimit: nextChatHistoryLimit,
+          fontScale: nextFontScale,
         });
         setSaveStatus({ kind: "success", message: "已保存" });
       } else {
@@ -857,6 +869,47 @@ export default function SettingsView({
               <span className="badge">当前 {maxDockGroups} 栏</span>
             </div>
             <div className="settings-block-body">
+              <fieldset className="settings-fieldset settings-font-scale">
+                <legend>界面字号</legend>
+                <div
+                  className="settings-radio-row"
+                  role="radiogroup"
+                  aria-label="界面字号档位"
+                >
+                  {FONT_SCALE_OPTIONS.map((option) => (
+                    <label key={option.id} className="settings-radio-option">
+                      <input
+                        type="radio"
+                        name="ui-font-scale"
+                        value={option.id}
+                        checked={fontScale === option.id}
+                        aria-label={`界面字号：${option.label}`}
+                        onChange={() => setFontScale(option.id)}
+                      />
+                      <span>{option.label}</span>
+                      <span className="muted tiny">
+                        正文 {option.bodyPx}px · 小字 {option.smallPx}px · 代码 {option.codePx}px
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="settings-font-preview" role="group" aria-label="字号预览">
+                  <div className="settings-font-preview-line">
+                    <span className="muted tiny">正文/控件</span>
+                    <span>Router 正在检查登录接口…</span>
+                  </div>
+                  <code>const answer = 42;</code>
+                  <div className="settings-font-preview-thinking">
+                    思考：先确认鉴权中间件，再检查错误码分支。
+                  </div>
+                  <div className="settings-font-preview-translation">
+                    翻译：Checking the authentication middleware.
+                  </div>
+                </div>
+                <div className="muted tiny">
+                  小/标准/大等比缩放正文、控件、代码、思考与翻译；默认标准。保存后即时生效，刷新保持。
+                </div>
+              </fieldset>
               <label>
                 最大分栏数
                 <select

@@ -1,0 +1,1368 @@
+{
+  "at": "2026-11-15T18:49:12.715Z",
+  "results": [
+    {
+      "scale": "small",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "11.96px",
+      "preview": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 390,
+          "y": 363.46875,
+          "width": 886,
+          "height": 108.890625,
+          "top": 363.46875,
+          "right": 1276,
+          "bottom": 472.359375,
+          "left": 390
+        }
+      },
+      "bodyPreview": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 403,
+          "y": 374.46875,
+          "width": 860,
+          "height": 17.921875,
+          "top": 374.46875,
+          "right": 1263,
+          "bottom": 392.390625,
+          "left": 403
+        }
+      },
+      "code": {
+        "font": "12.88px",
+        "lineHeight": "20.608px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 403,
+          "y": 398.390625,
+          "width": 860,
+          "height": 20.59375,
+          "top": 398.390625,
+          "right": 1263,
+          "bottom": 418.984375,
+          "left": 403
+        }
+      },
+      "thinking": {
+        "font": "10.12px",
+        "lineHeight": "15.18px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 403,
+          "y": 424.984375,
+          "width": 860,
+          "height": 15.1875,
+          "top": 424.984375,
+          "right": 1263,
+          "bottom": 440.171875,
+          "left": 403
+        }
+      },
+      "translation": {
+        "font": "10.12px",
+        "lineHeight": "15.18px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 403,
+          "y": 446.171875,
+          "width": 860,
+          "height": 15.1875,
+          "top": 446.171875,
+          "right": 1263,
+          "bottom": 461.359375,
+          "left": 403
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": true
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "modal": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 130,
+          "y": 116.875,
+          "width": 1180,
+          "height": 666.25,
+          "top": 116.875,
+          "right": 1310,
+          "bottom": 783.125,
+          "left": 130
+        }
+      }
+    },
+    {
+      "scale": "small",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "11.96px",
+      "preview": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 58,
+          "y": 449.78125,
+          "width": 829,
+          "height": 108.890625,
+          "top": 449.78125,
+          "right": 887,
+          "bottom": 558.671875,
+          "left": 58
+        }
+      },
+      "bodyPreview": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 71,
+          "y": 460.78125,
+          "width": 803,
+          "height": 17.921875,
+          "top": 460.78125,
+          "right": 874,
+          "bottom": 478.703125,
+          "left": 71
+        }
+      },
+      "code": {
+        "font": "12.88px",
+        "lineHeight": "20.608px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 71,
+          "y": 484.703125,
+          "width": 803,
+          "height": 20.59375,
+          "top": 484.703125,
+          "right": 874,
+          "bottom": 505.296875,
+          "left": 71
+        }
+      },
+      "thinking": {
+        "font": "10.12px",
+        "lineHeight": "15.18px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 71,
+          "y": 511.296875,
+          "width": 803,
+          "height": 15.1875,
+          "top": 511.296875,
+          "right": 874,
+          "bottom": 526.484375,
+          "left": 71
+        }
+      },
+      "translation": {
+        "font": "10.12px",
+        "lineHeight": "15.18px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 71,
+          "y": 532.484375,
+          "width": 803,
+          "height": 15.1875,
+          "top": 532.484375,
+          "right": 874,
+          "bottom": 547.671875,
+          "left": 71
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": true
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "modal": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 912,
+          "height": 704,
+          "top": 48,
+          "right": 936,
+          "bottom": 752,
+          "left": 24
+        }
+      }
+    },
+    {
+      "scale": "small",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "11.96px",
+      "preview": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 58,
+          "y": 508.375,
+          "width": 349,
+          "height": 108.890625,
+          "top": 508.375,
+          "right": 407,
+          "bottom": 617.265625,
+          "left": 58
+        }
+      },
+      "bodyPreview": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 71,
+          "y": 519.375,
+          "width": 323,
+          "height": 17.921875,
+          "top": 519.375,
+          "right": 394,
+          "bottom": 537.296875,
+          "left": 71
+        }
+      },
+      "code": {
+        "font": "12.88px",
+        "lineHeight": "20.608px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 71,
+          "y": 543.296875,
+          "width": 323,
+          "height": 20.59375,
+          "top": 543.296875,
+          "right": 394,
+          "bottom": 563.890625,
+          "left": 71
+        }
+      },
+      "thinking": {
+        "font": "10.12px",
+        "lineHeight": "15.18px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 71,
+          "y": 569.890625,
+          "width": 323,
+          "height": 15.1875,
+          "top": 569.890625,
+          "right": 394,
+          "bottom": 585.078125,
+          "left": 71
+        }
+      },
+      "translation": {
+        "font": "10.12px",
+        "lineHeight": "15.18px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 71,
+          "y": 591.078125,
+          "width": 323,
+          "height": 15.1875,
+          "top": 591.078125,
+          "right": 394,
+          "bottom": 606.265625,
+          "left": 71
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": true
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "modal": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 432,
+          "height": 704,
+          "top": 48,
+          "right": 456,
+          "bottom": 752,
+          "left": 24
+        }
+      }
+    },
+    {
+      "scale": "standard",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "13px",
+      "preview": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 390,
+          "y": 357.328125,
+          "width": 886,
+          "height": 114.890625,
+          "top": 357.328125,
+          "right": 1276,
+          "bottom": 472.21875,
+          "left": 390
+        }
+      },
+      "bodyPreview": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 403,
+          "y": 368.328125,
+          "width": 860,
+          "height": 19.5,
+          "top": 368.328125,
+          "right": 1263,
+          "bottom": 387.828125,
+          "left": 403
+        }
+      },
+      "code": {
+        "font": "14px",
+        "lineHeight": "22.4px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 403,
+          "y": 393.828125,
+          "width": 860,
+          "height": 22.390625,
+          "top": 393.828125,
+          "right": 1263,
+          "bottom": 416.21875,
+          "left": 403
+        }
+      },
+      "thinking": {
+        "font": "11px",
+        "lineHeight": "16.5px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 403,
+          "y": 422.21875,
+          "width": 860,
+          "height": 16.5,
+          "top": 422.21875,
+          "right": 1263,
+          "bottom": 438.71875,
+          "left": 403
+        }
+      },
+      "translation": {
+        "font": "11px",
+        "lineHeight": "16.5px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 403,
+          "y": 444.71875,
+          "width": 860,
+          "height": 16.5,
+          "top": 444.71875,
+          "right": 1263,
+          "bottom": 461.21875,
+          "left": 403
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": true
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "modal": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 130,
+          "y": 106.703125,
+          "width": 1180,
+          "height": 686.578125,
+          "top": 106.703125,
+          "right": 1310,
+          "bottom": 793.28125,
+          "left": 130
+        }
+      }
+    },
+    {
+      "scale": "standard",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "13px",
+      "preview": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 58,
+          "y": 459.5,
+          "width": 829,
+          "height": 114.890625,
+          "top": 459.5,
+          "right": 887,
+          "bottom": 574.390625,
+          "left": 58
+        }
+      },
+      "bodyPreview": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 71,
+          "y": 470.5,
+          "width": 803,
+          "height": 19.5,
+          "top": 470.5,
+          "right": 874,
+          "bottom": 490,
+          "left": 71
+        }
+      },
+      "code": {
+        "font": "14px",
+        "lineHeight": "22.4px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 71,
+          "y": 496,
+          "width": 803,
+          "height": 22.390625,
+          "top": 496,
+          "right": 874,
+          "bottom": 518.390625,
+          "left": 71
+        }
+      },
+      "thinking": {
+        "font": "11px",
+        "lineHeight": "16.5px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 71,
+          "y": 524.390625,
+          "width": 803,
+          "height": 16.5,
+          "top": 524.390625,
+          "right": 874,
+          "bottom": 540.890625,
+          "left": 71
+        }
+      },
+      "translation": {
+        "font": "11px",
+        "lineHeight": "16.5px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 71,
+          "y": 546.890625,
+          "width": 803,
+          "height": 16.5,
+          "top": 546.890625,
+          "right": 874,
+          "bottom": 563.390625,
+          "left": 71
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": true
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "modal": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 912,
+          "height": 704,
+          "top": 48,
+          "right": 936,
+          "bottom": 752,
+          "left": 24
+        }
+      }
+    },
+    {
+      "scale": "standard",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "13px",
+      "preview": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 58,
+          "y": 520.9375,
+          "width": 349,
+          "height": 114.890625,
+          "top": 520.9375,
+          "right": 407,
+          "bottom": 635.828125,
+          "left": 58
+        }
+      },
+      "bodyPreview": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 71,
+          "y": 531.9375,
+          "width": 323,
+          "height": 19.5,
+          "top": 531.9375,
+          "right": 394,
+          "bottom": 551.4375,
+          "left": 71
+        }
+      },
+      "code": {
+        "font": "14px",
+        "lineHeight": "22.4px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 71,
+          "y": 557.4375,
+          "width": 323,
+          "height": 22.390625,
+          "top": 557.4375,
+          "right": 394,
+          "bottom": 579.828125,
+          "left": 71
+        }
+      },
+      "thinking": {
+        "font": "11px",
+        "lineHeight": "16.5px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 71,
+          "y": 585.828125,
+          "width": 323,
+          "height": 16.5,
+          "top": 585.828125,
+          "right": 394,
+          "bottom": 602.328125,
+          "left": 71
+        }
+      },
+      "translation": {
+        "font": "11px",
+        "lineHeight": "16.5px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 71,
+          "y": 608.328125,
+          "width": 323,
+          "height": 16.5,
+          "top": 608.328125,
+          "right": 394,
+          "bottom": 624.828125,
+          "left": 71
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": true
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "modal": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 432,
+          "height": 704,
+          "top": 48,
+          "right": 456,
+          "bottom": 752,
+          "left": 24
+        }
+      }
+    },
+    {
+      "scale": "large",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "14.95px",
+      "preview": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 390,
+          "y": 343.6875,
+          "width": 886,
+          "height": 126.140625,
+          "top": 343.6875,
+          "right": 1276,
+          "bottom": 469.828125,
+          "left": 390
+        }
+      },
+      "bodyPreview": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 403,
+          "y": 354.6875,
+          "width": 860,
+          "height": 22.421875,
+          "top": 354.6875,
+          "right": 1263,
+          "bottom": 377.109375,
+          "left": 403
+        }
+      },
+      "code": {
+        "font": "16.1px",
+        "lineHeight": "25.76px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 403,
+          "y": 383.109375,
+          "width": 860,
+          "height": 25.75,
+          "top": 383.109375,
+          "right": 1263,
+          "bottom": 408.859375,
+          "left": 403
+        }
+      },
+      "thinking": {
+        "font": "12.65px",
+        "lineHeight": "18.975px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 403,
+          "y": 414.859375,
+          "width": 860,
+          "height": 18.984375,
+          "top": 414.859375,
+          "right": 1263,
+          "bottom": 433.84375,
+          "left": 403
+        }
+      },
+      "translation": {
+        "font": "12.65px",
+        "lineHeight": "18.975px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 403,
+          "y": 439.84375,
+          "width": 860,
+          "height": 18.984375,
+          "top": 439.84375,
+          "right": 1263,
+          "bottom": 458.828125,
+          "left": 403
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": true
+        }
+      ],
+      "modal": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 130,
+          "y": 85.4375,
+          "width": 1180,
+          "height": 729.109375,
+          "top": 85.4375,
+          "right": 1310,
+          "bottom": 814.546875,
+          "left": 130
+        }
+      }
+    },
+    {
+      "scale": "large",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "14.95px",
+      "preview": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 58,
+          "y": 477.78125,
+          "width": 829,
+          "height": 126.140625,
+          "top": 477.78125,
+          "right": 887,
+          "bottom": 603.921875,
+          "left": 58
+        }
+      },
+      "bodyPreview": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 71,
+          "y": 488.78125,
+          "width": 803,
+          "height": 22.421875,
+          "top": 488.78125,
+          "right": 874,
+          "bottom": 511.203125,
+          "left": 71
+        }
+      },
+      "code": {
+        "font": "16.1px",
+        "lineHeight": "25.76px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 71,
+          "y": 517.203125,
+          "width": 803,
+          "height": 25.75,
+          "top": 517.203125,
+          "right": 874,
+          "bottom": 542.953125,
+          "left": 71
+        }
+      },
+      "thinking": {
+        "font": "12.65px",
+        "lineHeight": "18.975px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 71,
+          "y": 548.953125,
+          "width": 803,
+          "height": 18.984375,
+          "top": 548.953125,
+          "right": 874,
+          "bottom": 567.9375,
+          "left": 71
+        }
+      },
+      "translation": {
+        "font": "12.65px",
+        "lineHeight": "18.975px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 71,
+          "y": 573.9375,
+          "width": 803,
+          "height": 18.984375,
+          "top": 573.9375,
+          "right": 874,
+          "bottom": 592.921875,
+          "left": 71
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": true
+        }
+      ],
+      "modal": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 912,
+          "height": 704,
+          "top": 48,
+          "right": 936,
+          "bottom": 752,
+          "left": 24
+        }
+      }
+    },
+    {
+      "scale": "large",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "14.95px",
+      "preview": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the authentication middl",
+        "rect": {
+          "x": 58,
+          "y": 611.3125,
+          "width": 349,
+          "height": 126.140625,
+          "top": 611.3125,
+          "right": 407,
+          "bottom": 737.453125,
+          "left": 58
+        }
+      },
+      "bodyPreview": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "正文/控件\nRouter 正在检查登录接口…",
+        "rect": {
+          "x": 71,
+          "y": 622.3125,
+          "width": 323,
+          "height": 22.421875,
+          "top": 622.3125,
+          "right": 394,
+          "bottom": 644.734375,
+          "left": 71
+        }
+      },
+      "code": {
+        "font": "16.1px",
+        "lineHeight": "25.76px",
+        "n": 1,
+        "text": "const answer = 42;",
+        "rect": {
+          "x": 71,
+          "y": 650.734375,
+          "width": 323,
+          "height": 25.75,
+          "top": 650.734375,
+          "right": 394,
+          "bottom": 676.484375,
+          "left": 71
+        }
+      },
+      "thinking": {
+        "font": "12.65px",
+        "lineHeight": "18.975px",
+        "n": 1,
+        "text": "思考：先确认鉴权中间件，再检查错误码分支。",
+        "rect": {
+          "x": 71,
+          "y": 682.484375,
+          "width": 323,
+          "height": 18.984375,
+          "top": 682.484375,
+          "right": 394,
+          "bottom": 701.46875,
+          "left": 71
+        }
+      },
+      "translation": {
+        "font": "12.65px",
+        "lineHeight": "18.975px",
+        "n": 1,
+        "text": "翻译：Checking the authentication middleware.",
+        "rect": {
+          "x": 71,
+          "y": 707.46875,
+          "width": 323,
+          "height": 18.984375,
+          "top": 707.46875,
+          "right": 394,
+          "bottom": 726.453125,
+          "left": 71
+        }
+      },
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": true
+        }
+      ],
+      "modal": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "n": 1,
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机翻源\nGit\n分支、worktree 与",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 432,
+          "height": 704,
+          "top": 48,
+          "right": 456,
+          "bottom": 752,
+          "left": 24
+        }
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "ok": true,
+      "assert": "settings-small-1440",
+      "modal": {
+        "x": 130,
+        "y": 116.875,
+        "width": 1180,
+        "height": 666.25,
+        "top": 116.875,
+        "right": 1310,
+        "bottom": 783.125,
+        "left": 130
+      },
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "radios": [
+        {
+          "value": "small",
+          "checked": true
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "preview": "11.96px",
+      "code": "12.88px",
+      "thinking": "10.12px",
+      "translation": "10.12px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-small-960",
+      "modal": {
+        "x": 24,
+        "y": 48,
+        "width": 912,
+        "height": 704,
+        "top": 48,
+        "right": 936,
+        "bottom": 752,
+        "left": 24
+      },
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "radios": [
+        {
+          "value": "small",
+          "checked": true
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "preview": "11.96px",
+      "code": "12.88px",
+      "thinking": "10.12px",
+      "translation": "10.12px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-small-480",
+      "modal": {
+        "x": 24,
+        "y": 48,
+        "width": 432,
+        "height": 704,
+        "top": 48,
+        "right": 456,
+        "bottom": 752,
+        "left": 24
+      },
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "radios": [
+        {
+          "value": "small",
+          "checked": true
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "preview": "11.96px",
+      "code": "12.88px",
+      "thinking": "10.12px",
+      "translation": "10.12px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-standard-1440",
+      "modal": {
+        "x": 130,
+        "y": 106.703125,
+        "width": 1180,
+        "height": 686.578125,
+        "top": 106.703125,
+        "right": 1310,
+        "bottom": 793.28125,
+        "left": 130
+      },
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": true
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "preview": "13px",
+      "code": "14px",
+      "thinking": "11px",
+      "translation": "11px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-standard-960",
+      "modal": {
+        "x": 24,
+        "y": 48,
+        "width": 912,
+        "height": 704,
+        "top": 48,
+        "right": 936,
+        "bottom": 752,
+        "left": 24
+      },
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": true
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "preview": "13px",
+      "code": "14px",
+      "thinking": "11px",
+      "translation": "11px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-standard-480",
+      "modal": {
+        "x": 24,
+        "y": 48,
+        "width": 432,
+        "height": 704,
+        "top": 48,
+        "right": 456,
+        "bottom": 752,
+        "left": 24
+      },
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": true
+        },
+        {
+          "value": "large",
+          "checked": false
+        }
+      ],
+      "preview": "13px",
+      "code": "14px",
+      "thinking": "11px",
+      "translation": "11px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-large-1440",
+      "modal": {
+        "x": 130,
+        "y": 85.4375,
+        "width": 1180,
+        "height": 729.109375,
+        "top": 85.4375,
+        "right": 1310,
+        "bottom": 814.546875,
+        "left": 130
+      },
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": true
+        }
+      ],
+      "preview": "14.95px",
+      "code": "16.1px",
+      "thinking": "12.65px",
+      "translation": "12.65px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-large-960",
+      "modal": {
+        "x": 24,
+        "y": 48,
+        "width": 912,
+        "height": 704,
+        "top": 48,
+        "right": 936,
+        "bottom": 752,
+        "left": 24
+      },
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": true
+        }
+      ],
+      "preview": "14.95px",
+      "code": "16.1px",
+      "thinking": "12.65px",
+      "translation": "12.65px"
+    },
+    {
+      "ok": true,
+      "assert": "settings-large-480",
+      "modal": {
+        "x": 24,
+        "y": 48,
+        "width": 432,
+        "height": 704,
+        "top": 48,
+        "right": 456,
+        "bottom": 752,
+        "left": 24
+      },
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "radios": [
+        {
+          "value": "small",
+          "checked": false
+        },
+        {
+          "value": "standard",
+          "checked": false
+        },
+        {
+          "value": "large",
+          "checked": true
+        }
+      ],
+      "preview": "14.95px",
+      "code": "16.1px",
+      "thinking": "12.65px",
+      "translation": "12.65px"
+    }
+  ],
+  "pass": 9,
+  "total": 9
+}

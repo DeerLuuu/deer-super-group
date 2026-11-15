@@ -1,0 +1,79 @@
+{
+  "at": "2026-11-15T18:40:38.423Z",
+  "metrics": {
+    "scale": "1",
+    "bubble": {
+      "font": "14px",
+      "lineHeight": "21px",
+      "text": "",
+      "rect": {
+        "x": 428.296875,
+        "y": 1071.625,
+        "width": 377.703125,
+        "height": 66.59375,
+        "top": 1071.625,
+        "right": 806,
+        "bottom": 1138.21875,
+        "left": 428.296875
+      }
+    },
+    "markdownPre": {
+      "font": "14px",
+      "lineHeight": "22.4px",
+      "text": "",
+      "rect": {
+        "x": 136,
+        "y": 1414.65625,
+        "width": 345.921875,
+        "height": 44.390625,
+        "top": 1414.65625,
+        "right": 481.921875,
+        "bottom": 1459.046875,
+        "left": 136
+      }
+    },
+    "reasoning": {
+      "font": "14px",
+      "lineHeight": "21px",
+      "text": "先确认鉴权中间件，再检查错误码分支。",
+      "rect": {
+        "x": 158,
+        "y": 1244.46875,
+        "width": 312.921875,
+        "height": 58.59375,
+        "top": 1244.46875,
+        "right": 470.921875,
+        "bottom": 1303.0625,
+        "left": 158
+      }
+    },
+    "reasoningPre": {
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "text": "先确认鉴权中间件，再检查错误码分支。",
+      "rect": {
+        "x": 158,
+        "y": 1267.96875,
+        "width": 312.921875,
+        "height": 35.09375,
+        "top": 1267.96875,
+        "right": 470.921875,
+        "bottom": 1303.0625,
+        "left": 158
+      }
+    },
+    "reasoningLabel": null,
+    "translationPre": null,
+    "scrollWidth": 1440,
+    "innerWidth": 1440,
+    "translation": {
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "labelFont": "11px",
+      "labelLineHeight": "16.5px",
+      "text": "先检查身份验证中间件，然后检查 401/403 分支。",
+      "screenshot": "t364-chat-translation-standard-1440.png"
+    }
+  },
+  "note": "ChatView 在 fixture 的 Dock overlay 默认 hidden；截图中将既有 overlay 设为 visible（不改 markdown/字号 DOM）。Task/Mailbox 为 #/tasks/#/mailbox 实际路由。"
+}

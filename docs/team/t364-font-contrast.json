@@ -1,0 +1,78 @@
+{
+  "at": "2026-11-15T18:36:52.054Z",
+  "colors": {
+    "bg": "#0d1117",
+    "panel": "#151b24",
+    "bg2": "#11161d",
+    "text": "#e6edf3",
+    "muted": "#8b98a9",
+    "accent": "#58a6ff",
+    "accent2": "#79c0ff",
+    "green": "#3fb950",
+    "yellow": "#d29922",
+    "red": "#f85149",
+    "purple": "#bc8cff"
+  },
+  "ratios": {
+    "textBg": {
+      "fg": "#e6edf3",
+      "bg": "#0d1117",
+      "ratio": 16.02
+    },
+    "textPanel": {
+      "fg": "#e6edf3",
+      "bg": "#151b24",
+      "ratio": 14.64
+    },
+    "mutedBg": {
+      "fg": "#8b98a9",
+      "bg": "#0d1117",
+      "ratio": 6.45
+    },
+    "mutedPanel": {
+      "fg": "#8b98a9",
+      "bg": "#151b24",
+      "ratio": 5.9
+    },
+    "accentBg": {
+      "fg": "#58a6ff",
+      "bg": "#0d1117",
+      "ratio": 7.49
+    },
+    "greenBg": {
+      "fg": "#3fb950",
+      "bg": "#0d1117",
+      "ratio": 7.45
+    },
+    "yellowBg": {
+      "fg": "#d29922",
+      "bg": "#0d1117",
+      "ratio": 7.5
+    },
+    "redBg": {
+      "fg": "#f85149",
+      "bg": "#0d1117",
+      "ratio": 5.65
+    },
+    "purpleBg": {
+      "fg": "#bc8cff",
+      "bg": "#0d1117",
+      "ratio": 7.51
+    },
+    "accent2Bg": {
+      "fg": "#79c0ff",
+      "bg": "#0d1117",
+      "ratio": 9.73
+    }
+  },
+  "lineHeights": {
+    "body": "1.65 (chat-content 23.1px / 14px)",
+    "markdown": "1.7 (23.8px / 14px)",
+    "reasoningPre": "1.65 (23.1px / 14px)",
+    "translationPre": "1.65 existing",
+    "taskRow": "1.5 (19.5px / 13px)",
+    "mailboxThreadBody": "1.6 (20.8px / 13px)",
+    "settingsPreview": "normal (inherit)"
+  },
+  "note": "t364 只改 font-size；颜色 token 与 line-height 规则未改，对比度沿用既有 token，且与字号无关。"
+}

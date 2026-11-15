@@ -1,0 +1,72 @@
+{
+  "at": "2026-11-15T18:47:14.302Z",
+  "metrics": {
+    "translation": {
+      "font": "14px",
+      "lineHeight": "21px",
+      "text": "机翻\n先检查身份验证中间件，然后检查 401/403 分支。",
+      "n": 1,
+      "rect": {
+        "x": 159,
+        "y": 422.65625,
+        "width": 337.28125,
+        "height": 60.59375,
+        "top": 422.65625,
+        "right": 496.28125,
+        "bottom": 483.25,
+        "left": 159
+      }
+    },
+    "translationPre": {
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "text": "先检查身份验证中间件，然后检查 401/403 分支。",
+      "n": 1,
+      "rect": {
+        "x": 159,
+        "y": 448.15625,
+        "width": 337.28125,
+        "height": 35.09375,
+        "top": 448.15625,
+        "right": 496.28125,
+        "bottom": 483.25,
+        "left": 159
+      }
+    },
+    "translationLabel": {
+      "font": "11px",
+      "lineHeight": "16.5px",
+      "text": "机翻",
+      "n": 1,
+      "rect": {
+        "x": 159,
+        "y": 428.65625,
+        "width": 337.28125,
+        "height": 16.5,
+        "top": 428.65625,
+        "right": 496.28125,
+        "bottom": 445.15625,
+        "left": 159
+      }
+    },
+    "status": null,
+    "reasoning": {
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "text": "先检查身份验证中间件，然后检查 401/403 分支。",
+      "n": 1,
+      "rect": {
+        "x": 159,
+        "y": 448.15625,
+        "width": 337.28125,
+        "height": 35.09375,
+        "top": 448.15625,
+        "right": 496.28125,
+        "bottom": 483.25,
+        "left": 159
+      }
+    },
+    "scrollWidth": 1440,
+    "innerWidth": 1440
+  }
+}

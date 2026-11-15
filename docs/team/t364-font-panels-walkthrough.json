@@ -1,0 +1,2692 @@
+{
+  "at": "2026-11-15T18:41:22.044Z",
+  "mode": "real Electron: ChatView rendered via existing Dock overlay made visible in fixture; TasksView/MailboxView via #/tasks,#/mailbox; production CSS",
+  "results": [
+    {
+      "panel": "chat",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "11.96px",
+      "bubble": {
+        "font": "12.88px",
+        "lineHeight": "19.32px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 1015.4375,
+          "y": 211.59375,
+          "width": 349.5625,
+          "height": 63.421875,
+          "top": 211.59375,
+          "right": 1365,
+          "bottom": 275.015625,
+          "left": 1015.4375
+        }
+      },
+      "content": {
+        "font": "12.88px",
+        "lineHeight": "21.252px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 1028.4375,
+          "y": 242.78125,
+          "width": 323.5625,
+          "height": 21.234375,
+          "top": 242.78125,
+          "right": 1352,
+          "bottom": 264.015625,
+          "left": 1028.4375
+        }
+      },
+      "markdown": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 350.703125,
+          "width": 320.328125,
+          "height": 156.21875,
+          "top": 350.703125,
+          "right": 456.328125,
+          "bottom": 506.921875,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 485.046875,
+          "width": 320.328125,
+          "height": 21.875,
+          "top": 485.046875,
+          "right": 456.328125,
+          "bottom": 506.921875,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 154.671875,
+          "y": 376.4375,
+          "width": 301.65625,
+          "height": 21.875,
+          "top": 376.4375,
+          "right": 456.328125,
+          "bottom": 398.3125,
+          "left": 154.671875
+        }
+      },
+      "markdownPre": {
+        "font": "12.88px",
+        "lineHeight": "20.608px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 432.15625,
+          "width": 320.328125,
+          "height": 42.59375,
+          "top": 432.15625,
+          "right": 456.328125,
+          "bottom": 474.75,
+          "left": 136
+        }
+      },
+      "reasoningPre": null,
+      "translationPre": null,
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 1352,
+          "height": 824,
+          "top": 56,
+          "right": 1420,
+          "bottom": 880,
+          "left": 68
+        }
+      },
+      "scale": "small",
+      "width": 1440
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "11.96px",
+      "bubble": {
+        "font": "12.88px",
+        "lineHeight": "19.32px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 520.4375,
+          "y": 211.59375,
+          "width": 349.5625,
+          "height": 63.421875,
+          "top": 211.59375,
+          "right": 870,
+          "bottom": 275.015625,
+          "left": 520.4375
+        }
+      },
+      "content": {
+        "font": "12.88px",
+        "lineHeight": "21.252px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 533.4375,
+          "y": 242.78125,
+          "width": 323.5625,
+          "height": 21.234375,
+          "top": 242.78125,
+          "right": 857,
+          "bottom": 264.015625,
+          "left": 533.4375
+        }
+      },
+      "markdown": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 459.6875,
+          "width": 320.328125,
+          "height": 156.21875,
+          "top": 459.6875,
+          "right": 456.328125,
+          "bottom": 615.90625,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 594.03125,
+          "width": 320.328125,
+          "height": 21.875,
+          "top": 594.03125,
+          "right": 456.328125,
+          "bottom": 615.90625,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 154.671875,
+          "y": 485.421875,
+          "width": 301.65625,
+          "height": 21.875,
+          "top": 485.421875,
+          "right": 456.328125,
+          "bottom": 507.296875,
+          "left": 154.671875
+        }
+      },
+      "markdownPre": {
+        "font": "12.88px",
+        "lineHeight": "20.608px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 541.140625,
+          "width": 320.328125,
+          "height": 42.59375,
+          "top": 541.140625,
+          "right": 456.328125,
+          "bottom": 583.734375,
+          "left": 136
+        }
+      },
+      "reasoningPre": {
+        "font": "12.88px",
+        "lineHeight": "21.252px",
+        "text": "先确认鉴权中间件，再检查错误码分支。",
+        "n": 1,
+        "rect": {
+          "x": 158,
+          "y": 403.453125,
+          "width": 287.328125,
+          "height": 33.234375,
+          "top": 403.453125,
+          "right": 445.328125,
+          "bottom": 436.6875,
+          "left": 158
+        }
+      },
+      "translationPre": null,
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 872,
+          "height": 724,
+          "top": 56,
+          "right": 940,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "scale": "small",
+      "width": 960
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "11.96px",
+      "bubble": {
+        "font": "12.88px",
+        "lineHeight": "19.32px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 108.75,
+          "y": 192.265625,
+          "width": 281.25,
+          "height": 84.65625,
+          "top": 192.265625,
+          "right": 390,
+          "bottom": 276.921875,
+          "left": 108.75
+        }
+      },
+      "content": {
+        "font": "12.88px",
+        "lineHeight": "21.252px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 121.75,
+          "y": 223.453125,
+          "width": 255.25,
+          "height": 42.46875,
+          "top": 223.453125,
+          "right": 377,
+          "bottom": 265.921875,
+          "left": 121.75
+        }
+      },
+      "markdown": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 352.609375,
+          "width": 255.25,
+          "height": 171.21875,
+          "top": 352.609375,
+          "right": 391.25,
+          "bottom": 523.828125,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 501.953125,
+          "width": 255.25,
+          "height": 21.875,
+          "top": 501.953125,
+          "right": 391.25,
+          "bottom": 523.828125,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "12.88px",
+        "lineHeight": "21.896px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 154.671875,
+          "y": 378.34375,
+          "width": 236.578125,
+          "height": 21.875,
+          "top": 378.34375,
+          "right": 391.25,
+          "bottom": 400.21875,
+          "left": 154.671875
+        }
+      },
+      "markdownPre": {
+        "font": "12.88px",
+        "lineHeight": "20.608px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 434.0625,
+          "width": 255.25,
+          "height": 57.59375,
+          "top": 434.0625,
+          "right": 391.25,
+          "bottom": 491.65625,
+          "left": 136
+        }
+      },
+      "reasoningPre": null,
+      "translationPre": null,
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 392,
+          "height": 724,
+          "top": 56,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "scale": "small",
+      "width": 480
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 1352,
+          "height": 824,
+          "top": 56,
+          "right": 1420,
+          "bottom": 880,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 294.671875,
+          "width": 362,
+          "height": 54.671875,
+          "top": 294.671875,
+          "right": 439,
+          "bottom": 349.34375,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 448,
+          "y": 105.25,
+          "width": 6,
+          "height": 774.75,
+          "top": 105.25,
+          "right": 454,
+          "bottom": 880,
+          "left": 448
+        }
+      },
+      "meta": {
+        "font": "10.12px",
+        "lineHeight": "14.674px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 326.671875,
+          "width": 340,
+          "height": 14.671875,
+          "top": 326.671875,
+          "right": 428,
+          "bottom": 341.34375,
+          "left": 88
+        }
+      },
+      "scale": "small",
+      "width": 1440
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 872,
+          "height": 724,
+          "top": 56,
+          "right": 940,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 294.671875,
+          "width": 362,
+          "height": 54.671875,
+          "top": 294.671875,
+          "right": 439,
+          "bottom": 349.34375,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 454,
+          "y": 105.25,
+          "width": 486,
+          "height": 674.75,
+          "top": 105.25,
+          "right": 940,
+          "bottom": 780,
+          "left": 454
+        }
+      },
+      "meta": {
+        "font": "10.12px",
+        "lineHeight": "14.674px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 326.671875,
+          "width": 340,
+          "height": 14.671875,
+          "top": 326.671875,
+          "right": 428,
+          "bottom": 341.34375,
+          "left": 88
+        }
+      },
+      "scale": "small",
+      "width": 960
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 392,
+          "height": 724,
+          "top": 56,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 322.671875,
+          "width": 344,
+          "height": 54.671875,
+          "top": 322.671875,
+          "right": 421,
+          "bottom": 377.34375,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 313.25,
+          "width": 392,
+          "height": 466.75,
+          "top": 313.25,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "meta": {
+        "font": "10.12px",
+        "lineHeight": "14.674px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 354.671875,
+          "width": 322,
+          "height": 14.671875,
+          "top": 354.671875,
+          "right": 410,
+          "bottom": 369.34375,
+          "left": 88
+        }
+      },
+      "scale": "small",
+      "width": 480
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "13px",
+      "bubble": {
+        "font": "14px",
+        "lineHeight": "21px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 987.296875,
+          "y": 215.625,
+          "width": 377.703125,
+          "height": 66.59375,
+          "top": 215.625,
+          "right": 1365,
+          "bottom": 282.21875,
+          "left": 987.296875
+        }
+      },
+      "content": {
+        "font": "14px",
+        "lineHeight": "23.1px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 1000.296875,
+          "y": 248.125,
+          "width": 351.703125,
+          "height": 23.09375,
+          "top": 248.125,
+          "right": 1352,
+          "bottom": 271.21875,
+          "left": 1000.296875
+        }
+      },
+      "markdown": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 359.21875,
+          "width": 345.921875,
+          "height": 167.96875,
+          "top": 359.21875,
+          "right": 481.921875,
+          "bottom": 527.1875,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 503.390625,
+          "width": 345.921875,
+          "height": 23.796875,
+          "top": 503.390625,
+          "right": 481.921875,
+          "bottom": 527.1875,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 156.296875,
+          "y": 387.203125,
+          "width": 325.625,
+          "height": 23.796875,
+          "top": 387.203125,
+          "right": 481.921875,
+          "bottom": 411,
+          "left": 156.296875
+        }
+      },
+      "markdownPre": {
+        "font": "14px",
+        "lineHeight": "22.4px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 447.8125,
+          "width": 345.921875,
+          "height": 44.390625,
+          "top": 447.8125,
+          "right": 481.921875,
+          "bottom": 492.203125,
+          "left": 136
+        }
+      },
+      "reasoningPre": null,
+      "translationPre": null,
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 1352,
+          "height": 824,
+          "top": 56,
+          "right": 1420,
+          "bottom": 880,
+          "left": 68
+        }
+      },
+      "scale": "standard",
+      "width": 1440
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "13px",
+      "bubble": {
+        "font": "14px",
+        "lineHeight": "21px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 492.296875,
+          "y": 215.625,
+          "width": 377.703125,
+          "height": 66.59375,
+          "top": 215.625,
+          "right": 870,
+          "bottom": 282.21875,
+          "left": 492.296875
+        }
+      },
+      "content": {
+        "font": "14px",
+        "lineHeight": "23.1px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 505.296875,
+          "y": 248.125,
+          "width": 351.703125,
+          "height": 23.09375,
+          "top": 248.125,
+          "right": 857,
+          "bottom": 271.21875,
+          "left": 505.296875
+        }
+      },
+      "markdown": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 470.0625,
+          "width": 345.921875,
+          "height": 167.96875,
+          "top": 470.0625,
+          "right": 481.921875,
+          "bottom": 638.03125,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 614.234375,
+          "width": 345.921875,
+          "height": 23.796875,
+          "top": 614.234375,
+          "right": 481.921875,
+          "bottom": 638.03125,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 156.296875,
+          "y": 498.046875,
+          "width": 325.625,
+          "height": 23.796875,
+          "top": 498.046875,
+          "right": 481.921875,
+          "bottom": 521.84375,
+          "left": 156.296875
+        }
+      },
+      "markdownPre": {
+        "font": "14px",
+        "lineHeight": "22.4px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 558.65625,
+          "width": 345.921875,
+          "height": 44.390625,
+          "top": 558.65625,
+          "right": 481.921875,
+          "bottom": 603.046875,
+          "left": 136
+        }
+      },
+      "reasoningPre": {
+        "font": "14px",
+        "lineHeight": "23.1px",
+        "text": "先确认鉴权中间件，再检查错误码分支。",
+        "n": 1,
+        "rect": {
+          "x": 158,
+          "y": 411.96875,
+          "width": 312.921875,
+          "height": 35.09375,
+          "top": 411.96875,
+          "right": 470.921875,
+          "bottom": 447.0625,
+          "left": 158
+        }
+      },
+      "translationPre": null,
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 872,
+          "height": 724,
+          "top": 56,
+          "right": 940,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "scale": "standard",
+      "width": 960
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "13px",
+      "bubble": {
+        "font": "14px",
+        "lineHeight": "21px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 108.75,
+          "y": 168.5625,
+          "width": 281.25,
+          "height": 89.6875,
+          "top": 168.5625,
+          "right": 390,
+          "bottom": 258.25,
+          "left": 108.75
+        }
+      },
+      "content": {
+        "font": "14px",
+        "lineHeight": "23.1px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 121.75,
+          "y": 201.0625,
+          "width": 255.25,
+          "height": 46.1875,
+          "top": 201.0625,
+          "right": 377,
+          "bottom": 247.25,
+          "left": 121.75
+        }
+      },
+      "markdown": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 351.75,
+          "width": 255.25,
+          "height": 182.96875,
+          "top": 351.75,
+          "right": 391.25,
+          "bottom": 534.71875,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 510.921875,
+          "width": 255.25,
+          "height": 23.796875,
+          "top": 510.921875,
+          "right": 391.25,
+          "bottom": 534.71875,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "14px",
+        "lineHeight": "23.8px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 156.296875,
+          "y": 379.734375,
+          "width": 234.953125,
+          "height": 23.796875,
+          "top": 379.734375,
+          "right": 391.25,
+          "bottom": 403.53125,
+          "left": 156.296875
+        }
+      },
+      "markdownPre": {
+        "font": "14px",
+        "lineHeight": "22.4px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 440.34375,
+          "width": 255.25,
+          "height": 59.390625,
+          "top": 440.34375,
+          "right": 391.25,
+          "bottom": 499.734375,
+          "left": 136
+        }
+      },
+      "reasoningPre": null,
+      "translationPre": null,
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 392,
+          "height": 724,
+          "top": 56,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "scale": "standard",
+      "width": 480
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 1352,
+          "height": 824,
+          "top": 56,
+          "right": 1420,
+          "bottom": 880,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 301.9375,
+          "width": 362,
+          "height": 55.9375,
+          "top": 301.9375,
+          "right": 439,
+          "bottom": 357.875,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 448,
+          "y": 106.75,
+          "width": 6,
+          "height": 773.25,
+          "top": 106.75,
+          "right": 454,
+          "bottom": 880,
+          "left": 448
+        }
+      },
+      "meta": {
+        "font": "11px",
+        "lineHeight": "15.95px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 333.9375,
+          "width": 340,
+          "height": 15.9375,
+          "top": 333.9375,
+          "right": 428,
+          "bottom": 349.875,
+          "left": 88
+        }
+      },
+      "scale": "standard",
+      "width": 1440
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 872,
+          "height": 724,
+          "top": 56,
+          "right": 940,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 301.9375,
+          "width": 362,
+          "height": 55.9375,
+          "top": 301.9375,
+          "right": 439,
+          "bottom": 357.875,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 454,
+          "y": 106.75,
+          "width": 486,
+          "height": 673.25,
+          "top": 106.75,
+          "right": 940,
+          "bottom": 780,
+          "left": 454
+        }
+      },
+      "meta": {
+        "font": "11px",
+        "lineHeight": "15.95px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 333.9375,
+          "width": 340,
+          "height": 15.9375,
+          "top": 333.9375,
+          "right": 428,
+          "bottom": 349.875,
+          "left": 88
+        }
+      },
+      "scale": "standard",
+      "width": 960
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 392,
+          "height": 724,
+          "top": 56,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 329.9375,
+          "width": 344,
+          "height": 55.9375,
+          "top": 329.9375,
+          "right": 421,
+          "bottom": 385.875,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 314.75,
+          "width": 392,
+          "height": 465.25,
+          "top": 314.75,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "meta": {
+        "font": "11px",
+        "lineHeight": "15.95px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 361.9375,
+          "width": 322,
+          "height": 15.9375,
+          "top": 361.9375,
+          "right": 410,
+          "bottom": 377.875,
+          "left": 88
+        }
+      },
+      "scale": "standard",
+      "width": 480
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "14.95px",
+      "bubble": {
+        "font": "16.1px",
+        "lineHeight": "24.15px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 934.546875,
+          "y": 223.25,
+          "width": 430.453125,
+          "height": 72.53125,
+          "top": 223.25,
+          "right": 1365,
+          "bottom": 295.78125,
+          "left": 934.546875
+        }
+      },
+      "content": {
+        "font": "16.1px",
+        "lineHeight": "26.565px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 947.546875,
+          "y": 258.234375,
+          "width": 404.453125,
+          "height": 26.546875,
+          "top": 258.234375,
+          "right": 1352,
+          "bottom": 284.78125,
+          "left": 947.546875
+        }
+      },
+      "markdown": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 377.109375,
+          "width": 393.921875,
+          "height": 189.84375,
+          "top": 377.109375,
+          "right": 529.921875,
+          "bottom": 566.953125,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 539.59375,
+          "width": 393.921875,
+          "height": 27.359375,
+          "top": 539.59375,
+          "right": 529.921875,
+          "bottom": 566.953125,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 159.34375,
+          "y": 409.296875,
+          "width": 370.578125,
+          "height": 27.359375,
+          "top": 409.296875,
+          "right": 529.921875,
+          "bottom": 436.65625,
+          "left": 159.34375
+        }
+      },
+      "markdownPre": {
+        "font": "16.1px",
+        "lineHeight": "25.76px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 478.96875,
+          "width": 393.921875,
+          "height": 47.75,
+          "top": 478.96875,
+          "right": 529.921875,
+          "bottom": 526.71875,
+          "left": 136
+        }
+      },
+      "reasoningPre": null,
+      "translationPre": null,
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 1352,
+          "height": 824,
+          "top": 56,
+          "right": 1420,
+          "bottom": 880,
+          "left": 68
+        }
+      },
+      "scale": "large",
+      "width": 1440
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "14.95px",
+      "bubble": {
+        "font": "16.1px",
+        "lineHeight": "24.15px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 439.546875,
+          "y": 223.25,
+          "width": 430.453125,
+          "height": 72.53125,
+          "top": 223.25,
+          "right": 870,
+          "bottom": 295.78125,
+          "left": 439.546875
+        }
+      },
+      "content": {
+        "font": "16.1px",
+        "lineHeight": "26.565px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 452.546875,
+          "y": 258.234375,
+          "width": 404.453125,
+          "height": 26.546875,
+          "top": 258.234375,
+          "right": 857,
+          "bottom": 284.78125,
+          "left": 452.546875
+        }
+      },
+      "markdown": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 494.625,
+          "width": 393.921875,
+          "height": 189.84375,
+          "top": 494.625,
+          "right": 529.921875,
+          "bottom": 684.46875,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 657.109375,
+          "width": 393.921875,
+          "height": 27.359375,
+          "top": 657.109375,
+          "right": 529.921875,
+          "bottom": 684.46875,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 159.34375,
+          "y": 526.8125,
+          "width": 370.578125,
+          "height": 27.359375,
+          "top": 526.8125,
+          "right": 529.921875,
+          "bottom": 554.171875,
+          "left": 159.34375
+        }
+      },
+      "markdownPre": {
+        "font": "16.1px",
+        "lineHeight": "25.76px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 596.484375,
+          "width": 393.921875,
+          "height": 47.75,
+          "top": 596.484375,
+          "right": 529.921875,
+          "bottom": 644.234375,
+          "left": 136
+        }
+      },
+      "reasoningPre": {
+        "font": "16.1px",
+        "lineHeight": "26.565px",
+        "text": "先确认鉴权中间件，再检查错误码分支。",
+        "n": 1,
+        "rect": {
+          "x": 158,
+          "y": 433.078125,
+          "width": 360.921875,
+          "height": 38.546875,
+          "top": 433.078125,
+          "right": 518.921875,
+          "bottom": 471.625,
+          "left": 158
+        }
+      },
+      "translationPre": null,
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 872,
+          "height": 724,
+          "top": 56,
+          "right": 940,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "scale": "large",
+      "width": 960
+    },
+    {
+      "panel": "chat",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "14.95px",
+      "bubble": {
+        "font": "16.1px",
+        "lineHeight": "24.15px",
+        "text": "你 · 02:32:02\n请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 108.75,
+          "y": 116.59375,
+          "width": 281.25,
+          "height": 99.078125,
+          "top": 116.59375,
+          "right": 390,
+          "bottom": 215.671875,
+          "left": 108.75
+        }
+      },
+      "content": {
+        "font": "16.1px",
+        "lineHeight": "26.565px",
+        "text": "请检查登录接口，并给出一段可复用的 TypeScript 代码。",
+        "n": 2,
+        "rect": {
+          "x": 121.75,
+          "y": 151.578125,
+          "width": 255.25,
+          "height": 53.09375,
+          "top": 151.578125,
+          "right": 377,
+          "bottom": 204.671875,
+          "left": 121.75
+        }
+      },
+      "markdown": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "登录检查\n确认鉴权中间件已挂载\n检查 401/403 错误码分支\nconst token = await readToken(request);\n\n\n短文本用于",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 315.34375,
+          "width": 255.25,
+          "height": 204.84375,
+          "top": 315.34375,
+          "right": 391.25,
+          "bottom": 520.1875,
+          "left": 136
+        }
+      },
+      "markdownP": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "短文本用于核对行高。",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 492.828125,
+          "width": 255.25,
+          "height": 27.359375,
+          "top": 492.828125,
+          "right": 391.25,
+          "bottom": 520.1875,
+          "left": 136
+        }
+      },
+      "markdownLi": {
+        "font": "16.1px",
+        "lineHeight": "27.37px",
+        "text": "确认鉴权中间件已挂载",
+        "n": 2,
+        "rect": {
+          "x": 159.34375,
+          "y": 347.53125,
+          "width": 231.90625,
+          "height": 27.359375,
+          "top": 347.53125,
+          "right": 391.25,
+          "bottom": 374.890625,
+          "left": 159.34375
+        }
+      },
+      "markdownPre": {
+        "font": "16.1px",
+        "lineHeight": "25.76px",
+        "text": "const token = await readToken(request);\n",
+        "n": 1,
+        "rect": {
+          "x": 136,
+          "y": 417.203125,
+          "width": 255.25,
+          "height": 62.75,
+          "top": 417.203125,
+          "right": 391.25,
+          "bottom": 479.953125,
+          "left": 136
+        }
+      },
+      "reasoningPre": null,
+      "translationPre": null,
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "R\nRouter\nrouter\n▾\nRouter 对话\n讨论、澄清需求；「上下文」作为独立面板打开 · 权限：工作区内修改\n后台任务\n压缩\n清空\n上下文\n对话\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 392,
+          "height": 724,
+          "top": 56,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "scale": "large",
+      "width": 480
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 1352,
+          "height": 824,
+          "top": 56,
+          "right": 1420,
+          "bottom": 880,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 350.15625,
+          "width": 362,
+          "height": 59.765625,
+          "top": 350.15625,
+          "right": 439,
+          "bottom": 409.921875,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 448,
+          "y": 109.5625,
+          "width": 6,
+          "height": 770.4375,
+          "top": 109.5625,
+          "right": 454,
+          "bottom": 880,
+          "left": 448
+        }
+      },
+      "meta": {
+        "font": "12.65px",
+        "lineHeight": "18.3425px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 383.578125,
+          "width": 340,
+          "height": 18.34375,
+          "top": 383.578125,
+          "right": 428,
+          "bottom": 401.921875,
+          "left": 88
+        }
+      },
+      "scale": "large",
+      "width": 1440
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 872,
+          "height": 724,
+          "top": 56,
+          "right": 940,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 350.15625,
+          "width": 362,
+          "height": 59.765625,
+          "top": 350.15625,
+          "right": 439,
+          "bottom": 409.921875,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 454,
+          "y": 109.5625,
+          "width": 486,
+          "height": 670.4375,
+          "top": 109.5625,
+          "right": 940,
+          "bottom": 780,
+          "left": 454
+        }
+      },
+      "meta": {
+        "font": "12.65px",
+        "lineHeight": "18.3425px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 383.578125,
+          "width": 340,
+          "height": 18.34375,
+          "top": 383.578125,
+          "right": 428,
+          "bottom": 401.921875,
+          "left": 88
+        }
+      },
+      "scale": "large",
+      "width": 960
+    },
+    {
+      "panel": "tasks",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调度\n运行面板\n任务\n3 / 3 个任务\n从对话规划\n+ 新建\n全部 3\n排队中 0\n",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 56,
+          "width": 392,
+          "height": 724,
+          "top": 56,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "row": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "铺设基础接口\n待运行\nAster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 77,
+          "y": 378.5,
+          "width": 344,
+          "height": 59.765625,
+          "top": 378.5,
+          "right": 421,
+          "bottom": 438.265625,
+          "left": 77
+        }
+      },
+      "detail": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "任务详情\n☰\n选择一个任务\n在左侧列表选择任务，查看详情与执行 trace。",
+        "n": 1,
+        "rect": {
+          "x": 68,
+          "y": 317.90625,
+          "width": 392,
+          "height": 462.09375,
+          "top": 317.90625,
+          "right": 460,
+          "bottom": 780,
+          "left": 68
+        }
+      },
+      "meta": {
+        "font": "12.65px",
+        "lineHeight": "18.3425px",
+        "text": "Aster\n尝试 —\n02:05:58",
+        "n": 3,
+        "rect": {
+          "x": 88,
+          "y": 411.921875,
+          "width": 322,
+          "height": 18.34375,
+          "top": 411.921875,
+          "right": 410,
+          "bottom": 430.265625,
+          "left": 88
+        }
+      },
+      "scale": "large",
+      "width": 480
+    },
+    {
+      "panel": "mailbox",
+      "scale": "small",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 806,
+          "height": 777,
+          "top": 91.4375,
+          "right": 875,
+          "bottom": 868.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 245.609375,
+          "width": 322,
+          "height": 613.828125,
+          "top": 245.609375,
+          "right": 400,
+          "bottom": 859.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "11.96px",
+        "lineHeight": "19.136px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 453,
+          "y": 279.875,
+          "width": 392,
+          "height": 19.125,
+          "top": 279.875,
+          "right": 845,
+          "bottom": 299,
+          "left": 453
+        }
+      },
+      "messageRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 245.609375,
+          "width": 322,
+          "height": 613.828125,
+          "top": 245.609375,
+          "right": 400,
+          "bottom": 859.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "small",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 816,
+          "height": 796,
+          "top": 91.4375,
+          "right": 885,
+          "bottom": 887.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 217.359375,
+          "width": 798,
+          "height": 125.078125,
+          "top": 217.359375,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "11.96px",
+        "lineHeight": "19.136px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 101,
+          "y": 551.875,
+          "width": 754,
+          "height": 19.125,
+          "top": 551.875,
+          "right": 855,
+          "bottom": 571,
+          "left": 101
+        }
+      },
+      "messageRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 217.359375,
+          "width": 798,
+          "height": 125.078125,
+          "top": 217.359375,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "small",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 128.6875,
+          "width": 878,
+          "height": 696,
+          "top": 128.6875,
+          "right": 947,
+          "bottom": 824.6875,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 295.609375,
+          "width": 845,
+          "height": 103.78125,
+          "top": 295.609375,
+          "right": 923,
+          "bottom": 399.390625,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "11.96px",
+        "lineHeight": "19.136px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 95,
+          "y": 593.125,
+          "width": 828,
+          "height": 19.125,
+          "top": 593.125,
+          "right": 923,
+          "bottom": 612.25,
+          "left": 95
+        }
+      },
+      "messageRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 295.609375,
+          "width": 845,
+          "height": 103.78125,
+          "top": 295.609375,
+          "right": 923,
+          "bottom": 399.390625,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "standard",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 454,
+          "height": 657,
+          "top": 91.4375,
+          "right": 523,
+          "bottom": 748.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 250.0625,
+          "width": 322,
+          "height": 489.375,
+          "top": 250.0625,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "13px",
+        "lineHeight": "20.8px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 453,
+          "y": 547.28125,
+          "width": 25,
+          "height": 540.71875,
+          "top": 547.28125,
+          "right": 478,
+          "bottom": 1088,
+          "left": 453
+        }
+      },
+      "messageRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 250.0625,
+          "width": 322,
+          "height": 489.375,
+          "top": 250.0625,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "standard",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 816,
+          "height": 796,
+          "top": 91.4375,
+          "right": 885,
+          "bottom": 887.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 220.125,
+          "width": 798,
+          "height": 122.3125,
+          "top": 220.125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "13px",
+        "lineHeight": "20.8px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 101,
+          "y": 556.21875,
+          "width": 754,
+          "height": 20.796875,
+          "top": 556.21875,
+          "right": 855,
+          "bottom": 577.015625,
+          "left": 101
+        }
+      },
+      "messageRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 220.125,
+          "width": 798,
+          "height": 122.3125,
+          "top": 220.125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "standard",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 130.1875,
+          "width": 878,
+          "height": 696,
+          "top": 130.1875,
+          "right": 947,
+          "bottom": 826.1875,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 300.875,
+          "width": 845,
+          "height": 107.9375,
+          "top": 300.875,
+          "right": 923,
+          "bottom": 408.8125,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "13px",
+        "lineHeight": "20.8px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 95,
+          "y": 598.96875,
+          "width": 828,
+          "height": 20.796875,
+          "top": 598.96875,
+          "right": 923,
+          "bottom": 619.765625,
+          "left": 95
+        }
+      },
+      "messageRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 300.875,
+          "width": 845,
+          "height": 107.9375,
+          "top": 300.875,
+          "right": 923,
+          "bottom": 408.8125,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "large",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 454,
+          "height": 657,
+          "top": 91.4375,
+          "right": 523,
+          "bottom": 748.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 258.84375,
+          "width": 322,
+          "height": 480.59375,
+          "top": 258.84375,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "14.95px",
+        "lineHeight": "23.92px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 453,
+          "y": 588.609375,
+          "width": 25,
+          "height": 621.96875,
+          "top": 588.609375,
+          "right": 478,
+          "bottom": 1210.578125,
+          "left": 453
+        }
+      },
+      "messageRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 258.84375,
+          "width": 322,
+          "height": 480.59375,
+          "top": 258.84375,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "large",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 816,
+          "height": 796,
+          "top": 91.4375,
+          "right": 885,
+          "bottom": 887.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 225.78125,
+          "width": 798,
+          "height": 116.65625,
+          "top": 225.78125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "14.95px",
+        "lineHeight": "23.92px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 101,
+          "y": 564.359375,
+          "width": 754,
+          "height": 23.921875,
+          "top": 564.359375,
+          "right": 855,
+          "bottom": 588.28125,
+          "left": 101
+        }
+      },
+      "messageRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 225.78125,
+          "width": 798,
+          "height": 116.65625,
+          "top": 225.78125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "large",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 133,
+          "width": 878,
+          "height": 696,
+          "top": 133,
+          "right": 947,
+          "bottom": 829,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 312.90625,
+          "width": 845,
+          "height": 115.75,
+          "top": 312.90625,
+          "right": 923,
+          "bottom": 428.65625,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "14.95px",
+        "lineHeight": "23.92px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 95,
+          "y": 609.921875,
+          "width": 828,
+          "height": 23.921875,
+          "top": 609.921875,
+          "right": 923,
+          "bottom": 633.84375,
+          "left": 95
+        }
+      },
+      "messageRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 312.90625,
+          "width": 845,
+          "height": 115.75,
+          "top": 312.90625,
+          "right": 923,
+          "bottom": 428.65625,
+          "left": 78
+        }
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "ok": true,
+      "assert": "chat-small-1440",
+      "expected": 12.88,
+      "primary": "12.88px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 1352
+    },
+    {
+      "ok": true,
+      "assert": "chat-small-960",
+      "expected": 12.88,
+      "primary": "12.88px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 872
+    },
+    {
+      "ok": true,
+      "assert": "chat-small-480",
+      "expected": 12.88,
+      "primary": "12.88px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 392
+    },
+    {
+      "ok": true,
+      "assert": "tasks-small-1440",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 1352
+    },
+    {
+      "ok": true,
+      "assert": "tasks-small-960",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 872
+    },
+    {
+      "ok": true,
+      "assert": "tasks-small-480",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 392
+    },
+    {
+      "ok": true,
+      "assert": "chat-standard-1440",
+      "expected": 14,
+      "primary": "14px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 1352
+    },
+    {
+      "ok": true,
+      "assert": "chat-standard-960",
+      "expected": 14,
+      "primary": "14px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 872
+    },
+    {
+      "ok": true,
+      "assert": "chat-standard-480",
+      "expected": 14,
+      "primary": "14px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 392
+    },
+    {
+      "ok": true,
+      "assert": "tasks-standard-1440",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 1352
+    },
+    {
+      "ok": true,
+      "assert": "tasks-standard-960",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 872
+    },
+    {
+      "ok": true,
+      "assert": "tasks-standard-480",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 392
+    },
+    {
+      "ok": true,
+      "assert": "chat-large-1440",
+      "expected": 16.099999999999998,
+      "primary": "16.1px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 1352
+    },
+    {
+      "ok": true,
+      "assert": "chat-large-960",
+      "expected": 16.099999999999998,
+      "primary": "16.1px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 872
+    },
+    {
+      "ok": true,
+      "assert": "chat-large-480",
+      "expected": 16.099999999999998,
+      "primary": "16.1px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 392
+    },
+    {
+      "ok": true,
+      "assert": "tasks-large-1440",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 1352
+    },
+    {
+      "ok": true,
+      "assert": "tasks-large-960",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 872
+    },
+    {
+      "ok": true,
+      "assert": "tasks-large-480",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 392
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-small-1440",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 806
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-small-960",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 816
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-small-480",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 878
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-standard-1440",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 454
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-standard-960",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 816
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-standard-480",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 878
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-large-1440",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 454
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-large-960",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 816
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-large-480",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 878
+    }
+  ],
+  "pass": 27,
+  "total": 27
+}

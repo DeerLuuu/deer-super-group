@@ -39,8 +39,15 @@ import type {
   Task,
   UpdateAgentInput,
   Workspace,
+  FontScale,
 } from "./shared/types";
-import { DEFAULT_MAX_DOCK_GROUPS, normalizeChatHistoryLimit } from "./shared/types";
+import {
+  DEFAULT_FONT_SCALE,
+  DEFAULT_MAX_DOCK_GROUPS,
+  fontScaleFactor,
+  normalizeChatHistoryLimit,
+  normalizeFontScale,
+} from "./shared/types";
 import {
   MAILBOX_MAX_INDENT,
   deriveMailboxThreads,
@@ -494,6 +501,19 @@ export default function App() {
     () => initialRoute.tab === "settings",
   );
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const [uiFontScale, setUiFontScale] = useState<FontScale>(DEFAULT_FONT_SCALE);
+  useEffect(() => {
+    setUiFontScale(normalizeFontScale(snapshot?.settings.layout?.fontScale));
+  }, [snapshot?.settings.layout?.fontScale]);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (!root?.style?.setProperty) return;
+    root.style.setProperty("--font-scale", String(fontScaleFactor(uiFontScale)));
+    return () => {
+      root.style.removeProperty("--font-scale");
+    };
+  }, [uiFontScale]);
   const [settingsReturnTab, setSettingsReturnTab] = useState<Tab>(() =>
     initialRoute.tab === "settings" ? "chat" : initialRoute.tab,
   );
@@ -3437,6 +3457,7 @@ export default function App() {
     setBusy(true);
     try {
       await window.deer.saveSettings(settings);
+      setUiFontScale(normalizeFontScale(settings.layout?.fontScale));
       // 翻译设置/目标语言可能变化：清空已挂载译文，并通知 reasoning 重新请求。
       historyTranslationMemo.clear();
       translationSettingsKeyRef.current = null;
@@ -4008,7 +4029,12 @@ export default function App() {
     consoleStore,
   });
   return (
-    <div className="app" data-translation-revision={translationRevision}>
+    <div
+      className="app"
+      data-font-scale={uiFontScale}
+      data-translation-revision={translationRevision}
+      style={{ "--font-scale": String(fontScaleFactor(uiFontScale)) } as CSSProperties}
+    >
       <SkipLink />
       <ChatLiveBridge
         stores={chatLiveStoresRef.current}
