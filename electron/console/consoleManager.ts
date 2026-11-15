@@ -432,6 +432,7 @@ export class ConsoleManager {
     internal.session.seq += 1;
     this.emit({
       type: "cleared",
+      workspaceId: internal.session.workspaceId,
       sessionId: internal.session.id,
       seq: internal.session.seq,
       session: this.view(internal),
@@ -465,10 +466,19 @@ export class ConsoleManager {
         // 退出清理尽力而为
       }
     }
-    const deadline = this.options.now() + this.options.limits.killGraceMs + 200;
-    while (this.options.now() < deadline) {
+    const deadline = Date.now() + this.options.limits.killGraceMs + 200;
+    while (Date.now() < deadline) {
       if (active.every((item) => !ACTIVE_STATUSES.has(item.session.status))) return;
       await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    // t487：deadline 到点再 force terminate，并给 exit/短宽限；不能只 finalize 状态。
+    for (const internal of active) {
+      if (ACTIVE_STATUSES.has(internal.session.status)) this.terminate(internal, true);
+    }
+    const forceDeadline = Date.now() + 100;
+    while (Date.now() < forceDeadline) {
+      if (active.every((item) => !ACTIVE_STATUSES.has(item.session.status))) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
     for (const internal of active) {
       if (ACTIVE_STATUSES.has(internal.session.status)) {
@@ -623,6 +633,7 @@ export class ConsoleManager {
         internal.session.seq += 1;
         this.emit({
           type: "output",
+          workspaceId: internal.session.workspaceId,
           sessionId: internal.session.id,
           seq: internal.session.seq,
           stream,
@@ -709,6 +720,7 @@ export class ConsoleManager {
   private emitStatus(internal: InternalSession): void {
     this.emit({
       type: "status",
+      workspaceId: internal.session.workspaceId,
       sessionId: internal.session.id,
       seq: internal.session.seq,
       session: this.view(internal),

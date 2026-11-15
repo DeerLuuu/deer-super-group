@@ -56,6 +56,8 @@ export interface ConsoleSession {
 
 export interface ConsoleOutputEvent {
   type: "output";
+  /** t487：事件作用域，store 必须先校验当前 workspace。 */
+  workspaceId: string;
   sessionId: string;
   seq: number;
   stream: "stdout" | "stderr";
@@ -65,6 +67,7 @@ export interface ConsoleOutputEvent {
 
 export interface ConsoleStatusEvent {
   type: "status";
+  workspaceId: string;
   sessionId: string;
   seq: number;
   session: ConsoleSession;
@@ -72,6 +75,7 @@ export interface ConsoleStatusEvent {
 
 export interface ConsoleClearedEvent {
   type: "cleared";
+  workspaceId: string;
   sessionId: string;
   seq: number;
   session: ConsoleSession;

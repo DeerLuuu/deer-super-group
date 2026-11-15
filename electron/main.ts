@@ -731,9 +731,10 @@ app.on("window-all-closed", () => {
 
 let quitGuard = false;
 app.on("before-quit", (event) => {
-  service?.close();
-  if (!consoleManager || quitGuard) return;
-  event.preventDefault();
+  if (quitGuard) return;
   quitGuard = true;
+  service?.close();
+  if (!consoleManager) return;
+  event.preventDefault();
   void consoleManager.closeAll().finally(() => app.quit());
 });

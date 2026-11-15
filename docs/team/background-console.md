@@ -81,4 +81,12 @@ pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
 - 不新增依赖；不改 Git/Task/PR/merge/gate/permission。
 
 
-验证：typecheck 0；build 0（463 modules）；serial test 164 files / 1077 tests。
+## t487 repair round 2
+
+- **F1 跨 workspace 事件**：`ConsoleEvent` 三种事件统一增加 `workspaceId`；`ConsoleStore.handleEvent` 先校验 `event.workspaceId === currentWorkspace`，未知 session 的 output/cleared 忽略；`refresh`/`loadSnapshot`/`start` 增加 workspaceVersion + workspaceId 双守卫；list 结果按 workspace 过滤。新增 A 运行→切 B 后 A 的 status/output/cleared 不进入 B meta/outputs 的真实 ConsoleStore 测试。
+- **F2 quit 清理**：`before-quit` 只执行一次 `service.close()`（quitGuard 前置）；有 manager 时 preventDefault + closeAll，第二次 quit 直接返回。`closeAll` deadline 到点再次 `terminate(force)`，并等待 exit/100ms 短宽限后才 finalize；新增 hung child closeAll taskkill 测试 + main 源码 quitGuard 断言。
+- **F3 风险接受**：危险命令检测/非 PTY 不是沙箱；PowerShell `Remove-Item -Recurse -Force`/`Stop-Computer` 等可能绕过，后续可增加 PowerShell 模式或命令白名单，本轮不扩展。
+- **F4 证据接受**：960/480 为 CDP emulation，1440 内容区 1424×881；真实 Electron + 隔离 userData 已披露。
+- **F5 性能后续**：2MB 输出下 React FPS / 输入延迟基准不阻塞本 PR，作为后续专项；当前有 2MB ring、16KB/50ms batch、UI 2k 行/256KB tail 与 Chat 仅 meta 订阅。
+
+验证：typecheck 0；build 0（463 modules）；serial test 164 files / 1079 tests。

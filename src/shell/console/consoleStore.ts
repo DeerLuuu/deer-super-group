@@ -60,6 +60,7 @@ function running(session: ConsoleSession): boolean {
 export class ConsoleStore {
   private api: Partial<ConsoleApi>;
   private workspaceId: string | null = null;
+  private workspaceVersion = 0;
   private meta: ConsoleMeta = { sessions: [], selectedId: null, loading: false, error: null };
   private readonly listeners = new Set<() => void>();
   private readonly outputListeners = new Map<string, Set<() => void>>();
@@ -108,31 +109,37 @@ export class ConsoleStore {
   async setWorkspace(workspaceId: string | null): Promise<void> {
     if (this.workspaceId === workspaceId) return;
     this.workspaceId = workspaceId;
+    const version = ++this.workspaceVersion;
     this.meta = { sessions: [], selectedId: null, loading: Boolean(workspaceId), error: null };
     this.outputs.clear();
     this.hidden.clear();
     this.snapshotsRequested.clear();
     this.notifyMeta();
-    if (workspaceId) await this.refresh();
+    if (workspaceId) await this.refresh(version);
   }
 
-  async refresh(): Promise<void> {
-    if (!this.workspaceId) return;
+  async refresh(expectedVersion = this.workspaceVersion): Promise<void> {
+    const workspaceId = this.workspaceId;
+    if (!workspaceId) return;
+    if (expectedVersion !== this.workspaceVersion) return;
     this.setMeta({ loading: true, error: null });
     try {
-      const sessions = await this.api.consoleList?.(this.workspaceId);
+      const sessions = await this.api.consoleList?.(workspaceId);
+      if (expectedVersion !== this.workspaceVersion || this.workspaceId !== workspaceId) return;
       if (!Array.isArray(sessions)) {
         this.setMeta({ loading: false, sessions: [] });
         return;
       }
+      const scoped = sessions.filter((session) => session.workspaceId === workspaceId);
       const selectedId =
-        this.meta.selectedId && sessions.some((session) => session.id === this.meta.selectedId)
+        this.meta.selectedId && scoped.some((session) => session.id === this.meta.selectedId)
           ? this.meta.selectedId
-          : (sessions.find((session) => running(session))?.id ?? sessions[0]?.id ?? null);
-      this.meta = { sessions, selectedId, loading: false, error: null };
+          : (scoped.find((session) => running(session))?.id ?? scoped[0]?.id ?? null);
+      this.meta = { sessions: scoped, selectedId, loading: false, error: null };
       this.notifyMeta();
       if (selectedId) await this.select(selectedId);
     } catch (error) {
+      if (expectedVersion !== this.workspaceVersion) return;
       this.setMeta({ loading: false, error: this.toError(error) });
     }
   }
@@ -152,12 +159,16 @@ export class ConsoleStore {
 
   async loadSnapshot(sessionId: string): Promise<void> {
     if (!this.workspaceId) return;
-    const result = await this.api.consoleSnapshot?.(this.workspaceId, sessionId);
+    const workspaceId = this.workspaceId;
+    const version = this.workspaceVersion;
+    const result = await this.api.consoleSnapshot?.(workspaceId, sessionId);
+    if (version !== this.workspaceVersion || this.workspaceId !== workspaceId) return;
     if (!result?.ok) {
       if (result && !result.ok) this.setMeta({ error: result.error });
       return;
     }
     const snapshot: ConsoleSnapshot = result.value;
+    if (snapshot.session.workspaceId !== workspaceId) return;
     this.outputs.set(sessionId, {
       output: tailBytes(snapshot.output, TAIL_BYTES),
       seq: snapshot.seq,
@@ -171,13 +182,17 @@ export class ConsoleStore {
 
   async start(input: ConsoleStartInput): Promise<ConsoleResult<ConsoleSession> | null> {
     if (!this.workspaceId) return null;
-    const result = await this.api.consoleStart?.(this.workspaceId, input);
+    const workspaceId = this.workspaceId;
+    const version = this.workspaceVersion;
+    const result = await this.api.consoleStart?.(workspaceId, input);
     if (!result) return null;
+    if (version !== this.workspaceVersion || this.workspaceId !== workspaceId) return result;
     if (!result.ok) {
       this.setMeta({ error: result.error });
       return result;
     }
     const session = result.value;
+    if (session.workspaceId !== workspaceId) return result;
     this.hidden.delete(session.id);
     this.outputs.set(session.id, { ...EMPTY_OUTPUT, loaded: true });
     this.meta = {
@@ -241,6 +256,11 @@ export class ConsoleStore {
   }
 
   handleEvent(event: ConsoleEvent): void {
+    if (!this.workspaceId || event.workspaceId !== this.workspaceId) return;
+    if (event.type !== "status" && !this.meta.sessions.some((item) => item.id === event.sessionId)) {
+      // 事件先于 list/status 到达时忽略，待 status/list 建 tab；不把未知 session 注入当前 workspace。
+      return;
+    }
     if (event.type === "output") {
       const current = this.getOutput(event.sessionId);
       if (current.loaded && event.seq <= current.seq) return;
@@ -278,6 +298,7 @@ export class ConsoleStore {
   }
 
   private updateSession(session: ConsoleSession): void {
+    if (!this.workspaceId || session.workspaceId !== this.workspaceId) return;
     const sessions = this.meta.sessions.some((item) => item.id === session.id)
       ? this.meta.sessions.map((item) => (item.id === session.id ? session : item))
       : [session, ...this.meta.sessions];

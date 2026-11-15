@@ -34,6 +34,8 @@ describe("t448 console wiring", () => {
     }
     expect(main).toContain("getConsoleManager()");
     expect(main).toContain("consoleManager.closeAll()");
+    expect(main).toContain("if (quitGuard) return;");
+    expect((main.match(/service\?\.close\(\)/g) ?? []).length).toBe(1);
   });
 
   it("wires Chat badge/popover and the console dock panel", () => {

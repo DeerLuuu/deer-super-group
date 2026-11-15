@@ -63,6 +63,7 @@ describe("t448 ConsoleStore", () => {
     const metaCalls = metaListener.mock.calls.length;
     store.handleEvent({
       type: "output",
+      workspaceId: WS,
       sessionId: "con_1",
       seq: 1,
       stream: "stdout",
@@ -74,6 +75,7 @@ describe("t448 ConsoleStore", () => {
     expect(metaListener.mock.calls.length).toBe(metaCalls);
     store.handleEvent({
       type: "status",
+      workspaceId: WS,
       sessionId: "con_1",
       seq: 2,
       session: session({ status: "exited", seq: 2, exitCode: 0 }),
@@ -82,11 +84,55 @@ describe("t448 ConsoleStore", () => {
     expect(metaListener.mock.calls.length).toBeGreaterThan(metaCalls);
     store.handleEvent({
       type: "cleared",
+      workspaceId: WS,
       sessionId: "con_1",
       seq: 3,
       session: session({ status: "exited", seq: 3 }),
     });
     expect(store.getOutput("con_1").output).toBe("");
+  });
+
+  it("does not merge a previous workspace's events after switching", async () => {
+    const a = session({ id: "con_a", workspaceId: "ws-a" });
+    const api = {
+      consoleList: vi.fn(async (workspaceId: string) => (workspaceId === "ws-a" ? [a] : [])),
+      consoleSnapshot: vi.fn(async () => ({ ok: true as const, value: snapshot(a) })),
+      consoleStart: vi.fn(),
+      consoleStop: vi.fn(),
+      consoleInput: vi.fn(),
+      consoleClear: vi.fn(),
+      consoleCwds: vi.fn(async () => ({ ok: true as const, value: [] })),
+    };
+    const store = new ConsoleStore(api);
+    await store.setWorkspace("ws-a");
+    expect(store.visibleSessions()).toHaveLength(1);
+    await store.setWorkspace("ws-b");
+    store.handleEvent({
+      type: "status",
+      workspaceId: "ws-a",
+      sessionId: "con_a",
+      seq: 1,
+      session: a,
+    });
+    store.handleEvent({
+      type: "output",
+      workspaceId: "ws-a",
+      sessionId: "con_a",
+      seq: 2,
+      stream: "stdout",
+      data: "leak",
+      truncated: false,
+    });
+    store.handleEvent({
+      type: "cleared",
+      workspaceId: "ws-a",
+      sessionId: "con_a",
+      seq: 3,
+      session: a,
+    });
+    expect(store.visibleSessions()).toHaveLength(0);
+    expect(store.getOutput("con_a").output).toBe("");
+    expect(store.selected()).toBeNull();
   });
 
   it("selects a newly started tab, supports hidden close, and caps the local output tail", async () => {
@@ -110,6 +156,7 @@ describe("t448 ConsoleStore", () => {
     expect(store.visibleSessions().map((item) => item.id)).not.toContain("con_2");
     store.handleEvent({
       type: "output",
+      workspaceId: WS,
       sessionId: "con_1",
       seq: 1,
       stream: "stdout",

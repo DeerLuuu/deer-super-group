@@ -288,6 +288,29 @@ describe("t448 ConsoleManager limits/security/buffer", () => {
     expect(Math.max(...chunks.map((chunk) => Buffer.byteLength(chunk.data)))).toBeLessThanOrEqual(16 * 1024);
   });
 
+  it("closeAll force-terminates a hung child at the deadline", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-console-quit-"));
+    const child = new FakeChild(5252);
+    child.kill = () => true;
+    const execFileCalls: string[][] = [];
+    const manager = new ConsoleManager({
+      workspaceRoot: () => root,
+      platform: "win32",
+      limits: { killGraceMs: 30, batchMs: 2 },
+      spawn: (() => child as unknown as ChildProcess) as never,
+      execFile: ((file: string, args: string[]) => {
+        execFileCalls.push([file, ...args]);
+        setTimeout(() => child.emit("exit", null, "SIGKILL"), 2);
+      }) as never,
+    });
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const started = manager.start("ws-1", { command: "hung" });
+    if (!started.ok) throw new Error("start failed");
+    await manager.closeAll();
+    expect(manager.list("ws-1")[0]?.status).toBe("stopped");
+    expect(execFileCalls.some((args) => args[0] === "taskkill" && args.includes("/F"))).toBe(true);
+  });
+
   it("force-kills a hung Windows child with taskkill after the grace period", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "deer-console-hung-"));
     const child = new FakeChild(4242);
