@@ -9934,3 +9934,171 @@ button.task-contract-chip:focus-visible {
   width: 100%;
   min-height: 0;
 }
+
+/* t364：界面字号三档设置 */
+.settings-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-fieldset legend {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-radio-option {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-radio-option:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.settings-radio-option:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-radio-option input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+/* t364：界面字号三档——所有核心文本/代码/思考/翻译共享同一 scale。 */
+:root {
+  --font-scale: 1;
+  --font-base-size: calc(13px * var(--font-scale));
+  --font-small-size: calc(11px * var(--font-scale));
+  --font-code-size: calc(12px * var(--font-scale));
+  --font-control-size: calc(12.5px * var(--font-scale));
+}
+
+body {
+  font-size: var(--font-base-size);
+}
+
+.tiny {
+  font-size: var(--font-small-size) !important;
+}
+
+.app .message-body,
+.app .trace-body,
+.app .chat-message,
+.app .chat-message-body,
+.app .chat-composer {
+  font-size: var(--font-base-size) !important;
+}
+
+.app button,
+.app input,
+.app select,
+.app textarea,
+.app label,
+.settings-modal button,
+.settings-modal input,
+.settings-modal select,
+.settings-modal textarea,
+.settings-modal label {
+  font-size: var(--font-control-size) !important;
+}
+
+.app pre,
+.app code,
+.app .chat-template-code,
+.app .chat-trajectory-detail pre,
+.settings-modal pre,
+.settings-modal code,
+.settings-font-preview code {
+  font-size: var(--font-code-size) !important;
+}
+
+.app .chat-reasoning summary,
+.app .chat-reasoning pre,
+.app .chat-turn-reasoning-label,
+.app .chat-turn-reasoning-collapse,
+.app .chat-turn-translation-label,
+.app .chat-turn-translation pre,
+.app .chat-turn-live pre,
+.app .chat-turn-step-label,
+.app .chat-turn-step-live,
+.app .chat-turn-step-done {
+  font-size: var(--font-small-size) !important;
+}
+
+.app .chat-trajectory-detail pre,
+.app .chat-trajectory-body pre {
+  font-size: var(--font-code-size) !important;
+}
+
+.settings-font-preview {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  font-size: var(--font-base-size);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-font-preview-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.settings-font-preview code {
+  display: block;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: var(--font-code-size) !important;
+  color: var(--muted);
+}
+
+.settings-font-preview-thinking,
+.settings-font-preview-translation {
+  font-size: var(--font-small-size);
+}
+
+.settings-font-preview-thinking {
+  color: var(--accent-2);
+}
+
+.settings-font-preview-translation {
+  color: var(--muted);
+}
+
+/* t364：480 三档字号下 Settings Modal 不越出 24px backdrop padding。 */
+.settings-modal {
+  width: min(1180px, 100%);
+}
+
+.settings-modal .settings-nav-item > span:first-child {
+  font-size: var(--font-base-size) !important;
+}
+
+.settings-modal .settings-nav-item .muted.tiny {
+  font-size: var(--font-small-size) !important;
+}

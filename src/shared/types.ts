@@ -577,11 +577,43 @@ export interface ModelProfile {
   pricing?: ModelPricing | null;
 }
 
+export type FontScale = "small" | "standard" | "large";
+
+export interface FontScaleOption {
+  id: FontScale;
+  label: string;
+  factor: number;
+  /** 文档/偏好面板显示的正文/控件、小字、代码字号（px）。 */
+  bodyPx: number;
+  smallPx: number;
+  codePx: number;
+}
+
+export const FONT_SCALE_OPTIONS: readonly FontScaleOption[] = [
+  { id: "small", label: "小", factor: 0.92, bodyPx: 12, smallPx: 10, codePx: 11 },
+  { id: "standard", label: "标准", factor: 1, bodyPx: 13, smallPx: 11, codePx: 12 },
+  { id: "large", label: "大", factor: 1.15, bodyPx: 15, smallPx: 13, codePx: 14 },
+] as const;
+
+export const DEFAULT_FONT_SCALE: FontScale = "standard";
+
+export function normalizeFontScale(value: unknown): FontScale {
+  return value === "small" || value === "large" || value === "standard"
+    ? value
+    : DEFAULT_FONT_SCALE;
+}
+
+export function fontScaleFactor(value: unknown): number {
+  return FONT_SCALE_OPTIONS.find((option) => option.id === normalizeFontScale(value))?.factor ?? 1;
+}
+
 export interface LayoutSettings {
   /** Dock 最大分栏/分组数；默认 6，范围 2–8。 */
   maxDockGroups: number;
   /** 对话初始/加载更早的条数；0 表示全部，默认 40。 */
   chatHistoryLimit?: number;
+  /** 界面字号三档；旧设置缺省为标准。 */
+  fontScale?: FontScale;
 }
 
 export const MIN_MAX_DOCK_GROUPS = 2;
@@ -590,6 +622,7 @@ export const DEFAULT_MAX_DOCK_GROUPS = 6;
 export const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
   maxDockGroups: DEFAULT_MAX_DOCK_GROUPS,
   chatHistoryLimit: 40,
+  fontScale: DEFAULT_FONT_SCALE,
 };
 
 export const CHAT_HISTORY_LIMIT_OPTIONS = [20, 40, 80, 0] as const;
@@ -613,10 +646,15 @@ export function normalizeMaxDockGroups(value: unknown): number {
 
 export function normalizeLayoutSettings(value: unknown): LayoutSettings {
   if (!value || typeof value !== "object") return { ...DEFAULT_LAYOUT_SETTINGS };
-  const input = value as { maxDockGroups?: unknown; chatHistoryLimit?: unknown };
+  const input = value as {
+    maxDockGroups?: unknown;
+    chatHistoryLimit?: unknown;
+    fontScale?: unknown;
+  };
   return {
     maxDockGroups: normalizeMaxDockGroups(input.maxDockGroups),
     chatHistoryLimit: normalizeChatHistoryLimit(input.chatHistoryLimit),
+    fontScale: normalizeFontScale(input.fontScale),
   };
 }
 

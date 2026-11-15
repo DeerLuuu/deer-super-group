@@ -1,0 +1,18 @@
+{
+  "before": {
+    "scale": "1.15",
+    "body": "14.95px",
+    "checked": false
+  },
+  "afterSave": {
+    "scale": "0.92",
+    "body": "11.96px",
+    "checked": true,
+    "status": true
+  },
+  "afterReload": {
+    "scale": "0.92",
+    "body": "11.96px",
+    "checked": true
+  }
+}
