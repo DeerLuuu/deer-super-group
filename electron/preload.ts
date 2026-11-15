@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DeerApi } from "../src/shared/ipc.js";
 import type {
+  ConsoleEvent,
+  ConsoleStartInput,
+} from "../src/shared/console.js";
+import type {
   AnswerChatQuestionInput,
   CancelChatQuestionInput,
   ChatEvent,
@@ -300,6 +304,24 @@ const api: DeerApi = {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: ChatEvent) => listener(payload);
     ipcRenderer.on("chat:event", wrapped);
     return () => ipcRenderer.removeListener("chat:event", wrapped);
+  },
+  consoleList: (workspaceId: string) => ipcRenderer.invoke("console:list", workspaceId),
+  consoleStart: (workspaceId: string, input: ConsoleStartInput) =>
+    ipcRenderer.invoke("console:start", workspaceId, input),
+  consoleStop: (workspaceId: string, sessionId: string) =>
+    ipcRenderer.invoke("console:stop", workspaceId, sessionId),
+  consoleInput: (workspaceId: string, sessionId: string, data: string) =>
+    ipcRenderer.invoke("console:input", workspaceId, sessionId, data),
+  consoleClear: (workspaceId: string, sessionId: string) =>
+    ipcRenderer.invoke("console:clear", workspaceId, sessionId),
+  consoleSnapshot: (workspaceId: string, sessionId: string) =>
+    ipcRenderer.invoke("console:snapshot", workspaceId, sessionId),
+  consoleCwds: (workspaceId: string) => ipcRenderer.invoke("console:cwds", workspaceId),
+  onConsoleEvent: (listener: (event: ConsoleEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: ConsoleEvent) =>
+      listener(payload);
+    ipcRenderer.on("console:event", wrapped);
+    return () => ipcRenderer.removeListener("console:event", wrapped);
   },
   onEvent: (listener: (event: EventRecord) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: EventRecord) => listener(payload);

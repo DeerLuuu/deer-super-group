@@ -250,6 +250,9 @@ import {
   traceTypeOptions as traceTypeOptionsOf,
 } from "./shell/tracePaging";
 import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
+import { ConsolePanel } from "./shell/console/ConsolePanel";
+import { ConsoleStore } from "./shell/console/consoleStore";
+import { BackgroundTasksButton } from "./shell/console/BackgroundTasksPopover";
 
 type Tab = RouteTab;
 
@@ -276,11 +279,12 @@ export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
   "polls",
   "watchdog",
   "context",
+  "console",
 ];
 
 export const PANEL_LAUNCHER_GROUPS: Array<{ label: string; keys: PanelKey[] }> = [
   { label: "主面板", keys: ["chat", "tasks", "team", "mailbox", "board"] },
-  { label: "辅助面板", keys: ["context", "polls", "watchdog", "runs"] },
+  { label: "辅助面板", keys: ["context", "polls", "watchdog", "runs", "console"] },
   { label: "工作流", keys: ["planDraft", "gitGraph", "mergeQueue"] },
 ];
 
@@ -451,6 +455,8 @@ function scrollWithin(container: HTMLElement, target: HTMLElement) {
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  // t448/G12：App 级控制台 store；Chat badge 与 ConsolePanel 共用主进程会话。
+  const consoleStore = useMemo(() => new ConsoleStore(window.deer), []);
   // C12：初始 tab 来自 hash 深链（旧 #/router 由 parseHash 重定向到 tasks）。
   const [initialRoute] = useState(() => {
     const originalHash = window.location.hash;
@@ -644,6 +650,15 @@ export default function App() {
   const [kernelAnnouncement, setKernelAnnouncement] = useState<string | null>(null);
   const [activePanelKey, setActivePanelKey] = useState<PanelKey | null>(bootPanel);
   useEffect(() => {
+    void consoleStore.setWorkspace(snapshot?.workspace.id ?? null);
+  }, [consoleStore, snapshot?.workspace.id]);
+  useEffect(() => {
+    const subscribe = window.deer?.onConsoleEvent;
+    if (typeof subscribe !== "function") return;
+    const off = subscribe.call(window.deer, (event) => consoleStore.handleEvent(event));
+    return typeof off === "function" ? off : undefined;
+  }, [consoleStore]);
+  useEffect(() => {
     if (activePanelKey === "mergeQueue") setMergeQueueOpen(true);
   }, [activePanelKey]);
   const schedulerRequestRef = useRef(0);
@@ -828,6 +843,15 @@ export default function App() {
       dockRef.current?.openPanel(key);
     },
     [loadMergeQueue, settingsDirty, settingsOpen, tab],
+  );
+
+  // t448：Chat 浮窗/控制台入口统一定位会话后打开 console dock 面板。
+  const handleOpenConsole = useCallback(
+    (sessionId?: string) => {
+      if (sessionId) void consoleStore.select(sessionId);
+      openPanel("console");
+    },
+    [consoleStore, openPanel],
   );
 
   function handleSwitchChatAgent(nextId: string): void {
@@ -3573,6 +3597,8 @@ export default function App() {
                       )}
                     </LazyPanel>
                   );
+                case "console":
+                  return <ConsolePanel store={consoleStore} workspaceId={snapshot.workspace.id} />;
                 case "tasks":
                   return (
                     <TasksView
@@ -3806,6 +3832,8 @@ export default function App() {
                       contextBusy={chatContextBusy}
                       onClearContext={() => void handleClearContext()}
                       onCompactContext={() => void handleCompactContext()}
+                      consoleStore={consoleStore}
+                      onOpenConsole={handleOpenConsole}
                       overview={snapshot.workspace.overview}
                       agent={selectedChatAgent ?? chatRouter}
                       agentOptions={chatAgentOptions(snapshot.agents)}
@@ -3977,6 +4005,7 @@ export default function App() {
     pollIntent,
     watchdogSnapshot,
     watchdogCosts,
+    consoleStore,
   });
   return (
     <div className="app" data-translation-revision={translationRevision}>
@@ -6772,6 +6801,8 @@ export function ChatView({
   contextBusy,
   onClearContext,
   onCompactContext,
+  consoleStore,
+  onOpenConsole,
   overview,
   agent,
   agentOptions,
@@ -6837,6 +6868,9 @@ export function ChatView({
   contextBusy: boolean;
   onClearContext: () => void;
   onCompactContext: () => void;
+  /** t448：后台任务入口；旧 fixture 可省略。 */
+  consoleStore?: ConsoleStore;
+  onOpenConsole?: (sessionId?: string) => void;
   overview: string | null;
   /** t424：当前对话成员（Router 或成员）；标题/权限/模型/满血均跟随。 */
   agent: Agent;
@@ -7191,6 +7225,9 @@ export function ChatView({
               <span className="badge" title="当前对话锁定在该任务的上下文">
                 任务上下文
               </span>
+            )}
+            {consoleStore && onOpenConsole && (
+              <BackgroundTasksButton store={consoleStore} onOpenConsole={onOpenConsole} />
             )}
             {onReturnToSource && (
               <button

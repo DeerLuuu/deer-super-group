@@ -29,7 +29,8 @@ export type PanelKey =
   | "settings"
   | "planDraft"
   | "gitGraph"
-  | "mergeQueue";
+  | "mergeQueue"
+  | "console";
 
 export type PanelDef = {
   key: PanelKey;
@@ -196,6 +197,19 @@ export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
     routeTab: null,
     renderer: "onlyWhenVisible",
     minWidth: 360,
+    minHeight: 320,
+    closable: true,
+    defaultGroup: "main",
+    defaultClosed: true,
+  },
+  // t448：后台任务控制台由 Chat 浮窗/面板启动器打开，不新增 primary rail/hash。
+  console: {
+    key: "console",
+    title: "控制台",
+    component: "console",
+    routeTab: null,
+    renderer: "onlyWhenVisible",
+    minWidth: 420,
     minHeight: 320,
     closable: true,
     defaultGroup: "main",

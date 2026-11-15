@@ -1,0 +1,85 @@
+{
+  "task": "t448",
+  "mode": "real Electron + isolated userData + CDP",
+  "date": "2026-11-16T00:55:00+08:00",
+  "workspace": {
+    "id": "ws_mw8tntlt_52e4fc39fa",
+    "name": "按钮工厂",
+    "path": "Z:\\GodotProject\\按钮工厂"
+  },
+  "commands": [
+    {
+      "title": "ping 127.0.0.1",
+      "command": "ping -n 120 127.0.0.1",
+      "startedVia": "window.deer.consoleStart",
+      "statusSeen": "running"
+    },
+    {
+      "title": "ping 127.0.0.2",
+      "command": "ping -n 120 127.0.0.2",
+      "startedVia": "window.deer.consoleStart",
+      "statusSeen": "running"
+    },
+    {
+      "title": "dev server",
+      "command": "node console-demo.js",
+      "startedVia": "window.deer.consoleStart",
+      "statusSeen": "running",
+      "output": "tick 1 - console demo\\ntick 2 - console demo\\n..."
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "t448-chat-popover-1440.png",
+      "viewport": [1424, 881],
+      "emulation": "window content 1424x881; 1440 metric requested",
+      "assertions": {
+        "backgroundButtonLabel": "后台任务，2 个运行中",
+        "popoverVisible": true,
+        "sessionItems": 2,
+        "scrollWidth": 1424
+      }
+    },
+    {
+      "file": "t448-console-1440.png",
+      "viewport": [1424, 881],
+      "assertions": {
+        "roleLog": true,
+        "consoleTabs": 3,
+        "selectedTitle": "dev server",
+        "scrollWidth": 1424,
+        "shellOpenFromChatPopover": true
+      }
+    },
+    {
+      "file": "t448-console-960.png",
+      "viewport": [960, 900],
+      "emulation": "CDP device metrics",
+      "assertions": {
+        "roleLog": true,
+        "consoleTabs": 3,
+        "composer": true,
+        "scrollWidth": 960
+      }
+    },
+    {
+      "file": "t448-console-480.png",
+      "viewport": [480, 900],
+      "emulation": "CDP device metrics",
+      "assertions": {
+        "roleLog": true,
+        "consoleTabs": 3,
+        "tabOverflowScroll": true,
+        "composer": true,
+        "scrollWidth": 480
+      }
+    }
+  ],
+  "cleanup": "demo sessions stopped via window.deer.consoleStop; console-demo.js removed",
+  "caveats": [
+    "non-PTY, no TTY/ANSI fidelity",
+    "in-memory sessions; application restart clears them",
+    "1440 screenshot content area is 1424x881 due Electron window decoration; 960/480 use CDP emulation",
+    "console output for Windows ping is local-codepage text; final screenshot uses ASCII node demo output"
+  ]
+}
