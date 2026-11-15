@@ -3,8 +3,10 @@ import TestRenderer from "react-test-renderer";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Agent, ChatMessage } from "../../shared/types.js";
+import type { ConsoleSession } from "../../shared/console.js";
 import { ChatView } from "../../App.js";
 import { ChatLiveStore } from "./chatLiveStore.js";
+import { ConsoleStore } from "../console/consoleStore.js";
 
 const { act, create } = TestRenderer as {
   act: (callback: () => void | Promise<void>) => Promise<void> | void;
@@ -41,6 +43,8 @@ function ChatViewProbe({
   loadEarlierMessages,
   onLoadEarlierHistory,
   onSend,
+  consoleStore,
+  onOpenConsole,
   input = "",
   fixtureMessages = messages,
   historyLimit,
@@ -51,6 +55,8 @@ function ChatViewProbe({
   loadEarlierMessages?: () => Promise<void>;
   onLoadEarlierHistory?: () => Promise<boolean | number>;
   onSend?: () => void;
+  consoleStore?: ConsoleStore;
+  onOpenConsole?: (sessionId?: string) => void;
   input?: string;
   fixtureMessages?: ChatMessage[];
   historyLimit?: number;
@@ -95,6 +101,8 @@ function ChatViewProbe({
       contextBusy={false}
       onClearContext={() => {}}
       onCompactContext={() => {}}
+      consoleStore={consoleStore}
+      onOpenConsole={onOpenConsole}
       overview={null}
       agent={{
         id: "router",
@@ -263,6 +271,62 @@ describe("t260 R1 actual ChatView isolation", () => {
     await act(() => renderer!.unmount());
   });
 
+
+  it("shows the background task badge and opens a console session from the Chat header", async () => {
+    const session: ConsoleSession = {
+      id: "con_chat",
+      workspaceId: WS,
+      title: "dev",
+      command: "pnpm dev",
+      cwd: "/workspace",
+      cwdRelative: ".",
+      source: "manual",
+      status: "running",
+      pid: 123,
+      startedAt: created,
+      endedAt: null,
+      durationMs: 0,
+      exitCode: null,
+      signal: null,
+      seq: 0,
+      bytes: 0,
+      truncated: false,
+      droppedBytes: 0,
+      error: null,
+    };
+    const consoleStore = new ConsoleStore({
+      consoleList: async () => [session],
+      consoleSnapshot: async () => ({
+        ok: true as const,
+        value: { session, output: "", truncated: false, droppedBytes: 0, seq: 0 },
+      }),
+    });
+    await act(async () => {
+      await consoleStore.setWorkspace(WS);
+    });
+    const onOpenConsole = vi.fn();
+    let renderer: ReturnType<typeof create> | null = null;
+    await act(async () => {
+      renderer = create(
+        <ChatViewProbe
+          store={new ChatLiveStore(WS)}
+          consoleStore={consoleStore}
+          onOpenConsole={onOpenConsole}
+        />,
+      );
+    });
+    const trigger = renderer!.root.findAllByProps({ "aria-label": "后台任务，1 个运行中" })[0]!;
+    await act(async () => {
+      (trigger.props.onClick as () => void)();
+      await Promise.resolve();
+    });
+    const option = renderer!.root.findAllByProps({ role: "option" })[0]!;
+    await act(async () => {
+      (option.props.onClick as () => void)();
+    });
+    expect(onOpenConsole).toHaveBeenCalledWith("con_chat");
+    await act(() => renderer!.unmount());
+  });
 
   it("starts at the newest message and exposes turn ticks", async () => {
     const store = new ChatLiveStore(WS);

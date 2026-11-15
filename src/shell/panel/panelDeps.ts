@@ -71,6 +71,7 @@ export type PanelDepsInput = {
   pollIntent?: unknown;
   watchdogSnapshot?: unknown;
   watchdogCosts?: unknown;
+  consoleStore?: unknown;
 };
 
 export function buildPanelDeps(input: PanelDepsInput): PanelDeps {
@@ -171,5 +172,6 @@ export function buildPanelDeps(input: PanelDepsInput): PanelDeps {
     settings: [input.settings],
     gitGraph: [input.workspaceId],
     mergeQueue: [input.workspaceId, input.mergeQueueItems, input.mergeQueueStale],
+    console: [input.workspaceId, input.consoleStore],
   };
 }
