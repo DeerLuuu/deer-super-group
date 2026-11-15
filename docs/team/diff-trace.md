@@ -32,8 +32,29 @@
 - `pnpm typecheck` 0；`pnpm build` 0。
 - `pnpm test --no-file-parallelism`：**161 文件 / 1074 用例全部通过**（含全部既有 GitDiffViewer/GitGraphPanel/trace 相关用例无回归）。
 
-## 5. 边界与后续
+## 5. t485：真实 Electron/CDP 三档走查（替代「仅组件测试」口径）
+
+本节取代上文「以组件级测试为主要证据（无 Electron 真机环境）」的旧口径——D1 已具备真实 Electron 三档证据。
+
+**命令**：`pnpm build` → `D1_SEED_DB=<dir> D1_SEED_REPO=<dir> pnpm vitest run scripts/seedDiffTraceFixture.test.ts`（种子：任务 + 263 条 trace 事件 + git 仓库三类工作区文件）→ `T485_DB=<seed> node shot/electron-walk.cjs`（临时驱动，不入 PR；产物入 docs/team/）。
+
+**截图索引（docs/team/）**：
+- `t485-trace-1440.png`：任务历史 tab——trace 窗口/过滤/跳转/加载更早。
+- `t485-diff-search-1440.png`：searchable.ts 搜索过滤 + 高亮 + 计数。
+- `t485-bigdiff-confirm-1440.png`：big.txt 两步确认「加载完整 diff」。
+- `t485-toolarge-1440.png`：huge.txt（8.3MB）→ GIT_READ_TOO_LARGE role=alert。
+- `t485-git-960.png` / `t485-git-480.png`：960/480 档 Git 面板（480 无横向溢出）。
+- 断言明细：`t485-walkthrough.json`（28 项 PASS：可见行数/命中数/scrollTop/focus data-trace-seq/尺寸）。
+
+**走查结论（ALL PASS）**：trace 最新 100 窗口（visible=100 / 共 263）→ tool.call 过滤（52 条）→ 过滤行点击跳回 data-trace-seq=7 并 focus → 加载更早 100→200（scrollTop 保持、height 8332→16572）；diff 搜索真实键盘输入 token（10 mark 高亮 / 10 行 / 计数 1/10）→ Enter 循环（2/10）→ 无匹配态 → 清除恢复；并排在 1440 Dock pane<560 时自动 unified（disclosed，并排逻辑由组件测试覆盖）；big.txt 默认截断 → 两步确认 → 1MB 全量加载成功（截断横幅消失、展开后 400 行）；huge.txt TOO_LARGE role=alert 且面板存活（alive=true）。
+
+**t485 顺带修复的三个真实缺陷（已入 PR）**：
+1. `gitExec` maxBuffer 超限时 `err.stderr`（git CRLF 警告）掩盖 `err.message` 的 maxBuffer 信号 → 未跟踪超大文件 `--no-index` diff 被 noIndex(code=1) 成功语义吞掉、返回空 diff；修复后正确映射 `GIT_READ_TOO_LARGE`。
+2. trace 过滤跳转用 `requestAnimationFrame` 可能早于 React 提交且目标 seq 可能在最新 100 窗口之外 → 改 pending-jump ref + `useLayoutEffect`，跳转时同时展开全量窗口；行 wrapper 常态 `tabIndex=-1` 保证可编程聚焦。
+3. `readService.diff` 的 page 级 max-bytes 截断（单文件场景）现在也显示「加载完整 diff」（此前仅 `file.truncated`）；diff 读取错误（含 TOO_LARGE）内联进 DiffView `role=alert`，不再只进全局 banner。
+
+## 6. 边界与后续
 
 - trace 服务端游标分页（`listEventsForTask` 带 beforeSeq）留待后续——当前 2000 条上限下客户端分页已满足「不截断丢失」。
-- 过滤跳转的 `requestAnimationFrame` 定位在 test-renderer 环境为空操作（真实浏览器生效）；滚动保持依赖 `.trace` 容器 scrollTop（DOM 环境）。
-- 截图：本任务以组件级测试为主要证据（无 Electron 真机环境）；后续评审可按 t452 模式补真实 Electron 三档截图。
+- 1440 Dock 双栏下 Git 面板 <560 宽时并排按钮禁用（自动 unified），属既有宽度断点；并排搜索已由组件测试覆盖，真实浏览器并排截图待面板更宽场景补充。
+- 过滤跳转的滚动/聚焦依赖 `.trace` 容器（DOM 环境）；test-renderer 下为空操作。

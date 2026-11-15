@@ -79,6 +79,8 @@ export default function GitGraphPanel({
     scope: "working" | "staged";
     path: string;
   } | null>(null);
+  // t485：diff 读取错误（如 TOO_LARGE）内联展示在 DiffView（role=alert），不再只进全局 banner。
+  const [workingDiffError, setWorkingDiffError] = useState<string | null>(null);
   // t389 走查修复：Dock 在视口切换（wide/single 变体往返）时会重挂本面板，
   // view 状态丢失导致用户暂存上下文消失。按 workspaceId 记忆最后视图，
   // 重挂时恢复到离开前的 tab。
@@ -347,12 +349,16 @@ export default function GitGraphPanel({
       const scope = file.staged ? "staged" as const : "working" as const;
       const result = unwrap(await api.gitDiff(workspaceId, { scope, path: file.path, context: 3 }));
       setWorkingDiff(result);
+      setWorkingDiffError(null);
       setWorkingDiffSource({ scope, path: file.path });
       setInspectorMode("diff");
       // t401：选择文件即展示 Diff；480 下同时切到 Diff tab。
       setView("detail");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setWorkingDiffError(message);
+      setInspectorMode("diff");
+      setView("detail");
     } finally {
       setBusy(false);
     }
@@ -374,8 +380,9 @@ export default function GitGraphPanel({
           }),
         );
         setWorkingDiff(result);
+        setWorkingDiffError(null);
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setWorkingDiffError(cause instanceof Error ? cause.message : String(cause));
       } finally {
         setBusy(false);
       }
@@ -1020,7 +1027,15 @@ export default function GitGraphPanel({
                   </button>
                 </div>
                 {workingDiff ? (
-                  <DiffView diff={workingDiff} loading={busy} onLoadFull={loadFullFileDiff} fullLoading={busy} />
+                  <DiffView
+                    diff={workingDiff}
+                    loading={busy}
+                    error={workingDiffError}
+                    onLoadFull={loadFullFileDiff}
+                    fullLoading={busy}
+                  />
+                ) : workingDiffError ? (
+                  <DiffView diff={null} loading={false} error={workingDiffError} />
                 ) : (
                   <p className="muted small git-st-empty">
                     选择一个工作区文件查看 diff；也可以选择提交查看详情。
@@ -1582,7 +1597,7 @@ function DiffView({
   onLoadFull,
   fullLoading = false,
 }: {
-  diff: GitDiffPage;
+  diff: GitDiffPage | null;
   loading?: boolean;
   error?: string | null;
   /** t360 D1：按文件加载完整 diff（context=20 / 1MB 展示上限）。 */

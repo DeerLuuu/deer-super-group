@@ -4806,17 +4806,28 @@ function TasksView({
     setTraceLimit((current) => growLimit(current, filteredTrace.length));
   }
 
+  const pendingTraceJumpRef = useRef<number | null>(null);
+
   function jumpToTraceEvent(seq: number) {
-    // 从过滤结果跳回完整 trace：清除过滤并聚焦对应条目（tool_call 气泡等）。
+    // 从过滤结果跳回完整 trace：清除过滤 + 展开到全量窗口（目标可能在最新 100 之外），
+    // 待渲染生效后定位并聚焦（t485：rAF 可能早于 React 提交）。
+    pendingTraceJumpRef.current = seq;
     setTraceFilterType("all");
-    requestAnimationFrame(() => {
-      const node = traceScrollRef.current;
-      if (!node) return;
-      const target = node.querySelector<HTMLElement>(`[data-trace-seq="${seq}"]`);
-      target?.scrollIntoView?.({ block: "center" });
-      target?.focus?.();
-    });
+    setTraceLimit(dedupedTrace.length);
   }
+
+  // 过滤切换（或同过滤重渲）后执行挂起的跳转。
+  useLayoutEffect(() => {
+    const seq = pendingTraceJumpRef.current;
+    if (seq == null) return;
+    const node = traceScrollRef.current;
+    if (!node) return;
+    const target = node.querySelector<HTMLElement>(`[data-trace-seq="${seq}"]`);
+    if (!target) return;
+    pendingTraceJumpRef.current = null;
+    target.scrollIntoView?.({ block: "center" });
+    target.focus?.();
+  }, [traceFilterType, visibleTrace.length]);
 
   // C11：从顶栏/命令面板进入时自动打开对应弹窗（一次性）。
   useEffect(() => {
@@ -5699,7 +5710,7 @@ function TasksView({
                       <div
                         key={event.seq}
                         data-trace-seq={event.seq}
-                        tabIndex={traceFilterType !== "all" ? 0 : undefined}
+                        tabIndex={traceFilterType !== "all" ? 0 : -1}
                         role={traceFilterType !== "all" ? "button" : undefined}
                         aria-label={traceFilterType !== "all" ? `跳转到 ${event.type} 事件` : undefined}
                         onClick={traceFilterType !== "all" ? () => jumpToTraceEvent(event.seq) : undefined}

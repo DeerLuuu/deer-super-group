@@ -641,7 +641,7 @@ export function GitDiffViewer({
               <p className="git-diff-state">二进制文件不显示 diff。</p>
             ) : file.submodule ? (
               <p className="git-diff-state">子模块变更不展开。</p>
-            ) : file.truncated ? (
+            ) : file.truncated || (diff.truncated && diff.files.length === 1) ? (
               <div className="git-diff-state is-warn">
                 <p>该文件 diff 已截断。</p>
                 {onLoadFull ? (
