@@ -74,6 +74,11 @@ export default function GitGraphPanel({
   const [detail, setDetail] = useState<GitCommitDetail | null>(null);
   const [working, setWorking] = useState<GitWorkingStatus | null>(null);
   const [workingDiff, setWorkingDiff] = useState<GitDiffPage | null>(null);
+  // t360 D1：记录当前 workingDiff 的读取来源（scope/path），供「加载完整 diff」按同文件重取。
+  const [workingDiffSource, setWorkingDiffSource] = useState<{
+    scope: "working" | "staged";
+    path: string;
+  } | null>(null);
   // t389 走查修复：Dock 在视口切换（wide/single 变体往返）时会重挂本面板，
   // view 状态丢失导致用户暂存上下文消失。按 workspaceId 记忆最后视图，
   // 重挂时恢复到离开前的 tab。
@@ -340,7 +345,9 @@ export default function GitGraphPanel({
     setBusy(true);
     try {
       const scope = file.staged ? "staged" as const : "working" as const;
-      setWorkingDiff(unwrap(await api.gitDiff(workspaceId, { scope, path: file.path, context: 3 })));
+      const result = unwrap(await api.gitDiff(workspaceId, { scope, path: file.path, context: 3 }));
+      setWorkingDiff(result);
+      setWorkingDiffSource({ scope, path: file.path });
       setInspectorMode("diff");
       // t401：选择文件即展示 Diff；480 下同时切到 Diff tab。
       setView("detail");
@@ -350,6 +357,31 @@ export default function GitGraphPanel({
       setBusy(false);
     }
   };
+
+  // t360 D1：按文件「加载完整 diff」——context 拉满 20、maxBytes 用 IPC 上限 1MB；
+  // 管道上限 8MB，超出返回 GIT_READ_TOO_LARGE（错误态展示，不卡顿）。
+  const loadFullFileDiff = useCallback(
+    async (path: string) => {
+      if (!api || !workingDiffSource || workingDiffSource.path !== path) return;
+      setBusy(true);
+      try {
+        const result = unwrap(
+          await api.gitDiff(workspaceId, {
+            scope: workingDiffSource.scope,
+            path,
+            context: 20,
+            maxBytes: 1_048_576,
+          }),
+        );
+        setWorkingDiff(result);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api, workspaceId, workingDiffSource],
+  );
 
   // t352 G1：写操作统一入口——失败保留 inline 错误（可重试），成功后刷新状态与图。
   const runWrite = useCallback(
@@ -988,7 +1020,7 @@ export default function GitGraphPanel({
                   </button>
                 </div>
                 {workingDiff ? (
-                  <DiffView diff={workingDiff} loading={busy} />
+                  <DiffView diff={workingDiff} loading={busy} onLoadFull={loadFullFileDiff} fullLoading={busy} />
                 ) : (
                   <p className="muted small git-st-empty">
                     选择一个工作区文件查看 diff；也可以选择提交查看详情。
@@ -1547,10 +1579,23 @@ function DiffView({
   diff,
   loading = false,
   error = null,
+  onLoadFull,
+  fullLoading = false,
 }: {
   diff: GitDiffPage;
   loading?: boolean;
   error?: string | null;
+  /** t360 D1：按文件加载完整 diff（context=20 / 1MB 展示上限）。 */
+  onLoadFull?: (path: string, oldPath: string | null) => void;
+  fullLoading?: boolean;
 }) {
-  return <GitDiffViewer diff={diff} loading={loading} error={error} />;
+  return (
+    <GitDiffViewer
+      diff={diff}
+      loading={loading}
+      error={error}
+      onLoadFull={onLoadFull}
+      fullLoading={fullLoading}
+    />
+  );
 }

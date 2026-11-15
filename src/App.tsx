@@ -241,6 +241,14 @@ import {
   taskListMaxWidth,
   taskListWidthStateForLayout,
 } from "./shell/taskListWidth";
+import {
+  dedupeBySeq,
+  filterTraceEvents,
+  growLimit,
+  latestPage,
+  pageLabel,
+  traceTypeOptions as traceTypeOptionsOf,
+} from "./shell/tracePaging";
 import { railKeyForActive, type PrimaryRailKey } from "./shell/primaryRailData";
 
 type Tab = RouteTab;
@@ -494,6 +502,8 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskWorkspaceSource, setTaskWorkspaceSource] = useState<TaskWorkspaceSource>("tasks");
   const [trace, setTrace] = useState<EventRecord[]>([]);
+  // t360 D1：trace 加载失败标记（失败重试按钮数据源）。
+  const [traceLoadFailed, setTraceLoadFailed] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const chatMessagesRef = useRef<ChatMessage[]>([]);
   chatMessagesRef.current = chatMessages;
@@ -1201,9 +1211,11 @@ export default function App() {
         const next = await window.deer.getTaskTrace(taskId);
         if (options.guard && !options.guard()) return;
         setTrace(next);
+        setTraceLoadFailed(false);
       } catch (error) {
         if (options.guard && !options.guard()) return;
         setError(errorText(error));
+        setTraceLoadFailed(true);
         if (options.strict) throw error;
       }
     },
@@ -3567,6 +3579,10 @@ export default function App() {
                       snapshot={snapshot}
                       selectedTask={selectedTask}
                       trace={trace}
+                      traceLoadFailed={traceLoadFailed}
+                      onReloadTrace={() => {
+                        if (selectedTask) void loadTrace(selectedTask.id);
+                      }}
                       busy={busy}
                       statusFilter={taskStatusFilter}
                       onStatusFilter={setTaskStatusFilter}
@@ -4694,6 +4710,8 @@ function TasksView({
   fullThrottle,
   onOpenModels,
   onEditOwner,
+  traceLoadFailed,
+  onReloadTrace,
 }: {
   snapshot: Snapshot;
   selectedTask: Task | null;
@@ -4744,10 +4762,61 @@ function TasksView({
   fullThrottle: boolean;
   onOpenModels: () => void;
   onEditOwner: (ownerId: string | null) => void;
+  /** t360 D1：trace 加载失败标记（用于失败重试按钮）。 */
+  traceLoadFailed: boolean;
+  onReloadTrace: () => void;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [taskTab, setTaskTab] = useState<TaskWorkspaceTab>(TASK_WORKSPACE_INITIAL_TAB);
+  // t360 D1：trace 客户端游标分页（默认最新 100 条，「加载更早」+100）+ 类型过滤。
+  const [traceLimit, setTraceLimit] = useState(100);
+  const [traceFilterType, setTraceFilterType] = useState<string>("all");
+  const traceScrollRef = useRef<HTMLDivElement | null>(null);
+  const traceScrollRestoreRef = useRef<number | null>(null);
+  const dedupedTrace = useMemo(() => dedupeBySeq(trace), [trace]);
+  const filteredTrace = useMemo(
+    () => filterTraceEvents(dedupedTrace, traceFilterType),
+    [dedupedTrace, traceFilterType],
+  );
+  const visibleTrace = useMemo(
+    () => latestPage(filteredTrace, traceLimit),
+    [filteredTrace, traceLimit],
+  );
+  const traceTypeOptions = useMemo(() => traceTypeOptionsOf(dedupedTrace), [dedupedTrace]);
+
+  // 任务切换时重置分页与过滤。
+  useEffect(() => {
+    setTraceLimit(100);
+    setTraceFilterType("all");
+  }, [selectedTask?.id]);
+
+  // 「加载更早」后恢复滚动位置（prepend 不跳动）。
+  useLayoutEffect(() => {
+    const node = traceScrollRef.current;
+    if (!node || traceScrollRestoreRef.current == null) return;
+    const delta = node.scrollHeight - traceScrollRestoreRef.current;
+    if (delta > 0) node.scrollTop += delta;
+    traceScrollRestoreRef.current = null;
+  }, [visibleTrace.length]);
+
+  function loadEarlierTrace() {
+    const node = traceScrollRef.current;
+    traceScrollRestoreRef.current = node ? node.scrollHeight - node.scrollTop : null;
+    setTraceLimit((current) => growLimit(current, filteredTrace.length));
+  }
+
+  function jumpToTraceEvent(seq: number) {
+    // 从过滤结果跳回完整 trace：清除过滤并聚焦对应条目（tool_call 气泡等）。
+    setTraceFilterType("all");
+    requestAnimationFrame(() => {
+      const node = traceScrollRef.current;
+      if (!node) return;
+      const target = node.querySelector<HTMLElement>(`[data-trace-seq="${seq}"]`);
+      target?.scrollIntoView?.({ block: "center" });
+      target?.focus?.();
+    });
+  }
 
   // C11：从顶栏/命令面板进入时自动打开对应弹窗（一次性）。
   useEffect(() => {
@@ -5592,17 +5661,75 @@ function TasksView({
                   )}
                 </div>
                 <div className="trace-head">
-              <div className="section-label">执行 trace（最近）</div>
-              <span className="muted tiny">
-                {trace.length > 100 ? `最近 100 / 共 ${trace.length} 条` : `${trace.length} 条事件`}
-              </span>
-            </div>
-            <div className="trace">
-              {trace.length === 0 && <div className="empty small">还没有执行记录。</div>}
-              {trace.slice(-100).map((event) => (
-                <TraceItem key={event.seq} event={event} />
-              ))}
-            </div>
+                  <div className="section-label">执行 trace</div>
+                  <span className="muted tiny" aria-live="polite">
+                    {pageLabel(visibleTrace.length, filteredTrace.length)}
+                  </span>
+                  <label className="trace-filter">
+                    <span className="sr-only">按事件类型过滤</span>
+                    <select
+                      value={traceFilterType}
+                      onChange={(event) => {
+                        setTraceFilterType(event.target.value);
+                        setTraceLimit(100);
+                      }}
+                      aria-label="按事件类型过滤 trace"
+                    >
+                      <option value="all">全部类型</option>
+                      {traceTypeOptions.map((option) => (
+                        <option key={option.type} value={option.type}>
+                          {option.type}（{option.count}）
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {traceLoadFailed ? (
+                    <button type="button" className="ghost tiny" onClick={onReloadTrace}>
+                      重新加载
+                    </button>
+                  ) : null}
+                </div>
+                <div className="trace" ref={traceScrollRef}>
+                  {trace.length === 0 ? (
+                    <div className="empty small">{traceLoadFailed ? "trace 加载失败，点「重新加载」重试。" : "还没有执行记录。"}</div>
+                  ) : filteredTrace.length === 0 ? (
+                    <div className="empty small">该类型没有事件。</div>
+                  ) : (
+                    visibleTrace.map((event) => (
+                      <div
+                        key={event.seq}
+                        data-trace-seq={event.seq}
+                        tabIndex={traceFilterType !== "all" ? 0 : undefined}
+                        role={traceFilterType !== "all" ? "button" : undefined}
+                        aria-label={traceFilterType !== "all" ? `跳转到 ${event.type} 事件` : undefined}
+                        onClick={traceFilterType !== "all" ? () => jumpToTraceEvent(event.seq) : undefined}
+                        onKeyDown={
+                          traceFilterType !== "all"
+                            ? (keydownEvent) => {
+                                if (keydownEvent.key === "Enter" || keydownEvent.key === " ") {
+                                  keydownEvent.preventDefault();
+                                  jumpToTraceEvent(event.seq);
+                                }
+                              }
+                            : undefined
+                        }
+                        className={traceFilterType !== "all" ? "trace-jump-row" : undefined}
+                      >
+                        <TraceItem event={event} />
+                      </div>
+                    ))
+                  )}
+                  {filteredTrace.length > visibleTrace.length ? (
+                    <button
+                      type="button"
+                      className="ghost tiny trace-more"
+                      onClick={loadEarlierTrace}
+                      aria-label={`加载更早事件（当前显示 ${visibleTrace.length} / ${filteredTrace.length} 条）`}
+                    >
+                      加载更早（剩余 {filteredTrace.length - visibleTrace.length} 条）
+                    </button>
+                  ) : null}
+                </div>
               </div>
             )}
           </>

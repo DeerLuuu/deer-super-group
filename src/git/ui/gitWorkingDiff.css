@@ -247,6 +247,31 @@
   font-size: 11px;
 }
 
+/* t360 D1：搜索计数与命中高亮。 */
+.git-diff-search-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.git-diff-search-count.is-empty {
+  color: var(--yellow, #d29922);
+}
+
+.git-diff-row .diff-hit,
+.git-diff-side-row .diff-hit {
+  background: color-mix(in srgb, var(--yellow, #d29922) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.git-diff-row:focus-visible,
+.git-diff-side-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .git-diff-file {
   border: 1px solid var(--border);
   border-radius: 8px;
