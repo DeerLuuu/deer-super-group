@@ -63,8 +63,12 @@ Settings「界面」新增 **小 / 标准 / 大** 三档，默认标准；用 CS
   - Task row：`11.96/13/14.95px`；
   - Mailbox thread body：`11.96/13/14.95px`。
 - 三档 480 均无根级横向裁切；Task/Mailbox 内部滚动保持可用。Mailbox 480 内部 layout 仍有 878px（既有 mailbox 双列内部宽度），根级 `scrollWidth` 480、截图无页面横向裁切；该内部宽度为既有布局行为，不在本 PR 重排。
-- 代码/thinking 专项：`t364-font-chat-code-thinking.json` + `t364-chat-thinking-standard-1440.png`；Chat Markdown fenced code 与 reasoning pre 均 14px/1.65 标准；reasoning 展开可见。
-- 翻译 pre 的真实 Chat 需要启用翻译 provider/网络，本 fixture 未产生 `.chat-turn-translation pre`；翻译字号由 Settings 预览的同一 `--font-small-size` 记录（10.12/11/12.65px），未虚报真实 Chat 翻译已触发。
+- 代码/thinking/翻译专项：`t364-font-chat-code-thinking.json` + `t364-chat-thinking-standard-1440.png`；Chat Markdown fenced code 与 reasoning pre 均 14px/1.65 标准；reasoning 展开可见。
+- 真实 Chat 翻译：`t364-font-chat-translation.json` + `t364-chat-translation-standard-1440.png`；展开 reasoning 的「译文」后 `.chat-turn-translation pre` computed **14px/23.1px（1.65）**，label **11px/16.5px（small）**；翻译 provider 为 Bing，目标 zh-Hans，未伪造 DOM。
+
+![Chat translation](t364-chat-translation-standard-1440.png)
+
+- Settings 预览另记录三档 translation 10.12/11/12.65px，与 Chat 真实翻译共用 small 变量。
 
 ### 3.2 Settings 3×3
 

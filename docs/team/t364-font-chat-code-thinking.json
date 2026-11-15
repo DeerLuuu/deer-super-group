@@ -67,9 +67,12 @@
     "scrollWidth": 1440,
     "innerWidth": 1440,
     "translation": {
-      "font": "11px",
-      "source": "Settings preview (t364-font-settings-walkthrough.json)",
-      "lineHeight": "16.5px"
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "labelFont": "11px",
+      "labelLineHeight": "16.5px",
+      "text": "先检查身份验证中间件，然后检查 401/403 分支。",
+      "screenshot": "t364-chat-translation-standard-1440.png"
     }
   },
   "note": "ChatView 在 fixture 的 Dock overlay 默认 hidden；截图中将既有 overlay 设为 visible（不改 markdown/字号 DOM）。Task/Mailbox 为 #/tasks/#/mailbox 实际路由。"
