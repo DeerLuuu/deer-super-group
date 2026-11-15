@@ -1,0 +1,738 @@
+{
+  "at": "2026-11-15T18:41:08.553Z",
+  "results": [
+    {
+      "panel": "mailbox",
+      "scale": "small",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 806,
+          "height": 777,
+          "top": 91.4375,
+          "right": 875,
+          "bottom": 868.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 245.609375,
+          "width": 322,
+          "height": 613.828125,
+          "top": 245.609375,
+          "right": 400,
+          "bottom": 859.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "11.96px",
+        "lineHeight": "19.136px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 453,
+          "y": 279.875,
+          "width": 392,
+          "height": 19.125,
+          "top": 279.875,
+          "right": 845,
+          "bottom": 299,
+          "left": 453
+        }
+      },
+      "messageRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 245.609375,
+          "width": 322,
+          "height": 613.828125,
+          "top": 245.609375,
+          "right": 400,
+          "bottom": 859.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "small",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 816,
+          "height": 796,
+          "top": 91.4375,
+          "right": 885,
+          "bottom": 887.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 217.359375,
+          "width": 798,
+          "height": 125.078125,
+          "top": 217.359375,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "11.96px",
+        "lineHeight": "19.136px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 101,
+          "y": 551.875,
+          "width": 754,
+          "height": 19.125,
+          "top": 551.875,
+          "right": 855,
+          "bottom": 571,
+          "left": 101
+        }
+      },
+      "messageRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 217.359375,
+          "width": 798,
+          "height": 125.078125,
+          "top": 217.359375,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "small",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "11.96px",
+      "layout": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 128.6875,
+          "width": 878,
+          "height": 696,
+          "top": 128.6875,
+          "right": 947,
+          "bottom": 824.6875,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 295.609375,
+          "width": 845,
+          "height": 103.78125,
+          "top": 295.609375,
+          "right": 923,
+          "bottom": 399.390625,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "11.96px",
+        "lineHeight": "19.136px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 95,
+          "y": 593.125,
+          "width": 828,
+          "height": 19.125,
+          "top": 593.125,
+          "right": 923,
+          "bottom": 612.25,
+          "left": 95
+        }
+      },
+      "messageRow": {
+        "font": "11.96px",
+        "lineHeight": "17.94px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 295.609375,
+          "width": 845,
+          "height": 103.78125,
+          "top": 295.609375,
+          "right": 923,
+          "bottom": 399.390625,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "standard",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 454,
+          "height": 657,
+          "top": 91.4375,
+          "right": 523,
+          "bottom": 748.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 250.0625,
+          "width": 322,
+          "height": 489.375,
+          "top": 250.0625,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "13px",
+        "lineHeight": "20.8px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 453,
+          "y": 547.28125,
+          "width": 25,
+          "height": 540.71875,
+          "top": 547.28125,
+          "right": 478,
+          "bottom": 1088,
+          "left": 453
+        }
+      },
+      "messageRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 250.0625,
+          "width": 322,
+          "height": 489.375,
+          "top": 250.0625,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "standard",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 816,
+          "height": 796,
+          "top": 91.4375,
+          "right": 885,
+          "bottom": 887.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 220.125,
+          "width": 798,
+          "height": 122.3125,
+          "top": 220.125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "13px",
+        "lineHeight": "20.8px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 101,
+          "y": 556.21875,
+          "width": 754,
+          "height": 20.796875,
+          "top": 556.21875,
+          "right": 855,
+          "bottom": 577.015625,
+          "left": 101
+        }
+      },
+      "messageRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 220.125,
+          "width": 798,
+          "height": 122.3125,
+          "top": 220.125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "standard",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "13px",
+      "layout": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 130.1875,
+          "width": 878,
+          "height": 696,
+          "top": 130.1875,
+          "right": 947,
+          "bottom": 826.1875,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 300.875,
+          "width": 845,
+          "height": 107.9375,
+          "top": 300.875,
+          "right": 923,
+          "bottom": 408.8125,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "13px",
+        "lineHeight": "20.8px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 95,
+          "y": 598.96875,
+          "width": 828,
+          "height": 20.796875,
+          "top": 598.96875,
+          "right": 923,
+          "bottom": 619.765625,
+          "left": 95
+        }
+      },
+      "messageRow": {
+        "font": "13px",
+        "lineHeight": "19.5px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 300.875,
+          "width": 845,
+          "height": 107.9375,
+          "top": 300.875,
+          "right": 923,
+          "bottom": 408.8125,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "large",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 454,
+          "height": 657,
+          "top": 91.4375,
+          "right": 523,
+          "bottom": 748.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 258.84375,
+          "width": 322,
+          "height": 480.59375,
+          "top": 258.84375,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "14.95px",
+        "lineHeight": "23.92px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 453,
+          "y": 588.609375,
+          "width": 25,
+          "height": 621.96875,
+          "top": 588.609375,
+          "right": 478,
+          "bottom": 1210.578125,
+          "left": 453
+        }
+      },
+      "messageRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 258.84375,
+          "width": 322,
+          "height": 480.59375,
+          "top": 258.84375,
+          "right": 400,
+          "bottom": 739.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "large",
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 91.4375,
+          "width": 816,
+          "height": 796,
+          "top": 91.4375,
+          "right": 885,
+          "bottom": 887.4375,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 225.78125,
+          "width": 798,
+          "height": 116.65625,
+          "top": 225.78125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "14.95px",
+        "lineHeight": "23.92px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 101,
+          "y": 564.359375,
+          "width": 754,
+          "height": 23.921875,
+          "top": 564.359375,
+          "right": 855,
+          "bottom": 588.28125,
+          "left": 101
+        }
+      },
+      "messageRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 225.78125,
+          "width": 798,
+          "height": 116.65625,
+          "top": 225.78125,
+          "right": 876,
+          "bottom": 342.4375,
+          "left": 78
+        }
+      }
+    },
+    {
+      "panel": "mailbox",
+      "scale": "large",
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "bodyFont": "14.95px",
+      "layout": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "邮箱\n1 个线程 · 2 封内部消息\n2 未读\n全部标为已读\n发邮件\n全部成员\nagent_t364_router\nAster\n登录接口复核\n02:32:42\nagent_t364",
+        "n": 1,
+        "rect": {
+          "x": 69,
+          "y": 133,
+          "width": 878,
+          "height": 696,
+          "top": 133,
+          "right": 947,
+          "bottom": 829,
+          "left": 69
+        }
+      },
+      "threadRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 312.90625,
+          "width": 845,
+          "height": 115.75,
+          "top": 312.90625,
+          "right": 923,
+          "bottom": 428.65625,
+          "left": 78
+        }
+      },
+      "threadBody": {
+        "font": "14.95px",
+        "lineHeight": "23.92px",
+        "text": "请确认登录接口的鉴权中间件与错误码分支，并回复结论。",
+        "n": 2,
+        "rect": {
+          "x": 95,
+          "y": 609.921875,
+          "width": 828,
+          "height": 23.921875,
+          "top": 609.921875,
+          "right": 923,
+          "bottom": 633.84375,
+          "left": 95
+        }
+      },
+      "messageRow": {
+        "font": "14.95px",
+        "lineHeight": "22.425px",
+        "text": "登录接口复核\n02:32:42\nagent_t364_router · Aster\n已确认：鉴权中间件在 router 层挂载，401/403 分支均有测试覆盖。\n2 封\n2 未读",
+        "n": 1,
+        "rect": {
+          "x": 78,
+          "y": 312.90625,
+          "width": 845,
+          "height": 115.75,
+          "top": 312.90625,
+          "right": 923,
+          "bottom": 428.65625,
+          "left": 78
+        }
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "ok": true,
+      "assert": "mailbox-small-1440",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 806
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-small-960",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 816
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-small-480",
+      "expected": 11.96,
+      "primary": "11.96px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 878
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-standard-1440",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 454
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-standard-960",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 816
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-standard-480",
+      "expected": 13,
+      "primary": "13px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 878
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-large-1440",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "layoutWidth": 454
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-large-960",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "layoutWidth": 816
+    },
+    {
+      "ok": true,
+      "assert": "mailbox-large-480",
+      "expected": 14.95,
+      "primary": "14.95px",
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "layoutWidth": 878
+    }
+  ],
+  "pass": 9,
+  "total": 9
+}

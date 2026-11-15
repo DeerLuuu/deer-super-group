@@ -9989,8 +9989,9 @@ button.task-contract-chip:focus-visible {
 :root {
   --font-scale: 1;
   --font-base-size: calc(13px * var(--font-scale));
+  --font-chat-size: calc(14px * var(--font-scale));
   --font-small-size: calc(11px * var(--font-scale));
-  --font-code-size: calc(12px * var(--font-scale));
+  --font-code-size: calc(14px * var(--font-scale));
   --font-control-size: calc(12.5px * var(--font-scale));
 }
 
@@ -10002,12 +10003,59 @@ body {
   font-size: var(--font-small-size) !important;
 }
 
+.app .chat-bubble,
+.app .chat-content,
+.app .markdown-body,
+.app .markdown-body p,
+.app .markdown-body li,
+.app .markdown-body ul,
+.app .markdown-body ol,
+.app .markdown-body blockquote {
+  font-size: var(--font-chat-size) !important;
+}
+
+.app .markdown-body h1 {
+  font-size: calc(18px * var(--font-scale)) !important;
+}
+
+.app .markdown-body h2 {
+  font-size: calc(16px * var(--font-scale)) !important;
+}
+
+.app .markdown-body h3 {
+  font-size: calc(14px * var(--font-scale)) !important;
+}
+
+.app .markdown-body h4 {
+  font-size: calc(13px * var(--font-scale)) !important;
+}
+
+.app .markdown-body table {
+  font-size: calc(12px * var(--font-scale)) !important;
+}
+
 .app .message-body,
 .app .trace-body,
 .app .chat-message,
 .app .chat-message-body,
-.app .chat-composer {
+.app .chat-composer,
+.app .tasks-layout,
+.app .task-row,
+.app .task-detail-panel,
+.app .mailbox-layout,
+.app .mailbox-thread-row,
+.app .mailbox-thread-body,
+.app .mailbox-body,
+.app .message-row {
   font-size: var(--font-base-size) !important;
+}
+
+.app .chat-meta,
+.app .task-card .muted,
+.app .mailbox-item .muted,
+.app .mailbox-thread-summary,
+.app .task-row-meta {
+  font-size: var(--font-small-size) !important;
 }
 
 .app button,
@@ -10038,12 +10086,17 @@ body {
 .app .chat-turn-reasoning-label,
 .app .chat-turn-reasoning-collapse,
 .app .chat-turn-translation-label,
-.app .chat-turn-translation pre,
-.app .chat-turn-live pre,
+.app .chat-turn-translation-status,
 .app .chat-turn-step-label,
 .app .chat-turn-step-live,
 .app .chat-turn-step-done {
   font-size: var(--font-small-size) !important;
+}
+
+.app .chat-turn-reasoning pre,
+.app .chat-turn-live pre,
+.app .chat-turn-translation pre {
+  font-size: var(--font-code-size) !important;
 }
 
 .app .chat-trajectory-detail pre,

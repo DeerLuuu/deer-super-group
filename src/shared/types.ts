@@ -583,16 +583,17 @@ export interface FontScaleOption {
   id: FontScale;
   label: string;
   factor: number;
-  /** 文档/偏好面板显示的正文/控件、小字、代码字号（px）。 */
+  /** 文档/偏好面板显示的正文、小字、聊天/Markdown、代码字号（px）。 */
   bodyPx: number;
   smallPx: number;
+  chatPx: number;
   codePx: number;
 }
 
 export const FONT_SCALE_OPTIONS: readonly FontScaleOption[] = [
-  { id: "small", label: "小", factor: 0.92, bodyPx: 12, smallPx: 10, codePx: 11 },
-  { id: "standard", label: "标准", factor: 1, bodyPx: 13, smallPx: 11, codePx: 12 },
-  { id: "large", label: "大", factor: 1.15, bodyPx: 15, smallPx: 13, codePx: 14 },
+  { id: "small", label: "小", factor: 0.92, bodyPx: 12, smallPx: 10, chatPx: 13, codePx: 13 },
+  { id: "standard", label: "标准", factor: 1, bodyPx: 13, smallPx: 11, chatPx: 14, codePx: 14 },
+  { id: "large", label: "大", factor: 1.15, bodyPx: 15, smallPx: 13, chatPx: 16, codePx: 16 },
 ] as const;
 
 export const DEFAULT_FONT_SCALE: FontScale = "standard";

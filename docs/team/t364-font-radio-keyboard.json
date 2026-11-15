@@ -1,0 +1,40 @@
+{
+  "at": "2026-11-15T18:41:17.901Z",
+  "before": {
+    "focus": "界面字号：标准",
+    "checked": [
+      [
+        "small",
+        false
+      ],
+      [
+        "standard",
+        true
+      ],
+      [
+        "large",
+        false
+      ]
+    ],
+    "radios": 3
+  },
+  "after": {
+    "focus": "界面字号：大",
+    "checked": [
+      [
+        "small",
+        false
+      ],
+      [
+        "standard",
+        false
+      ],
+      [
+        "large",
+        true
+      ]
+    ],
+    "radios": 3,
+    "scale": "1"
+  }
+}
