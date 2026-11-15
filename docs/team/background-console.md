@@ -53,10 +53,10 @@ pnpm build
 pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
 ```
 
-- `electron/console/consoleManager.test.ts`（12，含 Windows taskkill 强杀）：real spawn stdout/exit、非零 exit、stdin、stop+幂等+closeAll、cwd、env token 剔除、elevation/danger token、active/history limits、2MB 截断、16KB chunk、spawn error。
+- `electron/console/consoleManager.test.ts`（13，含 closeAll/stop taskkill 强杀）：real spawn stdout/exit、非零 exit、stdin、stop+幂等+closeAll、cwd、env token 剔除、elevation/danger token、active/history limits、2MB 截断、16KB chunk、spawn error。
 - `electron/console/consoleWiring.test.ts`：7 个 IPC/preload API；main consoleManager/closeAll；Agent tools 无 console。
 - `src/shared/console.test.ts`：zod strict/长度/未知字段。
-- `src/shell/console/consoleStore.test.ts`：list/snapshot、output 不通知 Chat meta、status/clear、新建/隐藏/尾部上限。
+- `src/shell/console/consoleStore.test.ts`（3）：list/snapshot、output 不通知 Chat meta、status/clear、新建/隐藏/尾部上限、A→B 跨 workspace 事件隔离。
 - `src/shell/console/consoleUi.test.tsx`（5）：Chat badge/浮窗/打开 session、tablist/log/aria、stdin、stop/restart/clear、关闭确认、危险确认 token、空态新建+cwd。
 - `src/shell/chat/chatViewIsolation.test.tsx`：Chat 头部按钮 badge+点击打开 session；既有 t443 历史/rail 不回归。
 
