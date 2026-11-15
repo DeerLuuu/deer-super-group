@@ -241,7 +241,10 @@ export function ConsolePanel({
                 aria-selected={active}
                 tabIndex={active ? 0 : -1}
                 className={`console-tab${active ? " active" : ""}`}
-                onClick={() => void store.select(session.id)}
+                onClick={() => {
+                  setNewTab(false);
+                  void store.select(session.id);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();

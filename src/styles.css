@@ -9873,7 +9873,7 @@ button.task-contract-chip:focus-visible {
     position: fixed;
     left: 8px;
     right: 8px;
-    bottom: 8px;
+    bottom: 64px;
     top: auto;
     width: auto;
     max-height: 55vh;
