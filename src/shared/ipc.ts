@@ -47,6 +47,14 @@ import type {
   PreviewPlanResult,
 } from "./planDraft.js";
 import type {
+  ConsoleCwdOption,
+  ConsoleEvent,
+  ConsoleResult,
+  ConsoleSession,
+  ConsoleSnapshot,
+  ConsoleStartInput,
+} from "./console.js";
+import type {
   GitSettings,
   GitResult,
   MergeQueueItem,
@@ -343,4 +351,20 @@ export interface DeerApi {
   closePoll(workspaceId: string, input: ClosePollRequest): Promise<Poll>;
   onChatEvent(listener: (event: ChatEvent) => void): () => void;
   onEvent(listener: (event: EventRecord) => void): () => void;
+  // t448/G12：后台任务控制台（仅 preload 人类 UI；不注册为 Agent 工具）。
+  consoleList(workspaceId: string): Promise<ConsoleSession[]>;
+  consoleStart(
+    workspaceId: string,
+    input: ConsoleStartInput,
+  ): Promise<ConsoleResult<ConsoleSession>>;
+  consoleStop(workspaceId: string, sessionId: string): Promise<ConsoleResult<ConsoleSession>>;
+  consoleInput(
+    workspaceId: string,
+    sessionId: string,
+    data: string,
+  ): Promise<ConsoleResult<{ accepted: boolean }>>;
+  consoleClear(workspaceId: string, sessionId: string): Promise<ConsoleResult<ConsoleSession>>;
+  consoleSnapshot(workspaceId: string, sessionId: string): Promise<ConsoleResult<ConsoleSnapshot>>;
+  consoleCwds(workspaceId: string): Promise<ConsoleResult<ConsoleCwdOption[]>>;
+  onConsoleEvent(listener: (event: ConsoleEvent) => void): () => void;
 }

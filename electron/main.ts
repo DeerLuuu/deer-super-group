@@ -4,6 +4,14 @@ import path from "node:path";
 import { AppService } from "../src/kernel/service.js";
 import { stripCreateAgentPermission } from "../src/shared/memberRecommendation.js";
 import {
+  consoleFail,
+  consoleInputSchema,
+  consoleSessionSchema,
+  consoleStartSchema,
+  consoleWorkspaceSchema,
+} from "../src/shared/console.js";
+import { ConsoleManager } from "./console/consoleManager.js";
+import {
   DEFAULT_WINDOW_MIN_HEIGHT,
   DEFAULT_WINDOW_MIN_WIDTH,
   normalizeWindowState,
@@ -209,6 +217,29 @@ function handleKernel(
       };
     }
   });
+}
+
+let consoleManager: ConsoleManager | null = null;
+
+function getConsoleManager(): ConsoleManager {
+  if (consoleManager) return consoleManager;
+  consoleManager = new ConsoleManager({
+    workspaceRoot: (workspaceId) => {
+      try {
+        return getService().getSnapshot(workspaceId).workspace.path;
+      } catch {
+        return null;
+      }
+    },
+  });
+  consoleManager.onEvent((event) => {
+    win?.webContents.send("console:event", event);
+  });
+  return consoleManager;
+}
+
+function invalidConsoleInput(message: string) {
+  return consoleFail("CONSOLE_COMMAND_INVALID", message);
 }
 
 app.whenReady().then(() => {
@@ -638,6 +669,55 @@ app.whenReady().then(() => {
     getService().respondRiskApproval(requestId, approved),
   );
 
+  // t448/G12：后台任务控制台。仅 preload 人类 UI 通道；不注册 kernel/Agent 工具。
+  handle("console:list", (workspaceId: string) => {
+    const parsed = consoleWorkspaceSchema.safeParse({ workspaceId });
+    if (!parsed.success) return [];
+    return getConsoleManager().list(parsed.data.workspaceId);
+  });
+  handle("console:start", (workspaceId: string, input: unknown) => {
+    const parsed = consoleStartSchema.safeParse({
+      ...(input && typeof input === "object" ? input : {}),
+      workspaceId,
+    });
+    if (!parsed.success) return invalidConsoleInput("后台任务参数不合法");
+    return getConsoleManager().start(parsed.data.workspaceId, {
+      command: parsed.data.command,
+      title: parsed.data.title,
+      cwd: parsed.data.cwd,
+      confirmToken: parsed.data.confirmToken,
+    });
+  });
+  handle("console:stop", (workspaceId: string, sessionId: string) => {
+    const parsed = consoleSessionSchema.safeParse({ workspaceId, sessionId });
+    if (!parsed.success) return invalidConsoleInput("后台任务参数不合法");
+    return getConsoleManager().stop(parsed.data.workspaceId, parsed.data.sessionId);
+  });
+  handle("console:input", (workspaceId: string, sessionId: string, data: string) => {
+    const parsed = consoleInputSchema.safeParse({ workspaceId, sessionId, data });
+    if (!parsed.success) return invalidConsoleInput("stdin 为空或超过 4KB");
+    return getConsoleManager().input(
+      parsed.data.workspaceId,
+      parsed.data.sessionId,
+      parsed.data.data,
+    );
+  });
+  handle("console:clear", (workspaceId: string, sessionId: string) => {
+    const parsed = consoleSessionSchema.safeParse({ workspaceId, sessionId });
+    if (!parsed.success) return invalidConsoleInput("后台任务参数不合法");
+    return getConsoleManager().clear(parsed.data.workspaceId, parsed.data.sessionId);
+  });
+  handle("console:snapshot", (workspaceId: string, sessionId: string) => {
+    const parsed = consoleSessionSchema.safeParse({ workspaceId, sessionId });
+    if (!parsed.success) return invalidConsoleInput("后台任务参数不合法");
+    return getConsoleManager().snapshot(parsed.data.workspaceId, parsed.data.sessionId);
+  });
+  handle("console:cwds", (workspaceId: string) => {
+    const parsed = consoleWorkspaceSchema.safeParse({ workspaceId });
+    if (!parsed.success) return invalidConsoleInput("工作区参数不合法");
+    return getConsoleManager().cwds(parsed.data.workspaceId);
+  });
+
   createWindow();
 
   app.on("activate", () => {
@@ -649,6 +729,12 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+let quitGuard = false;
+app.on("before-quit", (event) => {
+  if (quitGuard) return;
+  quitGuard = true;
   service?.close();
+  if (!consoleManager) return;
+  event.preventDefault();
+  void consoleManager.closeAll().finally(() => app.quit());
 });
