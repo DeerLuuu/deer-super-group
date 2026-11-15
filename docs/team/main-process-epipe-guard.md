@@ -49,14 +49,47 @@ installProcessGuards({ logPath: path.join(app.getPath("userData"), "main-process
   - `uncaughtException`/`unhandledRejection` 管道错误不 exit；普通异常记录并 `exit(1)`；普通 rejection 记录。
   - 日志写失败静默返回 false；非 Error 格式化。
 - `electron/processGuardsWiring.test.ts`：main 在 `createWindow` 前安装 guard；guard 模块无 `console.*`。
-- 真实 Electron 启动验证：build 后启动主进程，guard 安装不阻塞窗口/服务；模拟 `process.stdout.emit("error", EPIPE)`、stderr EIO、`uncaughtException` EPIPE、`unhandledRejection` EPIPE，进程保持 `ALIVE windows=1`，无 stderr 崩溃；`%TEMP%/t468-epipe-userdata/main-process.log` 记录四条 pipe 日志，未弹错误框。
 
-## 5. 回滚
+## 5. 真实 Electron harness（t483）
+
+```powershell
+$env:DS_USERDATA = "$env:TEMP\t483-epipe-userdata"
+pnpm exec electron scripts/main-process-epipe-harness.cjs
+# 退出码 0；产物：
+# docs/team/t483-epipe-harness.json
+# docs/team/t483-main-process.log
+# docs/team/t483-epipe-alive-1440.png
+```
+
+harness 以隔离 userData 启动真实 `dist-electron/main.cjs`，在 1440×900 BrowserWindow 后依次注入：
+
+- `process.stdout.emit("error", EPIPE)`；
+- `process.stderr.emit("error", EIO)`；
+- `process.emit("uncaughtException", EPIPE)`；
+- `process.emit("unhandledRejection", EPIPE)`；
+- 另加普通 `unhandledRejection`（`t483 ordinary rejection`）。
+
+断言结果（`t483-epipe-harness.json`）：
+
+| 项 | 结果 |
+|---|---|
+| `alive` / `windows` / `appReady` | `true` / `1` / `true` |
+| `dialog.showErrorBox` 调用 | `0`（harness 覆盖 JS 入口；无 Electron 错误框） |
+| 真实 preload IPC `window.deer.listWorkspaces()` | `ok:true`，`count:0`（空隔离 DB） |
+| `main-process.log` pipe 记录 | 4 条：`stream:stdout:pipe`、`stream:stderr:pipe`、`uncaughtException:pipe`、`unhandledRejection:pipe` |
+| 普通 rejection | `unhandledRejection: Error: t483 ordinary rejection...` 已记录，进程未退出 |
+| 关闭路径 | 所有断言后 `win.close()`，harness 退出码 0 |
+| 截图 | `t483-epipe-alive-1440.png`（1424×861 content，窗口 outer 1440×900） |
+
+- `t483-main-process.log` 是真实 `userData/main-process.log` 的原样副本，包含 4 条 pipe stack + 普通 rejection 行。
+- 无 schema/IPC/权限/业务变更；harness 仅测试脚本，不在应用中使用。
+
+## 6. 回滚
 
 - 回滚仅需移除 main 顶层 `installProcessGuards` 调用；`processGuards.ts`/测试/docs 可独立删除。
 - 不涉及 DB schema、IPC、权限或用户数据迁移。
 
-## 6. 命令
+## 7. 命令
 
 ```text
 pnpm typecheck

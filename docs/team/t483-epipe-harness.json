@@ -1,0 +1,31 @@
+{
+  "task": "t483",
+  "at": "2026-11-15T16:22:37.346Z",
+  "mode": "real Electron main process; isolated userData",
+  "userData": "C:\\Users\\17359\\AppData\\Local\\Temp\\t483-epipe-userdata2",
+  "alive": true,
+  "windows": 1,
+  "appReady": true,
+  "dialogErrorBoxCalls": 0,
+  "dialogCalls": [],
+  "ipc": {
+    "ok": true,
+    "count": 0,
+    "error": null
+  },
+  "pipeLogLines": [
+    "[2026-11-15T16:22:36.563Z] stream:stdout:pipe: Error: EPIPE: broken pipe, write",
+    "[2026-11-15T16:22:36.564Z] stream:stderr:pipe: Error: EIO: i/o error",
+    "[2026-11-15T16:22:36.576Z] uncaughtException:pipe: Error: EPIPE: broken pipe, write",
+    "[2026-11-15T16:22:36.577Z] unhandledRejection:pipe: Error: EPIPE: broken pipe, write"
+  ],
+  "pipeLogLineCount": 4,
+  "ordinaryRejectionLogged": true,
+  "screenshot": {
+    "ok": true,
+    "error": null
+  },
+  "logPath": "C:\\Users\\17359\\AppData\\Local\\Temp\\t483-epipe-userdata2\\main-process.log",
+  "logCopyPath": "S:\\DeerSuperGroup\\branches\\t468-main-process-epipe-guard\\docs\\team\\t483-main-process.log",
+  "closePath": "win.close() after all assertions"
+}
