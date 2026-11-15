@@ -888,7 +888,7 @@ export default function SettingsView({
                       />
                       <span>{option.label}</span>
                       <span className="muted tiny">
-                        正文 {option.bodyPx}px · 小字 {option.smallPx}px · 聊天 {option.chatPx}px · 代码 {option.codePx}px
+                        正文 {option.bodyPx}px · 小字 {option.smallPx}px · 代码 {option.codePx}px
                       </span>
                     </label>
                   ))}

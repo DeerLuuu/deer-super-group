@@ -10155,3 +10155,8 @@ body {
 .settings-modal .settings-nav-item .muted.tiny {
   font-size: var(--font-small-size) !important;
 }
+
+/* t491：px 数字由 docs/font-scale.md 与下方字号预览呈现；option 行保持紧凑。 */
+.settings-radio-option .muted.tiny {
+  display: none;
+}
