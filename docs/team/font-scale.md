@@ -32,8 +32,8 @@ Settings「界面」新增字号三档 **小 / 标准 / 大**，驱动正文、�
 
 ## 3. 测试
 
-- `SettingsView.test.tsx`：默认标准 radio；切换 small 置 dirty；保存 payload `layout.fontScale=small` 且成功后清 dirty；非法 `"huge"` 回标准。
-- `kernel/layoutSettings.test.ts`：store 默认 standard、持久化 large、非法回 standard。
+- `src/shell/fontScaleSettings.test.tsx`：默认标准 radio；切换 small 置 dirty；保存 payload `layout.fontScale=small` 且成功后清 dirty；非法 `"huge"` 回标准。
+- `src/shared/fontScale.test.ts`：三档 factor/px、默认 standard、Store 持久化 large、非法回 standard。
 - 真实 Electron/CDP：
   - `t364-font-save-refresh.json`：large 1.15→选择 small 保存后即时 `--font-scale=0.92`/body 11.96px/radio checked；Page.reload 后仍 0.92 且 small checked。
   - `t364-font-scale-walkthrough.json`：3 档 × 1440/960/480，body/preview/code/thinking 字号分别为 11.96/11.04/10.12、13/12/11、14.95/13.8/12.65；三档 modal 在 480 宽 432（x24/right456），`scrollWidth===innerWidth`，radio checked 正确。
@@ -54,7 +54,7 @@ Settings「界面」新增字号三档 **小 / 标准 / 大**，驱动正文、�
 
 - `pnpm typecheck` exit 0。
 - `pnpm build` exit 0（js 364.77 kB / gzip 108.69；vendor 414.89 / 97.22）。
-- `pnpm test -- --max-workers=1 --testTimeout=20000`：167 文件 / 1108 用例全绿（exit 0）。
+- `pnpm test -- --max-workers=1 --testTimeout=20000`：169 文件 / 1110 用例全绿（exit 0）。
 
 ## 6. 风险与回滚
 

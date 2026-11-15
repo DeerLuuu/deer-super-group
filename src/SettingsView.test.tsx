@@ -3,7 +3,7 @@ import TestRenderer from "react-test-renderer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TRANSLATION_SETTINGS } from "./shared/translation.js";
 import { defaultModelProfile, defaultProviderProfile } from "./shared/models.js";
-import type { LayoutSettings, LlmSettings, Snapshot } from "./shared/types.js";
+import type { LlmSettings, Snapshot } from "./shared/types.js";
 import SettingsView, { validateModelSetup, type SettingsSection } from "./SettingsView.js";
 
 const { act, create } = TestRenderer as {
@@ -14,7 +14,6 @@ const { act, create } = TestRenderer as {
 interface SettingsRenderer {
   root: {
     findAllByType: (type: string) => Array<{ props: Record<string, unknown>; children: unknown[] }>;
-    findAllByProps: (props: Record<string, unknown>) => Array<{ props: Record<string, unknown> }>;
   };
   toJSON: () => unknown;
 }
@@ -45,11 +44,8 @@ const settings: LlmSettings = {
   mock: true,
 };
 
-function makeSnapshot(layout?: LayoutSettings): Snapshot {
-  return {
-    settings: layout ? { ...settings, layout } : settings,
-    agents: [],
-  } as unknown as Snapshot;
+function makeSnapshot(): Snapshot {
+  return { settings, agents: [] } as unknown as Snapshot;
 }
 
 const originalWindow = (globalThis as { window?: unknown }).window;
@@ -63,7 +59,6 @@ async function renderSettings(
   onDirtyChange = vi.fn(),
   windowApi: Record<string, unknown> = {},
   initialSection?: SettingsSection,
-  layout?: LayoutSettings,
 ) {
   (globalThis as { window?: unknown }).window = {
     deer: {
@@ -75,7 +70,7 @@ async function renderSettings(
   await act(async () => {
     renderer = create(
       <SettingsView
-        snapshot={makeSnapshot(layout)}
+        snapshot={makeSnapshot()}
         busy={false}
         onSave={onSave}
         onDirtyChange={onDirtyChange}
@@ -313,45 +308,5 @@ describe("t190 Settings draft/save safety", () => {
     });
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0]![0].layout?.chatHistoryLimit).toBe(80);
-  });
-
-  it("renders font-scale radios, saves the chosen scale and clamps invalid values", async () => {
-    const onSave = vi.fn(async (_next: LlmSettings) => ({ ok: true as const }));
-    const onDirtyChange = vi.fn();
-    const { renderer } = await renderSettings(onSave, onDirtyChange, {}, "interface");
-    const group = renderer.root.findAllByProps({ role: "radiogroup" })[0];
-    expect(group).toBeTruthy();
-    const radios = renderer.root
-      .findAllByType("input")
-      .filter((input) => input.props.type === "radio");
-    expect(radios.map((radio) => radio.props.value)).toEqual(["small", "standard", "large"]);
-    expect(radios.find((radio) => radio.props.value === "standard")?.props.checked).toBe(true);
-    expect(radios.find((radio) => radio.props.value === "large")?.props["aria-label"]).toBe(
-      "界面字号：大",
-    );
-    await act(() => {
-      (radios.find((radio) => radio.props.value === "small")!.props.onChange as () => void)();
-      return Promise.resolve();
-    });
-    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
-    const save = renderer.root
-      .findAllByType("button")
-      .find((button) => textOf(button.children).includes("保存界面设置"))!;
-    await act(async () => {
-      await (save.props.onClick as () => Promise<void>)();
-    });
-    expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0]![0].layout?.fontScale).toBe("small");
-    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
-
-    const invalid = await renderSettings(onSave, vi.fn(), {}, "interface", {
-      maxDockGroups: 6,
-      chatHistoryLimit: 40,
-      fontScale: "huge" as unknown as LayoutSettings["fontScale"],
-    });
-    const invalidRadios = invalid.renderer.root
-      .findAllByType("input")
-      .filter((input) => input.props.type === "radio");
-    expect(invalidRadios.find((radio) => radio.props.value === "standard")?.props.checked).toBe(true);
   });
 });

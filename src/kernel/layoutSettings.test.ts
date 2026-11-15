@@ -68,19 +68,4 @@ describe("t208 LayoutSettings persistence", () => {
     store.saveLlmSettings(withoutLayout);
     expect(store.getLlmSettings().layout?.maxDockGroups).toBe(7);
   });
-
-  it("persists fontScale, defaults to standard and clamps unknown values", () => {
-    const store = memoryStore();
-    expect(store.getLlmSettings().layout?.fontScale).toBe("standard");
-    store.saveLlmSettings({
-      ...store.getLlmSettings(),
-      layout: { maxDockGroups: 6, chatHistoryLimit: 40, fontScale: "large" },
-    });
-    expect(store.getLlmSettings().layout?.fontScale).toBe("large");
-    store.saveLlmSettings({
-      ...store.getLlmSettings(),
-      layout: { maxDockGroups: 6, chatHistoryLimit: 40, fontScale: "huge" as never },
-    });
-    expect(store.getLlmSettings().layout?.fontScale).toBe("standard");
-  });
 });
