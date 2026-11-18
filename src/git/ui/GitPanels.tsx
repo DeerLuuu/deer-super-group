@@ -1,23 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatError } from "../../shared/copy.js";
+import type { Agent } from "../../shared/types.js";
+import type { GitAiDraft } from "../../shared/gitAi.js";
 import type { GitSettings, TaskVcsSnapshot } from "../types.js";
+import { GitAiDraftPanel } from "./GitAiDraft.js";
 
 export interface TaskVcsPanelProps {
   taskId: string;
   onClose?: () => void;
   onOpenGraph?: () => void;
   onOpenMergeQueue?: () => void;
+  members?: Array<Pick<Agent, "id" | "name" | "role">>;
+  aiDisabledReason?: string | null;
 }
 
 /**
  * Task-details VCS panel. Rendered in the task drawer by the integration layer;
  * keeps all network/IPC access behind window.deer and never receives tokens.
  */
-export function TaskVcsPanel({ taskId, onClose, onOpenGraph, onOpenMergeQueue }: TaskVcsPanelProps) {
+export function TaskVcsPanel({
+  taskId,
+  onClose,
+  onOpenGraph,
+  onOpenMergeQueue,
+  members,
+  aiDisabledReason,
+}: TaskVcsPanelProps) {
   const [snapshot, setSnapshot] = useState<TaskVcsSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [prTitle, setPrTitle] = useState("");
+  const [prBody, setPrBody] = useState("");
   const loadedRef = useRef(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
@@ -86,8 +100,54 @@ export function TaskVcsPanel({ taskId, onClose, onOpenGraph, onOpenMergeQueue }:
           {vcs.degradedReason ? (<><dt>降级原因</dt><dd>{vcs.degradedReason}</dd></>) : null}
         </dl>
       ) : null}
+      {members && vcs ? (
+        <GitAiDraftPanel
+          kind="pr"
+          workspaceId={vcs.workspaceId}
+          taskId={taskId}
+          members={members}
+          disabledReason={aiDisabledReason}
+          onUse={(draft: GitAiDraft) => {
+            setPrTitle(draft.title);
+            setPrBody(draft.body);
+          }}
+        />
+      ) : null}
+      <div className="git-pr-form" aria-label="PR 表单">
+        <label>
+          PR 标题
+          <input
+            aria-label="PR 标题"
+            value={prTitle}
+            maxLength={120}
+            placeholder="留空使用任务标题"
+            onChange={(event) => setPrTitle(event.target.value)}
+          />
+        </label>
+        <label>
+          PR 正文
+          <textarea
+            aria-label="PR 正文"
+            value={prBody}
+            rows={5}
+            placeholder="留空使用任务描述，或先生成 AI 草稿"
+            onChange={(event) => setPrBody(event.target.value)}
+          />
+        </label>
+      </div>
       <div className="git-vcs-actions">
-        <button type="button" disabled={busy || !vcs?.branch} onClick={() => void act(() => window.deer.gitCreatePr(taskId))}>
+        <button
+          type="button"
+          disabled={busy || !vcs?.branch}
+          onClick={() =>
+            void act(() =>
+              window.deer.gitCreatePr(taskId, {
+                title: prTitle.trim() || undefined,
+                body: prBody.trim() || undefined,
+              }),
+            )
+          }
+        >
           创建 PR
         </button>
         <button type="button" disabled={busy || !vcs?.branch} onClick={() => void act(() => window.deer.mergeEnqueue(taskId))}>

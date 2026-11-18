@@ -10160,3 +10160,145 @@ body {
 .settings-radio-option .muted.tiny {
   display: none;
 }
+
+/* t368 Git AI drafts / merge notification */
+.git-ai-draft {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  min-width: 0;
+}
+.git-ai-draft-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+.git-ai-draft-head h4 {
+  margin: 0;
+  font-size: 12px;
+}
+.git-ai-draft-controls,
+.git-ai-draft-actions,
+.git-ai-error,
+.git-pr-form,
+.git-pr-form label,
+.git-ai-draft-body label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.git-ai-draft-controls {
+  margin-top: 8px;
+}
+.git-ai-draft-controls label,
+.git-ai-draft-body label,
+.git-pr-form label,
+.merge-ai label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.git-ai-draft-controls select,
+.git-ai-draft-body input,
+.git-ai-draft-body textarea,
+.git-pr-form input,
+.git-pr-form textarea,
+.merge-ai textarea,
+.merge-ai select {
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+.git-ai-draft-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.git-ai-draft-body label {
+  align-items: stretch;
+  flex-direction: column;
+}
+.git-ai-draft-body textarea,
+.git-pr-form textarea,
+.merge-ai textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.git-ai-error {
+  margin-top: 6px;
+  color: var(--red);
+  font-size: 11px;
+}
+.git-ai-disabled {
+  margin: 6px 0 0;
+}
+.git-pr-form {
+  margin: 8px 0;
+  align-items: stretch;
+  flex-direction: column;
+}
+.git-pr-form label {
+  align-items: stretch;
+  flex-direction: column;
+}
+.git-graph-ai-pr {
+  margin: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+.git-graph-ai-pr > summary {
+  padding: 7px 10px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+}
+.git-graph-ai-pr .git-ai-draft {
+  margin: 0 10px 10px;
+}
+.merge-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  min-width: 0;
+}
+.merge-ai .git-ai-draft {
+  margin: 0;
+}
+.merge-ai label {
+  align-items: stretch;
+  flex-direction: column;
+}
+.merge-notify-select {
+  align-items: center !important;
+  flex-direction: row !important;
+}
+@media (max-width: 480px) {
+  .git-ai-draft-controls,
+  .git-ai-draft-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .git-ai-draft-controls select,
+  .git-pr-form input,
+  .git-pr-form textarea,
+  .merge-ai select,
+  .merge-ai textarea {
+    width: 100%;
+  }
+  .git-graph-ai-pr {
+    margin: 4px;
+  }
+}

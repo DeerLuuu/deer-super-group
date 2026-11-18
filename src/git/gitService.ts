@@ -14,6 +14,7 @@ import { MergeQueue, type QueueContext } from "./mergeQueue.js";
 import { commitAll, pushBranch, revParse } from "./branchOps.js";
 import { pickProvider, compareUrl } from "./providers.js";
 import { emitGitEvent } from "./events.js";
+import type { CreatePrDraftInput, GitAiDraftKind } from "../shared/gitAi.js";
 import { RepoLock } from "./gitExec.js";
 import { GitReadService } from "./readService.js";
 import type { GitCommitDetail, GitDiffParams, GitGraphPage, GitReadRepo, GitWorkingStatus, GitDiffPage, GitRefsSnapshot } from "./readTypes.js";
@@ -417,13 +418,17 @@ export class GitService {
     };
   }
 
-  async createPr(taskId: string): Promise<TaskVcs> {
+  async createPr(taskId: string, draft: CreatePrDraftInput = {}): Promise<TaskVcs> {
     const task = this.options.store.getTask(taskId);
     if (!task) throw new Error("task not found");
     const context = await this.contextFor(task.workspaceId);
     if (!context) throw new Error("git context unavailable");
     const vcs = this.gitStore.getTaskVcs(taskId);
     if (!vcs?.branch) throw new Error("task has no branch");
+    const title = String(draft.title ?? task.title).trim().slice(0, 120) || task.title;
+    const body = String(draft.body ?? `Task: ${task.id}\n\n${task.description}`)
+      .trim()
+      .slice(0, 12_000);
     const pr = await this.ensurePullRequest({
       task,
       branch: vcs.branch,
@@ -431,8 +436,8 @@ export class GitService {
       headSha: vcs.headSha,
       provider: context.provider,
       repo: context.repo,
-      title: task.title,
-      body: `Task: ${task.id}\n\n${task.description}`,
+      title,
+      body,
       existingPr: vcs.pr,
     });
     const updated: TaskVcs = {
@@ -914,6 +919,57 @@ export class GitService {
       });
     } catch {
       // 审计失败不能让已成功的本地写操作变成错误。
+    }
+  }
+
+  /**
+   * t368：AI 草稿/通知审计。失败静默，但成功必须落 Git event。
+   * aggregateType=workspace，避免把 AI 操作误认为任务状态迁移。
+   */
+  recordAiDraft(input: {
+    kind: GitAiDraftKind;
+    workspaceId: string;
+    taskId?: string;
+    agentId: string;
+    model: string;
+    title: string;
+  }): void {
+    try {
+      emitGitEvent(this.options.store, {
+        aggregateType: "workspace",
+        aggregateId: input.workspaceId,
+        type: input.kind === "pr" ? "git.ai_pr_draft" : "git.ai_merge_draft",
+        actor: "git-ai",
+        payload: {
+          workspaceId: input.workspaceId,
+          taskId: input.taskId ?? null,
+          agentId: input.agentId,
+          model: input.model,
+          title: input.title.slice(0, 120),
+        },
+      });
+    } catch {
+      // 审计失败不能把已生成草稿变成错误。
+    }
+  }
+
+  recordMergeNotified(input: {
+    workspaceId: string;
+    taskId: string;
+    agentId: string;
+    messageId: string;
+    threadId: string;
+  }): void {
+    try {
+      emitGitEvent(this.options.store, {
+        aggregateType: "workspace",
+        aggregateId: input.workspaceId,
+        type: "git.merge_notified",
+        actor: "git-ai",
+        payload: input,
+      });
+    } catch {
+      // 通知已落邮箱；审计失败不阻断合并结果。
     }
   }
 

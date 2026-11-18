@@ -22,6 +22,11 @@ import type {
 } from "../src/shared/types.js";
 import type { GitSettings } from "../src/git/types.js";
 import type {
+  CreatePrDraftInput,
+  GitAiDraftRequest,
+  GitMergeNotifyRequest,
+} from "../src/shared/gitAi.js";
+import type {
   SetBudgetInput,
   SetFallbackChainInput,
   WatchdogHoldReason,
@@ -124,7 +129,14 @@ const api: DeerApi = {
   // t96：Git 并行开发 / VCS / 合并队列
   gitDiagnose: (workspaceId: string) => ipcRenderer.invoke("git:diagnose", workspaceId),
   getTaskVcs: (taskId: string) => ipcRenderer.invoke("git:task-vcs", taskId),
-  gitCreatePr: (taskId: string) => ipcRenderer.invoke("git:create-pr", taskId),
+  gitCreatePr: (taskId: string, draft?: CreatePrDraftInput) =>
+    ipcRenderer.invoke("git:create-pr", taskId, draft),
+  gitGeneratePrDraft: (input: Omit<GitAiDraftRequest, "kind">) =>
+    ipcRenderer.invoke("git:ai-pr-draft", input),
+  gitGenerateMergeDraft: (input: Omit<GitAiDraftRequest, "kind">) =>
+    ipcRenderer.invoke("git:ai-merge-draft", input),
+  gitNotifyMerge: (input: GitMergeNotifyRequest) =>
+    ipcRenderer.invoke("git:merge-notify", input),
   gitCleanup: (taskId: string) => ipcRenderer.invoke("git:cleanup", taskId),
   gitOpenPr: (taskId: string) => ipcRenderer.invoke("git:open-pr", taskId),
   getGitSettings: (workspaceId: string) => ipcRenderer.invoke("git:settings:get", workspaceId),
