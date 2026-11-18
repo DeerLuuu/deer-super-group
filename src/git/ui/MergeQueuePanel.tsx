@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Modal from "../../Modal.js";
 import { formatError } from "../../shared/copy.js";
+import type { Agent } from "../../shared/types.js";
+import type { GitAiDraft } from "../../shared/gitAi.js";
 import type { MergeQueueItem } from "../types.js";
+import { GitAiDraftPanel } from "./GitAiDraft.js";
 
 export interface MergeQueuePanelProps {
   workspaceId: string;
@@ -11,6 +14,9 @@ export interface MergeQueuePanelProps {
   loading?: boolean;
   onReload: () => Promise<unknown> | void;
   onOpenTask?: (taskId: string) => void;
+  /** t368：合并说明生成/合并后通知成员。 */
+  members?: Array<Pick<Agent, "id" | "name" | "role">>;
+  aiDisabledReason?: string | null;
 }
 
 function stateLabel(state: MergeQueueItem["state"]): string {
@@ -28,11 +34,84 @@ function stateLabel(state: MergeQueueItem["state"]): string {
   }[state];
 }
 
-export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, loading = false, onReload, onOpenTask }: MergeQueuePanelProps) {
+export function MergeQueuePanel({
+  workspaceId,
+  items,
+  stale,
+  error: loadError,
+  loading = false,
+  onReload,
+  onOpenTask,
+  members,
+  aiDisabledReason,
+}: MergeQueuePanelProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState<MergeQueueItem | null>(null);
+  const [mergeDraft, setMergeDraft] = useState<GitAiDraft | null>(null);
+  const [notifyAgentId, setNotifyAgentId] = useState("");
+  const [notifyPending, setNotifyPending] = useState<{
+    item: MergeQueueItem;
+    body: string;
+    agentId: string;
+  } | null>(null);
+  const [notifyError, setNotifyError] = useState<string | null>(null);
+  const [notifyBusy, setNotifyBusy] = useState(false);
+  const [notified, setNotified] = useState<string | null>(null);
+  const notifyStorageKey = useMemo(
+    () => `deer.git.merge.notifyAgent.${workspaceId}`,
+    [workspaceId],
+  );
+
+  const defaultNotifyAgent = useMemo(() => {
+    if (!members || members.length === 0) return "";
+    try {
+      const stored = window.localStorage.getItem(notifyStorageKey);
+      if (stored && members.some((member) => member.id === stored)) return stored;
+    } catch {
+      // localStorage 不可用回退默认成员。
+    }
+    return members.find((member) => member.role !== "Router")?.id ?? members[0]!.id;
+  }, [members, notifyStorageKey]);
+
+  useEffect(() => {
+    setNotifyAgentId(defaultNotifyAgent);
+  }, [defaultNotifyAgent]);
+
+  async function sendMergeNotification(target = notifyPending) {
+    if (!target) return;
+    setNotifyBusy(true);
+    setNotifyError(null);
+    try {
+      const result = await window.deer.gitNotifyMerge({
+        workspaceId,
+        taskId: target.item.taskId,
+        agentId: target.agentId,
+        body: target.body.trim() || undefined,
+        prNumber: target.item.prNumber,
+        branch: target.item.branch,
+        mergeCommitSha: null,
+      });
+      if (!result.ok) {
+        setNotifyError(result.message);
+        setNotifyPending(target);
+        return;
+      }
+      setNotified(`已通知 ${result.agentName}`);
+      setNotifyPending(null);
+      try {
+        window.localStorage.setItem(notifyStorageKey, target.agentId);
+      } catch {
+        // 记住收件人失败不影响通知。
+      }
+    } catch (error) {
+      setNotifyError(formatError(error));
+      setNotifyPending(target);
+    } finally {
+      setNotifyBusy(false);
+    }
+  }
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -88,6 +167,15 @@ export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, l
         </div>
       ) : null}
       {actionError ? <div className="merge-queue-error" role="alert">{actionError} <button type="button" className="ghost tiny" onClick={() => void onReload()}>重试</button></div> : null}
+      {notifyError ? (
+        <div className="merge-queue-error" role="alert">
+          合并通知失败：{notifyError}
+          <button type="button" className="ghost tiny" onClick={() => void sendMergeNotification()}>
+            重试通知
+          </button>
+        </div>
+      ) : null}
+      {notified ? <p className="muted tiny" role="status">{notified}</p> : null}
       {items !== null && queue.length === 0 ? <p className="merge-queue-empty" role="status">队列为空。任务交付后可以在任务 Git 页加入合并队列。</p> : null}
 
       {queue.length > 0 ? (
@@ -131,7 +219,11 @@ export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, l
                     type="button"
                     className="primary tiny"
                     disabled={busy !== null || conflict || item.state === "merged" || item.state === "cancelled" || item.state === "failed"}
-                    onClick={() => setConfirm(item)}
+                    onClick={() => {
+                      setMergeDraft(null);
+                      setNotifyError(null);
+                      setConfirm(item);
+                    }}
                   >
                     合并…
                   </button>
@@ -170,6 +262,47 @@ export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, l
             <dt>位置</dt><dd>{confirm.position}</dd>
           </dl>
           <p className="muted small">合并是不可逆的高风险操作；确认后才会调用现有 mergeStart，权限与 merge gate 不变。</p>
+          {members && members.length > 0 ? (
+            <div className="merge-ai">
+              <GitAiDraftPanel
+                kind="merge"
+                workspaceId={workspaceId}
+                taskId={confirm.taskId}
+                members={members}
+                disabledReason={aiDisabledReason}
+                onUse={setMergeDraft}
+                useLabel="填入合并说明"
+              />
+              <label className="merge-notify-select">
+                合并后通知成员
+                <select
+                  aria-label="合并后通知成员"
+                  value={notifyAgentId}
+                  onChange={(event) => setNotifyAgentId(event.target.value)}
+                >
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name} · {member.role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                合并说明（可编辑，留空使用自动摘要）
+                <textarea
+                  aria-label="合并说明"
+                  rows={5}
+                  value={mergeDraft?.body ?? ""}
+                  onChange={(event) =>
+                    setMergeDraft({
+                      title: mergeDraft?.title ?? `合并说明：${confirm.taskTitle}`,
+                      body: event.target.value,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          ) : null}
           <div className="row gap merge-confirm-actions">
             <button type="button" className="ghost" onClick={() => setConfirm(null)}>取消</button>
             <button
@@ -179,7 +312,15 @@ export function MergeQueuePanel({ workspaceId, items, stale, error: loadError, l
               onClick={() => {
                 const item = confirm;
                 setConfirm(null);
-                void run(`${item.id}:merge`, () => window.deer.mergeStart(item.taskId));
+                void run(`${item.id}:merge`, async () => {
+                  const merged = await window.deer.mergeStart(item.taskId);
+                  if (merged?.state === "merged" && notifyAgentId) {
+                    const target = { item, body: mergeDraft?.body ?? "", agentId: notifyAgentId };
+                    setNotifyPending(target);
+                    await sendMergeNotification(target);
+                  }
+                  return merged;
+                });
               }}
             >
               确认合并

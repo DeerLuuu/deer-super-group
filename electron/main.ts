@@ -12,6 +12,11 @@ import {
 } from "../src/shared/console.js";
 import { ConsoleManager } from "./console/consoleManager.js";
 import {
+  gitAiDraftRequestSchema,
+  gitCreatePrDraftSchema,
+  gitMergeNotifySchema,
+} from "../src/shared/gitAi.js";
+import {
   DEFAULT_WINDOW_MIN_HEIGHT,
   DEFAULT_WINDOW_MIN_WIDTH,
   normalizeWindowState,
@@ -406,7 +411,53 @@ app.whenReady().then(() => {
   // t96：Git 并行开发 / VCS / 合并队列
   handle("git:diagnose", (workspaceId: string) => getService().git.diagnose(workspaceId));
   handle("git:task-vcs", (taskId: string) => getService().git.getTaskVcs(taskId));
-  handle("git:create-pr", (taskId: string) => getService().git.createPr(taskId));
+  handle("git:create-pr", (taskId: string, draft?: unknown) => {
+    const parsed = gitCreatePrDraftSchema.safeParse(draft ?? {});
+    if (!parsed.success) throw new Error("PR 草稿参数不合法");
+    return getService().git.createPr(taskId, parsed.data);
+  });
+  handle("git:ai-pr-draft", (input?: unknown) => {
+    const parsed = gitAiDraftRequestSchema.safeParse({
+      ...(input && typeof input === "object" ? input : {}),
+      kind: "pr",
+    });
+    if (!parsed.success) {
+      return {
+        ok: false,
+        code: "GIT_AI_INVALID_REQUEST",
+        message: "PR 草稿参数不合法",
+        retryable: false,
+      };
+    }
+    return getService().generateGitAiDraft(parsed.data);
+  });
+  handle("git:ai-merge-draft", (input?: unknown) => {
+    const parsed = gitAiDraftRequestSchema.safeParse({
+      ...(input && typeof input === "object" ? input : {}),
+      kind: "merge",
+    });
+    if (!parsed.success) {
+      return {
+        ok: false,
+        code: "GIT_AI_INVALID_REQUEST",
+        message: "合并草稿参数不合法",
+        retryable: false,
+      };
+    }
+    return getService().generateGitAiDraft(parsed.data);
+  });
+  handle("git:merge-notify", (input?: unknown) => {
+    const parsed = gitMergeNotifySchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        code: "GIT_MERGE_NOTIFY_INVALID_REQUEST",
+        message: "合并通知参数不合法",
+        retryable: false,
+      };
+    }
+    return getService().notifyMerge(parsed.data);
+  });
   handle("git:cleanup", (taskId: string) => getService().git.cleanup(taskId));
   handle("git:open-pr", async (taskId: string) => {
     const url = await getService().git.openPrUrl(taskId);

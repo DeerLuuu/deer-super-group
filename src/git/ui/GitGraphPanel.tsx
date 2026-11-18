@@ -25,6 +25,7 @@ import type { GitResult } from "../types.js";
 import type { GitInitProbe } from "../initTypes.js";
 import { GitInitModal } from "./GitInitModal.js";
 import Modal from "../../Modal.js";
+import { GitAiDraftPanel } from "./GitAiDraft.js";
 import {
   GIT_WS_DEFAULT,
   GIT_WS_MIN,
@@ -61,9 +62,13 @@ function statusLabel(file: GitWorkingFile): string {
 export default function GitGraphPanel({
   workspaceId,
   initialSha,
+  members,
+  aiDisabledReason,
 }: {
   workspaceId: string;
   initialSha?: string | null;
+  members?: Array<{ id: string; name: string; role: string }>;
+  aiDisabledReason?: string | null;
 }) {
   const api = typeof window !== "undefined" ? (window as unknown as { deer?: Api }).deer : undefined;
   const [repo, setRepo] = useState<GitReadRepo | null>(null);
@@ -721,6 +726,19 @@ export default function GitGraphPanel({
         </div>
       ) : null}
       {loading && !graph ? <p className="git-graph-loading" role="status">加载版本图…</p> : null}
+
+      {members && members.length > 0 && repo?.headSha ? (
+        <details className="git-graph-ai-pr">
+          <summary>AI PR 描述</summary>
+          <GitAiDraftPanel
+            kind="pr"
+            workspaceId={workspaceId}
+            headSha={selectedSha ?? repo.headSha}
+            members={members}
+            disabledReason={aiDisabledReason}
+          />
+        </details>
+      ) : null}
 
       <div
         ref={layoutRef}

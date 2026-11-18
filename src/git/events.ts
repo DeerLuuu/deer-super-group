@@ -54,6 +54,9 @@ export const GIT_EVENT_TYPES = [
   "git.unstaged",
   "git.committed",
   "git.ignore_updated",
+  "git.ai_pr_draft",
+  "git.ai_merge_draft",
+  "git.merge_notified",
 ] as const;
 
 export type GitEventType = (typeof GIT_EVENT_TYPES)[number];
@@ -116,6 +119,9 @@ export const GIT_EVENT_SCHEMAS: Record<GitEventType, z.ZodTypeAny> = {
   "git.unstaged": z.object({ workspaceId: z.string(), paths: z.array(z.string()), count: z.number().int().min(1) }).passthrough(),
   "git.committed": z.object({ workspaceId: z.string(), sha: z.string(), branch: z.string().nullable(), files: z.array(z.string()), title: z.string() }).passthrough(),
   "git.ignore_updated": z.object({ workspaceId: z.string(), path: z.string(), addedLines: z.array(z.string()) }).passthrough(),
+  "git.ai_pr_draft": z.object({ workspaceId: z.string(), taskId: z.string().nullable(), agentId: z.string(), model: z.string(), title: z.string() }).passthrough(),
+  "git.ai_merge_draft": z.object({ workspaceId: z.string(), taskId: z.string().nullable(), agentId: z.string(), model: z.string(), title: z.string() }).passthrough(),
+  "git.merge_notified": z.object({ workspaceId: z.string(), taskId: z.string(), agentId: z.string(), messageId: z.string(), threadId: z.string() }).passthrough(),
 };
 
 export function validateGitEvent(type: string, payload: unknown): { ok: true } | { ok: false; error: string } {

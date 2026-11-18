@@ -55,6 +55,13 @@ import type {
   ConsoleStartInput,
 } from "./console.js";
 import type {
+  CreatePrDraftInput,
+  GitAiDraftRequest,
+  GitAiDraftResponse,
+  GitMergeNotifyRequest,
+  GitMergeNotifyResponse,
+} from "./gitAi.js";
+import type {
   GitSettings,
   GitResult,
   MergeQueueItem,
@@ -197,7 +204,11 @@ export interface DeerApi {
   // t96：Git 并行开发 / VCS / 合并队列
   gitDiagnose(workspaceId: string): Promise<RepoDiagnostics>;
   getTaskVcs(taskId: string): Promise<TaskVcsSnapshot>;
-  gitCreatePr(taskId: string): Promise<TaskVcsSnapshot["vcs"]>;
+  gitCreatePr(taskId: string, draft?: CreatePrDraftInput): Promise<TaskVcsSnapshot["vcs"]>;
+  /** t368：AI PR/合并草稿生成（只读 + 外部模型，不改 Git 状态）。 */
+  gitGeneratePrDraft(input: Omit<GitAiDraftRequest, "kind">): Promise<GitAiDraftResponse>;
+  gitGenerateMergeDraft(input: Omit<GitAiDraftRequest, "kind">): Promise<GitAiDraftResponse>;
+  gitNotifyMerge(input: GitMergeNotifyRequest): Promise<GitMergeNotifyResponse>;
   gitCleanup(taskId: string): Promise<void>;
   gitOpenPr(taskId: string): Promise<string | null>;
   getGitSettings(workspaceId: string): Promise<GitSettings>;

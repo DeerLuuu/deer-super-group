@@ -181,4 +181,94 @@ describe("MergeQueuePanel", () => {
     act(() => cancel!.props.onClick());
     expect(JSON.stringify(renderer.toJSON())).not.toContain("确认将");
   });
+
+  it("generates a merge draft, notifies the selected member after merge, and retries failure", async () => {
+    const mergeStart = vi.fn(async () => ({ ...item(), state: "merged" as const, mergeCommitSha: "abc" }));
+    const generate = vi.fn(async () => ({
+      ok: true as const,
+      draft: { title: "Merge it", body: "Generated merge body" },
+      agentName: "Mika",
+      modelLabel: "model",
+      generatedAt: "2026-01-01T00:00:00Z",
+    }));
+    const notify = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false as const,
+        code: "GIT_MERGE_NOTIFY_FAILED",
+        message: "mailbox down",
+        retryable: true,
+      })
+      .mockResolvedValueOnce({
+        ok: true as const,
+        messageId: "m1",
+        threadId: "merge:t3",
+        agentName: "Mika",
+        subject: "合并完成",
+        body: "Generated merge body",
+      });
+    const localStorage = { getItem: () => null, setItem: vi.fn(), removeItem: () => {} };
+    (globalThis as { window?: unknown }).window = {
+      deer: {
+        mergeStart,
+        mergeApprove: vi.fn(),
+        mergeWaiveChecks: vi.fn(),
+        gitGenerateMergeDraft: generate,
+        gitNotifyMerge: notify,
+      },
+      localStorage,
+    };
+    const { renderer, onReload } = mount([item()], {
+      members: [
+        { id: "a1", name: "Mika", role: "Designer" },
+        { id: "a2", name: "Sol", role: "Engineer" },
+      ],
+    });
+    const open = renderer.root.findAllByType("button").find((node: any) => node.children.includes("合并…"));
+    act(() => open!.props.onClick());
+    const generateButton = renderer.root
+      .findAllByType("button")
+      .find((node: any) => node.children.includes("生成合并说明"));
+    await act(async () => {
+      generateButton!.props.onClick();
+      await Promise.resolve();
+    });
+    expect(generate).toHaveBeenCalledWith({ workspaceId: "ws1", agentId: "a1", taskId: "t3", headSha: undefined });
+    const use = renderer.root
+      .findAllByType("button")
+      .find((node: any) => node.children.includes("填入合并说明"));
+    await act(async () => {
+      use!.props.onClick();
+      await Promise.resolve();
+    });
+    const confirm = renderer.root
+      .findAllByType("button")
+      .find((node: any) => node.children.includes("确认合并"));
+    await act(async () => {
+      confirm!.props.onClick();
+      await Promise.resolve();
+    });
+    expect(mergeStart).toHaveBeenCalledWith("t3");
+    expect(onReload).toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws1",
+        taskId: "t3",
+        agentId: "a1",
+        body: "Generated merge body",
+      }),
+    );
+    expect(JSON.stringify(renderer.toJSON())).toContain("mailbox down");
+    const retry = renderer.root
+      .findAllByType("button")
+      .find((node: any) => node.children.includes("重试通知"));
+    await act(async () => {
+      retry!.props.onClick();
+      await Promise.resolve();
+    });
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(localStorage.setItem).toHaveBeenCalled();
+    expect(JSON.stringify(renderer.toJSON())).toContain("已通知 Mika");
+    act(() => renderer.unmount());
+  });
 });

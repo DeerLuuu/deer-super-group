@@ -72,6 +72,17 @@ import {
 } from "../shared/memberRecommendation.js";
 import { safeErrorSummary, sanitizeErrorText } from "../shared/errorRedaction.js";
 import {
+  GIT_AI_LIMITS,
+  buildGitAiMessages,
+  capLooseText,
+  parseGitAiDraft,
+  sanitizeGitAiText,
+  type GitAiDraftRequest,
+  type GitAiDraftResponse,
+  type GitMergeNotifyRequest,
+  type GitMergeNotifyResponse,
+} from "../shared/gitAi.js";
+import {
   buildPlanDraftPrompt,
   hasHighRiskTask,
   parsePlanDraft,
@@ -481,6 +492,230 @@ export class AppService {
       },
       true,
     );
+  }
+
+  /**
+   * t368/G2：用选中成员的模型 + systemPrompt，基于脱敏 diff/PR 摘要生成 PR/合并草稿。
+   * 不修改 Git 状态、不绕过 review/merge gate；写入审计事件。
+   */
+  async generateGitAiDraft(input: GitAiDraftRequest): Promise<GitAiDraftResponse> {
+    const workspace = this.store.getWorkspace(input.workspaceId);
+    if (!workspace) {
+      return { ok: false, code: "GIT_AI_WORKSPACE_MISSING", message: "工作区不存在", retryable: false };
+    }
+    const agent = this.store.getAgent(input.agentId);
+    if (!agent || agent.workspaceId !== input.workspaceId) {
+      return { ok: false, code: "GIT_AI_AGENT_MISSING", message: "成员不存在", retryable: false };
+    }
+    const task = input.taskId ? this.store.getTask(input.taskId) : null;
+    if (input.taskId && (!task || task.workspaceId !== input.workspaceId)) {
+      return { ok: false, code: "GIT_AI_TASK_MISSING", message: "任务不存在", retryable: false };
+    }
+    const settings = this.store.getLlmSettings();
+    if (settings.mock) {
+      return {
+        ok: false,
+        code: "GIT_AI_MOCK_DISABLED",
+        message: "Mock 模式不调用模型，请切换真实模型后重试",
+        retryable: false,
+      };
+    }
+    if (settings.models.length === 0) {
+      return {
+        ok: false,
+        code: "GIT_AI_NO_MODEL",
+        message: "尚未配置模型；请先在设置中添加模型",
+        retryable: false,
+      };
+    }
+    const profile = resolveModelProfile(settings, agent.model ?? settings.model);
+    if (!profile || !settings.models.some((model) => model.id === profile.id)) {
+      return {
+        ok: false,
+        code: "GIT_AI_MODEL_NOT_CONFIGURED",
+        message: "所选成员/默认模型未配置",
+        retryable: false,
+      };
+    }
+
+    const vcs = task ? this.git.getTaskVcs(task.id).vcs : null;
+    const headSha = input.headSha ?? vcs?.headSha ?? null;
+    let diffSummary = "未提供 diff 摘要";
+    if (headSha) {
+      const diff = await this.git.readDiff(input.workspaceId, {
+        scope: "commit",
+        sha: headSha,
+        context: 2,
+        maxBytes: 160_000,
+      });
+      if (diff.ok && diff.value) {
+        const page = diff.value;
+        const lines: string[] = [
+          `files=${page.files.length} bytes=${page.bytes}${page.truncated ? " truncated" : ""}`,
+        ];
+        for (const file of page.files.slice(0, 80)) {
+          let added = 0;
+          let removed = 0;
+          for (const hunk of file.hunks) {
+            for (const line of hunk.lines) {
+              if (line.kind === "+") added += 1;
+              if (line.kind === "-") removed += 1;
+            }
+          }
+          const firstLines = file.hunks
+            .flatMap((hunk) => hunk.lines)
+            .slice(0, 24)
+            .map((line) => `${line.kind}${line.text}`)
+            .join("\n");
+          lines.push(
+            `${file.status} ${file.path} (+${added}/-${removed})${file.truncated ? " [truncated]" : ""}\n${firstLines}`,
+          );
+        }
+        diffSummary = capLooseText(lines.join("\n\n"), GIT_AI_LIMITS.diffSummary);
+      } else {
+        diffSummary = `diff unavailable: ${sanitizeGitAiText(diff.message ?? diff.errorCode, 500)}`;
+      }
+    }
+    const prSummary = vcs?.pr
+      ? `provider=${vcs.pr.provider} number=${vcs.pr.number ?? "manual"} state=${vcs.pr.state} url=${vcs.pr.url ?? "—"}`
+      : "PR 尚未创建";
+    const mergeSummary = vcs
+      ? `branch=${vcs.branch ?? "—"} base=${vcs.baseBranch ?? "—"} head=${vcs.headSha ?? "—"} merge=${vcs.merge.state} commit=${vcs.merge.commitSha ?? "—"}`
+      : `head=${headSha ?? "—"}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25_000);
+    try {
+      const client = createLlmClientForModel(settings, profile);
+      const completion = await client.complete({
+        model: profile.modelId,
+        messages: buildGitAiMessages({
+          kind: input.kind,
+          agentName: agent.name,
+          agentRole: agent.role,
+          agentSystemPrompt: agent.systemPrompt,
+          workspaceName: workspace.name,
+          taskTitle: task?.title ?? "（无任务）",
+          taskDescription: task?.description ?? "",
+          branch: vcs?.branch ?? null,
+          baseBranch: vcs?.baseBranch ?? null,
+          headSha,
+          prSummary,
+          mergeSummary,
+          diffSummary,
+        }),
+        temperature: 0.2,
+        maxOutputTokens: 1_800,
+        signal: controller.signal,
+      });
+      const draft = parseGitAiDraft(completion.text);
+      if (!draft) {
+        return {
+          ok: false,
+          code: "GIT_AI_INVALID_DRAFT",
+          message: "模型返回的草稿格式无效，请重试",
+          retryable: true,
+        };
+      }
+      this.git.recordAiDraft({
+        kind: input.kind,
+        workspaceId: input.workspaceId,
+        taskId: task?.id,
+        agentId: agent.id,
+        model: profile.label || profile.modelId,
+        title: draft.title,
+      });
+      return {
+        ok: true,
+        draft,
+        agentName: agent.name,
+        modelLabel: profile.label || profile.modelId,
+        generatedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      const message = sanitizeErrorText(
+        error instanceof Error ? error.message : String(error),
+        500,
+      );
+      if (controller.signal.aborted) {
+        return { ok: false, code: "GIT_AI_TIMEOUT", message: "生成超时，请重试", retryable: true };
+      }
+      if (/\b429\b|rate.?limit|quota|1308|额度|限额/i.test(message)) {
+        return { ok: false, code: "GIT_AI_RATE_LIMITED", message, retryable: true };
+      }
+      if (/\b401\b|unauthorized|invalid api.?key|authentication|认证|鉴权/i.test(message)) {
+        return { ok: false, code: "GIT_AI_AUTH_FAILED", message, retryable: false };
+      }
+      return { ok: false, code: "GIT_AI_FAILED", message, retryable: true };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * t368：合并成功后向指定成员发线程邮箱。失败返回可重试错误，不改变 Git 合并结果。
+   */
+  notifyMerge(input: GitMergeNotifyRequest): GitMergeNotifyResponse {
+    const workspace = this.store.getWorkspace(input.workspaceId);
+    if (!workspace) {
+      return { ok: false, code: "GIT_MERGE_NOTIFY_WORKSPACE_MISSING", message: "工作区不存在", retryable: false };
+    }
+    const task = this.store.getTask(input.taskId);
+    if (!task || task.workspaceId !== input.workspaceId) {
+      return { ok: false, code: "GIT_MERGE_NOTIFY_TASK_MISSING", message: "任务不存在", retryable: false };
+    }
+    const agent = this.store.getAgent(input.agentId);
+    if (!agent || agent.workspaceId !== input.workspaceId) {
+      return { ok: false, code: "GIT_MERGE_NOTIFY_AGENT_MISSING", message: "收件成员不存在", retryable: false };
+    }
+    const vcs = this.git.getTaskVcs(task.id).vcs;
+    const summary = [
+      `任务：${sanitizeGitAiText(task.title, 160)}`,
+      `分支：${sanitizeGitAiText(vcs?.branch ?? input.branch ?? "—", 160)}`,
+      `PR：${vcs?.pr?.number ? `#${vcs.pr.number}` : input.prNumber ? `#${input.prNumber}` : "manual"}`,
+      `提交：${sanitizeGitAiText(vcs?.merge.commitSha ?? input.mergeCommitSha ?? "—", 80)}`,
+      `文件：${vcs?.scopePaths?.length ?? 0}${vcs?.scopePaths?.length ? ` · ${vcs.scopePaths.slice(0, 16).map((p) => sanitizeGitAiText(p, 120)).join(", ")}` : ""}`,
+    ].join("\n");
+    const body = sanitizeGitAiText(input.body?.trim() || summary, 4_000);
+    try {
+      const existing = this.store
+        .listMessages(input.workspaceId)
+        .filter((message) => message.refs.includes(task.id))
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .at(-1);
+      const message = this.store.addMessage({
+        workspaceId: input.workspaceId,
+        from: "git",
+        to: [agent.name],
+        kind: "report",
+        subject: `合并完成：${task.title.slice(0, 80)}`,
+        body,
+        refs: [task.id, ...(vcs?.pr?.url ? [vcs.pr.url] : [])],
+        threadId: existing?.threadId ?? `merge:${task.id}`,
+        parentId: existing?.id,
+      });
+      this.git.recordMergeNotified({
+        workspaceId: input.workspaceId,
+        taskId: task.id,
+        agentId: agent.id,
+        messageId: message.id,
+        threadId: message.threadId,
+      });
+      return {
+        ok: true,
+        messageId: message.id,
+        threadId: message.threadId,
+        agentName: agent.name,
+        subject: message.subject,
+        body: message.body,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        code: "GIT_MERGE_NOTIFY_FAILED",
+        message: sanitizeErrorText(error instanceof Error ? error.message : String(error), 500),
+        retryable: true,
+      };
+    }
   }
 
   async recommendMembers(input: RecommendMembersRequest): Promise<RecommendMembersResponse> {

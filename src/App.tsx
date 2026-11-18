@@ -3568,6 +3568,11 @@ export default function App() {
     watchdog: watchdogSnapshot,
   });
 
+  const gitAiDisabledReason = snapshot.settings.mock
+    ? "Mock 模式不调用真实模型，AI 草稿已禁用"
+    : snapshot.settings.models.length === 0
+      ? "尚未配置模型，AI 草稿已禁用"
+      : null;
   const renderPanelContent = (key: PanelKey): ReactNode => {
               switch (key) {
                 case "planDraft":
@@ -3598,7 +3603,11 @@ export default function App() {
                   return (
                     <LazyPanel load={loadGitGraphPanel} label="版本图">
                       {(GitGraphPanel) => (
-                        <GitGraphPanel workspaceId={snapshot.workspace.id} />
+                        <GitGraphPanel
+                          workspaceId={snapshot.workspace.id}
+                          members={snapshot.agents}
+                          aiDisabledReason={gitAiDisabledReason}
+                        />
                       )}
                     </LazyPanel>
                   );
@@ -3614,6 +3623,8 @@ export default function App() {
                           loading={mergeQueueLoading}
                           onReload={() => loadMergeQueue()}
                           onOpenTask={(taskId) => handleOpenTaskPage(taskId)}
+                          members={snapshot.agents}
+                          aiDisabledReason={gitAiDisabledReason}
                         />
                       )}
                     </LazyPanel>
@@ -5639,7 +5650,20 @@ function TasksView({
                 tabIndex={0}
               >
                 <div className="task-git-section" id="task-git-section">
-                  <TaskVcsPanel key={selectedTask.id} taskId={selectedTask.id} onOpenGraph={onOpenGitGraph} onOpenMergeQueue={onOpenMergeQueue} />
+                  <TaskVcsPanel
+                    key={selectedTask.id}
+                    taskId={selectedTask.id}
+                    onOpenGraph={onOpenGitGraph}
+                    onOpenMergeQueue={onOpenMergeQueue}
+                    members={snapshot.agents}
+                    aiDisabledReason={
+                      snapshot.settings.mock
+                        ? "Mock 模式不调用真实模型，AI 草稿已禁用"
+                        : snapshot.settings.models.length === 0
+                          ? "尚未配置模型，AI 草稿已禁用"
+                          : null
+                    }
+                  />
                 </div>
                 <div className="muted tiny" role="note" aria-label="合并确认说明">
                   Git / PR / worktree 与入队准备不是合并确认；合并确认只在合并队列中执行。
