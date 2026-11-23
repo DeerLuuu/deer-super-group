@@ -8,32 +8,32 @@
     {
       "id": "t600-left-drop",
       "ok": true,
-      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":1152.1875,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"horizontal\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-left\",\"axis\":\"horizontal\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":919.15,\"y\":539.71875}},\"directionCorrect\":true}"
+      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":1152.1875,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"horizontal\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-left\",\"axis\":\"horizontal\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":919.15,\"y\":539.71875}},\"directionCorrect\":true}"
     },
     {
       "id": "t600-right-drop",
       "ok": true,
-      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"任务\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"},{\"id\":\"group-chat\",\"x\":1152.1875,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"对话\"],\"active\":\"对话\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"horizontal\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-right\",\"axis\":\"horizontal\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"},{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1381.225,\"y\":539.71875}},\"directionCorrect\":true}"
+      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\"],\"active\":\"任务\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"},{\"id\":\"group-chat\",\"x\":1152.1875,\"y\":44.4375,\"width\":287.796875,\"height\":955.5625,\"tabs\":[\"对话\"],\"active\":\"对话\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"horizontal\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-right\",\"axis\":\"horizontal\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"},{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1381.225,\"y\":539.71875}},\"directionCorrect\":true}"
     },
     {
       "id": "t600-above-drop",
       "ok": true,
-      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":524.21875,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"vertical\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-above\",\"axis\":\"vertical\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1150.1875,\"y\":172.29375}},\"directionCorrect\":true}"
+      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":524.21875,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"vertical\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-above\",\"axis\":\"vertical\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1150.1875,\"y\":172.29375}},\"directionCorrect\":true}"
     },
     {
       "id": "t600-below-drop",
       "ok": true,
-      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"任务\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"团队\"],\"active\":\"团队\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":524.21875,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"对话\"],\"active\":\"对话\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"vertical\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-below\",\"axis\":\"vertical\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"},{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1150.1875,\"y\":907.1437500000001}},\"directionCorrect\":true}"
+      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\"],\"active\":\"任务\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"团队\"],\"active\":\"团队\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":524.21875,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"对话\"],\"active\":\"对话\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625},{\"axis\":\"vertical\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-below\",\"axis\":\"vertical\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"},{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"}]}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1150.1875,\"y\":907.1437500000001}},\"directionCorrect\":true}"
     },
     {
       "id": "t600-center-drop",
       "ok": true,
-      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"任务\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\",\"对话\"],\"active\":\"对话\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"tasks\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\",\"chat\"],\"active\":\"chat\"}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1150.1875,\"y\":539.71875}},\"directionCorrect\":true}"
+      "detail": "{\"before\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"after\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\"],\"active\":\"任务\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\",\"对话\"],\"active\":\"对话\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625}],\"beforeRoot\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"chat\",\"tasks\",\"mailbox\",\"board\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]},\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\"],\"active\":\"tasks\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\",\"chat\"],\"active\":\"chat\"}]},\"dropped\":{\"panel\":\"chat\",\"rect\":{\"x\":861.390625,\"y\":80.4375,\"width\":577.59375,\"height\":918.5625},\"point\":{\"x\":1150.1875,\"y\":539.71875}},\"directionCorrect\":true}"
     },
     {
       "id": "t600-vertical-sash",
       "ok": true,
-      "detail": "{\"verticalSash\":{\"x\":1150.1875,\"y\":522.21875},\"verticalBefore\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":524.21875,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"verticalAfter\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":535.5,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":583.9375,\"width\":579.59375,\"height\":416.0625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"verticalSizes\":[{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-above\",\"axis\":\"vertical\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]},{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\",\"settings\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-above\",\"axis\":\"vertical\",\"sizes\":[0.562762,0.437238],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]}]}"
+      "detail": "{\"verticalSash\":{\"x\":1150.1875,\"y\":522.21875},\"verticalBefore\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":524.21875,\"width\":579.59375,\"height\":475.78125,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"verticalAfter\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"任务\",\"邮箱\",\"记忆\"],\"active\":\"任务\"},{\"id\":\"group-chat\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":535.5,\"tabs\":[\"对话\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":583.9375,\"width\":579.59375,\"height\":416.0625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"verticalSizes\":[{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-above\",\"axis\":\"vertical\",\"sizes\":[0.5,0.5],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]},{\"kind\":\"split\",\"id\":\"split-root\",\"axis\":\"horizontal\",\"sizes\":[0.58,0.42],\"children\":[{\"kind\":\"group\",\"id\":\"group-main\",\"panels\":[\"tasks\",\"mailbox\",\"board\"],\"active\":\"tasks\"},{\"kind\":\"split\",\"id\":\"split-group-team-above\",\"axis\":\"vertical\",\"sizes\":[0.562762,0.437238],\"children\":[{\"kind\":\"group\",\"id\":\"group-chat\",\"panels\":[\"chat\"],\"active\":\"chat\"},{\"kind\":\"group\",\"id\":\"group-team\",\"panels\":[\"team\"],\"active\":\"team\"}]}]}]}"
     },
     {
       "id": "t600-sash-keyboard-reset",
@@ -58,7 +58,7 @@
     {
       "id": "t600-v2-widths",
       "ok": true,
-      "detail": "{\"480\":{\"groups\":[{\"id\":\"group-main\",\"x\":56,\"y\":69.4375,\"width\":424,\"height\":830.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"团队\",\"设置\"],\"active\":\"对话\"}],\"splits\":[],\"scrollW\":480},\"960\":{\"groups\":[{\"id\":\"group-main\",\"x\":56,\"y\":42,\"width\":904,\"height\":858,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"团队\",\"设置\"],\"active\":\"对话\"}],\"splits\":[],\"scrollW\":960},\"1440\":{\"groups\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\",\"设置\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625}],\"scrollW\":1440}}"
+      "detail": "{\"480\":{\"groups\":[{\"id\":\"group-main\",\"x\":56,\"y\":69.4375,\"width\":424,\"height\":830.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"}],\"splits\":[],\"scrollW\":480},\"960\":{\"groups\":[{\"id\":\"group-main\",\"x\":56,\"y\":42,\"width\":904,\"height\":858,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"}],\"splits\":[],\"scrollW\":960},\"1440\":{\"groups\":[{\"id\":\"group-main\",\"x\":56,\"y\":44.4375,\"width\":800.390625,\"height\":955.5625,\"tabs\":[\"对话\",\"任务\",\"邮箱\",\"记忆\"],\"active\":\"对话\"},{\"id\":\"group-team\",\"x\":860.390625,\"y\":44.4375,\"width\":579.59375,\"height\":955.5625,\"tabs\":[\"团队\"],\"active\":\"团队\"}],\"splits\":[{\"axis\":\"horizontal\",\"x\":56,\"y\":44.4375,\"width\":1384,\"height\":955.5625}],\"scrollW\":1440}}"
     },
     {
       "id": "t600-dockview-default",
@@ -101,8 +101,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         },
@@ -128,8 +127,7 @@
           "tabs": [
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "任务"
         },
@@ -187,8 +185,7 @@
             "panels": [
               "tasks",
               "mailbox",
-              "board",
-              "settings"
+              "board"
             ],
             "active": "tasks"
           },
@@ -250,8 +247,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         },
@@ -277,8 +273,7 @@
           "tabs": [
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "任务"
         },
@@ -336,8 +331,7 @@
             "panels": [
               "tasks",
               "mailbox",
-              "board",
-              "settings"
+              "board"
             ],
             "active": "tasks"
           },
@@ -399,8 +393,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         },
@@ -426,8 +419,7 @@
           "tabs": [
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "任务"
         },
@@ -485,8 +477,7 @@
             "panels": [
               "tasks",
               "mailbox",
-              "board",
-              "settings"
+              "board"
             ],
             "active": "tasks"
           },
@@ -548,8 +539,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         },
@@ -575,8 +565,7 @@
           "tabs": [
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "任务"
         },
@@ -634,8 +623,7 @@
             "panels": [
               "tasks",
               "mailbox",
-              "board",
-              "settings"
+              "board"
             ],
             "active": "tasks"
           },
@@ -697,8 +685,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         },
@@ -724,8 +711,7 @@
           "tabs": [
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "任务"
         },
@@ -766,8 +752,7 @@
             "panels": [
               "tasks",
               "mailbox",
-              "board",
-              "settings"
+              "board"
             ],
             "active": "tasks"
           },
@@ -814,8 +799,7 @@
         "tabs": [
           "任务",
           "邮箱",
-          "记忆",
-          "设置"
+          "记忆"
         ],
         "active": "任务"
       },
@@ -852,8 +836,7 @@
         "tabs": [
           "任务",
           "邮箱",
-          "记忆",
-          "设置"
+          "记忆"
         ],
         "active": "任务"
       },
@@ -896,8 +879,7 @@
             "panels": [
               "tasks",
               "mailbox",
-              "board",
-              "settings"
+              "board"
             ],
             "active": "tasks"
           },
@@ -945,8 +927,7 @@
             "panels": [
               "tasks",
               "mailbox",
-              "board",
-              "settings"
+              "board"
             ],
             "active": "tasks"
           },
@@ -994,9 +975,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "团队",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         }
@@ -1016,9 +995,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "团队",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         }
@@ -1038,8 +1015,7 @@
             "对话",
             "任务",
             "邮箱",
-            "记忆",
-            "设置"
+            "记忆"
           ],
           "active": "对话"
         },
@@ -1092,5 +1068,5 @@
     "dockview": true,
     "trees": 0
   },
-  "at": "2026-11-23T19:09:32.770Z"
+  "at": "2026-11-23T19:41:49.745Z"
 }

@@ -3,7 +3,7 @@
 - **任务**：t600（v2 parity；默认仍 dockview，不切默认）
 - **分支**：`feature/t600-v2-parity`，基线 main `1d84756`（t599 回滚后）
 - **范围**：`src/shell/dock/` v2 渲染器/拖放/落点/sash/CSS、测试/脚本/文档；不改 kernel/memory/review/watchdog/electron、schema/IPC/权限/gate
-- **结论**：**交互/几何 parity 通过**（五向、单侧落点、双轴 sash、内容撑满、持久化）；**默认仍 dockview，不建议在本 PR 切换默认**。原因见 §5 的默认 tab 集差异。
+- **结论**：**交互/几何/默认 tab 集 parity 通过**（五向、单侧落点、双轴 sash、内容撑满、持久化、默认 tabs）；**默认仍 dockview，本 PR 不切换默认**；是否切换由 Captain/用户确认。
 
 ## 1. 实现
 
@@ -80,10 +80,11 @@
 - `docktreeInteraction.test.tsx`：键盘/双击 sash、active group、close、lazy keepalive。
 - CDP：`scripts/t600-parity-check.mjs`（五向、双轴 sash、键盘/重置、三档、默认 dockview/opt-in）；`scripts/t576-layout-check.mjs`（panel 宽度、单侧落点、sash）。
 
-## 5. 默认 tab 集差异 / parity 判定
+## 5. 默认 tab 集（t604 已关闭）
 
-- v2 默认主组含 settings tab（6 tabs），回滚 dockview 在清空 v1 fixture 后默认 4+team tabs（5）；两组组数/轴/宽度一致，但默认 tab 集有 1 项差异。
-- 交互/几何/持久化三项 parity **PASS**；默认 tab 集差异需要在产品层决定是否让 v2 默认隐藏 settings。**在本差异解决前，不建议把 v2 切为默认**；本 PR 保持 dockview 默认。
+- t600 报告中的差异（v2 默认主组含 settings，6 tabs）已在 t604 对齐：v2 默认主组改为 `chat/tasks/mailbox/board`，wide/medium/narrow 仅额外 team 右组，single 不再默认 team/settings；settings 仍可经启动器/命令打开。
+- 对齐后 v2/dockview 在 1440/960/480 的 tabs=5/4/4，组数=2/1/1，默认 tab 集一致；严格 fixture 断言见 `defaultTabParity.test.ts`。
+- 默认仍 dockview；是否切换默认由 Captain/用户确认，本 PR 不切换。
 
 ## 6. 验证
 

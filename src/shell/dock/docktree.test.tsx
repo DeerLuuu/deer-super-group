@@ -38,11 +38,12 @@ describe("DW1-3 DockTree 渲染", () => {
     expect(html).toMatch(/data-panel="team"/);
   });
 
-  it("single：单组 tablist（team 是 tab），无 sash", () => {
+  it("single：单组 tablist（默认无 team tab），无 sash", () => {
     const html = renderToStaticMarkup(<DockTree {...treeProps({ layout: single })} />);
     expect((html.match(/role="tablist"/g) ?? []).length).toBe(1);
     expect(html).not.toContain('role="separator"');
-    expect(html).toMatch(/data-panel="team"/);
+    expect(html).toMatch(/data-panel="chat"/);
+    expect(html).not.toMatch(/data-panel="team"/);
   });
 
   it("roving tabIndex：active tab 0、其余 -1；aria-selected", () => {

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { PanelKey } from "./panelRegistry";
 import { PANEL_DEFS } from "./panelRegistry";
-import { defaultLayout, countGroups, listGroups, listPanels, validateLayout } from "./layoutModel";
+import { defaultLayout, countGroups, listGroups, listPanels, openPanelInLayout, validateLayout } from "./layoutModel";
 import { clampGroups, clearV2Store } from "./layoutOps";
 import { loadV2Store,
   reduceDock,
@@ -112,8 +112,8 @@ describe("reduceDock 命令矩阵", () => {
     expect(countGroups(result.layout.root)).toBe(3);
     expect(result.effects.activatedPanel).toBe("gitGraph");
 
-    // single 变体上限 1 → split 拒绝。
-    const single = defaultLayout("single");
+    // single 变体上限 1 → split 拒绝（先把 team 作为 tab 打开，再尝试拆组）。
+    const single = openPanelInLayout(defaultLayout("single"), "team");
     const rejected = reduceDock(single, { type: "split", panel: "team", direction: "right" });
     expect(countGroups(rejected.layout.root)).toBe(1);
     expect(rejected.effects.notify.join()).toContain("最多");
