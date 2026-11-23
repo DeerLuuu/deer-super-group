@@ -1,0 +1,701 @@
+{
+  "at": "2026-11-23T18:57:15.974Z",
+  "engine": "dockview",
+  "resets": [
+    {
+      "dir": "left",
+      "watermark": true,
+      "groups": 2,
+      "tabs": 5,
+      "beforeGroups": 2,
+      "target": {
+        "x": 859,
+        "y": 44.4375,
+        "width": 581,
+        "height": 856,
+        "top": 44.4375,
+        "right": 1440,
+        "bottom": 900.4375,
+        "left": 859
+      }
+    },
+    {
+      "dir": "right",
+      "watermark": true,
+      "groups": 2,
+      "tabs": 5,
+      "beforeGroups": 2,
+      "target": {
+        "x": 859,
+        "y": 44.4375,
+        "width": 581,
+        "height": 856,
+        "top": 44.4375,
+        "right": 1440,
+        "bottom": 900.4375,
+        "left": 859
+      }
+    },
+    {
+      "dir": "above",
+      "watermark": true,
+      "groups": 2,
+      "tabs": 5,
+      "beforeGroups": 2,
+      "target": {
+        "x": 859,
+        "y": 44.4375,
+        "width": 581,
+        "height": 856,
+        "top": 44.4375,
+        "right": 1440,
+        "bottom": 900.4375,
+        "left": 859
+      }
+    },
+    {
+      "dir": "below",
+      "watermark": true,
+      "groups": 2,
+      "tabs": 5,
+      "beforeGroups": 2,
+      "target": {
+        "x": 859,
+        "y": 44.4375,
+        "width": 581,
+        "height": 856,
+        "top": 44.4375,
+        "right": 1440,
+        "bottom": 900.4375,
+        "left": 859
+      }
+    },
+    {
+      "dir": "center",
+      "watermark": true,
+      "groups": 2,
+      "tabs": 5,
+      "beforeGroups": 2,
+      "target": {
+        "x": 859,
+        "y": 44.4375,
+        "width": 581,
+        "height": 856,
+        "top": 44.4375,
+        "right": 1440,
+        "bottom": 900.4375,
+        "left": 859
+      }
+    }
+  ],
+  "directions": [
+    {
+      "dir": "left",
+      "drag": true,
+      "directionCorrect": true,
+      "before": {
+        "groupCount": 2,
+        "tabs": 5,
+        "targetRect": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "targetPanels": [
+          "团队"
+        ]
+      },
+      "after": {
+        "groupCount": 2,
+        "tabs": 5,
+        "targetPanels": [
+          "团队"
+        ],
+        "newGroupPanels": [
+          "对话",
+          "任务",
+          "邮箱",
+          "记忆"
+        ],
+        "newGroupRect": {
+          "x": 56,
+          "y": 44.4375,
+          "width": 803,
+          "height": 856,
+          "top": 44.4375,
+          "right": 859,
+          "bottom": 900.4375,
+          "left": 56
+        }
+      },
+      "splitAxis": "horizontal",
+      "children": [
+        {
+          "panels": [
+            "对话",
+            "任务",
+            "邮箱",
+            "记忆"
+          ],
+          "rect": {
+            "x": 56,
+            "y": 44.4375,
+            "width": 803,
+            "height": 856,
+            "top": 44.4375,
+            "right": 859,
+            "bottom": 900.4375,
+            "left": 56
+          }
+        },
+        {
+          "panels": [
+            "团队"
+          ],
+          "rect": {
+            "x": 859,
+            "y": 44.4375,
+            "width": 581,
+            "height": 856,
+            "top": 44.4375,
+            "right": 1440,
+            "bottom": 900.4375,
+            "left": 859
+          }
+        }
+      ],
+      "sizes": {
+        "newGroup": {
+          "x": 56,
+          "y": 44.4375,
+          "width": 803,
+          "height": 856,
+          "top": 44.4375,
+          "right": 859,
+          "bottom": 900.4375,
+          "left": 56
+        },
+        "target": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        }
+      },
+      "sash": {
+        "axis": "vertical",
+        "before": [
+          803,
+          581
+        ],
+        "after": [
+          851,
+          533
+        ],
+        "handle": {
+          "x": 857,
+          "y": 44.4375,
+          "width": 4,
+          "height": 856,
+          "top": 44.4375,
+          "right": 861,
+          "bottom": 900.4375,
+          "left": 857
+        }
+      }
+    },
+    {
+      "dir": "right",
+      "drag": true,
+      "directionCorrect": true,
+      "before": {
+        "groupCount": 2,
+        "tabs": 5,
+        "targetRect": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "targetPanels": [
+          "团队"
+        ]
+      },
+      "after": {
+        "groupCount": 3,
+        "tabs": 5,
+        "targetPanels": [
+          "团队"
+        ],
+        "newGroupPanels": [
+          "任务"
+        ],
+        "newGroupRect": {
+          "x": 880,
+          "y": 44.4375,
+          "width": 560,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 880
+        }
+      },
+      "splitAxis": "horizontal",
+      "children": [
+        {
+          "panels": [
+            "对话",
+            "邮箱",
+            "记忆"
+          ],
+          "rect": {
+            "x": 56,
+            "y": 44.4375,
+            "width": 464,
+            "height": 856,
+            "top": 44.4375,
+            "right": 520,
+            "bottom": 900.4375,
+            "left": 56
+          }
+        },
+        {
+          "panels": [
+            "团队"
+          ],
+          "rect": {
+            "x": 520,
+            "y": 44.4375,
+            "width": 360,
+            "height": 856,
+            "top": 44.4375,
+            "right": 880,
+            "bottom": 900.4375,
+            "left": 520
+          }
+        },
+        {
+          "panels": [
+            "任务"
+          ],
+          "rect": {
+            "x": 880,
+            "y": 44.4375,
+            "width": 560,
+            "height": 856,
+            "top": 44.4375,
+            "right": 1440,
+            "bottom": 900.4375,
+            "left": 880
+          }
+        }
+      ],
+      "sizes": {
+        "newGroup": {
+          "x": 880,
+          "y": 44.4375,
+          "width": 560,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 880
+        },
+        "target": {
+          "x": 520,
+          "y": 44.4375,
+          "width": 360,
+          "height": 856,
+          "top": 44.4375,
+          "right": 880,
+          "bottom": 900.4375,
+          "left": 520
+        }
+      }
+    },
+    {
+      "dir": "above",
+      "drag": true,
+      "directionCorrect": true,
+      "before": {
+        "groupCount": 2,
+        "tabs": 5,
+        "targetRect": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "targetPanels": [
+          "团队"
+        ]
+      },
+      "after": {
+        "groupCount": 3,
+        "tabs": 5,
+        "targetPanels": [
+          "团队"
+        ],
+        "newGroupPanels": [
+          "任务"
+        ],
+        "newGroupRect": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 428,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 472.4375,
+          "left": 859
+        }
+      },
+      "splitAxis": "vertical",
+      "children": [
+        {
+          "panels": [
+            "对话",
+            "邮箱",
+            "记忆"
+          ],
+          "rect": {
+            "x": 56,
+            "y": 44.4375,
+            "width": 803,
+            "height": 856,
+            "top": 44.4375,
+            "right": 859,
+            "bottom": 900.4375,
+            "left": 56
+          }
+        },
+        {
+          "panels": [
+            "任务"
+          ],
+          "rect": {
+            "x": 859,
+            "y": 44.4375,
+            "width": 581,
+            "height": 428,
+            "top": 44.4375,
+            "right": 1440,
+            "bottom": 472.4375,
+            "left": 859
+          }
+        },
+        {
+          "panels": [
+            "团队"
+          ],
+          "rect": {
+            "x": 859,
+            "y": 472.4375,
+            "width": 581,
+            "height": 428,
+            "top": 472.4375,
+            "right": 1440,
+            "bottom": 900.4375,
+            "left": 859
+          }
+        }
+      ],
+      "sizes": {
+        "newGroup": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 428,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 472.4375,
+          "left": 859
+        },
+        "target": {
+          "x": 859,
+          "y": 472.4375,
+          "width": 581,
+          "height": 428,
+          "top": 472.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        }
+      },
+      "sash": {
+        "axis": "horizontal",
+        "before": [
+          856,
+          428,
+          428
+        ],
+        "after": [
+          856,
+          464,
+          392
+        ],
+        "handle": {
+          "x": 859,
+          "y": 470.4375,
+          "width": 581,
+          "height": 4,
+          "top": 470.4375,
+          "right": 1440,
+          "bottom": 474.4375,
+          "left": 859
+        }
+      }
+    },
+    {
+      "dir": "below",
+      "drag": true,
+      "directionCorrect": true,
+      "before": {
+        "groupCount": 2,
+        "tabs": 5,
+        "targetRect": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "targetPanels": [
+          "团队"
+        ]
+      },
+      "after": {
+        "groupCount": 3,
+        "tabs": 5,
+        "targetPanels": [
+          "团队"
+        ],
+        "newGroupPanels": [
+          "任务"
+        ],
+        "newGroupRect": {
+          "x": 859,
+          "y": 472.4375,
+          "width": 581,
+          "height": 428,
+          "top": 472.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        }
+      },
+      "splitAxis": "vertical",
+      "children": [
+        {
+          "panels": [
+            "对话",
+            "邮箱",
+            "记忆"
+          ],
+          "rect": {
+            "x": 56,
+            "y": 44.4375,
+            "width": 803,
+            "height": 856,
+            "top": 44.4375,
+            "right": 859,
+            "bottom": 900.4375,
+            "left": 56
+          }
+        },
+        {
+          "panels": [
+            "团队"
+          ],
+          "rect": {
+            "x": 859,
+            "y": 44.4375,
+            "width": 581,
+            "height": 428,
+            "top": 44.4375,
+            "right": 1440,
+            "bottom": 472.4375,
+            "left": 859
+          }
+        },
+        {
+          "panels": [
+            "任务"
+          ],
+          "rect": {
+            "x": 859,
+            "y": 472.4375,
+            "width": 581,
+            "height": 428,
+            "top": 472.4375,
+            "right": 1440,
+            "bottom": 900.4375,
+            "left": 859
+          }
+        }
+      ],
+      "sizes": {
+        "newGroup": {
+          "x": 859,
+          "y": 472.4375,
+          "width": 581,
+          "height": 428,
+          "top": 472.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "target": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 428,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 472.4375,
+          "left": 859
+        }
+      },
+      "persistence": {
+        "groups": 3,
+        "tabs": 5,
+        "targetPanels": [
+          "团队"
+        ]
+      }
+    },
+    {
+      "dir": "center",
+      "drag": true,
+      "directionCorrect": true,
+      "before": {
+        "groupCount": 2,
+        "tabs": 5,
+        "targetRect": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "targetPanels": [
+          "团队"
+        ]
+      },
+      "after": {
+        "groupCount": 2,
+        "tabs": 5,
+        "targetPanels": [
+          "团队",
+          "任务"
+        ],
+        "newGroupPanels": null,
+        "newGroupRect": null
+      },
+      "splitAxis": null,
+      "children": [
+        {
+          "panels": [
+            "对话",
+            "邮箱",
+            "记忆"
+          ],
+          "rect": {
+            "x": 56,
+            "y": 44.4375,
+            "width": 803,
+            "height": 856,
+            "top": 44.4375,
+            "right": 859,
+            "bottom": 900.4375,
+            "left": 56
+          }
+        },
+        {
+          "panels": [
+            "团队",
+            "任务"
+          ],
+          "rect": {
+            "x": 859,
+            "y": 44.4375,
+            "width": 581,
+            "height": 856,
+            "top": 44.4375,
+            "right": 1440,
+            "bottom": 900.4375,
+            "left": 859
+          }
+        }
+      ],
+      "sizes": {
+        "newGroup": null,
+        "target": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        }
+      }
+    }
+  ],
+  "widths": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "groups": 2,
+      "tabs": 5
+    },
+    {
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "groups": 1,
+      "tabs": 4
+    },
+    {
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "groups": 1,
+      "tabs": 4
+    }
+  ],
+  "v2": {
+    "dockview": false,
+    "v2": true
+  },
+  "back": {
+    "dockview": true,
+    "v2": false
+  }
+}
