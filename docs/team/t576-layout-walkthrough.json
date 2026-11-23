@@ -221,9 +221,9 @@
       "detail": "{\"edgeDrop\":{\"panel\":\"chat\"},\"edgeGroups\":[{\"id\":\"group-main\",\"width\":800.390625,\"x\":56},{\"id\":\"group-team\",\"width\":287.796875,\"x\":860.390625},{\"id\":\"group-chat\",\"width\":287.796875,\"x\":1152.1875}]}"
     },
     {
-      "id": "t576-settings-not-closable",
+      "id": "t576-settings-not-default",
       "ok": true,
-      "detail": "{\"active\":\"设置\",\"closeButtons\":0}"
+      "detail": "{\"present\":false,\"closeButtons\":0}"
     },
     {
       "id": "t576-store-sizes",
@@ -384,5 +384,5 @@
     ],
     "variant": "wide"
   },
-  "at": "2026-11-23T19:10:37.000Z"
+  "at": "2026-11-23T19:44:49.631Z"
 }

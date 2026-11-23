@@ -146,6 +146,7 @@ async function measure(label, slug) {
 
 await send("Page.enable");
 await send("Runtime.enable");
+await evaluate(`Object.keys(localStorage).filter((key) => key.startsWith("deer.dock.layout.v2.")).forEach((key) => localStorage.removeItem(key)); true`);
 await setViewport(1440, 1000);
 const ready = await evaluate(`!!document.querySelector(".docktree-shell")`);
 record("t576-docktree-ready", ready, ready ? "docktree-shell" : "not found");
@@ -404,14 +405,13 @@ const edgeGroups = await groupRects();
 record("t576-tab-drop-edge", Boolean(edgeDrop.panel) && edgeGroups.length === 3, JSON.stringify({ edgeDrop, edgeGroups }));
 await resetLayout();
 
-// settings 不可关闭；关闭普通面板可用；激活 tab 正常。
-await clickTab("设置");
-const settingsClose = await evaluate(`(() => {
+// t604：settings 不是默认 tab（仍可通过启动器打开）；默认不应出现关闭设置按钮。
+const settingsState = await evaluate(`(() => {
   const tab = [...document.querySelectorAll(".docktree-tab")].find((node) => node.textContent.trim() === "设置");
   const group = tab?.closest(".docktree-group");
-  return { active: group?.querySelector(".docktree-tab.active")?.textContent.trim(), closeButtons: group?.querySelectorAll(".docktree-group-close").length ?? 0 };
+  return { present: Boolean(tab), active: group?.querySelector(".docktree-tab.active")?.textContent.trim(), closeButtons: group?.querySelectorAll(".docktree-group-close").length ?? 0 };
 })()`);
-record("t576-settings-not-closable", settingsClose.active === "设置" && settingsClose.closeButtons === 0, JSON.stringify(settingsClose));
+record("t576-settings-not-default", !settingsState.present, JSON.stringify(settingsState));
 await resetLayout();
 const store = await evaluate(`(() => {
   const key = Object.keys(localStorage).find((item) => item.startsWith("deer.dock.layout.v2."));

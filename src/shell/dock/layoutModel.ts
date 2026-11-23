@@ -328,27 +328,24 @@ export function normalizeLayout(layout: DockLayout): DockLayout {
 // ---------------------------------------------------------------------------
 
 /**
- * 初始默认布局（§3.3 保持现有 UX）：
- * - wide/medium/narrow：主组 chat + MAIN_GROUP_ORDER tabs（含 settings，未 defaultClosed 的主组面板）；
- *   team 右分栏，权重 VARIANT_WEIGHTS；context 等默认关闭面板不进入布局；
- * - single：全部未关闭面板（含 team）在同一 group。
+ * 初始默认布局（§3.3 与 dockview 默认对齐）：
+ * - wide/medium/narrow：主组 chat + MAIN_GROUP_ORDER 中未 defaultClosed 的面板；
+ *   team 右分栏，权重 VARIANT_WEIGHTS；settings 不作为默认 tab（仍可通过启动器/命令打开）；
+ * - single：同一组只放主组默认面板（team 不作为默认 tab）。
  */
 export function defaultLayout(variant: DockVariant): DockLayout {
+  const mainPanels: PanelKey[] = MAIN_GROUP_ORDER.filter(
+    (key) => !PANEL_DEFS[key].defaultClosed,
+  );
   if (variant === "single") {
-    const panels: PanelKey[] = [...MAIN_GROUP_ORDER, "team", "settings"];
-    const unique = [...new Set(panels.filter((key) => !PANEL_DEFS[key].defaultClosed))];
     return {
       schema: "deer.dock.layout",
       version: 2,
       variant,
-      root: { kind: "group", id: "group-main", panels: unique, active: "chat" },
+      root: { kind: "group", id: "group-main", panels: mainPanels, active: "chat" },
     };
   }
 
-  const mainWithSettings: PanelKey[] = [...MAIN_GROUP_ORDER, "settings"];
-  const mainPanels: PanelKey[] = mainWithSettings.filter(
-    (key) => !PANEL_DEFS[key].defaultClosed,
-  );
   const weights = VARIANT_WEIGHTS[variant];
   const mainSize = weights.main / (weights.main + weights.team);
   const teamSize = weights.team / (weights.main + weights.team);

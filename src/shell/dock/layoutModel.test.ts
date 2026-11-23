@@ -156,15 +156,16 @@ describe("layoutModel 常量与工具", () => {
 });
 
 describe("layoutModel 默认布局", () => {
-  it("wide/medium/narrow：主组 + team 右分栏，权重对齐 VARIANT_WEIGHTS，settings 在主组", () => {
+  it("wide/medium/narrow：主组 + team 右分栏，权重对齐 VARIANT_WEIGHTS，默认不含 settings", () => {
     for (const variant of ["wide", "medium", "narrow"] as const) {
       const layout = defaultLayout(variant);
       expect(validateLayout(layout)).toEqual([]);
       const groups = listGroups(layout.root);
       expect(groups).toHaveLength(2);
       const [main, team] = groups;
-      expect(main.panels).toEqual(["chat", "tasks", "mailbox", "board", "settings"]);
+      expect(main.panels).toEqual(["chat", "tasks", "mailbox", "board"]);
       expect(team.panels).toEqual(["team"]);
+      expect(listPanels(layout.root)).not.toContain("settings");
       const split = layout.root as LayoutSplit;
       expect(split.axis).toBe("horizontal");
       const weights = { wide: [0.58, 0.42], medium: [0.56, 0.44], narrow: [0.52, 0.48] }[variant];
@@ -174,13 +175,15 @@ describe("layoutModel 默认布局", () => {
     }
   });
 
-  it("single：全部面板同组（team 是 tab，不右分栏）", () => {
+  it("single：主组默认面板同组，team/settings 不作为默认 tab", () => {
     const layout = defaultLayout("single");
     expect(validateLayout(layout)).toEqual([]);
     expect(layout.root.kind).toBe("group");
     const group = layout.root as LayoutGroup;
-    expect(group.panels).toContain("team");
-    expect(group.panels).toContain("settings");
+    expect(group.panels).toEqual(["chat", "tasks", "mailbox", "board"]);
+    expect(group.active).toBe("chat");
+    expect(group.panels).not.toContain("team");
+    expect(group.panels).not.toContain("settings");
     expect(countGroups(layout.root)).toBe(1);
   });
 
@@ -384,7 +387,7 @@ describe("layoutModel 操作", () => {
   });
 
   it("close settings 拒绝；close 后空组删除、active 回退相邻", () => {
-    const base = defaultLayout("wide");
+    const base = openPanelInLayout(defaultLayout("wide"), "settings");
     expect(closePanelInLayout(base, "settings")).toBe(base);
     const closed = closePanelInLayout(base, "mailbox");
     const main = listGroups(closed.root).find((g) => (g.panels as string[]).includes("chat"));
