@@ -39,7 +39,7 @@ v4 后旧代码不能读库；回滚不是 revert 代码后继续使用当前 DB
 - scheduler `listQueuedTasks` 批量覆盖 `dependsOn` relation。
 - v4 中途失败（legacy index 阻止 DROP）：ROLLBACK 后 user_version=3/旧列保留/连接可重新打开。
 - 真实 v4 自动 backup 经 restore 脚本恢复成功；backup v3/target v4 默认校验与 `--force` 覆盖。
-- relation-only CRUD/scheduler/delete/PlanDraft/星图/审批回归；全量串行测试 179 文件/1183 用例通过。
+- relation-only CRUD/scheduler/delete/PlanDraft/星图/审批回归；全量串行测试 180 文件/1211 用例通过。
 - 源码 grep：生产代码除 v2→v3 迁移 backfill 与 v4 DROP 语句外无旧列/旧 JSON 读写；UI/scheduler 无 raw legacy。
 - 回滚脚本语法/帮助与备份恢复路径（`scripts/restore-task-graph-backup.test.ts`）。
 
@@ -51,4 +51,4 @@ pnpm build
 pnpm test -- --testTimeout=30000 --maxWorkers=1
 ```
 
-基线：typecheck 0；build 0（466 modules，index 369.06 kB/gzip 109.86）；串行 test 179 文件/1183 用例全绿。
+基线：typecheck 0；build 0（468 modules，index 381.85 kB/gzip 113.81）；串行 test 180 文件/1211 用例全绿。
