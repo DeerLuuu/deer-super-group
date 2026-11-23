@@ -1,0 +1,71 @@
+{
+  "results": [
+    {
+      "id": "t530-app-ready",
+      "ok": true,
+      "detail": "dock container rendered"
+    },
+    {
+      "id": "t530-has-shell",
+      "ok": true,
+      "detail": "shell=true"
+    },
+    {
+      "id": "t530-1440-no-overflow",
+      "ok": true,
+      "detail": "scrollWidth check at 1440×900"
+    },
+    {
+      "id": "t530-960-no-overflow",
+      "ok": true,
+      "detail": "scrollWidth check at 960×900"
+    },
+    {
+      "id": "t530-480-no-overflow",
+      "ok": true,
+      "detail": "scrollWidth check at 480×800"
+    },
+    {
+      "id": "t530-nav-present",
+      "ok": true,
+      "detail": "nav=[[\"◉对话\",\"☰任务\",\"◈团队\",\"▤记忆\",\"✉邮箱\",\"讨论与 Router 澄\",\"计划拆任务与依赖\",\"运行执行与监控\",\"评审diff 与决定\",\"交付合并与交付\",\"记忆沉淀与下一轮\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"]]"
+    },
+    {
+      "id": "t530-open-tasks-click",
+      "ok": true,
+      "detail": "tasks nav clicked"
+    },
+    {
+      "id": "t530-open-board-click",
+      "ok": true,
+      "detail": "board nav clicked"
+    },
+    {
+      "id": "t530-v2-store-written",
+      "ok": true,
+      "detail": "keys=[\"deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa\"]"
+    },
+    {
+      "id": "t530-v2-store-valid",
+      "ok": true,
+      "detail": "schema=deer.dock.layout version=2"
+    },
+    {
+      "id": "t530-v2-has-variant",
+      "ok": true,
+      "detail": "variants=[\"wide\"]"
+    },
+    {
+      "id": "t530-close-dispatched",
+      "ok": true,
+      "detail": "Ctrl+Alt+W dispatched before store check"
+    },
+    {
+      "id": "t530-v1-untouched-by-v2-path",
+      "ok": true,
+      "detail": "v1 keys=1（v1 由 legacy 路径管理，v2 不读写）"
+    }
+  ],
+  "failures": [],
+  "at": "2026-11-23T14:31:05.096Z"
+}
