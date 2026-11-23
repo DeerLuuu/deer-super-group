@@ -1,0 +1,243 @@
+{
+  "at": "2026-11-23T15:16:43.084Z",
+  "results": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "tabs": {
+        "text": "概览3\n运行1\n评审2\nGit\n历史4",
+        "rect": {
+          "x": 20,
+          "y": 339.75,
+          "width": 1400,
+          "height": 39.75,
+          "top": 339.75,
+          "right": 1420,
+          "bottom": 379.5,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "chips": {
+        "text": "模型\ndeepseek-flash\n权限\nworkspace write\n(workspace_write)\nFT\n开启（会话级）\n上下文\ntrace 3 条",
+        "rect": {
+          "x": 20,
+          "y": 298.8125,
+          "width": 1400,
+          "height": 26.9375,
+          "top": 298.8125,
+          "right": 1420,
+          "bottom": 325.75,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "error": {
+        "text": "网络连接失败\nnetwork timeout\n只刷新页面数据，不会重发原操作。\n刷新\n关闭",
+        "rect": {
+          "x": 30,
+          "y": 57.9375,
+          "width": 1380,
+          "height": 70.4375,
+          "top": 57.9375,
+          "right": 1410,
+          "bottom": 128.375,
+          "left": 30
+        },
+        "font": "13px"
+      },
+      "first": {
+        "text": "开始使用\nRC1-2 · /tmp/rc1\n稍后\n✓\n工作区\nready\n✓\n模型\ndeepseek-flash\n!\n凭据\nmissing key\n✓\n成员\n1 位\n还差一步即可开始\n配置凭据",
+        "rect": {
+          "x": 30,
+          "y": 150.375,
+          "width": 1380,
+          "height": 126.4375,
+          "top": 150.375,
+          "right": 1410,
+          "bottom": 276.8125,
+          "left": 30
+        },
+        "font": "13px"
+      },
+      "terms": {
+        "text": "任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。",
+        "rect": {
+          "x": 20,
+          "y": 20,
+          "width": 1400,
+          "height": 15.9375,
+          "top": 20,
+          "right": 1420,
+          "bottom": 35.9375,
+          "left": 20
+        },
+        "font": "11px"
+      },
+      "active": "概览3"
+    },
+    {
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "tabs": {
+        "text": "概览3\n运行1\n评审2\nGit\n历史4",
+        "rect": {
+          "x": 20,
+          "y": 362.5,
+          "width": 920,
+          "height": 39.75,
+          "top": 362.5,
+          "right": 940,
+          "bottom": 402.25,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "chips": {
+        "text": "模型\ndeepseek-flash\n权限\nworkspace write\n(workspace_write)\nFT\n开启（会话级）\n上下文\ntrace 3 条",
+        "rect": {
+          "x": 20,
+          "y": 321.5625,
+          "width": 920,
+          "height": 26.9375,
+          "top": 321.5625,
+          "right": 940,
+          "bottom": 348.5,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "error": {
+        "text": "网络连接失败\nnetwork timeout\n只刷新页面数据，不会重发原操作。\n刷新\n关闭",
+        "rect": {
+          "x": 30,
+          "y": 57.9375,
+          "width": 900,
+          "height": 70.4375,
+          "top": 57.9375,
+          "right": 930,
+          "bottom": 128.375,
+          "left": 30
+        },
+        "font": "13px"
+      },
+      "first": {
+        "text": "开始使用\nRC1-2 · /tmp/rc1\n稍后\n✓\n工作区\nready\n✓\n模型\ndeepseek-flash\n!\n凭据\nmissing key\n✓\n成员\n1 位\n还差一步即可开始\n配置凭据",
+        "rect": {
+          "x": 28,
+          "y": 148.375,
+          "width": 904,
+          "height": 151.1875,
+          "top": 148.375,
+          "right": 932,
+          "bottom": 299.5625,
+          "left": 28
+        },
+        "font": "13px"
+      },
+      "terms": {
+        "text": "任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。",
+        "rect": {
+          "x": 20,
+          "y": 20,
+          "width": 920,
+          "height": 15.9375,
+          "top": 20,
+          "right": 940,
+          "bottom": 35.9375,
+          "left": 20
+        },
+        "font": "11px"
+      },
+      "active": "概览3"
+    },
+    {
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "tabs": {
+        "text": "概览3\n运行1\n评审2\nGit\n历史4",
+        "rect": {
+          "x": 20,
+          "y": 456.4375,
+          "width": 440,
+          "height": 39.75,
+          "top": 456.4375,
+          "right": 460,
+          "bottom": 496.1875,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "chips": {
+        "text": "模型\ndeepseek-flash\n权限\nworkspace write\n(workspace_write)\nFT\n开启（会话级）\n上下文\ntrace 3 条",
+        "rect": {
+          "x": 20,
+          "y": 387,
+          "width": 440,
+          "height": 55.4375,
+          "top": 387,
+          "right": 460,
+          "bottom": 442.4375,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "error": {
+        "text": "网络连接失败\nnetwork timeout\n只刷新页面数据，不会重发原操作。\n刷新\n关闭",
+        "rect": {
+          "x": 30,
+          "y": 73.875,
+          "width": 420,
+          "height": 70.4375,
+          "top": 73.875,
+          "right": 450,
+          "bottom": 144.3125,
+          "left": 30
+        },
+        "font": "13px"
+      },
+      "first": {
+        "text": "开始使用\nRC1-2 · /tmp/rc1\n稍后\n✓\n工作区\nready\n✓\n模型\ndeepseek-flash\n!\n凭据\nmissing key\n✓\n成员\n1 位\n还差一步即可开始\n配置凭据",
+        "rect": {
+          "x": 28,
+          "y": 164.3125,
+          "width": 424,
+          "height": 200.6875,
+          "top": 164.3125,
+          "right": 452,
+          "bottom": 365,
+          "left": 28
+        },
+        "font": "13px"
+      },
+      "terms": {
+        "text": "任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。",
+        "rect": {
+          "x": 20,
+          "y": 20,
+          "width": 440,
+          "height": 31.875,
+          "top": 20,
+          "right": 460,
+          "bottom": 51.875,
+          "left": 20
+        },
+        "font": "11px"
+      },
+      "active": "概览3"
+    }
+  ],
+  "interaction": {
+    "active": "运行1",
+    "selected": "task-tab-runs",
+    "focus": "task-tab-runs"
+  },
+  "bench": {
+    "iterations": 100,
+    "totalMs": 49.39999997615814,
+    "avgMs": 0.49399999976158143
+  }
+}

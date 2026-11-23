@@ -70,6 +70,7 @@ export default function GitGraphPanel({
   members?: Array<{ id: string; name: string; role: string }>;
   aiDisabledReason?: string | null;
 }) {
+  "use no memo";
   const api = typeof window !== "undefined" ? (window as unknown as { deer?: Api }).deer : undefined;
   const [repo, setRepo] = useState<GitReadRepo | null>(null);
   const [graph, setGraph] = useState<GitGraphPage | null>(null);
