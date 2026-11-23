@@ -12,7 +12,9 @@
     "runtimeDependency": false
   },
   "boundary": {
-    "allowlist": ["src/shell/SkipLink.tsx"],
+    "allowlist": [
+      "src/shell/SkipLink.tsx"
+    ],
     "excluded": [
       "electron/",
       "scripts/",
@@ -36,17 +38,41 @@
     "default": {
       "totalMs": 1018,
       "viteMs": 242,
-      "index": { "file": "index-fKm9xc49.js", "bytes": 369017, "gzipKb": 109.84 },
-      "vendorReact": { "file": "vendor-react-BUpqyDsC.js", "bytes": 206755, "gzipKb": 64.81 },
-      "css": { "file": "index-Cl22jyNJ.css", "bytes": 150017, "gzipKb": 25.44 },
+      "index": {
+        "file": "index-fKm9xc49.js",
+        "bytes": 369017,
+        "gzipKb": 109.84
+      },
+      "vendorReact": {
+        "file": "vendor-react-BUpqyDsC.js",
+        "bytes": 206755,
+        "gzipKb": 64.81
+      },
+      "css": {
+        "file": "index-Cl22jyNJ.css",
+        "bytes": 150017,
+        "gzipKb": 25.44
+      },
       "rendererSourcemap": false
     },
     "compiler": {
       "totalMs": 2357,
       "viteMs": 1570,
-      "index": { "file": "index-DckQwIra.js", "bytes": 369147, "gzipKb": 109.92 },
-      "vendorReact": { "file": "vendor-react-Bcerwr7Q.js", "bytes": 206922, "gzipKb": 64.91 },
-      "css": { "file": "index-Cl22jyNJ.css", "bytes": 150017, "gzipKb": 25.44 },
+      "index": {
+        "file": "index-DckQwIra.js",
+        "bytes": 369147,
+        "gzipKb": 109.92
+      },
+      "vendorReact": {
+        "file": "vendor-react-Bcerwr7Q.js",
+        "bytes": 206922,
+        "gzipKb": 64.91
+      },
+      "css": {
+        "file": "index-Cl22jyNJ.css",
+        "bytes": 150017,
+        "gzipKb": 25.44
+      },
       "rendererSourcemap": false
     },
     "delta": {
@@ -57,7 +83,7 @@
     }
   },
   "tests": {
-    "default": "174 files / 1136 tests",
+    "default": "174 files / 1136 tests (plain pnpm test 59.36s; extended serial 266.01s)",
     "compilerTargeted": "2 files / 6 tests",
     "defaultCompiler": false
   },

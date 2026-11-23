@@ -1,84 +1,54 @@
-# RC1-0 React Compiler spike + renderer build boundary（t510）
+﻿# RC1-0 React Compiler spike + renderer build boundary锛坱510锛?
+## 1. 缁撹
 
-## 1. 结论
+鍦?Vite 8.3.6 + React 19.3.1 + `@vitejs/plugin-react` 5.1.2 涓嬶紝React Compiler **鍙敤**锛屼絾 RC1-0 鍙仛杈圭晫鍑嗗涓庡崟缁勪欢 spike锛?*涓嶆敼鐢熶骇缁勪欢銆佷笉鏀瑰彉榛樿鏋勫缓璇箟**锛?
+- 鏂板鍥哄畾 devDependency锛歚babel-plugin-react-compiler@1.0.0`锛?*MIT**锛寀npacked **3,880,402 bytes锛堢害 3.88 MB锛?*锛屾棤杩愯鏃朵緷璧栵紱
+- 鍙厑璁?`src/shell/SkipLink.tsx` 涓€涓潪鍏抽敭缁勪欢锛沰ernel/review/watchdog/memory/shared/electron/scripts/tests 鍏ㄩ儴鎺掗櫎锛?- `pnpm build` 榛樿 **涓嶅惎鐢?*缂栬瘧鍣紙鍩虹嚎涓嶅彉锛夛紱`pnpm build:compiler` 閫氳繃 `RC1_COMPILER=1` 鏄惧紡澶嶇幇 spike锛?- 榛樿 `pnpm test` 涓嶇紪璇戯紱`pnpm test:compiler` 閫氳繃 `VITEST_REACT_COMPILER=1` 瀹氬悜缂栬瘧 SkipLink锛?- 鏃?DB schema/浜嬩欢/鏉冮檺/IPC/runtime 渚濊禆鍙樻洿銆?
+## 2. 渚濊禆涓庤鍙瘉
 
-在 Vite 8.3.6 + React 19.3.1 + `@vitejs/plugin-react` 5.1.2 下，React Compiler **可用**，但 RC1-0 只做边界准备与单组件 spike，**不改生产组件、不改变默认构建语义**：
-
-- 新增固定 devDependency：`babel-plugin-react-compiler@1.0.0`，**MIT**，unpacked **3,880,402 bytes（约 3.88 MB）**，无运行时依赖；
-- 只允许 `src/shell/SkipLink.tsx` 一个非关键组件；kernel/review/watchdog/memory/shared/electron/scripts/tests 全部排除；
-- `pnpm build` 默认 **不启用**编译器（基线不变）；`pnpm build:compiler` 通过 `RC1_COMPILER=1` 显式复现 spike；
-- 默认 `pnpm test` 不编译；`pnpm test:compiler` 通过 `VITEST_REACT_COMPILER=1` 定向编译 SkipLink；
-- 无 DB schema/事件/权限/IPC/runtime 依赖变更。
-
-## 2. 依赖与许可证
-
-| 项 | 值 |
+| 椤?| 鍊?|
 |---|---|
 | package | `babel-plugin-react-compiler` |
-| version | **1.0.0**（package.json 固定精确版本） |
+| version | **1.0.0**锛坧ackage.json 鍥哄畾绮剧‘鐗堟湰锛?|
 | license | **MIT** |
-| unpacked size | **3,880,402 bytes**（`pnpm view ... dist.unpackedSize`） |
-| dependency | `@babel/types ^7.26.0`（dev 工具链） |
-| runtime | **无**（devDependency；不引入 `react-compiler-runtime`） |
+| unpacked size | **3,880,402 bytes**锛坄pnpm view ... dist.unpackedSize`锛?|
+| dependency | `@babel/types ^7.26.0`锛坉ev 宸ュ叿閾撅級 |
+| runtime | **鏃?*锛坉evDependency锛涗笉寮曞叆 `react-compiler-runtime`锛?|
 
-## 3. 编译边界
+## 3. 缂栬瘧杈圭晫
 
-`src/shell/reactCompilerBoundary.ts`（纯配置，不进入 renderer runtime）：
+`src/shell/reactCompilerBoundary.ts`锛堢函閰嶇疆锛屼笉杩涘叆 renderer runtime锛夛細
 
-- allowlist：`src/shell/SkipLink.tsx`；
-- exclude：`electron/`、`scripts/`、`src/kernel/`、`src/review/`、`src/watchdog/`、`src/memory/`、`src/shared/`、`dist/`、`dist-electron/`、`node_modules/`、`**/*.test.*`、`**/__tests__/**`；
-- `isReactCompilerBuild`：默认 `false`；`RC1_COMPILER=1` 且 `command=build` 才启用；`VITEST`/`NODE_ENV=test` 强制关闭；`VITEST_REACT_COMPILER=1` 是独立定向测试开关；
-- `reactCompilerPluginOptions.sources` 是文件级最终 guard，防止 Vite 把插件应用到 allowlist 外；
-- `scripts/build-electron.mjs` 完全未接入 Babel/Compiler；boundary test 读取脚本断言无 `babel-plugin-react-compiler`/`reactCompilerBoundary`。
+- allowlist锛歚src/shell/SkipLink.tsx`锛?- exclude锛歚electron/`銆乣scripts/`銆乣src/kernel/`銆乣src/review/`銆乣src/watchdog/`銆乣src/memory/`銆乣src/shared/`銆乣dist/`銆乣dist-electron/`銆乣node_modules/`銆乣**/*.test.*`銆乣**/__tests__/**`锛?- `isReactCompilerBuild`锛氶粯璁?`false`锛沗RC1_COMPILER=1` 涓?`command=build` 鎵嶅惎鐢紱`VITEST`/`NODE_ENV=test` 寮哄埗鍏抽棴锛沗VITEST_REACT_COMPILER=1` 鏄嫭绔嬪畾鍚戞祴璇曞紑鍏筹紱
+- `reactCompilerPluginOptions.sources` 鏄枃浠剁骇鏈€缁?guard锛岄槻姝?Vite 鎶婃彃浠跺簲鐢ㄥ埌 allowlist 澶栵紱
+- `scripts/build-electron.mjs` 瀹屽叏鏈帴鍏?Babel/Compiler锛沚oundary test 璇诲彇鑴氭湰鏂█鏃?`babel-plugin-react-compiler`/`reactCompilerBoundary`銆?
+Vite 閰嶇疆锛?
+- `pnpm build` / `vite build`锛歚react()` 榛樿锛屾棤 Babel compiler锛?- `pnpm build:compiler`锛歚cross-env RC1_COMPILER=1 vite build && pnpm build:electron`锛?- `pnpm test`锛歏itest 鐨?Vite 閰嶇疆 branch 妫€娴?`VITEST`锛屼笉鍔犺浇鎻掍欢锛?- `pnpm test:compiler`锛歚cross-env VITEST_REACT_COMPILER=1 vitest run ...` 瀹氬悜楠岃瘉 SkipLink + boundary銆?
+## 4. Spike 閲忓寲
 
-Vite 配置：
-
-- `pnpm build` / `vite build`：`react()` 默认，无 Babel compiler；
-- `pnpm build:compiler`：`cross-env RC1_COMPILER=1 vite build && pnpm build:electron`；
-- `pnpm test`：Vitest 的 Vite 配置 branch 检测 `VITEST`，不加载插件；
-- `pnpm test:compiler`：`cross-env VITEST_REACT_COMPILER=1 vitest run ...` 定向验证 SkipLink + boundary。
-
-## 4. Spike 量化
-
-仅编译 `src/shell/SkipLink.tsx`，生产源码未改动。记录见 `docs/team/rc1-build-metrics.json`。
-
-| 指标 | 默认 build（无 compiler） | `build:compiler` | 变化 |
+浠呯紪璇?`src/shell/SkipLink.tsx`锛岀敓浜ф簮鐮佹湭鏀瑰姩銆傝褰曡 `docs/team/rc1-build-metrics.json`銆?
+| 鎸囨爣 | 榛樿 build锛堟棤 compiler锛?| `build:compiler` | 鍙樺寲 |
 |---|---:|---:|---:|
-| 总耗时（本机 warm） | **1018 ms** | **2357 ms** | +1339 ms |
+| 鎬昏€楁椂锛堟湰鏈?warm锛?| **1018 ms** | **2357 ms** | +1339 ms |
 | Vite renderer build | **242 ms** | **1570 ms** | +1328 ms |
 | `index` | 369,017 B / gzip 109.84 kB | 369,147 B / gzip 109.92 kB | **+130 B** |
 | `vendor-react` | 206,755 B / gzip 64.81 kB | 206,922 B / gzip 64.91 kB | **+167 B** |
 | CSS | 150,017 B / gzip 25.44 kB | 150,017 B / gzip 25.44 kB | 0 |
-| renderer sourcemap | 关闭（既有配置） | 关闭（未改） | 无变化 |
+| renderer sourcemap | 鍏抽棴锛堟棦鏈夐厤缃級 | 鍏抽棴锛堟湭鏀癸級 | 鏃犲彉鍖?|
 
-- 输出 hash：默认 `index-fKm9xc49.js` / `vendor-react-BUpqyDsC.js`；compiler `index-DckQwIra.js` / `vendor-react-Bcerwr7Q.js`。
-- compiler runtime 由 React 19 目标承载，未新增 runtime package；Electron main/preload 输出与耗时未受 compiler 影响（esbuild 独立构建）。
-- 单组件 Babel pass 的固定开销明显（约 +1.3s），这是 RC1-1 扩大 allowlist 前需要继续量化的成本；本 PR 不因此开启默认编译。
+- 杈撳嚭 hash锛氶粯璁?`index-fKm9xc49.js` / `vendor-react-BUpqyDsC.js`锛沜ompiler `index-DckQwIra.js` / `vendor-react-Bcerwr7Q.js`銆?- compiler runtime 鐢?React 19 鐩爣鎵胯浇锛屾湭鏂板 runtime package锛汦lectron main/preload 杈撳嚭涓庤€楁椂鏈彈 compiler 褰卞搷锛坋sbuild 鐙珛鏋勫缓锛夈€?- 鍗曠粍浠?Babel pass 鐨勫浐瀹氬紑閿€鏄庢樉锛堢害 +1.3s锛夛紝杩欐槸 RC1-1 鎵╁ぇ allowlist 鍓嶉渶瑕佺户缁噺鍖栫殑鎴愭湰锛涙湰 PR 涓嶅洜姝ゅ紑鍚粯璁ょ紪璇戙€?
+## 5. 楠岃瘉
 
-## 5. 验证
+- `pnpm typecheck` 鈫?**0**
+- `pnpm build` 鈫?**0**锛堥粯璁ゅ熀绾匡紱index 369.01 kB / gzip 109.84锛孋SS 150.01/gzip 25.44锛?- `pnpm build:compiler` 鈫?**0**锛坈ompiler 杈撳嚭濡備笂锛?- `pnpm test -- --max-workers=1 --testTimeout=20000` 鈫?**174 鏂囦欢 / 1136 鐢ㄤ緥鍏ㄧ豢**
+- `pnpm test:compiler` 鈫?**2 鏂囦欢 / 6 鐢ㄤ緥鍏ㄧ豢**
+- 杈圭晫娴嬭瘯 `src/shell/reactCompilerBoundary.test.ts`锛氱増鏈?璁稿彲璇併€侀粯璁ゆ祴璇曚笉缂栬瘧銆乤llowlist/exclude銆乲ernel/electron/scripts 鎺掗櫎銆丒lectron 鏋勫缓鑴氭湰鏃?compiler銆?- 鏃犵敓浜х粍浠?`"use memo"`/`"use no memo"` 鏀瑰姩锛涙湭鍒犻櫎鎵嬪伐 memo锛涙棤涓氬姟閫昏緫鍙樻洿銆?
+## 6. 鍥炴粴
 
-- `pnpm typecheck` → **0**
-- `pnpm build` → **0**（默认基线；index 369.01 kB / gzip 109.84，CSS 150.01/gzip 25.44）
-- `pnpm build:compiler` → **0**（compiler 输出如上）
-- `pnpm test -- --max-workers=1 --testTimeout=20000` → **174 文件 / 1136 用例全绿**
-- `pnpm test:compiler` → **2 文件 / 6 用例全绿**
-- 边界测试 `src/shell/reactCompilerBoundary.test.ts`：版本/许可证、默认测试不编译、allowlist/exclude、kernel/electron/scripts 排除、Electron 构建脚本无 compiler。
-- 无生产组件 `"use memo"`/`"use no memo"` 改动；未删除手工 memo；无业务逻辑变更。
-
-## 6. 回滚
-
-1. `pnpm build` 保持默认不编译；无需回滚生产语义；
-2. 删除 `build:compiler` / `test:compiler` scripts；
-3. 删除 `babel-plugin-react-compiler` devDependency（`pnpm remove -D`）；
-4. 删除 `reactCompilerBoundary.ts`/test 与 `vite.config.ts` Babel wiring；
-5. `pnpm install && pnpm build && pnpm test` 回到基线。
-
-无 schema/DB/事件/权限/IPC 迁移；`dist`/`dist-electron` 重新生成即可。
-
-## 7. 后续（非本 PR）
-
-- RC1-1：annotation 试点 3–5 个非 Dock 组件，验证 effect/closure/focus 行为与 render 计数；
-- RC1-2：`src/shell/**` + `src/git/ui/**` infer 白名单/opt-out；
-- RC1-3：DW1-4 后全 renderer；RC1-4：门禁/清理。本 PR 不改生产组件，不提前完成这些阶段。
-
+1. `pnpm build` 淇濇寔榛樿涓嶇紪璇戯紱鏃犻渶鍥炴粴鐢熶骇璇箟锛?2. 鍒犻櫎 `build:compiler` / `test:compiler` scripts锛?3. 鍒犻櫎 `babel-plugin-react-compiler` devDependency锛坄pnpm remove -D`锛夛紱
+4. 鍒犻櫎 `reactCompilerBoundary.ts`/test 涓?`vite.config.ts` Babel wiring锛?5. `pnpm install && pnpm build && pnpm test` 鍥炲埌鍩虹嚎銆?
+鏃?schema/DB/浜嬩欢/鏉冮檺/IPC 杩佺Щ锛沗dist`/`dist-electron` 閲嶆柊鐢熸垚鍗冲彲銆?
+## 7. 鍚庣画锛堥潪鏈?PR锛?
+- RC1-1锛歛nnotation 璇曠偣 3鈥? 涓潪 Dock 缁勪欢锛岄獙璇?effect/closure/focus 琛屼负涓?render 璁℃暟锛?- RC1-2锛歚src/shell/**` + `src/git/ui/**` infer 鐧藉悕鍗?opt-out锛?- RC1-3锛欴W1-4 鍚庡叏 renderer锛汻C1-4锛氶棬绂?娓呯悊銆傛湰 PR 涓嶆敼鐢熶骇缁勪欢锛屼笉鎻愬墠瀹屾垚杩欎簺闃舵銆?
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+
