@@ -36,7 +36,6 @@ export const REACT_COMPILER_HIGH_RISK_OPT_OUT = [
   "src/shell/dock/DockTree.tsx",
   "src/shell/dock/DockGroup.tsx",
   "src/shell/dock/DockSash.tsx",
-  "src/shell/dock/DockDropZone.tsx",
 ] as const;
 
 /** Files that must never reach the compiler, even if a future allowlist grows. */

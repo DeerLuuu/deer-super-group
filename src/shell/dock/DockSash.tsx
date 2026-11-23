@@ -11,11 +11,13 @@ export interface DockSashProps {
   "aria-label": string;
   /** 拖动/键盘增量回调（delta>0 = 增大前方 pane 权重）。 */
   onResize: (delta: number) => void;
+  /** 双击恢复当前布局（t576：sash 交互复位）。 */
+  onReset?: () => void;
 }
 
 const KEY_STEP = 0.02;
 
-export default function DockSash({ axis, onResize, ...rest }: DockSashProps) {
+export default function DockSash({ axis, onResize, onReset, ...rest }: DockSashProps) {
   "use no memo";
   const dragOriginRef = useRef<{ pos: number; fired: boolean } | null>(null);
   const sashRef = useRef<HTMLDivElement | null>(null);
@@ -98,6 +100,8 @@ export default function DockSash({ axis, onResize, ...rest }: DockSashProps) {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onKeyDown={onKeyDown}
+      onDoubleClick={onReset}
+      title="拖动调整分栏；双击恢复默认布局"
     />
   );
 }

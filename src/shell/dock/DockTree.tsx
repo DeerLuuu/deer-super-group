@@ -1,7 +1,7 @@
 /**
  * DW1-3（t548）：自研 Dock 渲染器。
  * DockTree 递归渲染 LayoutNode：split → flex 容器 + DockSash 分隔条；
- * group → DockGroup（tablist + PanelHost active 面板 + DockDropZone）。
+ * group → DockGroup（tablist + PanelHost active 面板 + 单一落点提示）。
  * 消费 useDockLayoutController.layout（受控状态），命令全部经 controller.dispatch。
  */
 import { memo } from "react";
@@ -15,6 +15,8 @@ export interface DockTreeProps {
   onActivate: (panel: PanelKey) => void;
   onClose: (panel: PanelKey) => void;
   onResize: (splitId: string, index: number, delta: number) => void;
+  /** t576：双击 sash 恢复布局。 */
+  onResetSplit?: (splitId: string) => void;
   onDrop: (panel: PanelKey, target: PanelKey, position: "center" | "left" | "right" | "above" | "below") => void;
 }
 
@@ -43,6 +45,7 @@ function TreeSplit({
           axis={split.axis}
           aria-label={`调整分栏 ${index + 1}/${split.children.length}`}
           onResize={(delta) => props.onResize(split.id, index - 1, delta)}
+          onReset={() => props.onResetSplit?.(split.id)}
         />,
       );
     }

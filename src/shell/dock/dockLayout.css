@@ -122,6 +122,19 @@
   overflow: auto;
 }
 
+/* t576：panel 根必须撑满 group body。旧 .panel 的 auto 宽度会在 flex 行内缩成
+   内容宽度（团队 26px/2px 竖排）；这里只约束尺寸，不改变各 panel 自己的
+   display/overflow/业务布局。 */
+.docktree-panel > *,
+.docktree-panel > .panel {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
 .docktree-panel-error {
   padding: 12px;
   color: var(--status-error, #f14c4c);
@@ -145,41 +158,36 @@
   outline: none;
 }
 
-.docktree-dropzone {
+/* t576：单一落点提示；指针位置由 computeDropPosition 决定，normal 状态不渲染。
+   pointer-events:none 保证 drop 始终落到 group body。 */
+.docktree-drop-position {
   position: absolute;
   z-index: 3;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 120ms ease;
+  border: 2px solid var(--accent, #4d6bfe);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #4d6bfe) 18%, transparent);
+  transition: opacity 90ms ease;
 }
 
-.docktree-dropzone.edge {
-  pointer-events: auto;
+.docktree-drop-position.active {
+  opacity: 1;
 }
 
-.docktree-dropzone.edge.left { left: 0; top: 0; bottom: 0; width: 20%; }
-.docktree-dropzone.edge.right { right: 0; top: 0; bottom: 0; width: 20%; }
-.docktree-dropzone.edge.above { left: 0; right: 0; top: 0; height: 24%; }
-.docktree-dropzone.edge.below { left: 0; right: 0; bottom: 0; height: 24%; }
-
-.docktree-dropzone.edge:hover {
-  opacity: 0.25;
-  background: var(--accent, #4d6bfe);
-}
-
-/* 窄容器（t212 语义）：单列降级，sash 仍可键盘操作。 */
-@media (max-width: 640px) {
-  .docktree-dropzone.edge.above,
-  .docktree-dropzone.edge.below {
-    display: none;
-  }
-}
+.docktree-drop-position.left { inset: 8px 75% 8px 8px; }
+.docktree-drop-position.right { inset: 8px 8px 8px 75%; }
+.docktree-drop-position.above { inset: 8px 8px 75% 8px; }
+.docktree-drop-position.below { inset: 75% 8px 8px 8px; }
+.docktree-drop-position.center { inset: 25%; }
 
 @media (prefers-reduced-motion: reduce) {
-  .docktree-dropzone {
+  .docktree-drop-position {
     transition: none;
   }
 }
+
+/* 窄容器（t212 语义）：单列降级，sash 仍可键盘操作。 */
 
 /* t550/F3/F4：非激活 panel 保留挂载但不可见。 */
 .docktree-panel[hidden] {

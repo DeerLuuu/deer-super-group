@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DockShellV2, { findAdjacentPanelInLayout } from "./DockShellV2";
 import DockGroup from "./DockGroup";
+import DockSash from "./DockSash";
 import { PANEL_DEFS } from "./panelRegistry";
 import { defaultLayout, listGroups, type DockLayout, type LayoutGroup } from "./layoutModel";
 import type { DockHandle } from "./DockShell";
@@ -69,6 +70,27 @@ function focusTarget(groupId: string): EventTarget {
   const group = { getAttribute: (name: string) => (name === "data-group" ? groupId : null) };
   return { closest: (selector: string) => (selector === "[data-group]" ? group : null) } as unknown as EventTarget;
 }
+
+describe("t576 sash 交互", () => {
+  it("keyboard resize and double-click reset are wired", () => {
+    const onResize = vi.fn();
+    const onReset = vi.fn();
+    let renderer: ReturnType<typeof create>;
+    act(() => {
+      renderer = create(
+        <DockSash axis="horizontal" aria-label="调整分栏 1/2" onResize={onResize} onReset={onReset} />,
+      );
+    });
+    const sash = renderer!.root.findByProps({ role: "separator" });
+    const preventDefault = vi.fn();
+    act(() => sash.props.onKeyDown({ key: "ArrowRight", preventDefault }));
+    expect(preventDefault).toHaveBeenCalled();
+    expect(onResize).toHaveBeenCalledWith(0.02);
+    act(() => sash.props.onDoubleClick());
+    expect(onReset).toHaveBeenCalledTimes(1);
+    act(() => renderer!.unmount());
+  });
+});
 
 describe("t550 DockShellV2 active group / close", () => {
   it("closes exactly once via the tab-external mouse close button", async () => {

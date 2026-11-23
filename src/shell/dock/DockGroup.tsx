@@ -3,14 +3,14 @@
  * - tab 顺序 = group.panels；active 高亮；roving tabIndex（active 0 其余 -1）；
  * - Arrow/Home/End 在组内移动焦点（键盘激活）；settings 无关闭按钮（closable=false）；
  * - PanelHost 只挂 active 面板（renderer 规则/懒加载由 PanelHost 内部处理）；
- * - tab 可拖拽（HTML5 DnD）→ DockDropZone 显示 center/edge 目标。
+ * - tab 可拖拽（HTML5 DnD）→ 按指针位置显示单一落点提示。
  * - 错误边界：面板渲染异常显示内联错误，不拖垮整棵 Dock 树。
  */
-import { Component, useRef, type DragEvent, type ReactNode } from "react";
+import { Component, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { PanelHost } from "../panel/PanelHost";
 import type { PanelDef, PanelKey } from "./panelRegistry";
 import type { LayoutGroup } from "./layoutModel";
-import DockDropZone from "./DockDropZone";
+import { computeDropPosition, type DropPosition } from "./dropPosition";
 
 interface GroupErrorBoundaryProps {
   panelKey: PanelKey;
@@ -57,8 +57,41 @@ export default function DockGroup({
 }: DockGroupProps) {
   "use no memo";
   const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
-  // t555/F3：always panel 常驻；onlyWhenVisible 首次激活后 keepalive（不卸载）。
+  // t576：只有真实 panel 拖拽进入本组时才显示单一落点提示；普通 hover 不亮。
+  const [dragActive, setDragActive] = useState(false);
+  const [dropPosition, setDropPosition] = useState<DropPosition | null>(null);
+  // t555/F3：always 面板常驻；onlyWhenVisible 首次激活挂载后 keepalive（不卸载）。
   const mountedRef = useRef<Set<PanelKey>>(new Set());
+
+  function carriesPanel(event: DragEvent): boolean {
+    return Array.from(event.dataTransfer.types).includes("application/x-deer-panel");
+  }
+
+  function onTabDragStart(event: DragEvent<HTMLButtonElement>, panel: PanelKey) {
+    event.dataTransfer.setData("application/x-deer-panel", panel);
+    event.dataTransfer.effectAllowed = "move";
+    // 源组不显示提示；目标组收到 dragover 后才显示。
+    setDragActive(false);
+    setDropPosition(null);
+  }
+
+  function onGroupDragEnter(event: DragEvent<HTMLDivElement>) {
+    if (!carriesPanel(event)) return;
+    setDragActive(true);
+  }
+
+  function onGroupDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!carriesPanel(event)) return;
+    event.preventDefault();
+    setDragActive(true);
+    setDropPosition(computeDropPosition(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect()));
+  }
+
+  function onGroupDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragActive(false);
+    setDropPosition(null);
+  }
 
   function focusTab(index: number) {
     const clamped = Math.max(0, Math.min(group.panels.length - 1, index));
@@ -84,16 +117,18 @@ export default function DockGroup({
     }
   }
 
-  function onDragOver(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-  }
-
   function onDropEvent(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
+    const position = computeDropPosition(
+      event.clientX,
+      event.clientY,
+      event.currentTarget.getBoundingClientRect(),
+    );
+    setDragActive(false);
+    setDropPosition(null);
     const panel = event.dataTransfer.getData("application/x-deer-panel") as PanelKey;
     if (!panel) return;
-    const edge = (event.currentTarget as HTMLElement).dataset.dropzone;
-    onDrop(panel, group.active ?? group.panels[0], (edge || "center") as "center");
+    onDrop(panel, group.active ?? group.panels[0], position);
   }
 
   const active = group.active ?? group.panels[0] ?? null;
@@ -120,9 +155,10 @@ export default function DockGroup({
                 className={isActive ? "docktree-tab active" : "docktree-tab"}
                 data-panel={panel}
                 draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.setData("application/x-deer-panel", panel);
-                  event.dataTransfer.effectAllowed = "move";
+                onDragStart={(event) => onTabDragStart(event, panel)}
+                onDragEnd={() => {
+                  setDragActive(false);
+                  setDropPosition(null);
                 }}
                 onClick={() => onActivate(panel)}
                 onKeyDown={(event) => onTabKeyDown(event, index)}
@@ -148,9 +184,10 @@ export default function DockGroup({
       <div
         className="docktree-body"
         role="presentation"
-        onDragOver={onDragOver}
+        onDragEnter={onGroupDragEnter}
+        onDragLeave={onGroupDragLeave}
+        onDragOver={onGroupDragOver}
         onDrop={onDropEvent}
-        data-dropzone="center"
       >
         {group.panels.map((panel) => {
           const isActive = panel === active;
@@ -181,15 +218,14 @@ export default function DockGroup({
             </div>
           );
         })}
-        {/* 边缘 dropzone 指示（CSS hover 高亮；drop 事件冒泡到 body 用 data-dropzone 判定）。 */}
-        {(["left", "right", "above", "below"] as const).map((position) => (
-          <DockDropZone
-            key={position}
-            position={position}
-            target={group.active ?? group.panels[0]}
-            onDrop={onDrop}
+        {/* t576：只渲染一个按指针计算的落点提示；不再有四层 edge overlay 抢事件。 */}
+        {dragActive && dropPosition ? (
+          <div
+            className={`docktree-drop-position active ${dropPosition}`}
+            data-position={dropPosition}
+            aria-hidden="true"
           />
-        ))}
+        ) : null}
       </div>
     </section>
   );

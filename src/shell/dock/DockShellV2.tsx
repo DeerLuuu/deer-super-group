@@ -370,6 +370,10 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
         onActivate={onActivate}
         onClose={onClose}
         onResize={onResize}
+        onResetSplit={() => {
+          dispatch({ type: "reset" });
+          onNotifyRef.current?.("已恢复默认布局");
+        }}
         onDrop={onDrop}
       />
     </div>

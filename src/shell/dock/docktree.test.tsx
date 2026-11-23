@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PANEL_DEFS } from "./panelRegistry";
 import { defaultLayout, listGroups, validateLayout } from "./layoutModel";
@@ -6,7 +7,6 @@ import { reduceDock, type DockCommand } from "./layoutOps";
 import DockTree from "./DockTree";
 import DockGroup from "./DockGroup";
 import DockSash from "./DockSash";
-import DockDropZone from "./DockDropZone";
 
 /**
  * DW1-3（t548）：自研渲染器测试（SSR 断言 + controller 驱动的功能对齐）。
@@ -36,7 +36,6 @@ describe("DW1-3 DockTree 渲染", () => {
     expect((html.match(/role="tablist"/g) ?? []).length).toBe(2);
     expect(html).toMatch(/data-panel="chat"/);
     expect(html).toMatch(/data-panel="team"/);
-    expect(html).toContain("docktree-dropzone");
   });
 
   it("single：单组 tablist（team 是 tab），无 sash", () => {
@@ -61,7 +60,7 @@ describe("DW1-3 DockTree 渲染", () => {
   });
 });
 
-describe("DW1-3 DockSash / DockDropZone", () => {
+describe("DW1-3 DockSash / 落点提示", () => {
   it("sash：role=separator + aria-orientation + 可聚焦", () => {
     const html = renderToStaticMarkup(
       <DockSash axis="horizontal" aria-label="调整分栏 2/2" onResize={() => {}} />,
@@ -72,13 +71,12 @@ describe("DW1-3 DockSash / DockDropZone", () => {
     expect(html).toMatch(/aria-label="调整分栏 2\/2"/);
   });
 
-  it("dropzone：data-dropzone 位置标注（四向）", () => {
-    for (const position of ["left", "right", "above", "below"] as const) {
-      const html = renderToStaticMarkup(
-        <DockDropZone position={position} target="chat" onDrop={() => {}} />,
-      );
-      expect(html).toContain(`data-dropzone="${position}"`);
-    }
+  it("t576：只保留单一 drop-position，不再有四层 dropzone/hover", () => {
+    const css = readFileSync(new URL("./dockLayout.css", import.meta.url), "utf8");
+    expect(css).not.toContain(".docktree-dropzone");
+    expect(css).toContain(".docktree-drop-position.active");
+    expect(css).toContain(".docktree-drop-position.left");
+    expect(css).toContain(".docktree-drop-position.center");
   });
 
   it("DockGroup：组内 tab 顺序 = group.panels；tabpanel 与 tab 配对", () => {
@@ -99,17 +97,23 @@ describe("DW1-3 DockSash / DockDropZone", () => {
   });
 });
 
-describe("t584 dockview default / v2 opt-in shell", () => {
-  it("DockShell defaults to dockview while retaining DockShellV2 opt-in", async () => {
+describe("DW1-4 v2-only 外壳", () => {
+  it("DockShell.tsx 保留 v2 opt-in 分派，默认仍是 dockview", async () => {
     const { readFile } = await import("node:fs/promises");
     const { resolve } = await import("node:path");
-    const shell = await readFile(resolve(__dirname, "DockShell.tsx"), "utf8");
-    const engine = await readFile(resolve(__dirname, "dockEngine.ts"), "utf8");
-    expect(shell).toContain("DockShellV2");
-    expect(shell).toContain("DockShellLegacy");
-    expect(shell).toContain("getDockEngine");
-    expect(engine).toContain('return "dockview"');
-    expect(engine).toContain('"v2"');
+    const source = await readFile(resolve(__dirname, "DockShell.tsx"), "utf8");
+    expect(source).toContain("DockShellV2");
+    expect(source).toContain("DockShellLegacy");
+    expect(source).toContain("getDockEngine");
+  });
+
+  it("DockTree CSS 强制 panel 根撑满 group body", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { resolve } = await import("node:path");
+    const css = await readFile(resolve(__dirname, "dockLayout.css"), "utf8");
+    expect(css).toMatch(/\.docktree-panel > \.panel[\s\S]*?flex: 1 1 auto/);
+    expect(css).toMatch(/\.docktree-panel > \.panel[\s\S]*?width: 100%/);
+    expect(css).toMatch(/\.docktree-panel > \*[\s\S]*?min-width: 0/);
   });
 });
 
