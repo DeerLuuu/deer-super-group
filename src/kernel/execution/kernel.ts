@@ -10,6 +10,7 @@ import type {
   Task,
 } from "../../shared/types.js";
 import type { Store } from "../store.js";
+import { TaskGraphService } from "../taskGraphService.js";
 import { FakeClock, systemClock, type Clock } from "./clock.js";
 import { KernelError, isActiveRunStatus, isTerminalTaskStatus } from "./errors.js";
 import {
@@ -189,6 +190,7 @@ function classifyRunError(error: unknown): {
  */
 export class ExecutionKernel {
   private readonly store: Store;
+  private readonly tasks: TaskGraphService;
   private readonly executor: RunExecutor;
   private readonly clock: Clock;
   private readonly limits: KernelLimits;
@@ -214,6 +216,7 @@ export class ExecutionKernel {
 
   constructor(options: ExecutionKernelOptions) {
     this.store = options.store;
+    this.tasks = new TaskGraphService(this.store);
     this.executor = options.executor;
     this.clock = options.clock ?? systemClock;
     this.limits = { ...DEFAULT_KERNEL_LIMITS, ...options.limits };
@@ -347,7 +350,10 @@ export class ExecutionKernel {
     if (agent.isRouter || agent.status === "offline") {
       throw new KernelError("CONFLICT", `agent is not available: ${agentId}`);
     }
-    const updated = this.store.updateTask(taskId, { ownerId: agentId });
+    const updated = this.tasks.setOwner(taskId, agentId, {
+      reason,
+      actor: "system",
+    });
     return updated;
   }
 

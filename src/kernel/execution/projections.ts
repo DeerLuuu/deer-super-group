@@ -71,6 +71,7 @@ export function upsertTaskProjection(store: Store, task: Task): void {
       `INSERT OR REPLACE INTO tasks (id, ${columns.join(", ")}) VALUES (?, ${placeholders})`,
     )
     .run(task.id, ...values);
+  store.applyTaskCreatedProjection(task);
 }
 
 export function patchTaskProjection(
@@ -146,6 +147,18 @@ export function applyKernelEvent(store: Store, event: EventRecord): void {
       if (patch) patchTaskProjection(store, event.aggregateId, patch);
       return;
     }
+    case "task.owner_changed": {
+      const to = typeof payload.to === "string" ? payload.to : null;
+      store.applyTaskOwnerProjection(event.aggregateId, to);
+      return;
+    }
+    case "task.dependencies_changed": {
+      const to = Array.isArray(payload.to)
+        ? payload.to.filter((value): value is string => typeof value === "string")
+        : [];
+      store.applyTaskDependenciesProjection(event.aggregateId, to);
+      return;
+    }
     case "task.status_changed": {
       const to = payload.to;
       const patch = asRecord(payload.patch) ?? {};
@@ -175,6 +188,9 @@ export function applyKernelEvent(store: Store, event: EventRecord): void {
         status: "failed",
         failureKind: "retry_exhausted",
       });
+      return;
+    case "task.deleted":
+      store.applyTaskDeletedProjection(event.aggregateId);
       return;
     case "run.started": {
       const run = asRecord(payload.run);
@@ -299,7 +315,9 @@ export function projectionDigest(store: Store, workspaceId?: string): Projection
  */
 export function rebuildProjections(store: Store): ProjectionDigest {
   return store.withTransaction(() => {
-    store.db.exec("DELETE FROM runs; DELETE FROM tasks;");
+    // v3 relation rows are derived facts; clear them before task rows because
+    // task_dependencies uses ON DELETE RESTRICT for parent edges.
+    store.db.exec("DELETE FROM task_dependencies; DELETE FROM task_owners; DELETE FROM runs; DELETE FROM tasks;");
     // t83 F8：seq 游标分页重放全部事件，不静默截断在 2000 条。
     let cursor = 0;
     for (;;) {

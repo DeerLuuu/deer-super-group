@@ -1646,6 +1646,57 @@ describe("t128 repair — AC-MQ-01..14", () => {
     expect(c.created).toBe(false);
   });
 
+  it("routes conflict task owner through TaskGraphService", async () => {
+    const { dir, store, workspaceId } = queueFixture();
+    const agent = store.createAgent({
+      workspaceId,
+      name: "Merge Captain",
+      role: "engineer",
+      systemPrompt: "",
+      persona: "",
+      agentsMd: "",
+      model: null,
+    });
+    const service = new GitService({ dataDir: path.join(dir, "data"), store });
+    const config = service.gitStore.getConfig(workspaceId);
+    service.gitStore.saveConfig({ ...config, mergeCaptain: agent.id });
+    const result = await (
+      service as unknown as {
+        createConflictTask: (input: {
+          workspaceId: string;
+          taskId: string;
+          taskTitle: string;
+          branch: string;
+          baseBranch: string;
+          prNumber: number | null;
+          prUrl: string | null;
+          conflictFiles: string[];
+          baseSha: string | null;
+        }) => Promise<{ taskId: string; created: boolean }>;
+      }
+    ).createConflictTask({
+      workspaceId,
+      taskId: "source-owner",
+      taskTitle: "source",
+      branch: "deer/source",
+      baseBranch: "main",
+      prNumber: 42,
+      prUrl: null,
+      conflictFiles: ["a.txt"],
+      baseSha: "base",
+    });
+    expect(result.created).toBe(true);
+    expect(store.getTask(result.taskId)?.ownerId).toBe(agent.id);
+    expect(
+      store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(result.taskId),
+    ).toMatchObject({ agent_id: agent.id });
+    expect(
+      store
+        .listEvents({ aggregateId: result.taskId })
+        .some((event) => event.type === "task.owner_changed"),
+    ).toBe(true);
+  });
+
   it("AC-MQ-11 tree verification accepts squash/rebase content and rejects wrong content", async () => {
     const dir = initRepo();
     git(dir, ["checkout", "-b", "feature"]);

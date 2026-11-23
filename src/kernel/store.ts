@@ -8,6 +8,12 @@ import {
 } from "../shared/models.js";
 import { resolveApiKeyEnv, resolveBaseUrlEnv } from "./env.js";
 import { assertKernelEventPayload, isKernelEventType } from "./execution/eventRegistry.js";
+import {
+  MAX_TASK_DEPENDENCIES,
+  TaskGraphError,
+  taskDependenciesIdempotencyKey,
+  taskOwnerIdempotencyKey,
+} from "./taskGraph.js";
 import { CanvasSchema, QuestionSchema } from "../shared/interactive.js";
 import type { DeerCanvas, DeerQuestion, QuestionAnswers } from "../shared/interactive.js";
 import {
@@ -346,8 +352,6 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
 CREATE INDEX IF NOT EXISTS idx_task_dependencies_parent
   ON task_dependencies(depends_on_task_id, task_id);
 `;
-
-const MAX_TASK_DEPENDENCIES = 100;
 
 const KERNEL_INDEXES = `
 CREATE UNIQUE INDEX IF NOT EXISTS ux_events_idem
@@ -1416,9 +1420,22 @@ export class Store {
       if (Number(active.n) > 0) {
         throw new Error("成员还有排队/运行中的 Run，请先取消或等待其结束");
       }
-      const reassigned = this.db
-        .prepare("UPDATE tasks SET owner_id = NULL WHERE owner_id = ?")
-        .run(id);
+      const ownedRows = this.db
+        .prepare("SELECT id FROM tasks WHERE owner_id = ?")
+        .all(id) as Array<{ id?: string }>;
+      const ownedIds = new Set(ownedRows.map((row) => String(row.id)));
+      if (this.tableExists("task_owners")) {
+        const relationRows = this.db
+          .prepare("SELECT task_id FROM task_owners WHERE agent_id = ?")
+          .all(id) as Array<{ task_id?: string }>;
+        for (const row of relationRows) ownedIds.add(String(row.task_id));
+      }
+      for (const taskId of ownedIds) {
+        this.setTaskOwner(taskId, null, {
+          assignedBy: "system",
+          reason: "agent.deleted",
+        });
+      }
       this.db.prepare("DELETE FROM agents WHERE id = ?").run(id);
       this.appendEvent({
         aggregateType: "workspace",
@@ -1429,10 +1446,10 @@ export class Store {
           agentId: id,
           name: agent.name,
           role: agent.role,
-          reassignedTasks: Number(reassigned.changes ?? 0),
+          reassignedTasks: ownedIds.size,
         },
       });
-      return { agentId: id, reassignedTasks: Number(reassigned.changes ?? 0) };
+      return { agentId: id, reassignedTasks: ownedIds.size };
     });
   }
 
@@ -1459,7 +1476,8 @@ export class Store {
         row.dependsOn.includes(id),
       );
       if (dependents.length > 0) {
-        throw new Error(
+        throw new TaskGraphError(
+          "TASK_HAS_DEPENDENTS",
           `还有 ${dependents.length} 个任务依赖它（${dependents
             .slice(0, 3)
             .map((row) => row.title)
@@ -1546,9 +1564,203 @@ export class Store {
 
   // tasks ----------------------------------------------------------------
 
+  private validateTaskOwner(workspaceId: string, ownerId: string | null): void {
+    if (ownerId == null) return;
+    const agent = this.getAgent(ownerId);
+    if (!agent) {
+      throw new TaskGraphError("TASK_OWNER_NOT_FOUND", `owner agent not found: ${ownerId}`);
+    }
+    if (agent.workspaceId !== workspaceId) {
+      throw new TaskGraphError(
+        "TASK_OWNER_WORKSPACE_MISMATCH",
+        `owner agent ${ownerId} is in another workspace`,
+      );
+    }
+  }
+
+  private taskGraphEventCount(taskId: string, type: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM events WHERE aggregate_type = 'task' AND aggregate_id = ? AND type = ?")
+      .get(taskId, type) as { n?: number };
+    return Number(row?.n ?? 0);
+  }
+
+  private validateTaskDependencies(
+    taskId: string | null,
+    workspaceId: string,
+    dependsOn: readonly string[],
+  ): void {
+    if (dependsOn.length > MAX_TASK_DEPENDENCIES) {
+      throw new TaskGraphError(
+        "TASK_DEPENDENCY_LIMIT",
+        `too many dependencies (${dependsOn.length} > ${MAX_TASK_DEPENDENCIES})`,
+      );
+    }
+    const seen = new Set<string>();
+    const tasks = this.listTasks(workspaceId);
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    for (const dependencyId of dependsOn) {
+      if (taskId && dependencyId === taskId) {
+        throw new TaskGraphError("TASK_DEPENDENCY_SELF", `task cannot depend on itself: ${taskId}`);
+      }
+      if (seen.has(dependencyId)) {
+        throw new TaskGraphError(
+          "TASK_DEPENDENCY_DUPLICATE",
+          `duplicate dependency: ${dependencyId}`,
+        );
+      }
+      seen.add(dependencyId);
+      const dependency = this.getTask(dependencyId);
+      if (!dependency) {
+        throw new TaskGraphError(
+          "TASK_DEPENDENCY_NOT_FOUND",
+          `dependency not found: ${dependencyId}`,
+        );
+      }
+      if (dependency.workspaceId !== workspaceId) {
+        throw new TaskGraphError(
+          "TASK_DEPENDENCY_WORKSPACE_MISMATCH",
+          `dependency ${dependencyId} is in another workspace`,
+        );
+      }
+      if (!byId.has(dependencyId)) {
+        throw new TaskGraphError(
+          "TASK_DEPENDENCY_NOT_FOUND",
+          `dependency not found: ${dependencyId}`,
+        );
+      }
+    }
+
+    const graph = new Map(tasks.map((task) => [task.id, task.dependsOn]));
+    if (taskId) {
+      if (!byId.has(taskId)) throw new TaskGraphError("TASK_NOT_FOUND", `task not found: ${taskId}`);
+      graph.set(taskId, [...dependsOn]);
+    }
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (id: string): void => {
+      if (visited.has(id)) return;
+      if (visiting.has(id)) {
+        throw new TaskGraphError("TASK_DEPENDENCY_CYCLE", `dependency cycle at task ${id}`);
+      }
+      visiting.add(id);
+      for (const dependencyId of graph.get(id) ?? []) visit(dependencyId);
+      visiting.delete(id);
+      visited.add(id);
+    };
+    for (const id of graph.keys()) visit(id);
+  }
+
+  setTaskOwner(
+    taskId: string,
+    ownerId: string | null,
+    options: { assignedBy?: string; reason?: string; actor?: string } = {},
+  ): Task {
+    return this.withTransaction(() => {
+      const before = this.getTask(taskId);
+      if (!before) throw new TaskGraphError("TASK_NOT_FOUND", `task not found: ${taskId}`);
+      if (before.ownerId === ownerId) return before;
+      this.validateTaskOwner(before.workspaceId, ownerId);
+      this.db.prepare("UPDATE tasks SET owner_id = ? WHERE id = ?").run(ownerId, taskId);
+      this.syncTaskOwnerRelation(taskId, ownerId);
+      const assignedBy = options.assignedBy ?? "system";
+      const reason = options.reason ?? "task graph owner update";
+      this.appendEventIdempotent({
+        aggregateType: "task",
+        aggregateId: taskId,
+        type: "task.owner_changed",
+        actor: options.actor ?? "system",
+        payload: { taskId, from: before.ownerId, to: ownerId, assignedBy, reason },
+        schemaVersion: 2,
+        idempotencyKey: taskOwnerIdempotencyKey(
+          taskId,
+          before.ownerId,
+          ownerId,
+          this.taskGraphEventCount(taskId, "task.owner_changed"),
+        ),
+      });
+      return this.getTask(taskId) ?? before;
+    });
+  }
+
+  setTaskDependencies(
+    taskId: string,
+    dependsOn: readonly string[],
+    options: { reason?: string; actor?: string } = {},
+  ): Task {
+    return this.withTransaction(() => {
+      const before = this.getTask(taskId);
+      if (!before) throw new TaskGraphError("TASK_NOT_FOUND", `task not found: ${taskId}`);
+      const next = [...dependsOn];
+      if (
+        next.length === before.dependsOn.length &&
+        next.every((id, index) => id === before.dependsOn[index])
+      ) {
+        // A dependency's status may have changed without changing the edge set;
+        // an explicit graph refresh should still reset ready/blocked.
+        this.recalculateDependencyStatus(taskId);
+        return this.getTask(taskId) ?? before;
+      }
+      this.validateTaskDependencies(taskId, before.workspaceId, next);
+      this.db
+        .prepare("UPDATE tasks SET depends_on = ? WHERE id = ?")
+        .run(JSON.stringify(next), taskId);
+      this.syncTaskDependencyRelations(taskId, next);
+      this.appendEventIdempotent({
+        aggregateType: "task",
+        aggregateId: taskId,
+        type: "task.dependencies_changed",
+        actor: options.actor ?? "system",
+        payload: {
+          taskId,
+          from: before.dependsOn,
+          to: next,
+          reason: options.reason ?? "task graph dependency update",
+        },
+        schemaVersion: 2,
+        idempotencyKey: taskDependenciesIdempotencyKey(
+          taskId,
+          before.dependsOn,
+          next,
+          this.taskGraphEventCount(taskId, "task.dependencies_changed"),
+        ),
+      });
+      this.recalculateDependencyStatus(taskId);
+      return this.getTask(taskId) ?? before;
+    });
+  }
+
+  private recalculateDependencyStatus(taskId: string): void {
+    const task = this.getTask(taskId);
+    if (!task || (task.status !== "ready" && task.status !== "blocked")) return;
+    const satisfied = task.dependsOn.every((dependencyId) => this.getTask(dependencyId)?.status === "done");
+    const desired = satisfied ? "ready" : "blocked";
+    if (task.status === desired && (task.blockedReason ?? null) === (satisfied ? null : "waiting_dependencies")) {
+      return;
+    }
+    this.db
+      .prepare("UPDATE tasks SET status = ?, blocked_reason = ? WHERE id = ?")
+      .run(desired, satisfied ? null : "waiting_dependencies", taskId);
+    this.appendEventIdempotent({
+      aggregateType: "task",
+      aggregateId: taskId,
+      type: "task.status_changed",
+      actor: "system",
+      payload: {
+        from: task.status,
+        to: desired,
+        reason: "task.dependencies_changed",
+      },
+      schemaVersion: 2,
+      idempotencyKey: `task:${taskId}:status:${task.status}:${desired}:${this.taskGraphEventCount(taskId, "task.status_changed")}`,
+    });
+  }
+
   createTask(input: CreateTaskInput & { ownerId?: string | null; dependsOn?: string[] }): Task {
     return this.withTransaction(() => {
-      const dependsOn = input.dependsOn ?? [];
+      const dependsOn = [...(input.dependsOn ?? [])];
+      this.validateTaskOwner(input.workspaceId, input.ownerId ?? null);
+      this.validateTaskDependencies(null, input.workspaceId, dependsOn);
       const dependsSatisfied = dependsOn.every(
         (dependencyId) => this.getTask(dependencyId)?.status === "done",
       );
@@ -1718,20 +1930,67 @@ export class Store {
     }
   }
 
+  /**
+   * Controlled projection mirror for event replay/rebuild. It intentionally
+   * does not append events or validate graph semantics (the event log already
+   * contains the authoritative facts).
+   */
+  applyTaskCreatedProjection(task: Task): void {
+    this.syncTaskOwnerRelation(task.id, task.ownerId);
+    this.syncTaskDependencyRelations(task.id, task.dependsOn);
+  }
+
+  applyTaskOwnerProjection(taskId: string, ownerId: string | null): void {
+    this.db.prepare("UPDATE tasks SET owner_id = ? WHERE id = ?").run(ownerId, taskId);
+    this.syncTaskOwnerRelation(taskId, ownerId);
+  }
+
+  applyTaskDependenciesProjection(taskId: string, dependsOn: readonly string[]): void {
+    this.db
+      .prepare("UPDATE tasks SET depends_on = ? WHERE id = ?")
+      .run(JSON.stringify(dependsOn), taskId);
+    this.syncTaskDependencyRelations(taskId, dependsOn);
+  }
+
+  /** Controlled replay deletion for task.deleted; event log remains append-only. */
+  applyTaskDeletedProjection(taskId: string): void {
+    this.db.prepare("DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_task_id = ?").run(
+      taskId,
+      taskId,
+    );
+    this.db.prepare("DELETE FROM task_owners WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM runs WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM summaries WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+  }
+
   updateTask(
     id: string,
     patch: Partial<Pick<Task, "title" | "description" | "acceptance" | "status" | "ownerId" | "dependsOn" | "branch" | "worktree" | "summary" | "startedAt" | "endedAt">>,
   ): Task {
     return this.withTransaction(() => {
       const before = this.getTask(id);
-      if (!before) throw new Error(`task not found: ${id}`);
+      if (!before) throw new TaskGraphError("TASK_NOT_FOUND", `task not found: ${id}`);
+
+      // Owner/dependencies are graph facts: route them through the same
+      // validation/event path as TaskGraphService. Everything else remains a
+      // regular task projection patch.
+      if ("ownerId" in patch) {
+        this.setTaskOwner(id, patch.ownerId ?? null, {
+          reason: "store.updateTask",
+        });
+      }
+      if ("dependsOn" in patch) {
+        this.setTaskDependencies(id, patch.dependsOn ?? [], {
+          reason: "store.updateTask",
+        });
+      }
+
       const columns: Record<string, string> = {
         title: "title",
         description: "description",
         acceptance: "acceptance",
         status: "status",
-        ownerId: "owner_id",
-        dependsOn: "depends_on",
         branch: "branch",
         worktree: "worktree",
         summary: "summary",
@@ -1740,49 +1999,28 @@ export class Store {
       };
       const sets: string[] = [];
       const params: Array<string | number | null> = [];
+      const eventPatch: Record<string, unknown> = {};
       for (const [key, column] of Object.entries(columns)) {
         if (!(key in patch)) continue;
         const value = (patch as Record<string, unknown>)[key];
         sets.push(`${column} = ?`);
+        eventPatch[key] = value;
         if (Array.isArray(value)) params.push(JSON.stringify(value));
         else params.push((value as string | number | null | undefined) ?? null);
       }
-      if (!sets.length) return before;
+      const current = this.getTask(id) ?? before;
+      if (!sets.length) return current;
       params.push(id);
       this.db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params);
-      if ("ownerId" in patch) {
-        this.syncTaskOwnerRelation(id, patch.ownerId ?? null);
-      }
-      if ("dependsOn" in patch) {
-        this.syncTaskDependencyRelations(id, patch.dependsOn ?? []);
-      }
 
       const statusPatch = patch.status;
-      if (patch.dependsOn && !statusPatch) {
-        const satisfied = (patch.dependsOn ?? []).every(
-          (dependencyId) => this.getTask(dependencyId)?.status === "done",
-        );
-        const desired = satisfied ? "ready" : "blocked";
-        if (before.status === "ready" || before.status === "blocked") {
-          this.db
-            .prepare("UPDATE tasks SET status = ?, blocked_reason = ? WHERE id = ?")
-            .run(desired, satisfied ? null : "waiting_dependencies", id);
-        }
-        this.appendEventIdempotent({
-          aggregateType: "task",
-          aggregateId: id,
-          type: "task.updated",
-          actor: "system",
-          payload: { patch: { dependsOn: patch.dependsOn } },
-          schemaVersion: 2,
-        });
-      } else if (statusPatch) {
+      if (statusPatch) {
         this.appendEventIdempotent({
           aggregateType: "task",
           aggregateId: id,
           type: "task.status_changed",
           actor: "system",
-          payload: { from: before.status, to: statusPatch, reason: "store.updateTask" },
+          payload: { from: current.status, to: statusPatch, reason: "store.updateTask" },
           schemaVersion: 2,
         });
       } else {
@@ -1791,11 +2029,11 @@ export class Store {
           aggregateId: id,
           type: "task.updated",
           actor: "system",
-          payload: { patch },
+          payload: { patch: eventPatch },
           schemaVersion: 2,
         });
       }
-      return this.getTask(id) ?? before;
+      return this.getTask(id) ?? current;
     });
   }
 

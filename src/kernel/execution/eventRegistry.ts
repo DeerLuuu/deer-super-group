@@ -8,6 +8,9 @@ import { z } from "zod";
 export const KERNEL_EVENT_TYPES = [
   "task.created",
   "task.updated",
+  "task.owner_changed",
+  "task.dependencies_changed",
+  "task.deleted",
   "task.status_changed",
   "task.blocked",
   "task.unblocked",
@@ -141,6 +144,32 @@ const def = (
 export const EVENT_REGISTRY: Record<KernelEventType, KernelEventDefinition> = {
   "task.created": def(z.strictObject({ task: taskSchema })),
   "task.updated": def(z.strictObject({ patch: taskPatch })),
+  "task.owner_changed": def(
+    z.strictObject({
+      taskId: z.string().min(1).max(200),
+      from: z.string().max(200).nullable(),
+      to: z.string().max(200).nullable(),
+      assignedBy: shortText,
+      reason: shortText,
+    }),
+  ),
+  "task.dependencies_changed": def(
+    z.strictObject({
+      taskId: z.string().min(1).max(200),
+      from: z.array(z.string().max(200)).max(100),
+      to: z.array(z.string().max(200)).max(100),
+      reason: shortText,
+    }),
+  ),
+  "task.deleted": def(
+    z.strictObject({
+      taskId: z.string().min(1).max(200),
+      title: z.string().max(2_000),
+      status: taskStatus,
+      removedRuns: z.number().int().min(0),
+      removedSummaries: z.number().int().min(0),
+    }),
+  ),
   "task.status_changed": def(
     z.strictObject({
       from: taskStatus,

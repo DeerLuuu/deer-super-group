@@ -45,7 +45,12 @@ describe("t510 RC1-0 React Compiler boundary", () => {
   });
 
   it("compiles only the allowlisted shell component and rejects kernel/electron/tests", () => {
-    expect(REACT_COMPILER_ALLOWLIST).toEqual(["src/shell/SkipLink.tsx"]);
+    expect(REACT_COMPILER_ALLOWLIST).toEqual([
+      "src/shell/SkipLink.tsx",
+      "src/shell/ApprovalTerms.tsx",
+      "src/shell/TaskContractChips.tsx",
+      "src/shell/TaskWorkspaceTabs.tsx",
+    ]);
     expect(shouldCompileReactFile("src/shell/SkipLink.tsx")).toBe(true);
     expect(shouldCompileReactFile("S:/repo/src/shell/SkipLink.tsx")).toBe(true);
     expect(shouldCompileReactFile("src/shell/Another.tsx")).toBe(false);
@@ -63,7 +68,7 @@ describe("t510 RC1-0 React Compiler boundary", () => {
   it("exposes the Babel plugin guard and both compilation modes", () => {
     const options = reactCompilerPluginOptions({});
     expect(options.target).toBe("19");
-    expect(options.compilationMode).toBe("infer");
+    expect(options.compilationMode).toBe("annotation");
     expect(options.sources("src/shell/SkipLink.tsx")).toBe(true);
     expect(options.sources("src/kernel/service.tsx")).toBe(false);
     expect(reactCompilerMode({ RC1_MODE: "annotation" })).toBe("annotation");
