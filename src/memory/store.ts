@@ -297,7 +297,7 @@ export class MemoryStore {
       `).run();
       this.db.prepare("UPDATE summaries SET workspace_id = COALESCE(NULLIF(workspace_id, ''), (SELECT t.workspace_id FROM tasks t WHERE t.id = summaries.task_id), '')").run();
       this.db.prepare("UPDATE summaries SET outcome = COALESCE(NULLIF(outcome, ''), CASE (SELECT status FROM tasks WHERE id = summaries.task_id) WHEN 'done' THEN 'completed' WHEN 'cancelled' THEN 'cancelled' ELSE 'failed' END), attempt = CASE WHEN attempt IS NULL OR attempt < 1 THEN 1 ELSE attempt END").run();
-      this.db.prepare("UPDATE summaries SET agent_id = COALESCE(agent_id, (SELECT owner_id FROM tasks WHERE id = summaries.task_id), (SELECT agent_id FROM runs WHERE task_id = summaries.task_id ORDER BY started_at DESC LIMIT 1)), agent_name = COALESCE(agent_name, (SELECT a.name FROM agents a JOIN runs r ON r.agent_id = a.id WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1)), model = COALESCE(model, (SELECT r.model_id FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1)), token_in = COALESCE(token_in, (SELECT r.token_in FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1), 0), token_out = COALESCE(token_out, (SELECT r.token_out FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1), 0), duration_ms = COALESCE(duration_ms, 0)").run();
+      this.db.prepare("UPDATE summaries SET agent_id = COALESCE(agent_id, (SELECT agent_id FROM task_owners WHERE task_id = summaries.task_id), (SELECT agent_id FROM runs WHERE task_id = summaries.task_id ORDER BY started_at DESC LIMIT 1)), agent_name = COALESCE(agent_name, (SELECT a.name FROM agents a JOIN runs r ON r.agent_id = a.id WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1)), model = COALESCE(model, (SELECT r.model_id FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1)), token_in = COALESCE(token_in, (SELECT r.token_in FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1), 0), token_out = COALESCE(token_out, (SELECT r.token_out FROM runs r WHERE r.task_id = summaries.task_id ORDER BY r.started_at DESC LIMIT 1), 0), duration_ms = COALESCE(duration_ms, 0)").run();
 
       // Legacy Store.postBoard/addMemo paths do not know about source metadata.
       // Drop/recreate so v2 databases that still have name-based triggers are fixed.
@@ -1906,8 +1906,10 @@ export class MemoryStore {
   }
 
   resolveSummaryAgentId(taskId: string, runId: string): string | null {
-    const task = this.db.prepare("SELECT owner_id FROM tasks WHERE id = ?").get(taskId) as Row | undefined;
-    if (task?.owner_id) return String(task.owner_id);
+    const owner = this.db
+      .prepare("SELECT agent_id FROM task_owners WHERE task_id = ?")
+      .get(taskId) as Row | undefined;
+    if (owner?.agent_id) return String(owner.agent_id);
     const run = this.db.prepare("SELECT agent_id FROM runs WHERE id = ?").get(runId) as Row | undefined;
     return run?.agent_id ? String(run.agent_id) : null;
   }

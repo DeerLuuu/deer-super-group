@@ -49,7 +49,7 @@ describe("t167 delete task/member", () => {
       description: "",
       acceptance: [],
     });
-    service.store.updateTask(task.id, { ownerId: agent.id });
+    service.store.setTaskOwner(task.id, agent.id);
 
     const result = service.deleteAgent(agent.id);
     expect(result.reassignedTasks).toBe(1);
@@ -148,11 +148,12 @@ describe("t167 delete task/member", () => {
     });
     service.store.updateTask(parent.id, { status: "done" });
     service.store.updateRun(activeRun.id, { status: "completed", endedAt: new Date().toISOString() });
-    service.store.updateTask(dependency.id, { dependsOn: [parent.id], status: "blocked" });
+    service.store.setTaskDependencies(dependency.id, [parent.id]);
+    service.store.updateTask(dependency.id, { status: "blocked" });
     expect(() => service.deleteTask(parent.id)).toThrow("依赖");
   });
 
-  it("protects dependents from relation when the legacy JSON is stale", async () => {
+  it("protects dependents using task relation edges", async () => {
     const { service, workspacePath } = setup();
     const { workspace } = await openWorkspace(service, workspacePath);
     const parent = service.createTask({
@@ -168,7 +169,6 @@ describe("t167 delete task/member", () => {
       acceptance: [],
     });
     service.tasks.setDependencies(child.id, [parent.id]);
-    service.store.db.prepare("UPDATE tasks SET depends_on = '[]' WHERE id = ?").run(child.id);
     expect(() => service.deleteTask(parent.id)).toThrow(/依赖/);
     expect(service.store.getTask(parent.id)).not.toBeNull();
     expect(service.store.getTask(child.id)?.dependsOn).toEqual([parent.id]);
