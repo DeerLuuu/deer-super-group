@@ -46,7 +46,6 @@ export interface DockGroupProps {
     target: PanelKey,
     position: "center" | "left" | "right" | "above" | "below",
   ) => void;
-  onPanelClose?: (panel: PanelKey) => void;
 }
 
 export default function DockGroup({
@@ -55,7 +54,6 @@ export default function DockGroup({
   onActivate,
   onClose,
   onDrop,
-  onPanelClose,
 }: DockGroupProps) {
   const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -127,24 +125,12 @@ export default function DockGroup({
             >
               <span className="docktree-tab-title">{def.title}</span>
               {def.closable ? (
+                // t550/F4：tab 内只保留非交互装饰；关闭走 Delete（或全局 Ctrl+Alt+W），
+                // 避免 button 内嵌 role=button 的非法结构。
                 <span
-                  role="button"
-                  tabIndex={-1}
                   className="docktree-tab-close"
-                  aria-label={`关闭${def.title}`}
-                  title={`关闭${def.title}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onPanelClose?.(panel);
-                    onClose(panel);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.stopPropagation();
-                      onPanelClose?.(panel);
-                      onClose(panel);
-                    }
-                  }}
+                  aria-hidden="true"
+                  title={`Delete 关闭${def.title}`}
                 >
                   ×
                 </span>
@@ -160,22 +146,26 @@ export default function DockGroup({
         onDrop={onDropEvent}
         data-dropzone="center"
       >
-        {group.panels.map((panel) =>
-          panel === active ? (
+        {group.panels.map((panel) => {
+          const isActive = panel === active;
+          // t550/F3：非激活 PanelHost 用 hidden 保留挂载，切 tab 不丢草稿/输入/滚动状态；
+          // t550/F4：每个 tab 的 aria-controls 始终有真实 tabpanel（隐藏但存在）。
+          return (
             <div
               key={panel}
               id={`docktree-panel-${group.id}-${panel}`}
               role="tabpanel"
               aria-labelledby={`docktree-tab-${group.id}-${panel}`}
-              className="docktree-panel"
+              className={`docktree-panel${isActive ? " active" : ""}`}
               data-panel={panel}
+              hidden={!isActive}
             >
               <PanelErrorBoundary panelKey={panel}>
                 <PanelHost panelKey={panel} />
               </PanelErrorBoundary>
             </div>
-          ) : null,
-        )}
+          );
+        })}
         {/* 边缘 dropzone 指示（CSS hover 高亮；drop 事件冒泡到 body 用 data-dropzone 判定）。 */}
         {(["left", "right", "above", "below"] as const).map((position) => (
           <DockDropZone

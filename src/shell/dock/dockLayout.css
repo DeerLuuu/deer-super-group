@@ -165,3 +165,19 @@
     transition: none;
   }
 }
+
+/* t550/F3/F4：非激活 panel 保留挂载但不可见；tab 内 close 仅装饰。 */
+.docktree-panel[hidden] {
+  display: none;
+}
+.docktree-panel.active {
+  display: flex;
+}
+.docktree-tab-close {
+  cursor: default;
+  opacity: 0.72;
+}
+.docktree-group:focus-within {
+  outline: 1px solid color-mix(in srgb, var(--accent, #4d6bfe) 40%, transparent);
+  outline-offset: -1px;
+}

@@ -7,7 +7,7 @@
  * - 键盘沿用 t56 改键（Ctrl+Shift+Alt+方向/Ctrl+Shift+Alt+[]/Ctrl+Alt+W）；
  * - settings 不可关闭（reducer 守卫 + notify）；planDraft 关闭走 onPanelClose。
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { PANEL_DEFS, selectVariant, type DockVariant, type PanelKey } from "./panelRegistry";
 import { useDockLayoutController } from "./layoutOps";
 import type { DockLayout } from "./layoutModel";
@@ -43,23 +43,89 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
   ref,
 ) {
   const variant = selectVariant(dockWidth, windowWidth);
+  // t550/F1：记录用户最近聚焦的组/面板，而不是永远取第一个 group.active。
+  const [activePanel, setActivePanel] = useState<PanelKey | null>(initialPanelKey);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  // 命令在键盘/ref 回调中执行时可能早于 state commit；ref 作为同步真相。
+  const activePanelRef = useRef<PanelKey | null>(initialPanelKey);
+  const activeGroupIdRef = useRef<string | null>(null);
   const controller = useDockLayoutController({
     workspaceId,
     variant,
     maxGroups,
     onNotify,
-    onActivatedPanel: onActivePanelChange,
+    onActivatedPanel: (panel) => {
+      const group = listGroups(layoutRef.current.root).find((item) =>
+        item.panels.includes(panel),
+      );
+      activePanelRef.current = panel;
+      if (group) activeGroupIdRef.current = group.id;
+      if (group) setActiveGroupId(group.id);
+      setActivePanel(panel);
+      onActivePanelChange(panel);
+    },
   });
   const { dispatch, setVariant, resetAll, flush } = controller;
 
-  const onActivePanelChangeRef = useRef(onActivePanelChange);
-  onActivePanelChangeRef.current = onActivePanelChange;
   const onPanelCloseRef = useRef(onPanelClose);
   onPanelCloseRef.current = onPanelClose;
   const onNotifyRef = useRef(onNotify);
   onNotifyRef.current = onNotify;
   const layoutRef = useRef<DockLayout>(controller.layout);
   layoutRef.current = controller.layout;
+
+  const rememberGroup = useCallback((groupId: string) => {
+    const group = listGroups(layoutRef.current.root).find((item) => item.id === groupId);
+    if (!group) return;
+    activeGroupIdRef.current = group.id;
+    activePanelRef.current = group.active ?? group.panels[0] ?? null;
+    setActiveGroupId(group.id);
+    setActivePanel(group.active ?? group.panels[0] ?? null);
+  }, []);
+
+  const rememberPanel = useCallback((panel: PanelKey) => {
+    const group = listGroups(layoutRef.current.root).find((item) =>
+      item.panels.includes(panel),
+    );
+    if (group) activeGroupIdRef.current = group.id;
+    activePanelRef.current = panel;
+    if (group) setActiveGroupId(group.id);
+    setActivePanel(panel);
+  }, []);
+
+  const rememberFromTarget = useCallback(
+    (target: EventTarget | null) => {
+      const element = target as HTMLElement | null;
+      if (!element || typeof element.closest !== "function") return;
+      const groupElement = element.closest("[data-group]");
+      const groupId = groupElement?.getAttribute("data-group");
+      if (groupId) rememberGroup(groupId);
+    },
+    [rememberGroup],
+  );
+
+  // 布局变化（首次加载/断点/关闭）时，保证记录值仍指向现存的组和面板。
+  useEffect(() => {
+    const groups = listGroups(controller.layout.root);
+    if (groups.length === 0) return;
+    const group =
+      groups.find((item) => item.id === activeGroupIdRef.current) ??
+      groups.find((item) => activePanelRef.current && item.panels.includes(activePanelRef.current)) ??
+      groups[0];
+    if (!group) return;
+    if (activeGroupIdRef.current !== group.id) {
+      activeGroupIdRef.current = group.id;
+      setActiveGroupId(group.id);
+    }
+    const panel =
+      activePanelRef.current && group.panels.includes(activePanelRef.current)
+        ? activePanelRef.current
+        : (group.active ?? group.panels[0] ?? null);
+    if (activePanelRef.current !== panel) {
+      activePanelRef.current = panel;
+      setActivePanel(panel);
+    }
+  }, [controller.layout]);
 
   // 初始深链面板（不在布局时插入当前 active group 并激活——t52 IF-03）。
   const initialHandledRef = useRef(false);
@@ -75,8 +141,11 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
   }, [setVariant, variant]);
 
   const onActivate = useCallback(
-    (panel: PanelKey) => dispatch({ type: "activate", panel }),
-    [dispatch],
+    (panel: PanelKey) => {
+      rememberPanel(panel);
+      dispatch({ type: "activate", panel });
+    },
+    [dispatch, rememberPanel],
   );
   const onClose = useCallback(
     (panel: PanelKey) => {
@@ -140,12 +209,20 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
     },
     closeActivePanel() {
       const groups = listGroups(layoutRef.current.root);
-      const active = groups.find((group) => group.active)?.active ?? groups[0]?.active;
+      const group =
+        groups.find((item) => item.id === activeGroupIdRef.current) ??
+        groups.find((item) => activePanelRef.current && item.panels.includes(activePanelRef.current)) ??
+        groups[0];
+      const active =
+        activePanelRef.current && group?.panels.includes(activePanelRef.current)
+          ? activePanelRef.current
+          : (group?.active ?? group?.panels[0]);
       if (!active) return;
       if (!PANEL_DEFS[active].closable) {
         onNotifyRef.current?.("设置面板不可关闭（保护未保存的配置草稿）");
         return;
       }
+      // t550/F2：onPanelClose 只在这里调用一次；DockGroup 不再重复调用。
       onPanelCloseRef.current?.(active);
       dispatch({ type: "close", panel: active });
     },
@@ -159,7 +236,14 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
     },
     moveActivePanel(direction: MoveDirection) {
       const groups = listGroups(layoutRef.current.root);
-      const active = groups.find((group) => group.active)?.active ?? groups[0]?.active;
+      const group =
+        groups.find((item) => item.id === activeGroupIdRef.current) ??
+        groups.find((item) => activePanelRef.current && item.panels.includes(activePanelRef.current)) ??
+        groups[0];
+      const active =
+        activePanelRef.current && group?.panels.includes(activePanelRef.current)
+          ? activePanelRef.current
+          : (group?.active ?? group?.panels[0]);
       if (!active) return;
       const adjacent = findAdjacentTarget(active, direction);
       if (adjacent) {
@@ -169,10 +253,13 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
       }
     },
     resizeActiveGroup(delta: number) {
-      // 键盘调宽：作用于包含 active 面板的第一个祖先 split 的对应 index。
+      // 键盘调宽：作用于包含最近聚焦 active 面板的组所在 split。
       const layout = layoutRef.current;
       const groups = listGroups(layout.root);
-      const activeGroup = groups.find((group) => group.active);
+      const activeGroup =
+        groups.find((item) => item.id === activeGroupIdRef.current) ??
+        groups.find((item) => activePanelRef.current && item.panels.includes(activePanelRef.current)) ??
+        groups.find((item) => item.active);
       if (!activeGroup) return;
       function findParentSplit(
         node: typeof layout.root,
@@ -242,14 +329,19 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
   useEffect(() => () => flush(), [flush]);
 
   return (
-    <div className="docktree-shell" data-engine="v2" data-dock-engine-note="DW1-3">
+    <div
+      className="docktree-shell"
+      data-engine="v2"
+      data-dock-engine-note="DW1-3"
+      onFocusCapture={(event) => rememberFromTarget(event.target)}
+      onPointerDownCapture={(event) => rememberFromTarget(event.target)}
+    >
       <DockTree
         layout={controller.layout}
         onActivate={onActivate}
         onClose={onClose}
         onResize={onResize}
         onDrop={onDrop}
-        onPanelClose={onPanelClose}
       />
     </div>
   );

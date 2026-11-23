@@ -16,7 +16,6 @@ export interface DockTreeProps {
   onClose: (panel: PanelKey) => void;
   onResize: (splitId: string, index: number, delta: number) => void;
   onDrop: (panel: PanelKey, target: PanelKey, position: "center" | "left" | "right" | "above" | "below") => void;
-  onPanelClose?: (panel: PanelKey) => void;
 }
 
 function nodeFlexStyle(node: LayoutNode, index: number, parent: LayoutSplit): string {
@@ -92,7 +91,6 @@ function TreeGroup({ group, props }: { group: LayoutGroup; props: DockTreeProps 
       onActivate={props.onActivate}
       onClose={props.onClose}
       onDrop={props.onDrop}
-      onPanelClose={props.onPanelClose}
     />
   );
 }
