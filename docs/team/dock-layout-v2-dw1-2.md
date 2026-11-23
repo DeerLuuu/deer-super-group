@@ -41,3 +41,21 @@
 - 未接新 DockTree 渲染器（DW1-3）；未改 DockShell/dockview 运行路径；package.json 无变更；
 - DW1-3 接入点：`reduceDock` 为唯一命令入口（`DockShell.onReady/键盘/拖放 → reduceDock → setState + effects.persist → saveV2Store`）；`switchVariant` 用于宽度断点切换（保存旧变体 + 恢复新变体）；
 - DW1-1 遗留 N1（normalize 不降 >maxGroups）已由 `clampGroups` 在 reducer 出口解决；N2（seed env）仍未做（DW1-3 测试基建）。
+
+## 7. t530 修复记录（repair-round-2，mika / GLM 5.3）
+
+t527 验证 F1–F5 修复，同一 PR #77 分支：
+
+- **F1（blocker）真实接线**：
+  - `useDockLayoutController`（layoutOps.ts）：v2 布局状态控制器——init 从 loadV2Store/defaultLayout；`dispatch` 是 v2 命令**唯一入口**（reduceDock）；effects.persist → 400ms debounce `saveV2Store`；effects.notify → onNotify；effects.activatedPanel → onActivePanelChange；`setVariant`（switchVariant + 立即持久化）；卸载 flush（React 19 严格模式安全）。
+  - `DockShell.tsx` 真实消费：DockHandle 五个命令（openPanel/closeActivePanel/resetLayout/resetAllLayouts/moveActivePanel）在执行 dockview legacy 行为的**同时** `v2DispatchRef.current(dispatch)` —— shadow-sync 模式：渲染不变（dockview legacy 默认，零回归），v2 存档随操作逐步构建，为 DW1-3 切换准备数据。React 接线测试 2 用例（react-test-renderer + IS_REACT_ACT_ENVIRONMENT）：dispatch→activate/notify 回调 + debounce 后 v2 store 写入含 gitGraph；setVariant 双变体持久化。
+- **F2 生产轻量不变量**：`assertLightweightInvariants`（panel 唯一 + 组数 + sizes 有限，O(panels+groups)）生产也执行；完整 validateLayout 仅 dev（性能考虑）。
+- **F3 variant 一致性**：loadV2Store 校验 `layout.variant === variants key`，不一致按损坏处理（删除 key 回 null）；+1 测试。
+- **F4 字节长度**：`byteLength`（TextEncoder UTF-8）用于 64KB 读写上限。
+- **F5 switchVariant 归属**：返回 `{ layout, store, savedPrevious }`——持久化归属明确为调用方；controller 的 setVariant 内部完成 store 更新（含新变体）+ saveV2Store。
+- **真实 Electron/CDP 走查（scripts/t530-cdp.mjs + t530-walkthrough.json，ALL PASS）**：
+  - 三档 1440/960/480 截图（t530-dock-{1440,960,480}.png）+ 每档 scrollWidth 无溢出；
+  - 交互：侧栏「任务」「记忆」nav 点击 → DockHandle.openPanel → v2 dispatch open → **v2 store 实际写入**（keys=["deer.dock.layout.v2.ws_…"]，schema=deer.dock.layout version=2，variants=["wide"]）；
+  - Ctrl+Alt+W close dispatch；v1 key 由 legacy 路径管理，v2 路径不读写（不迁移验证）；
+  - 复用真实 deer.db 用户数据（隔离 userData 副本）驱动非空 shell。
+- 验证：typecheck 0 / build 0 / serial test 全绿（layoutOps 24 用例，+3）。

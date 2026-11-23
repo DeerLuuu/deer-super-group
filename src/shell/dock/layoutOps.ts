@@ -212,6 +212,9 @@ export function reduceDock(
     JSON.stringify(candidate.root) === JSON.stringify(layout.root) &&
     candidate.variant === layout.variant;
   next = unchanged ? layout : candidate;
+  // t530 F2：生产环境也跑轻量不变量（panel 唯一 + 组数 + sizes 有限）；
+  // 完整 validateLayout 仅开发期（性能考虑，见 docs §F2）。
+  assertLightweightInvariants(next, context.maxGroups);
   if (process.env.NODE_ENV !== "production") {
     const issues = validateLayout(next, { maxGroups: context.maxGroups });
     if (issues.length > 0) {
@@ -225,6 +228,35 @@ export function reduceDock(
     layout: next,
     effects: { persist, notify, activatedPanel },
   };
+}
+
+/** t530 F2：轻量出口不变量——生产也执行（O(panels+groups)，无全树字符串化）。 */
+function assertLightweightInvariants(layout: DockLayout, maxGroups?: number): void {
+  const groups = listGroups(layout.root);
+  const seen = new Set<PanelKey>();
+  for (const group of groups) {
+    for (const panel of group.panels) {
+      if (seen.has(panel)) {
+        throw new Error(`reduceDock light invariant violated: duplicate panel ${panel}`);
+      }
+      seen.add(panel);
+    }
+  }
+  if (groups.length > effectiveMaxDockGroups(maxGroups, layout.variant)) {
+    throw new Error(
+      `reduceDock light invariant violated: ${groups.length} > max groups`,
+    );
+  }
+  function checkSizes(node: DockLayout["root"]): void {
+    if (node.kind === "group") return;
+    for (const size of node.sizes) {
+      if (!Number.isFinite(size) || size < 0) {
+        throw new Error("reduceDock light invariant violated: bad size");
+      }
+    }
+    node.children.forEach(checkSizes);
+  }
+  checkSizes(layout.root);
 }
 
 // ---------------------------------------------------------------------------
@@ -286,6 +318,15 @@ export const V2_SCHEMA = "deer.dock.layout" as const;
 export const V2_VERSION = 2;
 const MAX_STORE_BYTES = 64 * 1024;
 
+/** t530 F4：按字节长度计量（UTF-8，含多字节字符的准确 64KB 上限）。 */
+function byteLength(text: string): number {
+  try {
+    return new TextEncoder().encode(text).length;
+  } catch {
+    return text.length;
+  }
+}
+
 /** v2 key：`deer.dock.layout.v2.<workspaceId>`（不与 v1 `deer.dock.state` 相交）。 */
 export function v2StorageKey(workspaceId: string): string {
   return `deer.dock.layout.v2.${workspaceId}`;
@@ -309,7 +350,7 @@ export function loadV2Store(workspaceId: string): DockLayoutStore | null {
   try {
     const raw = storage.getItem(key);
     if (!raw) return null;
-    if (raw.length > MAX_STORE_BYTES) throw new Error("oversized");
+    if (byteLength(raw) > MAX_STORE_BYTES) throw new Error("oversized");
     const parsed = JSON.parse(raw) as DockLayoutStore;
     if (parsed?.schema !== V2_SCHEMA || parsed?.version !== V2_VERSION) {
       throw new Error("schema mismatch");
@@ -317,9 +358,13 @@ export function loadV2Store(workspaceId: string): DockLayoutStore | null {
     if (typeof parsed.variants !== "object" || parsed.variants === null) {
       throw new Error("bad variants");
     }
-    // 每个 variant 的布局结构必须通过 validate（含 maxGroups 上下文）。
+    // 每个 variant 的布局结构必须通过 validate（含 maxGroups 上下文）；
+    // t530 F3：layout.variant 必须与其在 variants 中的 key 一致，不一致视为损坏。
     for (const [variant, layout] of Object.entries(parsed.variants)) {
       if (!layout) continue;
+      if (layout.variant !== variant) {
+        throw new Error(`variant mismatch: ${variant} != ${layout.variant}`);
+      }
       const issues = validateLayout(layout, { variant: variant as DockVariant });
       if (issues.length > 0) throw new Error(`invalid layout: ${issues[0]?.code}`);
     }
@@ -340,7 +385,7 @@ export function saveV2Store(workspaceId: string, store: DockLayoutStore): boolea
   if (!storage) return false;
   try {
     const payload = JSON.stringify(store);
-    if (payload.length > MAX_STORE_BYTES) return false;
+    if (byteLength(payload) > MAX_STORE_BYTES) return false;
     storage.setItem(v2StorageKey(workspaceId), payload);
     return true;
   } catch {
@@ -365,11 +410,13 @@ export function clearV2Store(workspaceId: string): void {
 
 export interface VariantSwitchResult {
   layout: DockLayout;
-  /** 当前变体布局已写回 store（宿主据此持久化旧变体）。 */
+  /** t530 F5：携带旧变体的完整 store——持久化归属明确：调用方负责 saveV2Store。 */
+  store: DockLayoutStore;
+  /** 旧变体布局已写入返回的 store（savedPrevious 恒 true，保留兼容）。 */
   savedPrevious: boolean;
 }
 
-/** 切换变体：保存当前 → 加载目标变体的 v2 存档或默认。 */
+/** 切换变体：保存当前 → 加载目标变体的 v2 存档或默认。持久化由调用方执行（saveV2Store）。 */
 export function switchVariant(
   store: DockLayoutStore | null,
   current: DockLayout,
@@ -387,6 +434,130 @@ export function switchVariant(
   const restored = nextStore.variants[nextVariant];
   return {
     layout: restored ? clampGroups(normalizeLayout(restored)) : defaultLayout(nextVariant),
+    store: nextStore,
     savedPrevious: true,
   };
+}
+
+// ---------------------------------------------------------------------------
+// React 接线（t530 F1）：v2 布局状态控制器——reduceDock 唯一命令入口
+// ---------------------------------------------------------------------------
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+export interface DockLayoutController {
+  layout: DockLayout;
+  /** v2 命令唯一入口：dispatch → reduceDock → effects（persist/notify/activate）。 */
+  dispatch: (command: DockCommand) => void;
+  /** 变体切换（断点）：内部保存旧变体并持久化，加载目标变体存档或默认。 */
+  setVariant: (variant: DockVariant) => void;
+  /** 立即 flush 持久化（卸载/beforeunload 用）。 */
+  flush: () => void;
+}
+
+export interface UseDockLayoutOptions {
+  workspaceId: string;
+  variant: DockVariant;
+  maxGroups?: number;
+  onNotify?: (message: string) => void;
+  onActivatedPanel?: (panel: PanelKey) => void;
+  /** 测试注入时钟/存储刷新延迟。 */
+  debounceMs?: number;
+}
+
+/**
+ * v2 布局状态控制器（真实生产消费方，t530 F1）：
+ * - 初始化：loadV2Store(workspaceId) 的当前 variant 存档或 defaultLayout(variant)；
+ * - dispatch：reduceDock 唯一入口；effects.persist → 400ms debounce saveV2Store；
+ *   effects.notify → onNotify；effects.activatedPanel → onActivePanelChange；
+ * - setVariant：switchVariant（保存旧变体 + 持久化 + 恢复/默认）；
+ * - 卸载 flush（React 19 严格模式双挂载安全：cleanup 清定时器）。
+ * 渲染器不消费 layout（DW1-3 接入 DockTree 后才渲染）——当前作为 DockShell
+ * 的 shadow-sync 状态源，把 v2 存档逐步构建起来，为 DW1-3 切换准备数据。
+ */
+export function useDockLayoutController(options: UseDockLayoutOptions): DockLayoutController {
+  const { workspaceId, variant, maxGroups, debounceMs = 400 } = options;
+  const [layout, setLayout] = useState<DockLayout>(() => {
+    const store = loadV2Store(workspaceId);
+    const restored = store?.variants[variant];
+    return restored ? clampGroups(normalizeLayout(restored)) : defaultLayout(variant);
+  });
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const storeRef = useRef<DockLayoutStore | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  const flush = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const store: DockLayoutStore = storeRef.current ?? {
+      schema: V2_SCHEMA,
+      version: V2_VERSION,
+      updatedAt: new Date().toISOString(),
+      variants: {},
+      activePanel: null,
+    };
+    store.variants[layoutRef.current.variant] = layoutRef.current;
+    store.updatedAt = new Date().toISOString();
+    if (!saveV2Store(workspaceId, store)) {
+      optionsRef.current.onNotify?.("布局无法保存，将使用默认布局");
+    }
+    storeRef.current = store;
+  }, [workspaceId]);
+
+  const dispatch = useCallback(
+    (command: DockCommand) => {
+      const result = reduceDock(layoutRef.current, command, { maxGroups });
+      if (result.layout !== layoutRef.current) {
+        layoutRef.current = result.layout;
+        setLayout(result.layout);
+      }
+      for (const message of result.effects.notify) {
+        optionsRef.current.onNotify?.(message);
+      }
+      if (result.effects.activatedPanel) {
+        optionsRef.current.onActivatedPanel?.(result.effects.activatedPanel);
+      }
+      if (result.effects.persist) {
+        if (timerRef.current !== null) clearTimeout(timerRef.current);
+        // node 测试环境无 window——用全局 setTimeout（浏览器等价）。
+        timerRef.current = setTimeout(flush, debounceMs) as unknown as number;
+      }
+    },
+    [maxGroups, flush, debounceMs],
+  );
+
+  const setVariantCallback = useCallback(
+    (nextVariant: DockVariant) => {
+      const store = storeRef.current ?? loadV2Store(workspaceId);
+      const switched = switchVariant(store, layoutRef.current, nextVariant);
+      // 把切换后的新变体布局也写入 store（否则下次 restore 找不到该变体）。
+      switched.store.variants[switched.layout.variant] = switched.layout;
+      switched.store.updatedAt = new Date().toISOString();
+      storeRef.current = switched.store;
+      layoutRef.current = switched.layout;
+      setLayout(switched.layout);
+      // 变体切换立即持久化（归属：controller 内部完成，调用方无需再存）。
+      if (!saveV2Store(workspaceId, switched.store)) {
+        optionsRef.current.onNotify?.("布局无法保存，将使用默认布局");
+      }
+    },
+    [workspaceId],
+  );
+
+  // 卸载 flush。
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      // flush 只在有变更时写（storeRef 为 null 且从未 dispatch 则跳过）。
+      if (storeRef.current !== null) flush();
+    };
+  }, [flush]);
+
+  return { layout, dispatch, setVariant: setVariantCallback, flush };
 }

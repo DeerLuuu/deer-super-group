@@ -35,6 +35,12 @@ import {
   effectivePanelMinWidth,
 } from "./narrowWindow";
 import {
+  // t530 F1（DW1-2）：v2 布局 shadow-sync——useDockLayoutController 作为 v2 状态源，
+  // DockHandle 命令同步 dispatch 给 reduceDock（v2 唯一入口）并持久化 deer.dock.layout.v2；
+  // dockview 仍负责渲染（DW1-3 才切换），默认行为零回归。
+  useDockLayoutController,
+} from "./layoutOps";
+import {
   canAddDockGroup,
   dockGroupLimitMessage,
   effectiveMaxDockGroups,
@@ -168,6 +174,19 @@ export default forwardRef<DockHandle, {
   onPanelCloseRef.current = onPanelClose;
   const onNotifyRef = useRef(onNotify);
   onNotifyRef.current = onNotify;
+
+  // t530 F1：v2 shadow-sync 控制器（真实生产消费方）。渲染不变（dockview legacy），
+  // 但每个 DockHandle 命令经 dispatch 进入 reduceDock，v2 存档随操作逐步构建，
+  // 为 DW1-3 切换准备数据；激活面板与通知回调与 legacy 路径复用同一出口。
+  const v2Controller = useDockLayoutController({
+    workspaceId,
+    variant: variantRef.current,
+    maxGroups,
+    onNotify: (message) => notify(message),
+    onActivatedPanel: (panel) => onActivePanelChangeRef.current(panel),
+  });
+  const v2DispatchRef = useRef(v2Controller.dispatch);
+  v2DispatchRef.current = v2Controller.dispatch;
 
   function notify(message: string) {
     onNotifyRef.current?.(message);
@@ -430,6 +449,7 @@ export default forwardRef<DockHandle, {
 
   useImperativeHandle(ref, () => ({
     openPanel(key) {
+      v2DispatchRef.current({ type: "open", panel: key, cause: "nav" });
       const api = apiRef.current;
       if (!api) return;
       if (!api.getPanel(key)) {
@@ -449,9 +469,11 @@ export default forwardRef<DockHandle, {
         notify("设置面板不可关闭（保护未保存的配置草稿）");
         return;
       }
+      v2DispatchRef.current({ type: "close", panel: panel.id as PanelKey });
       panel.api.close();
     },
     resetLayout() {
+      v2DispatchRef.current({ type: "reset" });
       const api = apiRef.current;
       if (!api) return;
       const active = api.activePanel?.id as PanelKey | undefined;
@@ -461,6 +483,7 @@ export default forwardRef<DockHandle, {
       notify("已恢复默认布局");
     },
     resetAllLayouts() {
+      v2DispatchRef.current({ type: "reset", variant: "all" });
       clearStore(workspaceIdRef.current);
       const api = apiRef.current;
       if (!api) return;
@@ -474,6 +497,12 @@ export default forwardRef<DockHandle, {
       const api = apiRef.current;
       const panel = api?.activePanel;
       if (!api || !panel) return;
+      v2DispatchRef.current({
+        type: "move",
+        panel: panel.id as PanelKey,
+        target: (api.activePanel?.group?.activePanel?.id ?? panel.id) as PanelKey,
+        position: direction,
+      });
       const navDirection =
         direction === "left"
           ? "left"

@@ -1,14 +1,13 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { PanelKey } from "./panelRegistry";
 import { PANEL_DEFS } from "./panelRegistry";
 import { defaultLayout, countGroups, listGroups, listPanels, validateLayout } from "./layoutModel";
-import {
-  clampGroups,
-  clearV2Store,
-  loadV2Store,
+import { clampGroups, clearV2Store } from "./layoutOps";
+import { loadV2Store,
   reduceDock,
   saveV2Store,
   switchVariant,
+  useDockLayoutController,
   v2StorageKey,
   type DockCommand,
   type DockLayout,
@@ -323,25 +322,165 @@ describe("switchVariant", () => {
       expect(switched.layout.variant).toBe("single");
       expect(countGroups(switched.layout.root)).toBe(1);
       expect(switched.savedPrevious).toBe(true);
+      // t530 F5：返回完整 store，持久化归属调用方。
+      expect(switched.store.variants.wide).toBeDefined();
+      expect(switched.store.variants.wide?.variant).toBe("wide");
 
       // 切回 wide：restore 保存的 modified（mailbox 已关）。
-      const back = switchVariant(
-        {
-          schema: "deer.dock.layout",
-          version: 2,
-          updatedAt: "",
-          variants: { wide: modified },
-          activePanel: null,
-        },
-        switched.layout,
-        "wide",
-      );
+      const back = switchVariant(switched.store, switched.layout, "wide");
       expect(back.layout.variant).toBe("wide");
       expect(listPanels(back.layout.root)).not.toContain("mailbox");
       expect(validateLayout(back.layout)).toEqual([]);
     });
   });
+
+  it("t530 F3：layout.variant 与 variants key 不一致 → loadV2Store 删除回 null", () => {
+    withLocalStorage(() => {
+      const mismatched = { ...defaultLayout("single"), variant: "wide" as never };
+      storageStub.setItem(
+        v2StorageKey("ws9"),
+        JSON.stringify({
+          schema: "deer.dock.layout",
+          version: 2,
+          updatedAt: "",
+          variants: { single: mismatched },
+          activePanel: null,
+        }),
+      );
+      expect(loadV2Store("ws9")).toBeNull();
+      expect(storageStub.getItem(v2StorageKey("ws9"))).toBeNull();
+    });
+  });
 });
+
+// ---------------------------------------------------------------------------
+// t530 F1：useDockLayoutController React 接线（真实生产消费方）
+// ---------------------------------------------------------------------------
+
+describe("t530 useDockLayoutController React 接线", () => {
+  type RtrModule = {
+    default: {
+      create: (node: unknown) => { root: { findByType: (t: string) => { props: Record<string, unknown> } }; update: (n: unknown) => void; unmount: () => void };
+    };
+    act: (fn: () => Promise<void> | void) => Promise<void>;
+  };
+  const loadRtr = async (): Promise<RtrModule> => {
+    // @ts-expect-error react-test-renderer 19.x 不带类型声明（仅测试依赖）
+    const mod = (await import("react-test-renderer")) as RtrModule;
+    return mod;
+  };
+  const previousActEnv = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean })
+    .IS_REACT_ACT_ENVIRONMENT;
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  afterAll(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+      previousActEnv;
+  });
+
+  it("dispatch 经 reduceDock → effects 驱动 persist/notify/activate；flush 写入 v2 store", async () => {
+    const React = await import("react");
+    const { default: TestRenderer, act } = await loadRtr();
+    const { useDockLayoutController } = await import("./layoutOps");
+
+    let notified: string[] = [];
+    let activated: string[] = [];
+    let controller: ReturnType<typeof useDockLayoutController> | null = null;
+
+    function Harness() {
+      controller = useDockLayoutController({
+        workspaceId: "ws-ctrl",
+        variant: "wide",
+        debounceMs: 10,
+        onNotify: (message) => notified.push(message),
+        onActivatedPanel: (panel) => activated.push(panel),
+      });
+      return null;
+    }
+
+    await withLocalStorageAsync(async () => {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(React.createElement(Harness));
+      });
+      // mount：初始为默认 wide 布局（无存档）。
+      expect(controller!.layout.variant).toBe("wide");
+
+      // open 新面板：activatedPanel 回调 + 10ms debounce 后 persist。
+      await act(async () => {
+        controller!.dispatch({ type: "open", panel: "gitGraph", cause: "command" });
+      });
+      expect(activated).toContain("gitGraph");
+      expect(listPanels(controller!.layout.root)).toContain("gitGraph");
+
+      // settings close：notify 拒绝 + no persist。
+      const beforeNotify = notified.length;
+      await act(async () => {
+        controller!.dispatch({ type: "close", panel: "settings" });
+      });
+      expect(notified.length).toBe(beforeNotify + 1);
+      expect(notified[notified.length - 1]).toContain("不可关闭");
+
+      // debounce 后 v2 store 写入。
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      controller!.flush();
+      const raw = storageStub.getItem(v2StorageKey("ws-ctrl"));
+      expect(raw).not.toBeNull();
+      const parsed = JSON.parse(raw!) as { variants: { wide?: { root: unknown } } };
+      expect(parsed.variants.wide).toBeDefined();
+      expect(JSON.stringify(parsed.variants.wide)).toContain("gitGraph");
+
+      // 卸载 flush 安全（React 19 严格模式双挂载安全）。
+      await act(async () => {
+        renderer!.unmount();
+      });
+    });
+  });
+
+  it("setVariant：变体切换持久化（controller 内部完成）", async () => {
+    const React = await import("react");
+    const { default: TestRenderer, act } = await loadRtr();
+    const { useDockLayoutController } = await import("./layoutOps");
+    let controller: ReturnType<typeof useDockLayoutController> | null = null;
+    function Harness() {
+      controller = useDockLayoutController({ workspaceId: "ws-var", variant: "wide", debounceMs: 10 });
+      return null;
+    }
+    await withLocalStorageAsync(async () => {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(React.createElement(Harness));
+      });
+      await act(async () => {
+        controller!.dispatch({ type: "close", panel: "mailbox" });
+      });
+      await act(async () => {
+        controller!.setVariant("single");
+      });
+      expect(controller!.layout.variant).toBe("single");
+      const raw = storageStub.getItem(v2StorageKey("ws-var"));
+      expect(raw).not.toBeNull();
+      const parsed = JSON.parse(raw!) as { variants: Record<string, { variant: string }> };
+      // 旧变体已保存（mailbox 关闭状态保留在 wide）。
+      expect(parsed.variants.wide?.variant).toBe("wide");
+      expect(parsed.variants.single?.variant).toBe("single");
+      await act(async () => {
+        renderer!.unmount();
+      });
+    });
+  });
+});
+
+async function withLocalStorageAsync<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = (globalThis as Record<string, unknown>).localStorage;
+  (globalThis as Record<string, unknown>).localStorage = storageStub;
+  try {
+    return await fn();
+  } finally {
+    (globalThis as Record<string, unknown>).localStorage = previous;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // fake renderer parity（旧布局语义 vs 新模型）
