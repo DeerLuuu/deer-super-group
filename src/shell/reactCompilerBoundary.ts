@@ -31,11 +31,7 @@ export const REACT_COMPILER_HIGH_RISK_OPT_OUT = [
   "src/App.tsx",
   "src/shell/LazyPanel.tsx",
   "src/shell/panel/PanelHost.tsx",
-  "src/shell/dock/DockShellV2.tsx",
-  "src/shell/dock/DockTree.tsx",
-  "src/shell/dock/DockGroup.tsx",
-  "src/shell/dock/DockSash.tsx",
-  "src/shell/dock/DockDropZone.tsx",
+  "src/shell/dock/DockShell.tsx",
 ] as const;
 
 /** Files that must never reach the compiler, even if a future allowlist grows. */

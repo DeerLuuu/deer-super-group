@@ -149,6 +149,7 @@ export default forwardRef<DockHandle, {
   },
   ref,
 ) {
+  "use no memo";
   const apiRef = useRef<DockviewApi | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const variantRef = useRef<DockVariant>(selectVariant(dockWidth, windowWidth));

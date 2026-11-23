@@ -1,0 +1,110 @@
+{
+  "results": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "groups": 4,
+      "panels": [
+        "对话",
+        "任务",
+        "团队",
+        "记忆",
+        "黑板",
+        "备忘录",
+        "归档审批",
+        "邮箱"
+      ],
+      "groupsRect": [
+        {
+          "x": 56,
+          "y": 44.4375,
+          "width": 842,
+          "height": 464,
+          "top": 44.4375,
+          "right": 898,
+          "bottom": 508.4375,
+          "left": 56
+        },
+        {
+          "x": 898,
+          "y": 44.4375,
+          "width": 542,
+          "height": 464,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 508.4375,
+          "left": 898
+        },
+        {
+          "x": 56,
+          "y": 508.4375,
+          "width": 593,
+          "height": 392,
+          "top": 508.4375,
+          "right": 649,
+          "bottom": 900.4375,
+          "left": 56
+        },
+        {
+          "x": 649,
+          "y": 508.4375,
+          "width": 791,
+          "height": 392,
+          "top": 508.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 649
+        }
+      ]
+    },
+    {
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "groups": 1,
+      "panels": [
+        "对话",
+        "邮箱",
+        "记忆",
+        "任务"
+      ],
+      "groupsRect": [
+        {
+          "x": 56,
+          "y": 44.4375,
+          "width": 904,
+          "height": 756,
+          "top": 44.4375,
+          "right": 960,
+          "bottom": 800.4375,
+          "left": 56
+        }
+      ]
+    },
+    {
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "groups": 1,
+      "panels": [
+        "对话",
+        "邮箱",
+        "记忆",
+        "任务"
+      ],
+      "groupsRect": [
+        {
+          "x": 56,
+          "y": 80.4375,
+          "width": 424,
+          "height": 720,
+          "top": 80.4375,
+          "right": 480,
+          "bottom": 800.4375,
+          "left": 56
+        }
+      ]
+    }
+  ]
+}
