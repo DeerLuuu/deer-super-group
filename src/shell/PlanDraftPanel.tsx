@@ -51,6 +51,7 @@ export default function PlanDraftPanel({
   onCancel: () => void;
   onRetry: () => void;
 }) {
+  "use no memo";
   const [ack, setAck] = useState(false);
   const [ackNotice, setAckNotice] = useState("");
   const firstTitleRef = useRef<HTMLInputElement | null>(null);

@@ -11,6 +11,7 @@ export default function FirstRunCard({
   onToggle: () => void;
   onAction: () => void;
 }) {
+  "use no memo";
   if (collapsed) {
     return (
       <div className="first-run-region">
