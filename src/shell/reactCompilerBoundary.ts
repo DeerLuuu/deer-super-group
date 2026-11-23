@@ -9,12 +9,29 @@ export const REACT_COMPILER_PACKAGE = "babel-plugin-react-compiler";
 export const REACT_COMPILER_VERSION = "1.0.0";
 export const REACT_COMPILER_LICENSE = "MIT";
 
-/** RC1-1 annotation pilot: non-Dock, non-critical presentational components. */
-export const REACT_COMPILER_ALLOWLIST = [
-  "src/shell/SkipLink.tsx",
-  "src/shell/ApprovalTerms.tsx",
-  "src/shell/TaskContractChips.tsx",
-  "src/shell/TaskWorkspaceTabs.tsx",
+/** RC1-2 infer scope: directory allowlist; Dock/rewrite/high-risk files excluded below. */
+export const REACT_COMPILER_ALLOWLIST = ["src/shell/", "src/git/ui/"] as const;
+
+/** DW1 rewrite / panel infrastructure is owned by another wave and never inferred. */
+export const REACT_COMPILER_EXCLUDED_FILES = [
+  "src/shell/dock/",
+  "src/shell/panel/PanelHost.tsx",
+  "src/shell/LazyPanel.tsx",
+] as const;
+
+/** Behavior-sensitive components with an explicit `"use no memo"` opt-out. */
+export const REACT_COMPILER_HIGH_RISK_OPT_OUT = [
+  "src/shell/SeparatorControl.tsx",
+  "src/shell/ErrorRecoveryBar.tsx",
+  "src/shell/FirstRunCard.tsx",
+  "src/shell/chat/ChatLiveBridge.tsx",
+  "src/shell/MemoryWorkbench.tsx",
+  "src/shell/PlanDraftPanel.tsx",
+  "src/shell/PollPanel.tsx",
+  "src/git/ui/GitDiffViewer.tsx",
+  "src/git/ui/GitGraphPanel.tsx",
+  "src/git/ui/MergeQueuePanel.tsx",
+  "src/git/ui/GitAiDraft.tsx",
 ] as const;
 
 /** Files that must never reach the compiler, even if a future allowlist grows. */
@@ -74,10 +91,10 @@ export function isReactCompilerExcluded(filename: string): boolean {
 
 export function shouldCompileReactFile(filename: string): boolean {
   const path = normalizedPath(filename);
+  if (!path.endsWith(".tsx")) return false;
   if (isReactCompilerExcluded(path)) return false;
-  return REACT_COMPILER_ALLOWLIST.some(
-    (allowed) => path === allowed || path.endsWith(`/${allowed}`),
-  );
+  if (REACT_COMPILER_EXCLUDED_FILES.some((prefix) => path.startsWith(prefix))) return false;
+  return REACT_COMPILER_ALLOWLIST.some((allowed) => path.startsWith(allowed));
 }
 
 /** Options passed to Babel; `sources` is the final file-level guard. */

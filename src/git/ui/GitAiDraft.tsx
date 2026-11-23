@@ -29,6 +29,7 @@ export function GitAiDraftPanel({
   label?: string;
   useLabel?: string;
 }) {
+  "use no memo";
   const storageKey = useMemo(
     () => `deer.git.ai.agent.${workspaceId}.${kind}`,
     [kind, workspaceId],

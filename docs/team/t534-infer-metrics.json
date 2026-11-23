@@ -1,0 +1,103 @@
+{
+  "task": "t534",
+  "kind": "RC1-2 React Compiler infer whitelist",
+  "at": "2026-11-23T23:20:00+08:00",
+  "baseCommit": "445c04d",
+  "scope": {
+    "allowlist": ["src/shell/", "src/git/ui/"],
+    "excludedFiles": [
+      "src/shell/dock/",
+      "src/shell/panel/PanelHost.tsx",
+      "src/shell/LazyPanel.tsx"
+    ],
+    "excludedPrefixes": [
+      "electron/",
+      "scripts/",
+      "src/kernel/",
+      "src/review/",
+      "src/watchdog/",
+      "src/memory/",
+      "src/shared/",
+      "dist/",
+      "dist-electron/",
+      "node_modules/"
+    ],
+    "compilerMode": "infer",
+    "defaultBuildCompiler": false,
+    "defaultTestCompiler": false
+  },
+  "highRiskNoMemo": [
+    "src/shell/SeparatorControl.tsx",
+    "src/shell/ErrorRecoveryBar.tsx",
+    "src/shell/FirstRunCard.tsx",
+    "src/shell/chat/ChatLiveBridge.tsx",
+    "src/shell/MemoryWorkbench.tsx",
+    "src/shell/PlanDraftPanel.tsx",
+    "src/shell/PollPanel.tsx",
+    "src/git/ui/GitDiffViewer.tsx",
+    "src/git/ui/GitGraphPanel.tsx",
+    "src/git/ui/MergeQueuePanel.tsx",
+    "src/git/ui/GitAiDraft.tsx"
+  ],
+  "build": {
+    "default": {
+      "viteMs": 238,
+      "totalMs": 1009,
+      "index": { "file": "index-DPrxNKzl.js", "bytes": 381920, "gzipKb": 113.83 },
+      "vendorReact": { "file": "vendor-react-BUpqyDsC.js", "bytes": 206755, "gzipKb": 64.81 },
+      "css": { "file": "index-Cl22jyNJ.css", "bytes": 150017, "gzipKb": 25.44 }
+    },
+    "compiler": {
+      "viteMs": 2690,
+      "totalMs": 3690,
+      "index": { "file": "index-C0Ia58cY.js", "bytes": 387200, "gzipKb": 116.42 },
+      "vendorReact": { "file": "vendor-react-Bcerwr7Q.js", "bytes": 206922, "gzipKb": 64.91 },
+      "css": { "file": "index-Cl22jyNJ.css", "bytes": 150017, "gzipKb": 25.44 }
+    },
+    "delta": {
+      "indexBytes": 5280,
+      "vendorReactBytes": 167,
+      "cssBytes": 0,
+      "rendererSourcemap": "unchanged (disabled)"
+    },
+    "notableChunks": {
+      "MemoryWorkbench": { "default": 30520, "compiler": 35560 },
+      "GitGraphPanel": { "default": 52170, "compiler": 58990 },
+      "PollPanel": { "default": 16510, "compiler": 17970 }
+    }
+  },
+  "tests": {
+    "default": "179 files / 1206 tests (64.52s)",
+    "compiler": "80 files / 381 tests",
+    "boundary": "6 tests; high-risk directive scan included"
+  },
+  "fixture": {
+    "mode": "real Electron compiled shell fixture; production components/CSS; not full App Dock",
+    "screenshots": [
+      "docs/team/t534-infer-1440.png",
+      "docs/team/t534-infer-960.png",
+      "docs/team/t534-infer-480.png",
+      "docs/team/t534-infer-interaction-1440.png"
+    ],
+    "interaction": "ArrowRight overview→runs; aria-selected/focus correct",
+    "horizontal": "scrollWidth===innerWidth at 1440/960/480",
+    "walkthrough": "docs/team/t534-infer-walkthrough.json"
+  },
+  "performance": {
+    "fixture": "real Electron 100 flushSync mount/update",
+    "singleRun": { "defaultAvgMs": 0.44, "compilerAvgMs": 0.494, "deltaPct": 12.3 },
+    "repeatedSamples": {
+      "defaultRangeMs": [7.8, 20.1],
+      "compilerRangeMs": [12.8, 25.0],
+      "conclusion": "noisy/overlapping; no stable regression confirmed"
+    },
+    "decision": "keep infer scope; monitor; shrink allowlist if sustained regression"
+  },
+  "rollback": [
+    "leave RC1_COMPILER/RC1_MODE unset for baseline",
+    "remove use no memo directives if desired",
+    "restore RC1-1 allowlist four files",
+    "remove RC1_MODE=infer from build:compiler/test:compiler",
+    "typecheck/build/test"
+  ]
+}

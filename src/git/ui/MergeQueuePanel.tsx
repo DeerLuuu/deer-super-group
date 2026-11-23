@@ -45,6 +45,7 @@ export function MergeQueuePanel({
   members,
   aiDisabledReason,
 }: MergeQueuePanelProps) {
+  "use no memo";
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});

@@ -102,6 +102,7 @@ export default function MemoryWorkbench({
   onNotify,
   onStartPoll,
 }: MemoryWorkbenchProps) {
+  "use no memo";
   const [tab, setTab] = useState<MemoryTab>(() => loadTab(workspaceId));
   const [snapshot, setSnapshot] = useState<MemorySnapshot | null>(null);
   const [loading, setLoading] = useState(true);

@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   REACT_COMPILER_ALLOWLIST,
+  REACT_COMPILER_EXCLUDED_FILES,
   REACT_COMPILER_EXCLUDED_PREFIXES,
+  REACT_COMPILER_HIGH_RISK_OPT_OUT,
   REACT_COMPILER_LICENSE,
   REACT_COMPILER_PACKAGE,
   REACT_COMPILER_VERSION,
@@ -44,25 +46,35 @@ describe("t510 RC1-0 React Compiler boundary", () => {
     );
   });
 
-  it("compiles only the allowlisted shell component and rejects kernel/electron/tests", () => {
-    expect(REACT_COMPILER_ALLOWLIST).toEqual([
-      "src/shell/SkipLink.tsx",
-      "src/shell/ApprovalTerms.tsx",
-      "src/shell/TaskContractChips.tsx",
-      "src/shell/TaskWorkspaceTabs.tsx",
-    ]);
+  it("compiles shell/git UI but excludes Dock/panel infrastructure/tests", () => {
+    expect(REACT_COMPILER_ALLOWLIST).toEqual(["src/shell/", "src/git/ui/"]);
     expect(shouldCompileReactFile("src/shell/SkipLink.tsx")).toBe(true);
-    expect(shouldCompileReactFile("S:/repo/src/shell/SkipLink.tsx")).toBe(true);
-    expect(shouldCompileReactFile("src/shell/Another.tsx")).toBe(false);
+    expect(shouldCompileReactFile("S:/repo/src/shell/ApprovalTerms.tsx")).toBe(true);
+    expect(shouldCompileReactFile("src/git/ui/GitPanels.tsx")).toBe(true);
+    expect(shouldCompileReactFile("src/shell/dock/DockShell.tsx")).toBe(false);
+    expect(shouldCompileReactFile("src/shell/panel/PanelHost.tsx")).toBe(false);
+    expect(shouldCompileReactFile("src/shell/LazyPanel.tsx")).toBe(false);
+    expect(shouldCompileReactFile("src/shell/dock/layoutOps.tsx")).toBe(false);
     expect(shouldCompileReactFile("src/kernel/service.tsx")).toBe(false);
     expect(shouldCompileReactFile("electron/main.tsx")).toBe(false);
     expect(shouldCompileReactFile("scripts/seed.tsx")).toBe(false);
     expect(shouldCompileReactFile("src/shared/View.tsx")).toBe(false);
     expect(shouldCompileReactFile("src/shell/SkipLink.test.tsx")).toBe(false);
     expect(shouldCompileReactFile("src/shell/__tests__/SkipLink.tsx")).toBe(false);
+    expect(shouldCompileReactFile("src/git/ui/GitDiffViewer.ts")).toBe(false);
     expect(isReactCompilerExcluded("src/kernel/service.tsx")).toBe(true);
     expect(isReactCompilerExcluded("electron/main.tsx")).toBe(true);
     expect(REACT_COMPILER_EXCLUDED_PREFIXES).toContain("src/shared/");
+    expect(REACT_COMPILER_EXCLUDED_FILES).toContain("src/shell/dock/");
+  });
+
+  it("documents high-risk components with explicit use no memo", () => {
+    expect(REACT_COMPILER_HIGH_RISK_OPT_OUT).toContain("src/git/ui/GitDiffViewer.tsx");
+    expect(REACT_COMPILER_HIGH_RISK_OPT_OUT).toContain("src/shell/SeparatorControl.tsx");
+    for (const file of REACT_COMPILER_HIGH_RISK_OPT_OUT) {
+      const source = readFileSync(path.join(root, file), "utf8");
+      expect(source).toContain('"use no memo";');
+    }
   });
 
   it("exposes the Babel plugin guard and both compilation modes", () => {
@@ -70,7 +82,9 @@ describe("t510 RC1-0 React Compiler boundary", () => {
     expect(options.target).toBe("19");
     expect(options.compilationMode).toBe("annotation");
     expect(options.sources("src/shell/SkipLink.tsx")).toBe(true);
+    expect(options.sources("src/git/ui/GitPanels.tsx")).toBe(true);
     expect(options.sources("src/kernel/service.tsx")).toBe(false);
+    expect(reactCompilerMode({})).toBe("annotation");
     expect(reactCompilerMode({ RC1_MODE: "annotation" })).toBe("annotation");
     expect(reactCompilerMode({ RC1_MODE: "infer" })).toBe("infer");
     expect(reactCompilerBabelPlugins({})[0][0]).toBe(REACT_COMPILER_PACKAGE);
