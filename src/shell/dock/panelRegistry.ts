@@ -1,8 +1,11 @@
 /**
  * t50 Dock 布局：面板注册表 + 默认布局 spec（依据 docs/team/dock-layout-design.md §4/§8）。
- * 稳定 spec 只在本文件维护；布局持久化由 v2 layoutOps 管理。
+ *
+ * t568/MF1-1：定义元数据搬到 src/shell/panel/panelManifest.ts（编译期 manifest）；
+ * 本文件只做类型、派生 PANEL_DEFS 与布局工具，仍保持原公开 API。
  */
 import { MIN_SPLIT_DOCK_WIDTH, NARROW_WINDOW_MAX } from "./narrowWindow";
+import { PANEL_MANIFEST_INDEX } from "../panel/panelManifest";
 
 export type RouteTabString =
   | "tasks"
@@ -45,176 +48,27 @@ export type PanelDef = {
   defaultClosed?: boolean;
 };
 
-/** §4.2 面板注册表（单例：每个 key 只有一个实例）。 */
-export const PANEL_DEFS: Record<PanelKey, PanelDef> = {
-  chat: {
-    key: "chat",
-    title: "对话",
-    component: "chat",
-    routeTab: "chat",
-    renderer: "always",
-    minWidth: 420,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "main",
-  },
-  team: {
-    key: "team",
-    title: "团队",
-    component: "team",
-    routeTab: "team",
-    renderer: "always",
-    minWidth: 360,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "team",
-  },
-  context: {
-    key: "context",
-    title: "上下文",
-    component: "context",
-    routeTab: "context",
-    renderer: "always",
-    minWidth: 280,
-    minHeight: 240,
-    closable: true,
-    defaultGroup: "main",
-    defaultClosed: true,
-  },
-  tasks: {
-    key: "tasks",
-    title: "任务",
-    component: "tasks",
-    routeTab: "tasks",
-    renderer: "always",
-    minWidth: 560,
-    minHeight: 360,
-    closable: true,
-    defaultGroup: "main",
-  },
-  runs: {
-    key: "runs",
-    title: "运行",
-    component: "runs",
-    // t69：运行面板是任务域的子视图；打开时路由仍为 tasks，hash 用 r=<runId> 深链。
-    routeTab: "tasks",
-    renderer: "always",
-    minWidth: 380,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "main",
-    // 默认布局不新增面板（设计 §9.5「Dock 布局不变」）；需要时从面板启动器/任务页打开。
-    defaultClosed: true,
-  },
-  mailbox: {
-    key: "mailbox",
-    title: "邮箱",
-    component: "mailbox",
-    routeTab: "mailbox",
-    renderer: "onlyWhenVisible",
-    minWidth: 480,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "main",
-  },
-  board: {
-    key: "board",
-    title: "记忆",
-    component: "board",
-    routeTab: "board",
-    renderer: "onlyWhenVisible",
-    minWidth: 360,
-    minHeight: 280,
-    closable: true,
-    defaultGroup: "main",
-  },
-  polls: {
-    key: "polls",
-    title: "投票",
-    component: "polls",
-    routeTab: "polls",
-    renderer: "onlyWhenVisible",
-    minWidth: 430,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "main",
-    defaultClosed: true,
-  },
-  watchdog: {
-    key: "watchdog",
-    title: "看门狗",
-    component: "watchdog",
-    routeTab: "watchdog",
-    renderer: "onlyWhenVisible",
-    minWidth: 420,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "main",
-    defaultClosed: true,
-  },
-  planDraft: {
-    key: "planDraft",
-    title: "计划草案",
-    component: "planDraft",
-    // 草案由 Chat 入口显式打开，不新增 hash 路由。
-    routeTab: null,
-    renderer: "onlyWhenVisible",
-    minWidth: 560,
-    minHeight: 420,
-    closable: true,
-    defaultGroup: "main",
-    defaultClosed: true,
-  },
-  settings: {
-    key: "settings",
-    title: "设置",
-    component: "settings",
-    routeTab: "settings",
-    renderer: "onlyWhenVisible",
-    minWidth: 560,
-    minHeight: 400,
-    closable: false, // §7.4：设置本地草稿保护，v1 不可关闭
-    defaultGroup: "main",
-  },
-  gitGraph: {
-    key: "gitGraph",
-    title: "版本图",
-    component: "gitGraph",
-    routeTab: null,
-    renderer: "onlyWhenVisible",
-    minWidth: 360,
-    minHeight: 300,
-    closable: true,
-    defaultGroup: "main",
-    defaultClosed: true,
-  },
-  mergeQueue: {
-    key: "mergeQueue",
-    title: "合并队列",
-    component: "mergeQueue",
-    // 队列面板是任务域的高频子视图；打开时路由仍为 tasks，?merge=1 深链负责恢复。
-    routeTab: null,
-    renderer: "onlyWhenVisible",
-    minWidth: 360,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "main",
-    defaultClosed: true,
-  },
-  // t448：后台任务控制台由 Chat 浮窗/面板启动器打开，不新增 primary rail/hash。
-  console: {
-    key: "console",
-    title: "控制台",
-    component: "console",
-    routeTab: null,
-    renderer: "onlyWhenVisible",
-    minWidth: 420,
-    minHeight: 320,
-    closable: true,
-    defaultGroup: "main",
-    defaultClosed: true,
-  },
-};
+/** 由编译期 manifest 派生；保持旧的纯数据形状与 Object 顺序。 */
+export const PANEL_DEFS: Record<PanelKey, PanelDef> = Object.fromEntries(
+  (Object.keys(PANEL_MANIFEST_INDEX) as PanelKey[]).map((key) => {
+    const manifest = PANEL_MANIFEST_INDEX[key];
+    return [
+      key,
+      {
+        key: manifest.key,
+        title: manifest.title,
+        component: manifest.component,
+        routeTab: manifest.routeTab,
+        renderer: manifest.renderer,
+        minWidth: manifest.minWidth,
+        minHeight: manifest.minHeight,
+        closable: manifest.closable,
+        defaultGroup: manifest.defaultGroup,
+        defaultClosed: manifest.defaultClosed,
+      },
+    ];
+  }),
+) as Record<PanelKey, PanelDef>;
 
 /** 主组 tab 顺序（§5.3）：对话在前。 */
 export const MAIN_GROUP_ORDER: PanelKey[] = [

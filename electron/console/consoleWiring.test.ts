@@ -46,7 +46,8 @@ describe("t448 console wiring", () => {
     expect(app).toContain('openPanel("console")');
     expect(app).toContain('case "console"');
     expect(app).toContain("ConsolePanel");
-    expect(read("src/shell/dock/panelRegistry.ts")).toContain('key: "console"');
+    // t568/MF1-1：面板定义已收敛到编译期 manifest；console 注册断言跟随单一来源。
+    expect(read("src/shell/panel/panelManifest.ts")).toContain('key: "console"');
   });
 
   it("does not expose a console tool to the agent kernel", () => {
