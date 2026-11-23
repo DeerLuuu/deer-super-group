@@ -106,6 +106,7 @@ import {
 import { runAgentLoop } from "./loop.js";
 import { BingTranslator, splitTranslationChunks } from "./translate.js";
 import { Store } from "./store.js";
+import { TaskGraphService } from "./taskGraphService.js";
 import {
   buildChatTurns,
   CHAT_TURNS_EVENT_LIMIT,
@@ -362,6 +363,8 @@ function parsePlan(text: string): Array<{
 
 export class AppService {
   readonly store: Store;
+  /** O1-2：task owner/dependency 的唯一公开写边界。 */
+  readonly tasks: TaskGraphService;
   private readonly listeners = new Set<(event: EventRecord) => void>();
   private readonly chatListeners = new Set<(event: ChatEvent) => void>();
   private readonly chatAborts = new Map<string, AbortController>();
@@ -394,6 +397,7 @@ export class AppService {
 
   constructor(dataDir: string) {
     this.store = new Store(path.join(dataDir, "deer.db"));
+    this.tasks = new TaskGraphService(this.store);
     this.store.onEvent((event) => {
       for (const listener of this.listeners) {
         try {
@@ -984,12 +988,12 @@ export class AppService {
   deleteTask(id: string): DeleteTaskResult {
     const task = this.store.getTask(id);
     if (!task) throw new Error(`task not found: ${id}`);
-    return this.store.deleteTask(id);
+    return this.tasks.deleteTask(id);
   }
 
   createTask(input: CreateTaskInput): Task {
     if (!input.title.trim()) throw new Error("task title is required");
-    const task = this.store.createTask({
+    const task = this.tasks.createTask({
       workspaceId: input.workspaceId,
       title: input.title.trim(),
       description: input.description,
@@ -2284,30 +2288,36 @@ export class AppService {
       ];
     }
 
-    const created = plan.map((item) =>
-      this.store.createTask({
-        workspaceId,
-        title: item.title,
-        description: item.description,
-        acceptance: item.acceptance,
-      }),
-    );
+    const created = this.store.withTransaction(() => {
+      const tasks = plan.map((item) =>
+        this.tasks.createTask({
+          workspaceId,
+          title: item.title,
+          description: item.description,
+          acceptance: item.acceptance,
+        }),
+      );
 
-    plan.forEach((item, index) => {
-      const dependsOn = item.dependsOn
-        .map((depIndex) => created[depIndex]?.id)
-        .filter((id): id is string => Boolean(id));
-      if (dependsOn.length) {
-        this.store.updateTask(created[index].id, { dependsOn });
-      }
-    });
+      plan.forEach((item, index) => {
+        const dependsOn = item.dependsOn
+          .map((depIndex) => tasks[depIndex]?.id)
+          .filter((id): id is string => Boolean(id));
+        if (dependsOn.length) {
+          this.tasks.setDependencies(tasks[index].id, dependsOn, {
+            reason: "router.plan",
+            actor: "Router",
+          });
+        }
+      });
 
-    this.store.appendEvent({
-      aggregateType: "workspace",
-      aggregateId: workspaceId,
-      type: "router.plan",
-      actor: "Router",
-      payload: { goal, tasks: created.map((task) => task.id) },
+      this.store.appendEvent({
+        aggregateType: "workspace",
+        aggregateId: workspaceId,
+        type: "router.plan",
+        actor: "Router",
+        payload: { goal, tasks: tasks.map((task) => task.id) },
+      });
+      return tasks;
     });
     return created.map((task) => this.store.getTask(task.id) ?? task);
   }
@@ -2412,7 +2422,7 @@ export class AppService {
       }
 
       const created = input.tasks.map((task) =>
-        this.store.createTask({
+        this.tasks.createTask({
           workspaceId: input.workspaceId,
           title: task.title.trim(),
           description: task.description,
@@ -2426,7 +2436,10 @@ export class AppService {
         const dependsOn = task.dependsOn
           .map((draftId) => byDraftId.get(draftId))
           .filter((value): value is string => Boolean(value));
-        this.store.updateTask(id, { dependsOn });
+        this.tasks.setDependencies(id, dependsOn, {
+          reason: "plan.confirm",
+          actor: "Router",
+        });
         this.store.db.prepare("UPDATE tasks SET priority = ? WHERE id = ?").run(task.priority, id);
       });
       const taskIds = created.map((task) => task.id);
