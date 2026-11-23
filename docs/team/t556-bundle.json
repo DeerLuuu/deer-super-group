@@ -5,9 +5,9 @@
     "modules": 475,
     "distBytes": 1766950,
     "distFiles": 17,
-    "indexBytes": 392660,
+    "indexBytes": 392663,
     "indexGzipBytes": 116870,
-    "cssBytes": 153320,
+    "cssBytes": 153324,
     "vendorDockviewJsBytes": 414896,
     "vendorDockviewCssBytes": 136041
   },
@@ -15,9 +15,9 @@
     "modules": 469,
     "distBytes": 1216233,
     "distFiles": 15,
-    "indexBytes": 383860,
+    "indexBytes": 383861,
     "indexGzipBytes": 114290,
-    "cssBytes": 151250,
+    "cssBytes": 151258,
     "vendorDockviewChunk": false
   },
   "delta": {
