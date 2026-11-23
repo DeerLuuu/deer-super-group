@@ -46,13 +46,30 @@ getDockEngine() === "v2" ? DockShellV2 : DockShellLegacy
 - 截图：`t584-v2-optin-1440.png`、`t584-v2-optin-960.png`；记录 `t584-engine-walkthrough.json`。
 - v2 代码/测试保留，未删除；v1 默认不被 v2 opt-in 破坏。
 
+## 3.4 五向拖拽实测（t592）
+
+每次测试先恢复默认 2 组，真实鼠标拖拽“任务”tab 到目标边缘；left 为让左侧有空位，先关闭团队组使主组全宽。原始 before/after、groups、axis、children 顺序、sizes、tab 数、目标 panels 见 `t592-fiveway-walkthrough.json`。
+
+| 方向 | groups | axis | 新组 / 目标 | 关键尺寸 | 证据 |
+|---|---:|---|---|---|---|
+| left | 1→2 | horizontal | 任务左组 x56/692；主组 x748/692 | sash 692/692→740/644 | `t592-left-1440.png` |
+| right | 2→3 | horizontal | 任务右组 x880/560；团队 x520/360 | children 主组、团队、任务左→右 | `t592-right-1440.png` |
+| above | 2→3 | vertical | 任务上组 y44/428；团队 y472/428 | sash 856/428/428→856/464/392 | `t592-above-1440.png` |
+| below | 2→3 | vertical | 团队上组 y44/428；任务下组 y472/428 | reload 后 groups3/tabs5/团队保留 | `t592-below-1440.png` |
+| center | 2→2 | — | 团队 panels `[团队, 任务]`，无新组 | 无 split | `t592-center-1440.png` |
+
+- 三档：`t592-fiveway-1440/960/480.png`，1440 groups2/tabs5、960/480 groups1/tabs4，均 `scrollWidth===innerWidth`。
+- 双轴 sash：左/右 692/692→740/644；上/下 428/428→464/392；松手保持。
+- v2 opt-in：`t592-v2-optin-1440.png`；切回 dockview 正常，v1 默认不受影响。
+- 测试实际 **184 文件 / 1245 用例**（docs 与命令一致）；默认 build **811ms**，index **394.85/117.38**。
+
 ## 4. 验证/构建
 
 | 命令 | 结果 |
 |---|---|
 | `pnpm typecheck` | 0 |
-| `pnpm build` | 0；**830 ms**；index **394.85 kB / gzip 117.38**；vendor-dockview **414.89/97.22**；CSS **153.32/26.08** |
-| `pnpm test -- --max-workers=1 --testTimeout=20000` | **183 文件 / 1238 用例全绿**（269.73s） |
+| `pnpm build` | 0；**811 ms**；index **394.85 kB / gzip 117.38**；vendor-dockview **414.89/97.22**；CSS **153.32/26.08** |
+| `pnpm test -- --max-workers=1 --testTimeout=20000` | **184 文件 / 1245 用例全绿**（271.63s） |
 | `pnpm build:compiler` | 0；index **443.68/140.10**（RC1 全 renderer 仍可用） |
 
 - 默认 build/test 不编译；compiler 仍独立命令。
