@@ -1,0 +1,147 @@
+{
+  "at": "2026-11-23T16:54:58.237Z",
+  "results": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "body": "跳到主内容\nDG\n»\n⇄\n◉\n☰\n◈\n▤\n✉\n⌘\n＋\n↻\n◈\n⇥\n▦\n⚙\n讨论\n与 Router 澄清目标\n计划\n去规划\n运行\n执行与监控\n评审\ndiff 与决定\n交付\n合并与交付\n记忆\n沉淀与下一轮\n预算未设置\n预算未设置\n对话\n任务\n邮",
+      "radios": 3,
+      "modal": {
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机",
+        "rect": {
+          "x": 130,
+          "y": 106.703125,
+          "width": 1180,
+          "height": 686.578125,
+          "top": 106.703125,
+          "right": 1310,
+          "bottom": 793.28125,
+          "left": 130
+        },
+        "font": "13px"
+      },
+      "preview": {
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the ",
+        "rect": {
+          "x": 390,
+          "y": 357.328125,
+          "width": 886,
+          "height": 114.890625,
+          "top": 357.328125,
+          "right": 1276,
+          "bottom": 472.21875,
+          "left": 390
+        },
+        "font": "13px"
+      }
+    },
+    {
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "body": "跳到主内容\nDG\n»\n⇄\n◉\n☰\n◈\n▤\n✉\n⌘\n＋\n↻\n◈\n⇥\n▦\n⚙\n讨论\n计划\n去规划\n运行\n评审\n交付\n记忆\n预算未设置\n对话\n任务\n邮箱\n记忆\n设置\n×\n运行中 0 · 排队 0\n全局 4 · 每工作区 1 · 每成员 1\n暂停调",
+      "radios": 3,
+      "modal": {
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 912,
+          "height": 704,
+          "top": 48,
+          "right": 936,
+          "bottom": 752,
+          "left": 24
+        },
+        "font": "13px"
+      },
+      "preview": {
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the ",
+        "rect": {
+          "x": 58,
+          "y": 459.5,
+          "width": 829,
+          "height": 114.890625,
+          "top": 459.5,
+          "right": 887,
+          "bottom": 574.390625,
+          "left": 58
+        },
+        "font": "13px"
+      }
+    },
+    {
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "body": "跳到主内容\nDG\n»\n⇄\n◉\n☰\n◈\n▤\n✉\n⌘\n＋\n↻\n◈\n⇥\n▦\n⚙\n讨论\n计划\n去规划\n运行\n评审\n交付\n记忆\n预算未设置\n对话\n任务\n邮箱\n记忆\n团队\n设置\n×\n设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关",
+      "radios": 3,
+      "modal": {
+        "text": "设置\n模型、界面、翻译、Git、插件、MCP、Skills 与团队\n关闭\n设置\n已同步\n模型\n供应商、模型与参数\n界面\n字号、Dock 分栏与布局\n翻译\n思考机",
+        "rect": {
+          "x": 24,
+          "y": 48,
+          "width": 432,
+          "height": 704,
+          "top": 48,
+          "right": 456,
+          "bottom": 752,
+          "left": 24
+        },
+        "font": "13px"
+      },
+      "preview": {
+        "text": "正文/控件\nRouter 正在检查登录接口…\nconst answer = 42;\n思考：先确认鉴权中间件，再检查错误码分支。\n翻译：Checking the ",
+        "rect": {
+          "x": 58,
+          "y": 520.9375,
+          "width": 349,
+          "height": 114.890625,
+          "top": 520.9375,
+          "right": 407,
+          "bottom": 635.828125,
+          "left": 58
+        },
+        "font": "13px"
+      }
+    }
+  ],
+  "interaction": {
+    "before": {
+      "checked": [
+        [
+          "small",
+          false
+        ],
+        [
+          "standard",
+          true
+        ],
+        [
+          "large",
+          false
+        ]
+      ],
+      "focus": null
+    },
+    "after": {
+      "checked": [
+        [
+          "small",
+          false
+        ],
+        [
+          "standard",
+          false
+        ],
+        [
+          "large",
+          true
+        ]
+      ],
+      "focus": "界面字号：大",
+      "scale": "1"
+    }
+  }
+}

@@ -16,6 +16,7 @@ export interface DockDropZoneProps {
 }
 
 export default function DockDropZone({ position, target, onDrop }: DockDropZoneProps) {
+  "use no memo";
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     event.stopPropagation();

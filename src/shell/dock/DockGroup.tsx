@@ -55,6 +55,7 @@ export default function DockGroup({
   onClose,
   onDrop,
 }: DockGroupProps) {
+  "use no memo";
   const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
   // t555/F3：always panel 常驻；onlyWhenVisible 首次激活后 keepalive（不卸载）。
   const mountedRef = useRef<Set<PanelKey>>(new Set());

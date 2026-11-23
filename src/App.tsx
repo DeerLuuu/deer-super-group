@@ -461,6 +461,7 @@ function scrollWithin(container: HTMLElement, target: HTMLElement) {
 }
 
 export default function App() {
+  "use no memo";
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   // t448/G12：App 级控制台 store；Chat badge 与 ConsolePanel 共用主进程会话。
