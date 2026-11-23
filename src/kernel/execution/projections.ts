@@ -64,9 +64,11 @@ export function upsertTaskProjection(store: Store, task: Task): void {
   const columns = TASK_COLUMNS.map(([, column]) => column);
   const placeholders = columns.map(() => "?").join(", ");
   const values = TASK_COLUMNS.map(([key]) => encodeValue(task[key]));
+  const updates = columns.map((column) => `${column} = excluded.${column}`).join(", ");
   store.db
     .prepare(
-      `INSERT OR REPLACE INTO tasks (id, ${columns.join(", ")}) VALUES (?, ${placeholders})`,
+      `INSERT INTO tasks (id, ${columns.join(", ")}) VALUES (?, ${placeholders})
+       ON CONFLICT(id) DO UPDATE SET ${updates}`,
     )
     .run(task.id, ...values);
   store.applyTaskCreatedProjection(task);

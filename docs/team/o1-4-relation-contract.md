@@ -24,6 +24,7 @@ v4 后旧代码不能读库；回滚不是 revert 代码后继续使用当前 DB
    ```bash
    node scripts/restore-task-graph-backup.mjs <backup.db> <data-dir>/deer.db
    ```
+   默认要求 backup `user_version=3`、现有 target `user_version=4`；受控演练可加 `--force`。
 4. 脚本校验备份/恢复库的 integrity_check + foreign_key_check，先把原目标复制为 `deer.db.before-restore-<timestamp>`，恢复失败会回写原目标。
 5. 启动回滚版本的代码；v3 旧列/relation 双读可用。
 
@@ -34,7 +35,11 @@ v4 后旧代码不能读库；回滚不是 revert 代码后继续使用当前 DB
 - v2 fixture 经 v3 回填到 v4：relation 快照正确、`owner_id`/`depends_on` 列消失、`foreign_key_check=[]`、pre-contract 备份存在且仍为 v3 形态。
 - v2 bad JSON/跨 workspace/环/缺失/自依赖/重复/超限：v3 expand fail-closed，user_version=2、无 relation 表。
 - v3→v4：旧列删除、relation 保留、pre-contract 备份仍为 v3 形态；`foreign_key_check=[]`。
-- relation-only CRUD/scheduler/delete/PlanDraft/星图/审批回归；全量串行测试 179 文件/1179 用例通过。
+- v1 legacy snapshot：旧列存在时 snapshot 保留 raw owner/deps；v1→v4→rebuild 后 relation/digest 一致。
+- scheduler `listQueuedTasks` 批量覆盖 `dependsOn` relation。
+- v4 中途失败（legacy index 阻止 DROP）：ROLLBACK 后 user_version=3/旧列保留/连接可重新打开。
+- 真实 v4 自动 backup 经 restore 脚本恢复成功；backup v3/target v4 默认校验与 `--force` 覆盖。
+- relation-only CRUD/scheduler/delete/PlanDraft/星图/审批回归；全量串行测试 179 文件/1183 用例通过。
 - 源码 grep：生产代码除 v2→v3 迁移 backfill 与 v4 DROP 语句外无旧列/旧 JSON 读写；UI/scheduler 无 raw legacy。
 - 回滚脚本语法/帮助与备份恢复路径（`scripts/restore-task-graph-backup.test.ts`）。
 
@@ -46,4 +51,4 @@ pnpm build
 pnpm test -- --testTimeout=30000 --maxWorkers=1
 ```
 
-基线：typecheck 0；build 0（466 modules，index 369.06 kB/gzip 109.86）；串行 test 179 文件/1179 用例全绿。
+基线：typecheck 0；build 0（466 modules，index 369.06 kB/gzip 109.86）；串行 test 179 文件/1183 用例全绿。

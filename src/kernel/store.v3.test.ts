@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { Store } from "./store.js";
+import { projectionDigest, rebuildProjections } from "./execution/projections.js";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -191,6 +192,82 @@ describe("O1-4 task graph contract schema", () => {
     expect(store.db.prepare("SELECT COUNT(*) AS n FROM task_dependencies").get()).toMatchObject({ n: 1 });
   });
 
+  it("rolls back a failed v4 column drop and keeps v3 readable", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v4-fail-"));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = path.join(root, "deer.db");
+    const initial = new Store(dbPath);
+    const ws = initial.createWorkspace("A", path.join(root, "a"));
+    initial.createTask({ workspaceId: ws.id, title: "Task", description: "", acceptance: [] });
+    initial.close();
+
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec("ALTER TABLE tasks ADD COLUMN owner_id TEXT; ALTER TABLE tasks ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
+      raw.exec("CREATE INDEX idx_legacy_owner ON tasks(owner_id)");
+      raw.exec("DELETE FROM schema_migrations WHERE version = 4; PRAGMA user_version = 3");
+    } finally {
+      raw.close();
+    }
+
+    expect(() => new Store(dbPath)).toThrow(/task graph contract migration failed/);
+    expect(userVersionAt(dbPath)).toBe(3);
+    expect(columnNames(dbPath)).toEqual(expect.arrayContaining(["owner_id", "depends_on"]));
+    const check = new DatabaseSync(dbPath);
+    try {
+      expect(
+        (check.prepare("PRAGMA index_list(tasks)").all() as Array<{ name?: string }>).map((row) =>
+          String(row.name),
+        ),
+      ).toContain("idx_legacy_owner");
+      // The failed constructor must have closed its connection: a second
+      // writer can still open and read the rolled-back v3 database.
+      check.prepare("PRAGMA user_version").get();
+    } finally {
+      check.close();
+    }
+  });
+
+  it("keeps v1 owner/dependencies in the legacy snapshot through v4 rebuild", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v1-to-v4-"));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = path.join(root, "deer.db");
+    const initial = new Store(dbPath);
+    const ws = initial.createWorkspace("A", path.join(root, "a"));
+    const agent = makeAgent(initial, ws.id, "Owner");
+    const a = makeTask(initial, ws.id, "A");
+    const b = makeTask(initial, ws.id, "B", agent.id, [a.id]);
+    initial.close();
+
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec("ALTER TABLE tasks ADD COLUMN owner_id TEXT; ALTER TABLE tasks ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
+      raw.prepare("UPDATE tasks SET owner_id = ?, depends_on = ? WHERE id = ?").run(
+        agent.id,
+        JSON.stringify([a.id]),
+        b.id,
+      );
+      raw.exec("DROP TABLE task_dependencies; DROP TABLE task_owners; DELETE FROM schema_migrations WHERE version >= 3; PRAGMA user_version = 1");
+    } finally {
+      raw.close();
+    }
+
+    const store = new Store(dbPath);
+    cleanup.push(() => store.close());
+    expect(userVersionAt(dbPath)).toBe(4);
+    expect(store.getTask(b.id)).toMatchObject({ ownerId: agent.id, dependsOn: [a.id] });
+    const digestBefore = projectionDigest(store);
+    rebuildProjections(store);
+    expect(store.getTask(b.id)).toMatchObject({ ownerId: agent.id, dependsOn: [a.id] });
+    expect(projectionDigest(store)).toEqual(digestBefore);
+    expect(
+      store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(b.id),
+    ).toMatchObject({ agent_id: agent.id });
+    expect(
+      store.db.prepare("SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?").all(b.id),
+    ).toEqual([{ depends_on_task_id: a.id }]);
+  });
+
   it("removes legacy columns from an existing v3 DB while preserving relations", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-to-v4-"));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
@@ -270,7 +347,10 @@ describe("O1-4 task graph contract schema", () => {
       ownerId: owner.id,
       dependsOn: [a.id],
     });
-    expect(store.listQueuedTasks(ws.id).find((task) => task.id === b.id)?.ownerId).toBe(owner.id);
+    expect(store.listQueuedTasks(ws.id).find((task) => task.id === b.id)).toMatchObject({
+      ownerId: owner.id,
+      dependsOn: [a.id],
+    });
   });
 
   it("rejects malformed dependency JSON and leaves v2 untouched", () => {

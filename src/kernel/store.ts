@@ -1053,9 +1053,22 @@ export class Store {
    * 让重建投影不必解释全部历史事件语义；旧事件保留只读（trace 仍可看）。
    */
   private seedLegacySnapshots(): void {
+    const taskColumns = new Set(
+      (this.db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>).map((column) =>
+        String(column.name),
+      ),
+    );
     const tasks = this.db.prepare("SELECT * FROM tasks").all() as Row[];
     for (const row of tasks) {
       const task = toTask(row);
+      // v1 still carries the legacy mirror columns; preserve them in the
+      // baseline snapshot so a later projections rebuild can restore relation.
+      if (taskColumns.has("owner_id")) {
+        task.ownerId = row.owner_id == null ? null : String(row.owner_id);
+      }
+      if (taskColumns.has("depends_on")) {
+        task.dependsOn = parseJson<string[]>(row.depends_on, []);
+      }
       this.insertLegacySnapshot("task", task.id, task);
     }
     // 旧库 runs 没有 attempt：按 started_at + id 给每个 task 编号。
@@ -1940,8 +1953,28 @@ export class Store {
          JOIN tasks t ON t.id = o.task_id WHERE t.workspace_id = ?`,
       )
       .all(workspaceId) as Array<{ task_id?: string; agent_id?: string }>;
+    const dependencyRows = this.db
+      .prepare(
+        `SELECT d.task_id, d.depends_on_task_id FROM task_dependencies d
+         WHERE d.task_id IN (
+           SELECT id FROM tasks WHERE workspace_id = ? AND status = 'queued'
+         )
+         ORDER BY d.task_id ASC, d.ordinal ASC, d.depends_on_task_id ASC`,
+      )
+      .all(workspaceId) as Array<{ task_id?: string; depends_on_task_id?: string }>;
     const owners = new Map(ownerRows.map((row) => [String(row.task_id), String(row.agent_id)]));
-    return tasks.map((task) => ({ ...task, ownerId: owners.get(task.id) ?? null }));
+    const dependencies = new Map<string, string[]>();
+    for (const row of dependencyRows) {
+      const taskId = String(row.task_id);
+      const list = dependencies.get(taskId) ?? [];
+      list.push(String(row.depends_on_task_id));
+      dependencies.set(taskId, list);
+    }
+    return tasks.map((task) => ({
+      ...task,
+      ownerId: owners.get(task.id) ?? null,
+      dependsOn: dependencies.get(task.id) ?? [],
+    }));
   }
 
   private taskRelationTablesReady(): boolean {
