@@ -148,6 +148,7 @@ import FirstRunCard from "./shell/FirstRunCard";
 import ErrorRecoveryBar from "./shell/ErrorRecoveryBar";
 import ApprovalTerms from "./shell/ApprovalTerms";
 import { LazyPanel } from "./shell/LazyPanel";
+import { PANEL_LOADERS } from "./shell/panel/panelLoaders";
 import { deriveFirstRunState, resolveFirstRunKeyStatus } from "./shell/firstRunData";
 import { writeThenRefresh } from "./shell/writeThenRefresh";
 import TaskWorkspaceTabs from "./shell/TaskWorkspaceTabs";
@@ -263,14 +264,14 @@ import { BackgroundTasksButton } from "./shell/console/BackgroundTasksPopover";
 
 type Tab = RouteTab;
 
-const loadSettingsPanel = () => import("./SettingsView");
-const loadTeamPanel = () => import("./TeamDashboard");
-const loadMemoryPanel = () => import("./shell/MemoryWorkbench");
-const loadPollPanel = () => import("./shell/PollPanel");
-const loadGitGraphPanel = () => import("./git/ui/GitGraphPanel");
-const loadMergeQueuePanel = () =>
-  import("./git/ui/MergeQueuePanel").then((module) => ({ default: module.MergeQueuePanel }));
-const loadPlanDraftPanel = () => import("./shell/PlanDraftPanel");
+// t568/MF1-1：loader 的唯一来源是 panelLoaders（manifest 引用同一张表）。
+const loadSettingsPanel = PANEL_LOADERS.settings;
+const loadTeamPanel = PANEL_LOADERS.team;
+const loadMemoryPanel = PANEL_LOADERS.board;
+const loadPollPanel = PANEL_LOADERS.polls;
+const loadGitGraphPanel = PANEL_LOADERS.gitGraph;
+const loadMergeQueuePanel = PANEL_LOADERS.mergeQueue;
+const loadPlanDraftPanel = PANEL_LOADERS.planDraft;
 
 /** 侧栏「面板」启动器：设置独立为弹窗，不在此列。 */
 export const PANEL_LAUNCHER_KEYS: PanelKey[] = [
