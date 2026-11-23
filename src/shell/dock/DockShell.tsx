@@ -133,7 +133,7 @@ const PANEL_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelPro
 
 const SAVE_DEBOUNCE_MS = 400;
 
-export default forwardRef<DockHandle, {
+const DockShellLegacy = forwardRef<DockHandle, {
   workspaceId: string;
   dockWidth: number;
   windowWidth: number;
@@ -654,3 +654,36 @@ export default forwardRef<DockHandle, {
     </div>
   );
 });
+
+// ---------------------------------------------------------------------------
+// DW1-3（t548）：引擎开关——DOCK_ENGINE 编译期常量，默认 "v2"（自研 DockTree 渲染器）；
+// VITE_DOCK_ENGINE=dockview 构建或 localStorage["deer.dock.engine"]="dockview" 可切回旧引擎。
+// 旧 renderer 保留不删（DW1-4 才移除）。
+// ---------------------------------------------------------------------------
+
+import { getDockEngine } from "./dockEngine";
+import DockShellV2 from "./DockShellV2";
+
+export type DockShellProps = {
+  workspaceId: string;
+  dockWidth: number;
+  windowWidth: number;
+  maxGroups: number;
+  initialPanelKey: PanelKey | null;
+  onActivePanelChange: (key: PanelKey) => void;
+  onPanelClose?: (key: PanelKey) => void;
+  onNotify?: (message: string) => void;
+};
+
+const DockShellSwitch = forwardRef<DockHandle, DockShellProps>(function DockShellSwitch(
+  props,
+  ref,
+) {
+  const engine = getDockEngine();
+  if (engine === "v2") {
+    return <DockShellV2 {...props} ref={ref} />;
+  }
+  return <DockShellLegacy {...props} ref={ref} />;
+});
+
+export default DockShellSwitch;
