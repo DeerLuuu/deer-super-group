@@ -420,6 +420,64 @@ describe("layoutModel 操作", () => {
     );
     expect(validateLayout(moved)).toEqual([]);
   });
+
+  // t518 F1：panel/target 缺失时 center/split 四条 no-op 路径。
+  it("move/split：panel 或 target 不在布局中 → 返回原 layout（no-op）", () => {
+    const base = defaultLayout("wide");
+    const snapshot = JSON.stringify(base);
+    // panel 缺失（gitGraph 未打开）
+    expect(JSON.stringify(movePanelInLayout(base, "gitGraph", "chat", "center"))).toBe(snapshot);
+    expect(JSON.stringify(movePanelInLayout(base, "gitGraph", "chat", "right"))).toBe(snapshot);
+    expect(JSON.stringify(splitPanelInLayout(base, "gitGraph", "right"))).toBe(snapshot);
+    // target 缺失（target=gitGraph 未打开）
+    expect(JSON.stringify(movePanelInLayout(base, "chat", "gitGraph", "center"))).toBe(snapshot);
+    expect(JSON.stringify(movePanelInLayout(base, "chat", "gitGraph", "left"))).toBe(snapshot);
+  });
+
+  // t518 F2：schema mismatch 专用错误码。
+  it("validate：schema/version 不匹配返回 E_SCHEMA_MISMATCH（不再复用 E_EMPTY_ROOT）", () => {
+    const bad: DockLayout = { ...defaultLayout("wide"), version: 99 as never };
+    const issues = validateLayout(bad);
+    expect(issues.map((i) => i.code)).toContain("E_SCHEMA_MISMATCH");
+    expect(issues.map((i) => i.code)).not.toContain("E_EMPTY_ROOT");
+    const badSchema: DockLayout = {
+      ...defaultLayout("wide"),
+      schema: "deer.dock.state" as never,
+    };
+    expect(validateLayout(badSchema).map((i) => i.code)).toContain("E_SCHEMA_MISMATCH");
+  });
+
+  // t518 F3：DW1-2 契约——normalize 后 validate 必须为空（供 reducer 出口统一断言）。
+  it("normalize 后 validate 恒为空（任意合法输入，含手动构造的脏树）", () => {
+    const dirty: DockLayout = {
+      schema: "deer.dock.layout",
+      version: 2,
+      variant: "wide",
+      root: {
+        kind: "split",
+        id: "s",
+        axis: "horizontal",
+        sizes: [0, 0],
+        children: [
+          {
+            kind: "split",
+            id: "s2",
+            axis: "vertical",
+            sizes: [5, 5, 5],
+            children: [
+              { kind: "group", id: "g1", panels: ["chat", "team"], active: "chat" },
+              { kind: "group", id: "g2", panels: ["tasks"], active: null },
+              { kind: "group", id: "g3", panels: [], active: null },
+            ],
+          },
+          { kind: "group", id: "g4", panels: ["mailbox", "board", "settings"], active: "board" },
+        ],
+      },
+    };
+    const normalized = normalizeLayout(dirty);
+    expect(validateLayout(normalized)).toEqual([]);
+    expect(validateLayout(normalizeLayout(normalized))).toEqual([]);
+  });
 });
 
 describe("layoutModel property tests（1000+ 随机操作不变量）", () => {

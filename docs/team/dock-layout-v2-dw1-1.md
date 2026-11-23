@@ -32,3 +32,14 @@
 
 - normalize 对「原树已有重复 id」的重编只保证本次输出唯一，不保证跨调用稳定（重复 id 本身是非法输入）。
 - resize 的 0.01–0.98 clamp 是模型级；像素级 min-width 约束在渲染层（DW1-3）执行。
+
+## 6. t518 修复记录（repair-round-2，mika / GLM 5.3）
+
+评审（t514 F1–F4）修复，同一 PR #75 分支：
+
+- **F1 move/split 前置守卫**：`movePanelInLayout` 开头统一 `findGroupOf(panel) / findGroupOf(target)` 任一 null → 返回原 layout（no-op，引用相等可断言）；新增 5 条 no-op 测试（panel 缺失 center/right/split + target 缺失 center/left，JSON 快照断言）。
+- **F2 E_NOT_CLOSEABLE 澄清 + schema 专用码**：`E_NOT_CLOSEABLE` 从 ValidationIssue 联合类型移除（模型层不校验 closable——它是 close 操作的运行时拒绝，validate 只管结构；closePanelInLayout 的 settings 拒绝语义不变且有既有测试）；`E_SCHEMA_MISMATCH` 新增专用码替代原先复用的 `E_EMPTY_ROOT`（`as never` hack 一并清除），DW1-2 persistence 据此决定删除回默认；补 schema/version 两断言测试。
+- **F3 normalize→validate 契约**：新增「normalize 后 validate 恒为空」测试（含手动脏树：sizes 全 0/长度错配/空组/active=null），DW1-2 reducer 出口统一断言此不变量。
+- **F4 property seed env**（后续项，本轮不实现）：`SEEDS` 已是常量数组，接入 `process.env.DOCK_LAYOUT_SEED` 覆盖属 DW1-2 测试基建，已在此记录为移交项。
+
+**验证**：typecheck 0 / build 0 / layoutModel 23 用例全绿（+3）。

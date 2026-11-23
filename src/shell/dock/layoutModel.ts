@@ -64,8 +64,9 @@ export interface ValidationIssue {
     | "E_SPLIT_BAD_SIZE"
     | "E_TOO_MANY_GROUPS"
     | "E_NON_POSITIVE_SIZE_SUM"
-    | "E_NOT_CLOSEABLE"
-    | "E_DUPLICATE_NODE_ID";
+    | "E_DUPLICATE_NODE_ID"
+    /** t518：schema/version 不匹配专用码（原先复用 E_EMPTY_ROOT）。 */
+    | "E_SCHEMA_MISMATCH";
   path: string;
   detail?: string;
 }
@@ -136,7 +137,8 @@ export function validateLayout(
   const seenNodeIds = new Set<string>();
 
   if (layout.schema !== "deer.dock.layout" || layout.version !== 2) {
-    issues.push({ code: "E_EMPTY_ROOT" as never, path: "$", detail: "schema/version mismatch" });
+    // t518：schema/version 不匹配用专用码（DW1-2 persistence 据此决定删除回默认）。
+    issues.push({ code: "E_SCHEMA_MISMATCH", path: "$", detail: "schema/version mismatch" });
     return issues;
   }
 
@@ -526,6 +528,8 @@ export function movePanelInLayout(
   maxGroups?: number,
 ): DockLayout {
   if (panel === target) return layout;
+  // t518：开头统一守卫——panel/target 任一不在布局中即返回原 layout（no-op）。
+  if (!findGroupOf(layout.root, panel) || !findGroupOf(layout.root, target)) return layout;
   if (position === "center") {
     const next = closePanelFromGroupOnly(structuredCloneCompat(layout), panel);
     const group = findGroupOf(next.root, target) ?? findActiveGroup(next.root);
@@ -579,9 +583,7 @@ function splitPanelTargetInLayout(
 
 /** 只从原组移除（不触发空组清理——normalize 稍后统一处理）。 */
 function closePanelFromGroupOnly(layout: DockLayout, panel: PanelKey): DockLayout {
-  if (!PANEL_DEFS[panel].closable && listGroups(layout.root).some((g) => (g.panels as string[]).includes(panel))) {
-    // settings「不可关闭」指用户关闭操作；move/split 属重排，允许。
-  }
+  // settings「不可关闭」指用户关闭操作；move/split 属重排，允许（t518 注释明确）。
   const group = findGroupOf(layout.root, panel);
   if (!group) return layout;
   const index = group.panels.indexOf(panel);
