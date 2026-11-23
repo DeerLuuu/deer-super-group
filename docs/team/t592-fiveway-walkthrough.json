@@ -668,7 +668,58 @@
           "bottom": 900.4375,
           "left": 859
         }
-      }
+      },
+      "groupsBefore": 2,
+      "groupsAfter": 2,
+      "tabCountBefore": 5,
+      "tabCountAfter": 5,
+      "tabCountChange": "5→5",
+      "targetPanelsBefore": [
+        "团队"
+      ],
+      "targetPanelsAfter": [
+        "团队",
+        "任务"
+      ],
+      "newGroup": false,
+      "newGroupPanels": null,
+      "axis": null,
+      "axisName": "none",
+      "sizesBefore": {
+        "target": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "sizesUnchanged": true
+      },
+      "sizesAfter": {
+        "target": {
+          "x": 859,
+          "y": 44.4375,
+          "width": 581,
+          "height": 856,
+          "top": 44.4375,
+          "right": 1440,
+          "bottom": 900.4375,
+          "left": 859
+        },
+        "newGroup": null,
+        "sizesUnchanged": true
+      },
+      "sizesUnchanged": true,
+      "screenshot": "t592-center-1440.png",
+      "centeredIntoTargetGroup": true,
+      "targetGroupPanelsAfter": [
+        "团队",
+        "任务"
+      ],
+      "description": "拖拽任务到团队组 center：并入目标组 tab，无新组、无 split"
     }
   ],
   "widths": [
