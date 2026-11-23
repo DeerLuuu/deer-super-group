@@ -470,6 +470,163 @@ describe("t530 useDockLayoutController React 接线", () => {
       });
     });
   });
+
+  // t542 F2：resetAll 清空全部变体、只保留当前 variant 默认。
+  it("t542 resetAll：清空 v2 store 其他 variant 不残留，仅当前 variant 默认", async () => {
+    const React = await import("react");
+    const { default: TestRenderer, act } = await loadRtr();
+    const { useDockLayoutController } = await import("./layoutOps");
+    let controller: ReturnType<typeof useDockLayoutController> | null = null;
+    function Harness() {
+      controller = useDockLayoutController({ workspaceId: "ws-rall", variant: "wide", debounceMs: 10 });
+      return null;
+    }
+    await withLocalStorageAsync(async () => {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(React.createElement(Harness));
+      });
+      // 两个变体都有修改过的布局。
+      await act(async () => {
+        controller!.dispatch({ type: "close", panel: "mailbox" });
+      });
+      await act(async () => {
+        controller!.setVariant("single");
+      });
+      await act(async () => {
+        controller!.dispatch({ type: "open", panel: "gitGraph", cause: "command" });
+      });
+      await act(async () => {
+        controller!.setVariant("wide");
+      });
+      let parsed = JSON.parse(storageStub.getItem(v2StorageKey("ws-rall"))!) as {
+        variants: Record<string, unknown>;
+      };
+      expect(Object.keys(parsed.variants).sort()).toEqual(["single", "wide"]);
+
+      // resetAll：只剩当前 variant（wide）默认布局。
+      await act(async () => {
+        controller!.resetAll();
+      });
+      expect(controller!.layout.variant).toBe("wide");
+      expect(listPanels(controller!.layout.root)).toContain("mailbox");
+      parsed = JSON.parse(storageStub.getItem(v2StorageKey("ws-rall"))!) as {
+        variants: Record<string, unknown>;
+      };
+      expect(Object.keys(parsed.variants)).toEqual(["wide"]);
+      await act(async () => {
+        renderer!.unmount();
+      });
+    });
+  });
+
+  // t542 F3：variant prop 变化（断点切换）自动 setVariant。
+  it("t542 variant prop 变化 → useEffect 自动切换变体并持久化", async () => {
+    const React = await import("react");
+    const { default: TestRenderer, act } = await loadRtr();
+    const { useDockLayoutController } = await import("./layoutOps");
+    let controller: ReturnType<typeof useDockLayoutController> | null = null;
+    let currentVariant: "wide" | "single" = "wide";
+    function Harness() {
+      controller = useDockLayoutController({
+        workspaceId: "ws-bp",
+        variant: currentVariant,
+        debounceMs: 10,
+      });
+      return null;
+    }
+    await withLocalStorageAsync(async () => {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(React.createElement(Harness));
+      });
+      await act(async () => {
+        controller!.dispatch({ type: "close", panel: "mailbox" });
+      });
+      // 模拟断点变化：variant prop wide → single（rerender 同一 Harness）。
+      currentVariant = "single";
+      await act(async () => {
+        renderer!.update(React.createElement(Harness));
+      });
+      expect(controller!.layout.variant).toBe("single");
+      const parsed = JSON.parse(storageStub.getItem(v2StorageKey("ws-bp"))!) as {
+        variants: Record<string, { variant: string }>;
+      };
+      // 旧 wide（mailbox 关）保存 + single 默认写入。
+      expect(parsed.variants.wide?.variant).toBe("wide");
+      expect(parsed.variants.single?.variant).toBe("single");
+      await act(async () => {
+        renderer!.unmount();
+      });
+    });
+  });
+
+  // t542 F1：move 相邻并入（组数减少）/ split 无相邻（新组产生）的 controller.layout 断言。
+  it("t542 move 相邻 center 并入 → 组数减一；split → 新组（DockShell dispatch 语义）", async () => {
+    const React = await import("react");
+    const { default: TestRenderer, act } = await loadRtr();
+    const { useDockLayoutController } = await import("./layoutOps");
+    let controller: ReturnType<typeof useDockLayoutController> | null = null;
+    function Harness() {
+      controller = useDockLayoutController({ workspaceId: "ws-move", variant: "wide", debounceMs: 10 });
+      return null;
+    }
+    await withLocalStorageAsync(async () => {
+      let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+      await act(async () => {
+        renderer = TestRenderer.create(React.createElement(Harness));
+      });
+      // 默认 wide = 2 组（main + team）。模拟 DockShell moveActivePanel("left")：
+      // 有相邻（team 组）→ move center 到相邻组 activePanel（team）。
+      await act(async () => {
+        controller!.dispatch({ type: "move", panel: "chat", target: "team", position: "center" });
+      });
+      expect(countGroups(controller!.layout.root)).toBe(1 + 1); // chat 并入 team 组后仍 2 组（main 其余面板保留）
+      const mergedGroup = listGroups(controller!.layout.root).find((g) =>
+        (g.panels as string[]).includes("chat"),
+      );
+      expect((mergedGroup?.panels as string[]).includes("team")).toBe(true);
+      expect(listPanels(controller!.layout.root)).toContain("chat");
+      expect(listPanels(controller!.layout.root)).toContain("team");
+
+      // 模拟无相邻 + 允许新增 → split 命令 → 新组产生（组数 +1，chat 独立成组）。
+      await act(async () => {
+        controller!.dispatch({ type: "split", panel: "chat", direction: "right" });
+      });
+      expect(countGroups(controller!.layout.root)).toBe(3);
+      const chatGroup = listGroups(controller!.layout.root).find((g) =>
+        (g.panels as string[]).includes("chat"),
+      );
+      expect(chatGroup?.panels).toEqual(["chat"]);
+      expect(controller!.layout.root.kind).toBe("split");
+      await act(async () => {
+        renderer!.unmount();
+      });
+    });
+  });
+
+  // t542 F4：open anchor 对齐 legacy 目标组（referencePanel:"chat"）。
+  it("t542 open anchor：新面板插入 anchor 所在组（对齐 ensurePanel referencePanel:chat）", () => {
+    const base = defaultLayout("wide");
+    const anchored = reduceDock(base, {
+      type: "open",
+      panel: "gitGraph",
+      cause: "command",
+      anchor: "chat",
+    });
+    const main = listGroups(anchored.layout.root).find((g) =>
+      (g.panels as string[]).includes("chat"),
+    );
+    expect(main?.panels).toContain("gitGraph");
+    // team 组不受影响。
+    const team = listGroups(anchored.layout.root).find((g) => (g.panels as string[]).includes("team"));
+    expect(team?.panels).toEqual(["team"]);
+    // 无 anchor：回 active group（默认 active=chat）。
+    const noAnchor = reduceDock(base, { type: "open", panel: "gitGraph", cause: "command" });
+    expect(
+      listGroups(noAnchor.layout.root).find((g) => (g.panels as string[]).includes("gitGraph")),
+    ).toBeDefined();
+  });
 });
 
 async function withLocalStorageAsync<T>(fn: () => Promise<T>): Promise<T> {

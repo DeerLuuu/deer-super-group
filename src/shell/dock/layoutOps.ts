@@ -39,7 +39,16 @@ import {
 export type { DockLayout, DockVariant, PanelKey };
 
 export type DockCommand =
-  | { type: "open"; panel: PanelKey; cause: "nav" | "deep-link" | "command" | "restore" }
+  | {
+      type: "open";
+      panel: PanelKey;
+      cause: "nav" | "deep-link" | "command" | "restore";
+      /**
+       * t542：目标组锚点（panel key）——面板插入「包含 anchor 的组」而非 active group，
+       * 与 legacy ensurePanel 的 referencePanel:"chat" 对齐（DW1-3 前的 open 目标组契约）。
+       */
+      anchor?: PanelKey;
+    }
   | { type: "close"; panel: PanelKey }
   | { type: "activate"; panel: PanelKey }
   | {
@@ -103,7 +112,7 @@ export function reduceDock(
       const existed = listGroups(layout.root).some((group) =>
         (group.panels as string[]).includes(command.panel),
       );
-      next = openPanelInLayout(layout, command.panel);
+      next = openPanelInLayout(layout, command.panel, command.anchor);
       if (next !== layout || !existed) {
         activatedPanel = command.panel;
         persist = true;
@@ -451,6 +460,8 @@ export interface DockLayoutController {
   dispatch: (command: DockCommand) => void;
   /** 变体切换（断点）：内部保存旧变体并持久化，加载目标变体存档或默认。 */
   setVariant: (variant: DockVariant) => void;
+  /** t542：重置全部变体——清 v2 store 并只保留当前 variant 的默认布局。 */
+  resetAll: () => void;
   /** 立即 flush 持久化（卸载/beforeunload 用）。 */
   flush: () => void;
 }
@@ -550,6 +561,33 @@ export function useDockLayoutController(options: UseDockLayoutOptions): DockLayo
     [workspaceId],
   );
 
+  // t542：重置全部变体——清空 v2 store（其他 variant 不残留），storeRef 重建为
+  // 只含当前 variant 的默认布局并立即持久化。
+  const resetAllCallback = useCallback(() => {
+    clearV2Store(workspaceId);
+    const fresh: DockLayoutStore = {
+      schema: V2_SCHEMA,
+      version: V2_VERSION,
+      updatedAt: new Date().toISOString(),
+      variants: {},
+      activePanel: null,
+    };
+    const freshLayout = defaultLayout(layoutRef.current.variant);
+    fresh.variants[freshLayout.variant] = freshLayout;
+    storeRef.current = fresh;
+    layoutRef.current = freshLayout;
+    setLayout(freshLayout);
+    saveV2Store(workspaceId, fresh);
+  }, [workspaceId]);
+
+  // t542：断点变化（selectVariant 输出）自动切换变体——保存旧变体、加载新变体。
+  const variantRef = useRef(variant);
+  useEffect(() => {
+    if (variantRef.current === variant) return;
+    variantRef.current = variant;
+    setVariantCallback(variant);
+  }, [variant, setVariantCallback]);
+
   // 卸载 flush。
   useEffect(() => {
     return () => {
@@ -559,5 +597,5 @@ export function useDockLayoutController(options: UseDockLayoutOptions): DockLayo
     };
   }, [flush]);
 
-  return { layout, dispatch, setVariant: setVariantCallback, flush };
+  return { layout, dispatch, setVariant: setVariantCallback, resetAll: resetAllCallback, flush };
 }

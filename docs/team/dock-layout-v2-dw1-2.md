@@ -59,3 +59,13 @@ t527 验证 F1–F5 修复，同一 PR #77 分支：
   - Ctrl+Alt+W close dispatch；v1 key 由 legacy 路径管理，v2 路径不读写（不迁移验证）；
   - 复用真实 deer.db 用户数据（隔离 userData 副本）驱动非空 shell。
 - 验证：typecheck 0 / build 0 / serial test 全绿（layoutOps 24 用例，+3）。
+
+## 8. t542 修复记录（repair-round-3，mika / GLM 5.3）
+
+t538 复审五项修复，同一 PR #77 分支：
+
+- **F1 move/split 对齐**：DockShell.moveActivePanel 在 dispatch 前用 `api.adjacentGroupInDirection` 求相邻 group 的 activePanel 作 move target（与 legacy moveTo 行为一致）；无相邻且允许新增组时改用 `split` 命令（替代 move edge）。测试：controller React 用例断言 move center 并入后 chat/team 同组、split 后组数 +1 且 chat 独立成组。
+- **F2 resetAll**：DockShell.resetAllLayouts 改调 `controller.resetAll()`（clearV2Store + storeRef 重建为仅当前 variant 默认并持久化）+ 显式 `clearV2Store(workspaceId)`；测试：两变体修改后 resetAll，store 仅剩当前 variant 默认（其他 variant 不残留）。
+- **F3 断点切换**：controller 新增 useEffect 监听 `variant` prop 变化自动 setVariant（保存旧变体+恢复新变体+持久化）；DockShell 断点 rAF 回调中 `v2VariantRef.current(next)` 显式驱动。测试：variant prop wide→single rerender 后自动切换并双变体持久化。
+- **F4 open 目标组对齐**：`open` 命令新增可选 `anchor`——面板插入含 anchor 的组（对齐 legacy `ensurePanel referencePanel:"chat"`）；DockShell.openPanel dispatch 带 `anchor:"chat"`。测试：anchor 时 gitGraph 进 chat 所在组、team 组不受影响；无 anchor 回 active group。
+- **F5 DW1-3 接入说明**：§6 已明确 reduceDock 唯一入口 + effects 驱动持久化；本轮补充：DW1-3 DockTree 渲染器直接消费 `useDockLayoutController.layout` 作为受控状态（渲染树即 layout 树），命令入口为 `dispatch`（DockHandle/键盘/拖放全部转发），断点切换由 variant prop/`setVariant` 承担，`resetAll` 清 v2 key 后重建默认；PanelHost 挂载在 DockGroup 的 active panel（renderer 规则不变）。
