@@ -1,9 +1,26 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import {
+  isReactCompilerBuild,
+  reactCompilerBabelPlugins,
+} from "./src/shell/reactCompilerBoundary.js";
 
-export default defineConfig({
+export default defineConfig(({ command }) => {
+  const compilerEnabled = isReactCompilerBuild(command);
+  return {
   base: "./",
-  plugins: [react()],
+  plugins: [
+    react(
+      compilerEnabled
+        ? {
+            babel: {
+              // RC1-0: one allowlisted renderer component only; tests/dev never load this.
+              plugins: [...reactCompilerBabelPlugins()],
+            },
+          }
+        : {},
+    ),
+  ],
   server: {
     port: 5173,
     strictPort: true,
@@ -58,4 +75,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });
