@@ -4440,12 +4440,87 @@ label.check input {
   position: relative;
 }
 
+.dock-shell {
+  height: 100%;
+  min-height: 0;
+  position: relative;
+}
+
+.dock-root {
+  height: 100%;
+  width: 100%;
+}
+
 /* 面板内容宿主：沿用旧 .content 的内边距与滚动语义，视图内部自管滚动 */
 .dock-panel-body {
   height: 100%;
   min-height: 0;
   overflow: auto;
   padding: 12px;
+}
+
+/* dockview 主题映射到现有 token */
+.dock-root {
+  --dv-group-view-background-color: var(--bg);
+  --dv-tabs-and-actions-container-background-color: var(--bg-2);
+  --dv-tabs-and-actions-container-height: 34px;
+  --dv-tab-width: 130px;
+  --dv-activegroup-visiblepanel-tab-background-color: var(--panel);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-2);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--panel-2);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-2);
+  --dv-activegroup-visiblepanel-tab-color: var(--text);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--muted);
+  --dv-activegroup-visiblepanel-tab-active-border-top-color: var(--accent);
+  --dv-inactivegroup-visiblepanel-tab-active-border-top-color: var(--border-2);
+  --dv-tabs-and-actions-container-border-bottom-color: var(--border);
+  --dv-group-view-background-color: var(--bg);
+  --dv-groupview-active-group-outline-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  --dv-separator-border: var(--border);
+  --dv-paneview-active-outline-color: var(--accent);
+  --dvDragOverBorder-color: var(--accent);
+  --dv-default-tab-close-button-color: var(--muted);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.dock-root .dv-groupview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dock-root .dv-split-view-container .sash-container .sash {
+  background: transparent;
+}
+
+.dock-root .dv-split-view-container .sash-container .sash:not(.vertical)::after,
+.dock-root .dv-split-view-container .sash-container .sash.vertical::after {
+  background: var(--border-2);
+}
+
+.dock-root .dv-split-view-container .sash-container .sash:hover:not(.disabled)::after {
+  background: var(--accent);
+}
+
+/* 空布局水印 */
+.dock-watermark {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  text-align: center;
+  background: var(--bg);
+}
+
+/* reduced-motion：禁用 dock 过渡 */
+@media (prefers-reduced-motion: reduce) {
+  .dock-root * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 /* ---------- DESIGN §15.5 对话控制条 ---------- */
@@ -9021,12 +9096,27 @@ button.task-contract-chip:focus-visible {
   }
 }
 
-/* t337/t556：窄窗下 Dock 不得比主区更宽（任务头 480 契约不裁切） */
+/* t337：窄窗下 Dock 不得比主区更宽（任务头 480 契约不裁切） */
 .dock-host,
-.docktree-shell {
+.dock-shell,
+.dock-root {
   width: 100%;
   max-width: 100%;
   min-width: 0;
+}
+
+.dock-root .dv-dockview {
+  max-width: 100%;
+}
+
+@media (max-width: 600px) {
+  .dock-root .dv-dockview,
+  .dock-root .dv-split-view-container,
+  .dock-root .dv-view-container,
+  .dock-root .dv-view {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
 }
 
 /* t341：模型配置 5 分钟路径与记忆 tab 说明 */

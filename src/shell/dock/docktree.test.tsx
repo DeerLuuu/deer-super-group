@@ -99,13 +99,17 @@ describe("DW1-3 DockSash / DockDropZone", () => {
   });
 });
 
-describe("DW1-4 v2-only 外壳", () => {
-  it("DockShell.tsx 默认直出 DockShellV2，无旧 renderer 分派", async () => {
+describe("t584 dockview default / v2 opt-in shell", () => {
+  it("DockShell defaults to dockview while retaining DockShellV2 opt-in", async () => {
     const { readFile } = await import("node:fs/promises");
     const { resolve } = await import("node:path");
-    const source = await readFile(resolve(__dirname, "DockShell.tsx"), "utf8");
-    expect(source).toContain("DockShellV2");
-    expect(source).not.toContain("Legacy");
+    const shell = await readFile(resolve(__dirname, "DockShell.tsx"), "utf8");
+    const engine = await readFile(resolve(__dirname, "dockEngine.ts"), "utf8");
+    expect(shell).toContain("DockShellV2");
+    expect(shell).toContain("DockShellLegacy");
+    expect(shell).toContain("getDockEngine");
+    expect(engine).toContain('return "dockview"');
+    expect(engine).toContain('"v2"');
   });
 });
 

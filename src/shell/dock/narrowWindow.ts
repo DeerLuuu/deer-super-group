@@ -27,7 +27,7 @@ export const SIDEBAR_COLLAPSED_WIDTH = 56;
 /** 侧栏与 Dock 之间的可拖拽 resizer 宽度（styles.css `.resizer`）。 */
 export const SIDEBAR_RESIZER_WIDTH = 6;
 
-/** 旧 Dock 横向 split 的 sash 宽度（4px）。 */
+/** dockview 横向 split 的 sash 宽度（dockview.css `.dv-horizontal > .dv-sash { width:4px }`）。 */
 export const DOCK_SASH_WIDTH = 4;
 
 /** tasks 面板最小可读宽度（与 panelRegistry tasks.minWidth 一致）。 */

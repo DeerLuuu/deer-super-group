@@ -1,0 +1,130 @@
+{
+  "at": "2026-11-23T17:52:33.102Z",
+  "engine": "dockview 8.9.0 legacy DockShell",
+  "v1": {
+    "restored": "deer.dock.v1.<workspaceId>",
+    "keyObserved": "deer.dock.v1.ws_mwtjz6r2_8b88c86a9c",
+    "v2Read": false,
+    "v2KeyObserved": false
+  },
+  "widths": [
+    {
+      "width": 1440,
+      "groups": 4,
+      "tabs": 6,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "screenshot": "t584-dock-1440.png"
+    },
+    {
+      "width": 960,
+      "groups": 1,
+      "tabs": 4,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "screenshot": "t584-dock-960.png"
+    },
+    {
+      "width": 480,
+      "groups": 1,
+      "tabs": 4,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "screenshot": "t584-dock-480.png"
+    }
+  ],
+  "fourWay": {
+    "target": "tab drag to bottom + right",
+    "groups": [
+      {
+        "x": 256,
+        "y": 44,
+        "width": 1184,
+        "height": 428
+      },
+      {
+        "x": 256,
+        "y": 472,
+        "width": 592,
+        "height": 428
+      },
+      {
+        "x": 848,
+        "y": 472,
+        "width": 592,
+        "height": 428
+      }
+    ],
+    "sashes": 2,
+    "screenshot": "t584-dock-fourway-1440.png"
+  },
+  "sash": {
+    "verticalBefore": [
+      592,
+      592
+    ],
+    "verticalAfter": [
+      640,
+      544
+    ],
+    "horizontalBefore": [
+      428,
+      428
+    ],
+    "horizontalAfter": [
+      464,
+      392
+    ]
+  },
+  "persistence": {
+    "beforeReload": {
+      "groups": 4,
+      "tabs": 6
+    },
+    "afterReload": {
+      "groups": 4,
+      "tabs": 6
+    },
+    "v1Key": true,
+    "v2Key": false
+  },
+  "interaction": {
+    "deepLink": {
+      "hash": "#/tasks",
+      "active": "任务"
+    },
+    "close": {
+      "tabsBefore": 6,
+      "groupsBefore": 5,
+      "tabsAfter": 5,
+      "groupsAfter": 4
+    },
+    "reopen": {
+      "tabsAfter": 6,
+      "groupsAfter": 4,
+      "active": "任务"
+    },
+    "shortcutAlt2": {
+      "hash": "#/tasks",
+      "active": "任务"
+    },
+    "reset": {
+      "closedTabs": 0,
+      "watermark": true,
+      "resetClicked": true,
+      "groupsAfter": 2,
+      "tabsAfter": 5,
+      "active": [
+        "对话",
+        "团队"
+      ]
+    }
+  },
+  "screenshots": [
+    "t584-dockview-1440.png",
+    "t584-dock-fourway-1440.png",
+    "t584-dock-1440.png",
+    "t584-dock-960.png",
+    "t584-dock-480.png"
+  ]
+}
