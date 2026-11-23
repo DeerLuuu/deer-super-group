@@ -1,0 +1,167 @@
+/**
+ * DW1-3（t548）：DockTree 渲染器样式（token-only，复用 --dv-* / --status-* 变量）。
+ */
+
+.docktree-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--dv-paneview-active-background, var(--bg-1, #1e1e1e));
+  font-size: var(--font-base-size, 13px);
+}
+
+.docktree-root,
+.docktree-split,
+.docktree-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0%;
+  overflow: hidden;
+}
+
+.docktree-split[data-axis="vertical"] {
+  flex-direction: column;
+}
+
+.docktree-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0%;
+  border: 1px solid var(--dv-separator-border, var(--border-1, #2b2b2b));
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.docktree-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 34px;
+  align-items: stretch;
+  gap: 1px;
+  background: var(--dv-tabs-container-background, var(--bg-2, #252526));
+  border-bottom: 1px solid var(--dv-groupview-background, var(--border-1, #2b2b2b));
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.docktree-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--dv-inactivegroup-hiddenpanel-tab-color, var(--fg-muted, #9d9d9d));
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.docktree-tab.active {
+  color: var(--dv-activegroup-visiblepanel-tab-color, var(--fg-1, #e7e7e7));
+  background: var(--dv-activegroup-visiblepanel-tab-background, var(--bg-1, #1e1e1e));
+  box-shadow: inset 0 -2px 0 var(--accent, #4d6bfe);
+}
+
+.docktree-tab:focus-visible {
+  outline: 2px solid var(--accent, #4d6bfe);
+  outline-offset: -2px;
+}
+
+.docktree-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.docktree-tab-close:hover {
+  background: var(--dv-icon-hover-background, rgba(90, 93, 94, 0.31));
+}
+
+.docktree-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--dv-paneview-active-background, var(--bg-1, #1e1e1e));
+}
+
+.docktree-panel {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.docktree-panel-error {
+  padding: 12px;
+  color: var(--status-error, #f14c4c);
+  font-size: 12px;
+}
+
+.docktree-sash {
+  flex: 0 0 4px;
+  background: var(--dv-separator-border, var(--border-1, #2b2b2b));
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.docktree-split[data-axis="vertical"] > .docktree-sash {
+  cursor: row-resize;
+}
+
+.docktree-sash:hover,
+.docktree-sash:focus-visible {
+  background: var(--accent, #4d6bfe);
+  outline: none;
+}
+
+.docktree-dropzone {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.docktree-dropzone.edge {
+  pointer-events: auto;
+}
+
+.docktree-dropzone.edge.left { left: 0; top: 0; bottom: 0; width: 20%; }
+.docktree-dropzone.edge.right { right: 0; top: 0; bottom: 0; width: 20%; }
+.docktree-dropzone.edge.above { left: 0; right: 0; top: 0; height: 24%; }
+.docktree-dropzone.edge.below { left: 0; right: 0; bottom: 0; height: 24%; }
+
+.docktree-dropzone.edge:hover {
+  opacity: 0.25;
+  background: var(--accent, #4d6bfe);
+}
+
+/* 窄容器（t212 语义）：单列降级，sash 仍可键盘操作。 */
+@media (max-width: 640px) {
+  .docktree-dropzone.edge.above,
+  .docktree-dropzone.edge.below {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docktree-dropzone {
+    transition: none;
+  }
+}

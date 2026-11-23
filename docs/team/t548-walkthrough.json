@@ -1,0 +1,66 @@
+{
+  "results": [
+    {
+      "id": "t548-v2-engine-active",
+      "ok": true,
+      "detail": "docktree-root rendered (DOCK_ENGINE=v2 default)"
+    },
+    {
+      "id": "t548-tabs-rendered",
+      "ok": true,
+      "detail": "tabs=6"
+    },
+    {
+      "id": "t548-sash-aria",
+      "ok": true,
+      "detail": "role=separator sash=1"
+    },
+    {
+      "id": "t548-tab-activate",
+      "ok": true,
+      "detail": "aria-selected=true"
+    },
+    {
+      "id": "t548-nav-open-board",
+      "ok": true,
+      "detail": "board nav clicked"
+    },
+    {
+      "id": "t548-v2-store-written",
+      "ok": true,
+      "detail": "keys=[\"deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa\"]"
+    },
+    {
+      "id": "t548-1440-no-overflow",
+      "ok": true,
+      "detail": "scrollWidth check at 1440×900"
+    },
+    {
+      "id": "t548-960-no-overflow",
+      "ok": true,
+      "detail": "scrollWidth check at 960×900"
+    },
+    {
+      "id": "t548-480-no-overflow",
+      "ok": true,
+      "detail": "scrollWidth check at 480×800"
+    },
+    {
+      "id": "t548-reload-v2-restored",
+      "ok": true,
+      "detail": "docktree-root after reload"
+    },
+    {
+      "id": "t548-v2-store-survives-reload",
+      "ok": true,
+      "detail": "keys=1"
+    },
+    {
+      "id": "t548-legacy-engine-switchable",
+      "ok": true,
+      "detail": "dockview engine renders after deer.dock.engine=dockview"
+    }
+  ],
+  "failures": [],
+  "at": "2026-11-23T15:22:13.845Z"
+}
