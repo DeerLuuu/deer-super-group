@@ -56,6 +56,8 @@ export default function DockGroup({
   onDrop,
 }: DockGroupProps) {
   const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  // t555/F3：always panel 常驻；onlyWhenVisible 首次激活后 keepalive（不卸载）。
+  const mountedRef = useRef<Set<PanelKey>>(new Set());
 
   function focusTab(index: number) {
     const clamped = Math.max(0, Math.min(group.panels.length - 1, index));
@@ -97,47 +99,50 @@ export default function DockGroup({
 
   return (
     <section className="docktree-group" data-group={group.id} aria-label="面板组">
-      <div className="docktree-tabs" role="tablist" aria-label={`面板组 ${group.id}`}>
-        {group.panels.map((panel, index) => {
-          const def = panelDefs[panel];
-          const isActive = panel === active;
-          return (
-            <button
-              key={panel}
-              ref={(node) => {
-                tabsRef.current[index] = node;
-              }}
-              type="button"
-              role="tab"
-              id={`docktree-tab-${group.id}-${panel}`}
-              aria-selected={isActive}
-              aria-controls={`docktree-panel-${group.id}-${panel}`}
-              tabIndex={isActive ? 0 : -1}
-              className={isActive ? "docktree-tab active" : "docktree-tab"}
-              data-panel={panel}
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.setData("application/x-deer-panel", panel);
-                event.dataTransfer.effectAllowed = "move";
-              }}
-              onClick={() => onActivate(panel)}
-              onKeyDown={(event) => onTabKeyDown(event, index)}
-            >
-              <span className="docktree-tab-title">{def.title}</span>
-              {def.closable ? (
-                // t550/F4：tab 内只保留非交互装饰；关闭走 Delete（或全局 Ctrl+Alt+W），
-                // 避免 button 内嵌 role=button 的非法结构。
-                <span
-                  className="docktree-tab-close"
-                  aria-hidden="true"
-                  title={`Delete 关闭${def.title}`}
-                >
-                  ×
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
+      <div className="docktree-tabs-bar">
+        <div className="docktree-tabs" role="tablist" aria-label={`面板组 ${group.id}`}>
+          {group.panels.map((panel, index) => {
+            const def = panelDefs[panel];
+            const isActive = panel === active;
+            return (
+              <button
+                key={panel}
+                ref={(node) => {
+                  tabsRef.current[index] = node;
+                }}
+                type="button"
+                role="tab"
+                id={`docktree-tab-${group.id}-${panel}`}
+                aria-selected={isActive}
+                aria-controls={`docktree-panel-${group.id}-${panel}`}
+                tabIndex={isActive ? 0 : -1}
+                className={isActive ? "docktree-tab active" : "docktree-tab"}
+                data-panel={panel}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData("application/x-deer-panel", panel);
+                  event.dataTransfer.effectAllowed = "move";
+                }}
+                onClick={() => onActivate(panel)}
+                onKeyDown={(event) => onTabKeyDown(event, index)}
+              >
+                <span className="docktree-tab-title">{def.title}</span>
+              </button>
+            );
+          })}
+        </div>
+        {active && panelDefs[active].closable ? (
+          // t555/F1：close 放在 tablist 外，原生 button、Tab 可达；tab 内不再画可点 ×。
+          <button
+            type="button"
+            className="docktree-group-close"
+            aria-label={`关闭${panelDefs[active].title}`}
+            title={`关闭${panelDefs[active].title}（Delete）`}
+            onClick={() => onClose(active)}
+          >
+            ×
+          </button>
+        ) : null}
       </div>
       <div
         className="docktree-body"
@@ -148,6 +153,12 @@ export default function DockGroup({
       >
         {group.panels.map((panel) => {
           const isActive = panel === active;
+          // t555/F3：always 常驻；onlyWhenVisible 首次激活时挂载，之后 hidden keepalive。
+          const isMounted =
+            panelDefs[panel].renderer === "always" ||
+            panel === active ||
+            mountedRef.current.has(panel);
+          if (isMounted) mountedRef.current.add(panel);
           // t550/F3：非激活 PanelHost 用 hidden 保留挂载，切 tab 不丢草稿/输入/滚动状态；
           // t550/F4：每个 tab 的 aria-controls 始终有真实 tabpanel（隐藏但存在）。
           return (
@@ -158,11 +169,14 @@ export default function DockGroup({
               aria-labelledby={`docktree-tab-${group.id}-${panel}`}
               className={`docktree-panel${isActive ? " active" : ""}`}
               data-panel={panel}
+              data-mounted={isMounted ? "true" : "false"}
               hidden={!isActive}
             >
-              <PanelErrorBoundary panelKey={panel}>
-                <PanelHost panelKey={panel} />
-              </PanelErrorBoundary>
+              {isMounted ? (
+                <PanelErrorBoundary panelKey={panel}>
+                  <PanelHost panelKey={panel} />
+                </PanelErrorBoundary>
+              ) : null}
             </div>
           );
         })}

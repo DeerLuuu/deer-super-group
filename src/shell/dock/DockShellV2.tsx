@@ -10,13 +10,54 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { PANEL_DEFS, selectVariant, type DockVariant, type PanelKey } from "./panelRegistry";
 import { useDockLayoutController } from "./layoutOps";
-import type { DockLayout } from "./layoutModel";
+import type { DockLayout, LayoutGroup, LayoutNode, LayoutSplit } from "./layoutModel";
 import { listGroups } from "./layoutModel";
 import DockTree from "./DockTree";
 import "./dockLayout.css";
 import type { DockHandle } from "./DockShell";
 
 type MoveDirection = "left" | "right" | "above" | "below";
+
+function edgeGroup(node: LayoutNode, side: "start" | "end"): LayoutGroup | null {
+  if (node.kind === "group") return node;
+  const child = side === "start" ? node.children[0] : node.children[node.children.length - 1];
+  return child ? edgeGroup(child, side) : null;
+}
+
+/**
+ * t555/F2：按树 split 轴和父链找真正相邻的组，而不是扁平 group 顺序。
+ * 例如 root horizontal [main, vertical [team, settings]]，team 的 below 是 settings；
+ * 只有同轴祖先 split 的兄弟子树才构成方向邻居。
+ */
+export function findAdjacentPanelInLayout(
+  layout: DockLayout,
+  panel: PanelKey,
+  direction: MoveDirection,
+): PanelKey | null {
+  const path: Array<{ split: LayoutSplit; index: number }> = [];
+  function locate(node: LayoutNode): boolean {
+    if (node.kind === "group") return node.panels.includes(panel);
+    for (let index = 0; index < node.children.length; index += 1) {
+      path.push({ split: node, index });
+      if (locate(node.children[index]!)) return true;
+      path.pop();
+    }
+    return false;
+  }
+  if (!locate(layout.root)) return null;
+  const axis = direction === "left" || direction === "right" ? "horizontal" : "vertical";
+  const step = direction === "left" || direction === "above" ? -1 : 1;
+  for (let cursor = path.length - 1; cursor >= 0; cursor -= 1) {
+    const entry = path[cursor]!;
+    if (entry.split.axis !== axis) continue;
+    const sibling = entry.split.children[entry.index + step];
+    if (!sibling) continue;
+    const target = edgeGroup(sibling, step > 0 ? "start" : "end");
+    if (!target) continue;
+    return target.active ?? target.panels[0] ?? null;
+  }
+  return null;
+}
 
 export interface DockShellV2Props {
   workspaceId: string;
@@ -183,21 +224,8 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
     panel: PanelKey,
     direction: MoveDirection,
   ): { target: PanelKey; center: boolean } | null {
-    // v2 无 dockview 相邻查询：用布局树顺序近似——按方向找同 split 的相邻 group。
-    const groups = listGroups(layoutRef.current.root);
-    const ownIndex = groups.findIndex((group) => group.panels.includes(panel));
-    const own = groups[ownIndex];
-    if (!own) return null;
-    const horizontal = direction === "left" || direction === "right";
-    const step = direction === "left" || direction === "above" ? -1 : 1;
-    let candidate = ownIndex + step;
-    while (candidate >= 0 && candidate < groups.length) {
-      const group = groups[candidate];
-      const sameAxis = horizontal; // 顶层 split 默认 horizontal；vertical 嵌套按同轴近似
-      if (sameAxis) return { target: group.active ?? group.panels[0], center: true };
-      candidate += step;
-    }
-    return null;
+    const target = findAdjacentPanelInLayout(layoutRef.current, panel, direction);
+    return target ? { target, center: true } : null;
   }
 
   useImperativeHandle(ref, () => ({

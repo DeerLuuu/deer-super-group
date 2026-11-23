@@ -39,14 +39,22 @@
   position: relative;
 }
 
-.docktree-tabs {
+.docktree-tabs-bar {
   display: flex;
   flex: 0 0 auto;
   min-height: 34px;
   align-items: stretch;
-  gap: 1px;
   background: var(--dv-tabs-container-background, var(--bg-2, #252526));
   border-bottom: 1px solid var(--dv-groupview-background, var(--border-1, #2b2b2b));
+}
+
+.docktree-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 34px;
+  align-items: stretch;
+  gap: 1px;
   overflow-x: auto;
   scrollbar-width: thin;
 }
@@ -75,19 +83,26 @@
   outline-offset: -2px;
 }
 
-.docktree-tab-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  font-size: 12px;
+/* t555/F1：tab 外独立关闭按钮，Tab 可达；tab 内不再渲染可点 ×。 */
+.docktree-group-close {
+  flex: 0 0 30px;
+  align-self: stretch;
+  border: none;
+  background: transparent;
+  color: var(--dv-inactivegroup-hiddenpanel-tab-color, var(--fg-muted, #9d9d9d));
+  font-size: 15px;
   line-height: 1;
+  cursor: pointer;
 }
 
-.docktree-tab-close:hover {
+.docktree-group-close:hover {
   background: var(--dv-icon-hover-background, rgba(90, 93, 94, 0.31));
+  color: var(--fg-1, #e7e7e7);
+}
+
+.docktree-group-close:focus-visible {
+  outline: 2px solid var(--accent, #4d6bfe);
+  outline-offset: -2px;
 }
 
 .docktree-body {
@@ -166,16 +181,12 @@
   }
 }
 
-/* t550/F3/F4：非激活 panel 保留挂载但不可见；tab 内 close 仅装饰。 */
+/* t550/F3/F4：非激活 panel 保留挂载但不可见。 */
 .docktree-panel[hidden] {
   display: none;
 }
 .docktree-panel.active {
   display: flex;
-}
-.docktree-tab-close {
-  cursor: default;
-  opacity: 0.72;
 }
 .docktree-group:focus-within {
   outline: 1px solid color-mix(in srgb, var(--accent, #4d6bfe) 40%, transparent);
