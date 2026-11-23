@@ -1,0 +1,388 @@
+{
+  "results": [
+    {
+      "id": "t576-docktree-ready",
+      "ok": true,
+      "detail": "docktree-shell"
+    },
+    {
+      "id": "t576-chat-tab",
+      "ok": true,
+      "detail": "对话"
+    },
+    {
+      "id": "t576-chat-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"chat\",\"panelWidth\":798,\"panelHeight\":919,\"bodyWidth\":798,\"bodyHeight\":919,\"childClass\":\"chat-layout\",\"childWidth\":798,\"childHeight\":919,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-chat-1440.png-dimensions",
+      "ok": true,
+      "detail": "1440x1000"
+    },
+    {
+      "id": "t576-tasks-tab",
+      "ok": true,
+      "detail": "任务"
+    },
+    {
+      "id": "t576-tasks-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"tasks\",\"panelWidth\":798,\"panelHeight\":919,\"bodyWidth\":798,\"bodyHeight\":919,\"childClass\":\"tasks-layout \",\"childWidth\":798,\"childHeight\":919,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-tasks-1440.png-dimensions",
+      "ok": true,
+      "detail": "1440x1000"
+    },
+    {
+      "id": "t576-board-tab",
+      "ok": true,
+      "detail": "记忆"
+    },
+    {
+      "id": "t576-board-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"board\",\"panelWidth\":798,\"panelHeight\":919,\"bodyWidth\":798,\"bodyHeight\":919,\"childClass\":\"lazy-panel-fallback\",\"childWidth\":798,\"childHeight\":919,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-board-1440.png-dimensions",
+      "ok": true,
+      "detail": "1440x1000"
+    },
+    {
+      "id": "t576-team-tab",
+      "ok": true,
+      "detail": "团队"
+    },
+    {
+      "id": "t576-team-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"team\",\"panelWidth\":578,\"panelHeight\":919,\"bodyWidth\":578,\"bodyHeight\":919,\"childClass\":\"team-layout\",\"childWidth\":578,\"childHeight\":919,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-team-1440.png-dimensions",
+      "ok": true,
+      "detail": "1440x1000"
+    },
+    {
+      "id": "t576-chat-960-tab",
+      "ok": true,
+      "detail": "对话"
+    },
+    {
+      "id": "t576-chat-960-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"chat\",\"panelWidth\":902,\"panelHeight\":821,\"bodyWidth\":902,\"bodyHeight\":821,\"childClass\":\"chat-layout\",\"childWidth\":902,\"childHeight\":821,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-chat-960.png-dimensions",
+      "ok": true,
+      "detail": "960x900"
+    },
+    {
+      "id": "t576-tasks-960-tab",
+      "ok": true,
+      "detail": "任务"
+    },
+    {
+      "id": "t576-tasks-960-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"tasks\",\"panelWidth\":902,\"panelHeight\":821,\"bodyWidth\":902,\"bodyHeight\":821,\"childClass\":\"tasks-layout \",\"childWidth\":902,\"childHeight\":821,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-tasks-960.png-dimensions",
+      "ok": true,
+      "detail": "960x900"
+    },
+    {
+      "id": "t576-board-960-tab",
+      "ok": true,
+      "detail": "记忆"
+    },
+    {
+      "id": "t576-board-960-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"board\",\"panelWidth\":902,\"panelHeight\":821,\"bodyWidth\":902,\"bodyHeight\":821,\"childClass\":\"lazy-panel-fallback\",\"childWidth\":902,\"childHeight\":821,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-board-960.png-dimensions",
+      "ok": true,
+      "detail": "960x900"
+    },
+    {
+      "id": "t576-team-960-tab",
+      "ok": true,
+      "detail": "团队"
+    },
+    {
+      "id": "t576-team-960-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"team\",\"panelWidth\":902,\"panelHeight\":821,\"bodyWidth\":902,\"bodyHeight\":821,\"childClass\":\"team-layout\",\"childWidth\":902,\"childHeight\":821,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-team-960.png-dimensions",
+      "ok": true,
+      "detail": "960x900"
+    },
+    {
+      "id": "t576-chat-480-tab",
+      "ok": true,
+      "detail": "对话"
+    },
+    {
+      "id": "t576-chat-480-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"chat\",\"panelWidth\":422,\"panelHeight\":794,\"bodyWidth\":422,\"bodyHeight\":794,\"childClass\":\"chat-layout\",\"childWidth\":422,\"childHeight\":794,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-chat-480.png-dimensions",
+      "ok": true,
+      "detail": "480x900"
+    },
+    {
+      "id": "t576-tasks-480-tab",
+      "ok": true,
+      "detail": "任务"
+    },
+    {
+      "id": "t576-tasks-480-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"tasks\",\"panelWidth\":422,\"panelHeight\":794,\"bodyWidth\":422,\"bodyHeight\":794,\"childClass\":\"tasks-layout \",\"childWidth\":422,\"childHeight\":794,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-tasks-480.png-dimensions",
+      "ok": true,
+      "detail": "480x900"
+    },
+    {
+      "id": "t576-board-480-tab",
+      "ok": true,
+      "detail": "记忆"
+    },
+    {
+      "id": "t576-board-480-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"board\",\"panelWidth\":422,\"panelHeight\":794,\"bodyWidth\":422,\"bodyHeight\":794,\"childClass\":\"lazy-panel-fallback\",\"childWidth\":422,\"childHeight\":794,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-board-480.png-dimensions",
+      "ok": true,
+      "detail": "480x900"
+    },
+    {
+      "id": "t576-team-480-tab",
+      "ok": true,
+      "detail": "团队"
+    },
+    {
+      "id": "t576-team-480-stretch",
+      "ok": true,
+      "detail": "{\"panel\":\"team\",\"panelWidth\":422,\"panelHeight\":794,\"bodyWidth\":422,\"bodyHeight\":794,\"childClass\":\"team-layout\",\"childWidth\":422,\"childHeight\":794,\"ratio\":1}"
+    },
+    {
+      "id": "t576-t576-team-480.png-dimensions",
+      "ok": true,
+      "detail": "480x900"
+    },
+    {
+      "id": "t576-dropzone-normal-hidden",
+      "ok": true,
+      "detail": "{\"active\":0,\"total\":0}"
+    },
+    {
+      "id": "t576-dropzone-single-position",
+      "ok": true,
+      "detail": "{\"afterStart\":0,\"left\":[\"left\"],\"right\":[\"right\"],\"center\":[\"center\"],\"afterEnd\":0}"
+    },
+    {
+      "id": "t576-sash-drag",
+      "ok": true,
+      "detail": "{\"rectsBefore\":[{\"id\":\"group-main\",\"width\":800.390625,\"x\":56},{\"id\":\"group-team\",\"width\":579.59375,\"x\":860.390625}],\"rectsAfter\":[{\"id\":\"group-main\",\"width\":890.140625,\"x\":56},{\"id\":\"group-team\",\"width\":489.859375,\"x\":950.140625}],\"sizesBefore\":[0.58,0.42],\"sizesAfter\":[0.645029,0.354971],\"widthDelta\":89.734375}"
+    },
+    {
+      "id": "t576-sash-double-click-reset",
+      "ok": true,
+      "detail": "[0.58,0.42]"
+    },
+    {
+      "id": "t576-sash-keyboard",
+      "ok": true,
+      "detail": "{\"keyboardBefore\":[0.58,0.42],\"keyboardAfter\":[0.6,0.4]}"
+    },
+    {
+      "id": "t576-tab-drop-center",
+      "ok": true,
+      "detail": "{\"centerDrop\":{\"panel\":\"tasks\"},\"centerGroups\":[{\"id\":\"group-main\",\"width\":800.390625,\"x\":56},{\"id\":\"group-team\",\"width\":579.59375,\"x\":860.390625}],\"centerHasTasks\":true}"
+    },
+    {
+      "id": "t576-tab-drop-edge",
+      "ok": true,
+      "detail": "{\"edgeDrop\":{\"panel\":\"chat\"},\"edgeGroups\":[{\"id\":\"group-main\",\"width\":800.390625,\"x\":56},{\"id\":\"group-team\",\"width\":287.796875,\"x\":860.390625},{\"id\":\"group-chat\",\"width\":287.796875,\"x\":1152.1875}]}"
+    },
+    {
+      "id": "t576-settings-not-closable",
+      "ok": true,
+      "detail": "{\"active\":\"设置\",\"closeButtons\":0}"
+    },
+    {
+      "id": "t576-store-sizes",
+      "ok": true,
+      "detail": "{\"key\":\"deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa\",\"wideSizes\":[0.58,0.42],\"variant\":\"wide\"}"
+    },
+    {
+      "id": "t576-close-tab",
+      "ok": true,
+      "detail": "{\"closeResult\":{\"closed\":true},\"beforeClose\":2,\"afterClose\":1}"
+    },
+    {
+      "id": "t576-activate-tab",
+      "ok": true,
+      "detail": "chat"
+    }
+  ],
+  "failures": [],
+  "measurements": {
+    "chat": {
+      "panel": "chat",
+      "panelWidth": 798,
+      "panelHeight": 919,
+      "bodyWidth": 798,
+      "bodyHeight": 919,
+      "childClass": "chat-layout",
+      "childWidth": 798,
+      "childHeight": 919,
+      "ratio": 1
+    },
+    "tasks": {
+      "panel": "tasks",
+      "panelWidth": 798,
+      "panelHeight": 919,
+      "bodyWidth": 798,
+      "bodyHeight": 919,
+      "childClass": "tasks-layout ",
+      "childWidth": 798,
+      "childHeight": 919,
+      "ratio": 1
+    },
+    "board": {
+      "panel": "board",
+      "panelWidth": 798,
+      "panelHeight": 919,
+      "bodyWidth": 798,
+      "bodyHeight": 919,
+      "childClass": "lazy-panel-fallback",
+      "childWidth": 798,
+      "childHeight": 919,
+      "ratio": 1
+    },
+    "team": {
+      "panel": "team",
+      "panelWidth": 578,
+      "panelHeight": 919,
+      "bodyWidth": 578,
+      "bodyHeight": 919,
+      "childClass": "team-layout",
+      "childWidth": 578,
+      "childHeight": 919,
+      "ratio": 1
+    },
+    "chat960": {
+      "panel": "chat",
+      "panelWidth": 902,
+      "panelHeight": 821,
+      "bodyWidth": 902,
+      "bodyHeight": 821,
+      "childClass": "chat-layout",
+      "childWidth": 902,
+      "childHeight": 821,
+      "ratio": 1
+    },
+    "tasks960": {
+      "panel": "tasks",
+      "panelWidth": 902,
+      "panelHeight": 821,
+      "bodyWidth": 902,
+      "bodyHeight": 821,
+      "childClass": "tasks-layout ",
+      "childWidth": 902,
+      "childHeight": 821,
+      "ratio": 1
+    },
+    "board960": {
+      "panel": "board",
+      "panelWidth": 902,
+      "panelHeight": 821,
+      "bodyWidth": 902,
+      "bodyHeight": 821,
+      "childClass": "lazy-panel-fallback",
+      "childWidth": 902,
+      "childHeight": 821,
+      "ratio": 1
+    },
+    "team960": {
+      "panel": "team",
+      "panelWidth": 902,
+      "panelHeight": 821,
+      "bodyWidth": 902,
+      "bodyHeight": 821,
+      "childClass": "team-layout",
+      "childWidth": 902,
+      "childHeight": 821,
+      "ratio": 1
+    },
+    "chat480": {
+      "panel": "chat",
+      "panelWidth": 422,
+      "panelHeight": 794,
+      "bodyWidth": 422,
+      "bodyHeight": 794,
+      "childClass": "chat-layout",
+      "childWidth": 422,
+      "childHeight": 794,
+      "ratio": 1
+    },
+    "tasks480": {
+      "panel": "tasks",
+      "panelWidth": 422,
+      "panelHeight": 794,
+      "bodyWidth": 422,
+      "bodyHeight": 794,
+      "childClass": "tasks-layout ",
+      "childWidth": 422,
+      "childHeight": 794,
+      "ratio": 1
+    },
+    "board480": {
+      "panel": "board",
+      "panelWidth": 422,
+      "panelHeight": 794,
+      "bodyWidth": 422,
+      "bodyHeight": 794,
+      "childClass": "lazy-panel-fallback",
+      "childWidth": 422,
+      "childHeight": 794,
+      "ratio": 1
+    },
+    "team480": {
+      "panel": "team",
+      "panelWidth": 422,
+      "panelHeight": 794,
+      "bodyWidth": 422,
+      "bodyHeight": 794,
+      "childClass": "team-layout",
+      "childWidth": 422,
+      "childHeight": 794,
+      "ratio": 1
+    }
+  },
+  "store": {
+    "key": "deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa",
+    "wideSizes": [
+      0.58,
+      0.42
+    ],
+    "variant": "wide"
+  },
+  "at": "2026-11-23T19:10:37.000Z"
+}
