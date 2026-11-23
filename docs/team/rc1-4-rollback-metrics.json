@@ -1,0 +1,77 @@
+{
+  "task": "t572",
+  "kind": "RC1-4 React Compiler stabilization and rollback drill",
+  "at": "2026-11-24T01:22:00+08:00",
+  "baseCommit": "69c1e78",
+  "frozen": {
+    "package": "babel-plugin-react-compiler",
+    "version": "1.0.0",
+    "license": "MIT",
+    "unpackedSizeBytes": 3880402,
+    "runtimeDependency": false,
+    "allowlist": ["src/ renderer .tsx"],
+    "excluded": [
+      "electron/",
+      "scripts/",
+      "src/kernel/",
+      "src/review/",
+      "src/watchdog/",
+      "src/memory/",
+      "src/shared/",
+      "dist/",
+      "dist-electron/",
+      "node_modules/",
+      "**/*.test.*",
+      "**/__tests__/**",
+      "non-.tsx"
+    ],
+    "highRiskOptOutCount": 19,
+    "directivesCleaned": false
+  },
+  "rollback": {
+    "soft": {
+      "method": "leave RC1_COMPILER/RC1_MODE unset",
+      "buildCommand": "pnpm build",
+      "buildMs": 907,
+      "viteMs": 216,
+      "index": { "file": "index-CSOlXrS3.js", "bytes": 384020, "gzipKb": 114.36 },
+      "vendorReact": { "file": "vendor-react-BWG1l_ZB.js", "bytes": 210540, "gzipKb": 65.71 },
+      "css": { "file": "index-B_PW-RiH.css", "bytes": 151250, "gzipKb": 25.70 },
+      "typecheck": 0,
+      "tests": "180 files / 1226 tests (292.79s serial)"
+    },
+    "compilerReference": {
+      "buildCommand": "pnpm build:compiler",
+      "buildMs": 5782,
+      "viteMs": 4700,
+      "index": { "file": "index-BAPn_xuv.js", "bytes": 432500, "gzipKb": 136.92 },
+      "vendorReact": { "file": "vendor-react-CZbqvQ-P.js", "bytes": 210710, "gzipKb": 65.81 },
+      "css": { "file": "index-B_PW-RiH.css", "bytes": 151250, "gzipKb": 25.70 },
+      "tests": "87 files / 440 tests (7.46s)"
+    },
+    "hardSteps": [
+      "pnpm remove -D babel-plugin-react-compiler",
+      "remove build:compiler/test:compiler scripts",
+      "remove reactCompilerBoundary.ts/test and vite.config Babel wiring",
+      "pnpm install && pnpm build && pnpm test"
+    ],
+    "noManualMemoDeleted": true,
+    "noDataMigration": true
+  },
+  "gates": {
+    "typecheck": "pnpm typecheck",
+    "defaultBuild": "pnpm build",
+    "defaultTest": "pnpm test",
+    "serialTest": "pnpm test -- --max-workers=1 --testTimeout=20000",
+    "compilerBuild": "pnpm build:compiler",
+    "compilerTest": "pnpm test:compiler",
+    "boundary": "npx vitest run src/shell/reactCompilerBoundary.test.ts"
+  },
+  "verification": {
+    "typecheck": 0,
+    "build": 0,
+    "serialTest": "180 files / 1226 tests",
+    "compilerBuild": 0,
+    "compilerTest": "87 files / 440 tests"
+  }
+}
