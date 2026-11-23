@@ -1878,6 +1878,30 @@ export class Store {
     }));
   }
 
+  /**
+   * O1-3 scheduler queue read: owner comes from task_owners first; the legacy
+   * owner_id column is only consulted when the relation tables are absent.
+   */
+  listQueuedTasks(workspaceId: string): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks
+         WHERE workspace_id = ? AND status = 'queued'
+         ORDER BY priority DESC, queued_at ASC, created_at ASC, id ASC`,
+      )
+      .all(workspaceId) as Row[];
+    const tasks = rows.map(toTask);
+    if (!this.taskRelationTablesReady()) return tasks;
+    const ownerRows = this.db
+      .prepare(
+        `SELECT o.task_id, o.agent_id FROM task_owners o
+         JOIN tasks t ON t.id = o.task_id WHERE t.workspace_id = ?`,
+      )
+      .all(workspaceId) as Array<{ task_id?: string; agent_id?: string }>;
+    const owners = new Map(ownerRows.map((row) => [String(row.task_id), String(row.agent_id)]));
+    return tasks.map((task) => ({ ...task, ownerId: owners.get(task.id) ?? null }));
+  }
+
   private taskRelationTablesReady(): boolean {
     return this.tableExists("task_owners") && this.tableExists("task_dependencies");
   }

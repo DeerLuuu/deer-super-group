@@ -211,7 +211,30 @@ describe("O1-1 v3 task graph schema", () => {
     ).toMatchObject({ owner_id: null, depends_on: "[]" });
   });
 
-  it("falls back to legacy columns if the relation tables are unavailable", () => {
+  it("serves relation-first reads to scheduler/UI when legacy columns diverge", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-read-"));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const store = new Store(path.join(root, "deer.db"));
+    cleanup.push(() => store.close());
+    const ws = store.createWorkspace("A", path.join(root, "a"));
+    const a = makeTask(store, ws.id, "A");
+    const b = makeTask(store, ws.id, "B", undefined, [a.id]);
+    const owner = makeAgent(store, ws.id, "Owner");
+    store.updateTask(b.id, { ownerId: owner.id, status: "queued" });
+
+    // Simulate a stale legacy mirror; relation remains authoritative.
+    store.db
+      .prepare("UPDATE tasks SET owner_id = 'legacy-owner', depends_on = ? WHERE id = ?")
+      .run(JSON.stringify(["legacy-dep"]), b.id);
+    expect(store.getTask(b.id)).toMatchObject({ ownerId: owner.id, dependsOn: [a.id] });
+    expect(store.listTasks(ws.id).find((task) => task.id === b.id)).toMatchObject({
+      ownerId: owner.id,
+      dependsOn: [a.id],
+    });
+    expect(store.listQueuedTasks(ws.id).find((task) => task.id === b.id)?.ownerId).toBe(owner.id);
+  });
+
+  it("falls back to legacy columns when relation tables are unavailable", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-fallback-"));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const store = new Store(path.join(root, "deer.db"));

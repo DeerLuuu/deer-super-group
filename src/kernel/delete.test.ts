@@ -151,4 +151,26 @@ describe("t167 delete task/member", () => {
     service.store.updateTask(dependency.id, { dependsOn: [parent.id], status: "blocked" });
     expect(() => service.deleteTask(parent.id)).toThrow("依赖");
   });
+
+  it("protects dependents from relation when the legacy JSON is stale", async () => {
+    const { service, workspacePath } = setup();
+    const { workspace } = await openWorkspace(service, workspacePath);
+    const parent = service.createTask({
+      workspaceId: workspace.id,
+      title: "parent",
+      description: "",
+      acceptance: [],
+    });
+    const child = service.createTask({
+      workspaceId: workspace.id,
+      title: "child",
+      description: "",
+      acceptance: [],
+    });
+    service.tasks.setDependencies(child.id, [parent.id]);
+    service.store.db.prepare("UPDATE tasks SET depends_on = '[]' WHERE id = ?").run(child.id);
+    expect(() => service.deleteTask(parent.id)).toThrow(/依赖/);
+    expect(service.store.getTask(parent.id)).not.toBeNull();
+    expect(service.store.getTask(child.id)?.dependsOn).toEqual([parent.id]);
+  });
 });
