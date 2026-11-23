@@ -497,8 +497,6 @@ export function useDockLayoutController(options: UseDockLayoutOptions): DockLayo
   layoutRef.current = layout;
   const storeRef = useRef<DockLayoutStore | null>(null);
   const timerRef = useRef<number | null>(null);
-  // t548：pending 标记——卸载时即使 storeRef 仍为 null（首次 dispatch 后未 flush）也不丢持久化。
-  const dirtyRef = useRef(false);
 
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -508,8 +506,6 @@ export function useDockLayoutController(options: UseDockLayoutOptions): DockLayo
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    if (!dirtyRef.current && storeRef.current === null) return;
-    dirtyRef.current = false;
     const store: DockLayoutStore = storeRef.current ?? {
       schema: V2_SCHEMA,
       version: V2_VERSION,
@@ -539,7 +535,6 @@ export function useDockLayoutController(options: UseDockLayoutOptions): DockLayo
         optionsRef.current.onActivatedPanel?.(result.effects.activatedPanel);
       }
       if (result.effects.persist) {
-        dirtyRef.current = true;
         if (timerRef.current !== null) clearTimeout(timerRef.current);
         // node 测试环境无 window——用全局 setTimeout（浏览器等价）。
         timerRef.current = setTimeout(flush, debounceMs) as unknown as number;
@@ -597,8 +592,8 @@ export function useDockLayoutController(options: UseDockLayoutOptions): DockLayo
   useEffect(() => {
     return () => {
       if (timerRef.current !== null) clearTimeout(timerRef.current);
-      // t548：pending 变更（dirtyRef）也 flush——避免首次 dispatch 后卸载丢数据。
-      if (storeRef.current !== null || dirtyRef.current) flush();
+      // flush 只在有变更时写（storeRef 为 null 且从未 dispatch 则跳过）。
+      if (storeRef.current !== null) flush();
     };
   }, [flush]);
 
