@@ -1,0 +1,28 @@
+{
+  "defaultState": {
+    "dockview": true,
+    "v2": false,
+    "keys": [
+      "deer.dock.v1.ws_mwtjz6r2_8b88c86a9c"
+    ]
+  },
+  "v2State": {
+    "dockview": false,
+    "v2": true,
+    "keys": [
+      "deer.dock.layout.v2.ws_mwtjz6r2_8b88c86a9c",
+      "deer.dock.v1.ws_mwtjz6r2_8b88c86a9c",
+      "deer.dock.engine"
+    ],
+    "groups": 2
+  },
+  "backState": {
+    "dockview": true,
+    "v2": false,
+    "keys": [
+      "deer.dock.layout.v2.ws_mwtjz6r2_8b88c86a9c",
+      "deer.dock.v1.ws_mwtjz6r2_8b88c86a9c",
+      "deer.dock.engine"
+    ]
+  }
+}

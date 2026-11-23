@@ -1,84 +1,70 @@
-# DW1 回滚：恢复 dockview + 旧 DockShell（t584）
+# DW1 回滚：dockview 默认 + 保留 v2 opt-in（t584）
 
-## 1. 用户反馈与决策
+## 1. 决策
 
-新 DockTree 布局交互整体退步（只能左右、不能上下、拖拽/落点不稳）。用户明确要求恢复旧版交互，而不是继续修新系统。本 PR **回滚 DW1-1/2/3/4**，恢复 dockview 8.9.0 + 旧 `DockShell`；保留 O1 / RC1 / MF1 / G2 / D1 / G11 / G12 / G14 等非 Dock 功能。
+用户反馈自研 DockTree 交互整体退步（只能左右/不能上下/拖拽落点不稳），要求默认恢复旧 dockview 交互。Captain 后续修订目标：**dockview 恢复默认；自研 DockTree/v2 代码保留为显式 opt-in，不删除**；v2 可加载/切回，不破坏 v1 默认。
 
-## 2. Revert 链与冲突处理
+本 PR 最终状态：
 
-按逆序 revert 合并提交（`-m 1`）：
+- **默认**：dockview 8.9.0 + 旧 `DockShell`（`deer.dock.v1` store）；
+- **opt-in**：DockTree/v2 + `deer.dock.layout.v2`，由 `dockEngine` 显式启用；
+- 非 Dock 功能 O1 / RC1 / MF1 / G2 / D1 / G11 / G12 / G14 保留。
+
+## 2. Revert 链与恢复
+
+按逆序 revert 四个合并提交（`-m 1`）：
 
 1. `0bb59c7` DW1-4（移除 dockview）
 2. `84b0f55` DW1-3（DockTree v2）
 3. `2eaa789` DW1-2（reducer/controller shadow）
 4. `c9f81c8` DW1-1（layout model）
 
-冲突只在 `src/shell/dock/panelRegistry.ts` 头部：保留 MF1 的 `PANEL_MANIFEST_INDEX` 派生 PANEL_DEFS，同时恢复 v1 `DockStore`/`LAYOUT_KEYS` import 与 v1 API；无业务/gate/权限/数据冲突。v2 文件和测试随 DW1 revert 删除；DockShellV2/Tree/Group/Sash/DropZone 删除。
+冲突仅 `panelRegistry.ts` 头部：保留 MF1 `PANEL_MANIFEST_INDEX` 派生，同时恢复 v1 `DockStore`/`LAYOUT_KEYS`。
 
-## 3. 恢复内容
+随后从历史/主线恢复 v2 artifacts 作为 opt-in（`DockTree/Group/Sash/DropZone/DockShellV2`、`layoutModel/ops`、`dockLayout.css`、v2 tests），不设默认；`DockShell` 使用引擎分派：
 
-- `package.json` / `pnpm-lock.yaml`：恢复 `dockview-core@8.9.0`、`dockview-react@8.9.0`。
-- `src/shell/dock/DockShell.tsx`：恢复 dockview `DockviewReact` 旧容器、tab/sash/拖放/关闭、v1 `loadStore/saveStore`；保留 DockHandle 契约与 App import 不变。
-- `src/shell/dock/panelRegistry.ts`：恢复 `deer.dock.state` v1 `DockStore`、`deer.dock.v1.<workspaceId>` 读写；MF1 panel manifest 派生保留。
-- `src/shared/layoutPersistence.ts`：恢复 `LAYOUT_KEYS.dockPrefix = "deer.dock.v1."`。
-- `src/styles.css`：恢复 legacy `.dock-shell/.dock-root` 与 dockview 主题 CSS。
-- v2 `deer.dock.layout.v2` 不再读写（旧 key 可留作备份，不迁移）；v1 key 存在则立即恢复。
-- RC1 Compiler：全 renderer 配置保留；已删除文件从高风险列表移除，旧 `DockShell` 加入 `"use no memo"`（旧布局交互高风险）。
+```
+getDockEngine() === "v2" ? DockShellV2 : DockShellLegacy
+```
 
-## 4. 旧交互验证（真实 Electron/CDP）
+`dockEngine` 默认 **dockview**；`VITE_DOCK_ENGINE=v2` 或 `localStorage["deer.dock.engine"]="v2"` 启用 v2；切回 `dockview` 即恢复默认。
 
-工作区 fixture（临时 userData，真实 deer.db）加载真实 `dist`；1440×900。
+## 3. 默认/opt-in 行为与证据
 
-### 4.1 四向 split 与 sash
+### 默认 dockview
 
-- 从旧 DockShell 初始双组开始，真实鼠标拖拽 tab：
-  - 任务 tab → 主组底部：创建上下 split；
-  - 邮箱 tab → 主组右侧：创建左右 split；
-  - 得到 3 组，两个方向同时存在（截图 `t584-dock-fourway-1440.png`）。
-- dockview 原生 drop zones 覆盖 center/left/right/above/below；本次真实拖拽覆盖 bottom/right，另由旧 dockview 原生交互提供 left/top/center。
-- Sash 真实拖动：
-  - 垂直 sash：底部组宽 592/592 → **640/544**；
-  - 水平 sash：上/下高度 428/428 → **464/392**；
-  - 松手后保持，布局写入 v1 store。
-- Screenshot `t584-dockview-1440.png` 为回滚初始布局；`t584-dock-1440.png` 为持久化后布局。
+- 恢复 `dockview-core@8.9.0` / `dockview-react@8.9.0` + lockfile、旧 `DockShell`、v1 `deer.dock.v1.<workspaceId>`、legacy CSS。
+- 真实 Electron 1440：`.dv-shell=true`、`.docktree-root=false`；v1 key 存在。
+- 拖拽任务→底部创建上下 split；邮箱→右侧创建左右 split；dockview native drop zones 覆盖 center/left/right/above/below。
+- Sash 两轴真实拖动：底部组宽 592/592→640/544；上下高 428/428→464/392，松手保持。
+- 关闭活动 tab 6→5；`#/tasks` 重开 5→6；deep link/Alt+2 active 任务；关闭全部→watermark「恢复默认布局」→groups 2/tabs 5/active 对话+团队；reload v1 布局恢复。
+- 截图：`t584-dockview-1440.png`（初始）、`t584-dock-fourway-1440.png`（split）、`t584-dock-{1440,960,480}.png`（三档，`scrollWidth===innerWidth`）。
 
-### 4.2 关闭/激活/打开/深链/快捷键/重置
+### v2 opt-in（保留）
 
-| 操作 | 观察 |
+- `dockEngine` 默认 dockview；切 `deer.dock.engine="v2"` 后 reload：`.dv-shell=false`、`.docktree-root=true`，v2 store 出现，2 groups；再切回 dockview reload 恢复旧 renderer。
+- 截图：`t584-v2-optin-1440.png`、`t584-v2-optin-960.png`；记录 `t584-engine-walkthrough.json`。
+- v2 代码/测试保留，未删除；v1 默认不被 v2 opt-in 破坏。
+
+## 4. 验证/构建
+
+| 命令 | 结果 |
 |---|---|
-| 点击 task tab / Active | `任务` aria-selected |
-| 关闭活动 tab | tabs 6→5，groups 5→4 |
-| `#/tasks` 重新打开 | tabs→6，groups 4，active 任务 |
-| deep link `#/tasks` | hash `#/tasks`，active 任务 |
-| Alt+2 | hash `#/tasks`，active 任务 |
-| 关闭全部面板 → watermark | 显示 `恢复默认布局` |
-| 点击恢复默认布局 | groups→2，tabs→5，active 对话/团队 |
-| Page.reload | v1 store 恢复布局；v1 key 存在，v2 key 不存在 |
+| `pnpm typecheck` | 0 |
+| `pnpm build` | 0；**830 ms**；index **394.85 kB / gzip 117.38**；vendor-dockview **414.89/97.22**；CSS **153.32/26.08** |
+| `pnpm test -- --max-workers=1 --testTimeout=20000` | **183 文件 / 1238 用例全绿**（269.73s） |
+| `pnpm build:compiler` | 0；index **443.68/140.10**（RC1 全 renderer 仍可用） |
 
-证据：`t584-dock-walkthrough.json`。
+- 默认 build/test 不编译；compiler 仍独立命令。
+- 非 Dock：MF1 panel manifest、O1 关系读路径、G2/D1/G11/G12/G14 全量测试通过；无 kernel/memory/review/watchdog/electron 改动。
+- RC1 boundary 保留；DockShell + v2 高风险文件均 `"use no memo"`，kernel/electron 排除持续有效。
+- 无手工 memo 删除；无 runtime 新依赖（dockview 是恢复既有依赖）；无 schema/DB/权限/gate/IPC 变更。
 
-### 4.3 三档截图/无横向
+## 5. 风险与回滚
 
-| 1440 | 960 | 480 |
-|---|---|---|
-| ![](t584-dock-1440.png) | ![](t584-dock-960.png) | ![](t584-dock-480.png) |
-
-- 1440：真实四组/窗口 1440，`scrollWidth===innerWidth`；
-- 960/480：dockview 断点切单组，`scrollWidth===innerWidth`，无横向裁切；
-- 初始对照：`t584-dockview-1440.png`；四向：`t584-dock-fourway-1440.png`。
-
-## 5. 非 Dock 功能保持
-
-- 默认 build：**934 ms**；index **371.20 kB / gzip 110.42**，vendor-dockview 414.89/97.22，CSS150.01/25.44。
-- `pnpm test -- --max-workers=1 --testTimeout=20000`：**179 文件 / 1164 用例全绿**（277.74s）。
-- RC1 Compiler：`pnpm build:compiler` 仍成功（index419.91/132.93）；boundary 测试随旧 DockShell 更新并通过（App/DockShell/LazyPanel/PanelHost no-memo，kernel/electron 排除）。
-- MF1 panel manifest 测试、O1 关系读路径测试、G2/D1/G11/G12/G14 全量测试均通过；无 kernel/memory/review/watchdog/electron 改动。
-
-## 6. 风险与回滚
-
-- v2 key 不再读写，旧 v1 key 保留；回滚后首次加载即恢复 v1 布局，不迁移/不删除 v2 备份。
-- dockview 依赖恢复会增加 bundle（+414.89 kB vendor-dockview JS/136.04 kB CSS），这是恢复旧交互的已知成本。
-- 如需再次移除 dockview，按 DW1 后续独立任务处理；本 PR 不重新推进新 Dock。
-- 无 schema/DB/权限/gate/IPC 变更；无手工 memo 删除。
+- 默认 bundle 恢复 dockview，并保留 v2 opt-in 代码，index 较纯 v2 回滚态增加；这是保留双引擎的成本。
+- v1/v2 store 并存：默认只读 v1；v2 仅在 opt-in 时读写。不迁移/不删除旧 key。
+- 若 v2 opt-in 导致问题，删除 `deer.dock.engine` 或设 `"dockview"` 即回旧交互，无需数据迁移。
+- 再次移除 dockview 属后续独立任务，不在本 PR。
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,0 +1,46 @@
+{
+  "results": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "groups": 4,
+      "tabs": 5,
+      "keys": [
+        "deer.dock.layout.v2.ws_mwtjz6r2_8b88c86a9c",
+        "deer.dock.v1.ws_mwtjz6r2_8b88c86a9c",
+        "deer.dock.engine"
+      ]
+    },
+    {
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "groups": 1,
+      "tabs": 4,
+      "keys": [
+        "deer.dock.layout.v2.ws_mwtjz6r2_8b88c86a9c",
+        "deer.dock.v1.ws_mwtjz6r2_8b88c86a9c",
+        "deer.dock.engine"
+      ]
+    },
+    {
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "groups": 1,
+      "tabs": 4,
+      "keys": [
+        "deer.dock.layout.v2.ws_mwtjz6r2_8b88c86a9c",
+        "deer.dock.v1.ws_mwtjz6r2_8b88c86a9c",
+        "deer.dock.engine"
+      ]
+    }
+  ],
+  "v2": {
+    "dockview": false,
+    "v2": true,
+    "scrollWidth": 960,
+    "innerWidth": 960
+  }
+}
