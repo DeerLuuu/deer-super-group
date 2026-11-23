@@ -557,17 +557,7 @@ export class ExecutionKernel {
       .prepare("SELECT paused, paused_reason FROM scheduler_state WHERE workspace_id = ?")
       .get(workspaceId) as { paused?: number; paused_reason?: string } | undefined;
     const digest = projectionDigest(this.store, workspaceId);
-    const queue = this.store.db
-      .prepare(
-        "SELECT id, title, priority, queued_at, owner_id FROM tasks WHERE workspace_id = ? AND status = 'queued' ORDER BY priority DESC, queued_at ASC, created_at ASC",
-      )
-      .all(workspaceId) as Array<{
-      id?: string;
-      title?: string;
-      priority?: number;
-      queued_at?: string;
-      owner_id?: string;
-    }>;
+    const queue = this.store.listQueuedTasks(workspaceId);
     const activeRows = this.store.db
       .prepare(
         `SELECT r.id, r.task_id, r.attempt, r.agent_id, r.status, r.started_at, r.heartbeat_at, r.ended_at, r.error_code
@@ -593,12 +583,12 @@ export class ExecutionKernel {
         endedAt: row.ended_at == null ? null : String(row.ended_at),
         errorCode: row.error_code == null ? null : String(row.error_code),
       })) satisfies RunSummary[],
-      queue: queue.map((row) => ({
-        taskId: String(row.id),
-        title: String(row.title),
-        priority: Number(row.priority ?? 50),
-        queuedAt: row.queued_at == null ? null : String(row.queued_at),
-        ownerId: row.owner_id == null ? null : String(row.owner_id),
+      queue: queue.map((task) => ({
+        taskId: task.id,
+        title: task.title,
+        priority: task.priority ?? 50,
+        queuedAt: task.queuedAt ?? null,
+        ownerId: task.ownerId ?? null,
       })),
       updatedAt: iso(this.clock.now()),
     };

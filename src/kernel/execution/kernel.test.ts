@@ -334,6 +334,16 @@ describe("t68 scheduler", () => {
     await waitFor(() => taskStatus(store, second.id) === "done");
   });
 
+  it("scheduler queue reads owner from relation rather than the legacy column", () => {
+    const { store, workspaceId, agent, kernel } = setupKernel(instantExecutor);
+    const task = createTask(store, workspaceId, "relation-owner");
+    store.updateTask(task.id, { ownerId: agent.id, status: "queued" });
+    store.db.prepare("UPDATE tasks SET owner_id = NULL WHERE id = ?").run(task.id);
+    expect(kernel.getScheduler(workspaceId).queue).toEqual([
+      expect.objectContaining({ taskId: task.id, ownerId: agent.id }),
+    ]);
+  });
+
   it("pause blocks new runs, resume continues; queued tasks survive pause", async () => {
     const { store, workspaceId, kernel } = setupKernel(instantExecutor, {
       limits: { maxGlobal: 1, maxWorkspace: 1, maxPerAgent: 1 },
