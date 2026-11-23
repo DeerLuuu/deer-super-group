@@ -87,11 +87,11 @@ async function screenshot(name) {
 }
 
 // 等待 app shell 渲染（dock tablist 出现）。
-const ready = await waitFor(`!!document.querySelector(".dock-root, .dockview-container, [role=tablist]")`);
+const ready = await waitFor(`!!document.querySelector(".docktree-shell, .docktree-root, [role=tablist]")`);
 record("t530-app-ready", ready, ready ? "dock container rendered" : "no dock container");
 
 // 找第一个可用 workspace（空库时 App 打开欢迎页——此场景跳过 shell 断言但保留截图）。
-const hasShell = await evaluate(`!!document.querySelector(".dock-root") || !!document.querySelector(".dockview-container")`);
+const hasShell = await evaluate(`!!document.querySelector(".docktree-shell") || !!document.querySelector(".docktree-root")`);
 record("t530-has-shell", true, `shell=${hasShell}`);
 
 // 三档截图 + 每档 no-overflow。

@@ -26,7 +26,6 @@ describe("layout persistence keys", () => {
     expect(LAYOUT_KEYS.sidebarCollapsed).toBe("deer.sidebarCollapsed");
     expect(LAYOUT_KEYS.taskListWidth).toBe("deer.taskListWidth");
     expect(LAYOUT_KEYS.taskListCollapsed).toBe("deer.taskListCollapsed");
-    expect(LAYOUT_KEYS.dockPrefix).toBe("deer.dock.v1.");
     expect(LAYOUT_KEYS.gitWorkspaceHeightPrefix).toBe("deer.git.workspaceHeight.");
   });
 });

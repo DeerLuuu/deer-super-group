@@ -1,0 +1,61 @@
+{
+  "480": {
+    "inner": [
+      480,
+      900
+    ],
+    "groups": 1,
+    "close": 1,
+    "tabs": 6,
+    "scrollW": 480,
+    "dockview": false
+  },
+  "960": {
+    "inner": [
+      960,
+      900
+    ],
+    "groups": 2,
+    "close": 2,
+    "tabs": 7,
+    "scrollW": 960,
+    "dockview": false
+  },
+  "1440": {
+    "inner": [
+      1440,
+      1000
+    ],
+    "groups": 2,
+    "close": 2,
+    "tabs": 7,
+    "scrollW": 1440,
+    "dockview": false
+  },
+  "v1Preserved": "keep-me",
+  "v2Start": {
+    "v2": true,
+    "dockview": false
+  },
+  "deepLink": {
+    "hash": "#/tasks",
+    "gitTab": true,
+    "v2Keys": [
+      "deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa"
+    ]
+  },
+  "store": [
+    {
+      "k": "deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa",
+      "v": "{\"schema\":\"deer.dock.layout\",\"version\":2,\"updatedAt\":\"2026-11-23T16:24:19.401Z\",\"variants\":{\"wide\":{\"schema\":\"deer.dock.layout\",\"version\":2,\"variant\":\"wide\",\"root\":{\"kind\":\"split\",\"id\":\"split-root\",\"a"
+    }
+  ],
+  "reload": {
+    "hash": "#/tasks",
+    "gitTab": true,
+    "v1": "keep-me",
+    "v2Keys": [
+      "deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa"
+    ]
+  }
+}

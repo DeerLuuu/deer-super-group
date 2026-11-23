@@ -7,7 +7,6 @@ export const LAYOUT_KEYS = {
   taskListWidth: "deer.taskListWidth",
   taskListCollapsed: "deer.taskListCollapsed",
   lastWorkspaceId: "deer.lastWorkspaceId",
-  dockPrefix: "deer.dock.v1.",
   gitWorkspaceHeightPrefix: "deer.git.workspaceHeight.",
 } as const;
 

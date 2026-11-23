@@ -6,7 +6,7 @@
  * - normalize：空组删除、single-child split 折叠、sizes 归一（正数、和为 1、与 children 等长）；
  * - validate：非法树/重复 panel/超组数/active 越界/未知 PanelKey 全部拒绝；
  * - 默认布局：wide/medium/narrow 主组+team 右分栏（VARIANT_WEIGHTS），single 全部同组；
- * - 本模块不 import DockShell/dockview，不读 v1 `deer.dock.state`（v2 key 归 DW1-2）。
+ * - 本模块不 import DockShell/旧渲染器，不读 v1 `deer.dock.state`（v2 key 归 DW1-2）。
  */
 
 import {
