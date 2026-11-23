@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { Store } from "./store.js";
+import { projectionDigest, rebuildProjections } from "./execution/projections.js";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -34,9 +35,9 @@ function makeTask(store: Store, workspaceId: string, title: string, ownerId?: st
 }
 
 /**
- * Create a fully-migrated v3 DB, then rewind it to the v2 shape: drop the
- * relation tables and set user_version=2. The legacy owner_id/depends_on
- * columns remain, just like a pre-O1-1 database.
+ * Create a v4 DB, then rewind it to the v2 shape: re-add the legacy mirror
+ * columns, drop relation tables and set user_version=2. This exercises the
+ * full v2 -> v3 -> v4 upgrade, including the contract column removal.
  */
 function makeV2Fixture(
   options: {
@@ -51,7 +52,7 @@ function makeV2Fixture(
     tooManyDependencies?: boolean;
   } = {},
 ) {
-  const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-fixture-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "deer-v4-fixture-"));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const dbPath = path.join(root, "deer.db");
   const initial = new Store(dbPath);
@@ -70,14 +71,21 @@ function makeV2Fixture(
 
   const raw = new DatabaseSync(dbPath);
   try {
+    raw.exec("ALTER TABLE tasks ADD COLUMN owner_id TEXT");
+    raw.exec("ALTER TABLE tasks ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
     raw.exec("DROP TABLE task_dependencies; DROP TABLE task_owners;");
-    raw.exec("DELETE FROM schema_migrations WHERE version = 3; PRAGMA user_version = 2");
+    raw.exec("DELETE FROM schema_migrations WHERE version >= 3; PRAGMA user_version = 2");
     const ownerId = options.crossWorkspaceOwner
       ? agentB.id
       : options.missingOwner
         ? "missing-agent"
         : agentA.id;
-    raw.prepare("UPDATE tasks SET owner_id = ? WHERE id = ?").run(ownerId, b.id);
+    raw.prepare("UPDATE tasks SET owner_id = ?, depends_on = '[]' WHERE id = ?").run(ownerId, b.id);
+    raw.prepare("UPDATE tasks SET owner_id = ?, depends_on = ? WHERE id = ?").run(
+      agentA.id,
+      JSON.stringify([a.id]),
+      c.id,
+    );
     if (options.badJson) {
       raw.prepare("UPDATE tasks SET depends_on = ? WHERE id = ?").run("{not-json", c.id);
     } else if (options.cycle) {
@@ -120,6 +128,17 @@ function tableNames(dbPath: string): string[] {
   }
 }
 
+function columnNames(dbPath: string): string[] {
+  const db = new DatabaseSync(dbPath);
+  try {
+    return (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>).map((row) =>
+      String(row.name),
+    );
+  } finally {
+    db.close();
+  }
+}
+
 function userVersionAt(dbPath: string): number {
   const db = new DatabaseSync(dbPath);
   try {
@@ -129,90 +148,191 @@ function userVersionAt(dbPath: string): number {
   }
 }
 
-describe("O1-1 v3 task graph schema", () => {
-  it("migrates a v2 DB, backfills owner/dependencies, and keeps old columns mirrored", () => {
+describe("O1-4 task graph contract schema", () => {
+  it("migrates v2 through v3 to v4, backfills relations and removes legacy columns", () => {
     const fixture = makeV2Fixture();
     const store = new Store(fixture.dbPath);
     cleanup.push(() => store.close());
 
+    expect(userVersionAt(fixture.dbPath)).toBe(4);
     expect(
-      Number((store.db.prepare("PRAGMA user_version").get() as { user_version?: number }).user_version),
-    ).toBe(3);
-    expect(
-      (store.db.prepare("SELECT version FROM schema_migrations WHERE version = 3").get() as
+      (store.db.prepare("SELECT version FROM schema_migrations WHERE version = 4").get() as
         | { version?: number }
         | undefined)?.version,
-    ).toBe(3);
+    ).toBe(4);
     expect(tableNames(fixture.dbPath)).toEqual(
       expect.arrayContaining(["task_owners", "task_dependencies", "schema_migrations"]),
     );
+    expect(columnNames(fixture.dbPath)).not.toContain("owner_id");
+    expect(columnNames(fixture.dbPath)).not.toContain("depends_on");
     const indexes = (store.db.prepare("PRAGMA index_list(task_dependencies)").all() as Array<{
       name?: string;
     }>).map((row) => String(row.name));
     expect(indexes).toContain("idx_task_dependencies_parent");
-    expect(store.db.prepare("PRAGMA foreign_key_list(task_owners)").all()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ table: "tasks", from: "task_id", to: "id", on_delete: "CASCADE" }),
-        expect.objectContaining({ table: "agents", from: "agent_id", to: "id", on_delete: "CASCADE" }),
-      ]),
-    );
-    expect(store.db.prepare("PRAGMA foreign_key_list(task_dependencies)").all()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ table: "tasks", from: "task_id", to: "id", on_delete: "CASCADE" }),
-        expect.objectContaining({
-          table: "tasks",
-          from: "depends_on_task_id",
-          to: "id",
-          on_delete: "RESTRICT",
-        }),
-      ]),
-    );
+    expect(store.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(store.lastBackupPath).toBeTruthy();
     expect(existsSync(store.lastBackupPath!)).toBe(true);
+    const backup = new DatabaseSync(store.lastBackupPath!);
+    try {
+      expect(Number((backup.prepare("PRAGMA user_version").get() as { user_version?: number }).user_version)).toBe(3);
+      const backupColumns = (backup.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>).map(
+        (row) => String(row.name),
+      );
+      expect(backupColumns).toEqual(expect.arrayContaining(["owner_id", "depends_on"]));
+    } finally {
+      backup.close();
+    }
 
     expect(store.getTask(fixture.b.id)?.ownerId).toBe(fixture.agentA.id);
     expect(store.getTask(fixture.c.id)?.dependsOn).toEqual([fixture.a.id]);
     expect(store.listTasks(fixture.wsA.id).find((task) => task.id === fixture.c.id)?.dependsOn).toEqual([
       fixture.a.id,
     ]);
-    expect(
-      store.db.prepare("SELECT owner_id, depends_on FROM tasks WHERE id = ?").get(fixture.c.id),
-    ).toMatchObject({ owner_id: fixture.agentA.id, depends_on: JSON.stringify([fixture.a.id]) });
-    expect(store.db.prepare("PRAGMA foreign_keys").get()).toMatchObject({ foreign_keys: 1 });
-    expect(store.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(store.db.prepare("SELECT COUNT(*) AS n FROM task_owners").get()).toMatchObject({ n: 2 });
     expect(store.db.prepare("SELECT COUNT(*) AS n FROM task_dependencies").get()).toMatchObject({ n: 1 });
   });
 
-  it("keeps owner/dependency mirrors in sync for O1-1 writes and reads relation first", () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-write-"));
+  it("rolls back a failed v4 column drop and keeps v3 readable", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v4-fail-"));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = path.join(root, "deer.db");
+    const initial = new Store(dbPath);
+    const ws = initial.createWorkspace("A", path.join(root, "a"));
+    initial.createTask({ workspaceId: ws.id, title: "Task", description: "", acceptance: [] });
+    initial.close();
+
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec("ALTER TABLE tasks ADD COLUMN owner_id TEXT; ALTER TABLE tasks ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
+      raw.exec("CREATE INDEX idx_legacy_owner ON tasks(owner_id)");
+      raw.exec("DELETE FROM schema_migrations WHERE version = 4; PRAGMA user_version = 3");
+    } finally {
+      raw.close();
+    }
+
+    expect(() => new Store(dbPath)).toThrow(/task graph contract migration failed/);
+    expect(userVersionAt(dbPath)).toBe(3);
+    expect(columnNames(dbPath)).toEqual(expect.arrayContaining(["owner_id", "depends_on"]));
+    const check = new DatabaseSync(dbPath);
+    try {
+      expect(
+        (check.prepare("PRAGMA index_list(tasks)").all() as Array<{ name?: string }>).map((row) =>
+          String(row.name),
+        ),
+      ).toContain("idx_legacy_owner");
+      // The failed constructor must have closed its connection: a second
+      // writer can still open and read the rolled-back v3 database.
+      check.prepare("PRAGMA user_version").get();
+    } finally {
+      check.close();
+    }
+  });
+
+  it("keeps v1 owner/dependencies in the legacy snapshot through v4 rebuild", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v1-to-v4-"));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = path.join(root, "deer.db");
+    const initial = new Store(dbPath);
+    const ws = initial.createWorkspace("A", path.join(root, "a"));
+    const agent = makeAgent(initial, ws.id, "Owner");
+    const a = makeTask(initial, ws.id, "A");
+    const b = makeTask(initial, ws.id, "B", agent.id, [a.id]);
+    initial.close();
+
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec("ALTER TABLE tasks ADD COLUMN owner_id TEXT; ALTER TABLE tasks ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
+      raw.prepare("UPDATE tasks SET owner_id = ?, depends_on = ? WHERE id = ?").run(
+        agent.id,
+        JSON.stringify([a.id]),
+        b.id,
+      );
+      raw.exec("DROP TABLE task_dependencies; DROP TABLE task_owners; DELETE FROM schema_migrations WHERE version >= 3; PRAGMA user_version = 1");
+    } finally {
+      raw.close();
+    }
+
+    const store = new Store(dbPath);
+    cleanup.push(() => store.close());
+    expect(userVersionAt(dbPath)).toBe(4);
+    expect(store.getTask(b.id)).toMatchObject({ ownerId: agent.id, dependsOn: [a.id] });
+    const digestBefore = projectionDigest(store);
+    rebuildProjections(store);
+    expect(store.getTask(b.id)).toMatchObject({ ownerId: agent.id, dependsOn: [a.id] });
+    expect(projectionDigest(store)).toEqual(digestBefore);
+    expect(
+      store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(b.id),
+    ).toMatchObject({ agent_id: agent.id });
+    expect(
+      store.db.prepare("SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?").all(b.id),
+    ).toEqual([{ depends_on_task_id: a.id }]);
+  });
+
+  it("removes legacy columns from an existing v3 DB while preserving relations", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-to-v4-"));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const dbPath = path.join(root, "deer.db");
+    const initial = new Store(dbPath);
+    const ws = initial.createWorkspace("A", path.join(root, "a"));
+    const agent = makeAgent(initial, ws.id, "Owner");
+    const task = makeTask(initial, ws.id, "Task", agent.id);
+    initial.close();
+
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec("ALTER TABLE tasks ADD COLUMN owner_id TEXT; ALTER TABLE tasks ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
+      raw.prepare("UPDATE tasks SET owner_id = ?, depends_on = '[]' WHERE id = ?").run(agent.id, task.id);
+      raw.exec("DELETE FROM schema_migrations WHERE version = 4; PRAGMA user_version = 3");
+    } finally {
+      raw.close();
+    }
+
+    const migrated = new Store(dbPath);
+    cleanup.push(() => migrated.close());
+    expect(userVersionAt(dbPath)).toBe(4);
+    expect(columnNames(dbPath)).not.toContain("owner_id");
+    expect(columnNames(dbPath)).not.toContain("depends_on");
+    expect(migrated.getTask(task.id)?.ownerId).toBe(agent.id);
+    expect(migrated.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    const backup = new DatabaseSync(migrated.lastBackupPath!);
+    try {
+      expect(
+        Number((backup.prepare("PRAGMA user_version").get() as { user_version?: number }).user_version),
+      ).toBe(3);
+    } finally {
+      backup.close();
+    }
+  });
+
+  it("writes and reads owner/dependency facts only through relations", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v4-write-"));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const store = new Store(path.join(root, "deer.db"));
     cleanup.push(() => store.close());
     const ws = store.createWorkspace("A", path.join(root, "a"));
     const a = makeTask(store, ws.id, "A");
     const b = makeTask(store, ws.id, "B", undefined, [a.id]);
-
-    expect(store.db.prepare("SELECT COUNT(*) AS n FROM task_owners").get()).toMatchObject({ n: 0 });
     const owner = makeAgent(store, ws.id, "Owner");
-    store.updateTask(b.id, { ownerId: owner.id });
+
+    expect(columnNames(path.join(root, "deer.db"))).not.toContain("owner_id");
+    expect(columnNames(path.join(root, "deer.db"))).not.toContain("depends_on");
+    expect(store.db.prepare("SELECT COUNT(*) AS n FROM task_owners").get()).toMatchObject({ n: 0 });
+    store.setTaskOwner(b.id, owner.id);
     expect(store.getTask(b.id)?.ownerId).toBe(owner.id);
     expect(
       store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(b.id),
     ).toMatchObject({ agent_id: owner.id });
 
-    store.updateTask(b.id, { ownerId: null, dependsOn: [] });
+    store.setTaskOwner(b.id, null);
+    store.setTaskDependencies(b.id, []);
     expect(store.getTask(b.id)?.ownerId).toBeNull();
     expect(store.getTask(b.id)?.dependsOn).toEqual([]);
     expect(store.db.prepare("SELECT * FROM task_owners WHERE task_id = ?").all(b.id)).toEqual([]);
     expect(store.db.prepare("SELECT * FROM task_dependencies WHERE task_id = ?").all(b.id)).toEqual([]);
-    expect(
-      store.db.prepare("SELECT owner_id, depends_on FROM tasks WHERE id = ?").get(b.id),
-    ).toMatchObject({ owner_id: null, depends_on: "[]" });
   });
 
-  it("serves relation-first reads to scheduler/UI when legacy columns diverge", () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-read-"));
+  it("serves scheduler/UI reads from relations only", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v4-read-"));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const store = new Store(path.join(root, "deer.db"));
     cleanup.push(() => store.close());
@@ -220,34 +340,17 @@ describe("O1-1 v3 task graph schema", () => {
     const a = makeTask(store, ws.id, "A");
     const b = makeTask(store, ws.id, "B", undefined, [a.id]);
     const owner = makeAgent(store, ws.id, "Owner");
-    store.updateTask(b.id, { ownerId: owner.id, status: "queued" });
-
-    // Simulate a stale legacy mirror; relation remains authoritative.
-    store.db
-      .prepare("UPDATE tasks SET owner_id = 'legacy-owner', depends_on = ? WHERE id = ?")
-      .run(JSON.stringify(["legacy-dep"]), b.id);
+    store.setTaskOwner(b.id, owner.id);
+    store.updateTask(b.id, { status: "queued" });
     expect(store.getTask(b.id)).toMatchObject({ ownerId: owner.id, dependsOn: [a.id] });
     expect(store.listTasks(ws.id).find((task) => task.id === b.id)).toMatchObject({
       ownerId: owner.id,
       dependsOn: [a.id],
     });
-    expect(store.listQueuedTasks(ws.id).find((task) => task.id === b.id)?.ownerId).toBe(owner.id);
-  });
-
-  it("falls back to legacy columns when relation tables are unavailable", () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), "deer-v3-fallback-"));
-    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
-    const store = new Store(path.join(root, "deer.db"));
-    cleanup.push(() => store.close());
-    const ws = store.createWorkspace("A", path.join(root, "a"));
-    const a = makeTask(store, ws.id, "A");
-    const b = makeTask(store, ws.id, "B", undefined, [a.id]);
-    const owner = makeAgent(store, ws.id, "Owner");
-    store.updateTask(b.id, { ownerId: owner.id });
-    // Simulate a non-v3/legacy reader path where relation tables are absent.
-    store.db.exec("DROP TABLE task_dependencies; DROP TABLE task_owners;");
-    expect(store.getTask(b.id)?.ownerId).toBe(owner.id);
-    expect(store.getTask(b.id)?.dependsOn).toEqual([a.id]);
+    expect(store.listQueuedTasks(ws.id).find((task) => task.id === b.id)).toMatchObject({
+      ownerId: owner.id,
+      dependsOn: [a.id],
+    });
   });
 
   it("rejects malformed dependency JSON and leaves v2 untouched", () => {

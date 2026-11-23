@@ -322,8 +322,8 @@ describe("t68 scheduler", () => {
     });
     const first = createTask(store, workspaceId, "a");
     const second = createTask(store, workspaceId, "b");
-    store.updateTask(first.id, { ownerId: agent.id });
-    store.updateTask(second.id, { ownerId: agent.id });
+    store.setTaskOwner(first.id, agent.id);
+    store.setTaskOwner(second.id, agent.id);
     kernel.startTask(first.id);
     kernel.startTask(second.id);
     await waitFor(() => started.length === 1);
@@ -334,11 +334,11 @@ describe("t68 scheduler", () => {
     await waitFor(() => taskStatus(store, second.id) === "done");
   });
 
-  it("scheduler queue reads owner from relation rather than the legacy column", () => {
+  it("scheduler queue reads owner from the task relation", () => {
     const { store, workspaceId, agent, kernel } = setupKernel(instantExecutor);
     const task = createTask(store, workspaceId, "relation-owner");
-    store.updateTask(task.id, { ownerId: agent.id, status: "queued" });
-    store.db.prepare("UPDATE tasks SET owner_id = NULL WHERE id = ?").run(task.id);
+    store.setTaskOwner(task.id, agent.id);
+    store.updateTask(task.id, { status: "queued" });
     expect(kernel.getScheduler(workspaceId).queue).toEqual([
       expect.objectContaining({ taskId: task.id, ownerId: agent.id }),
     ]);
@@ -672,7 +672,7 @@ describe("t68 migration from a v1 database", () => {
     cleanups.push(() => store.close());
     const version = (store.db.prepare("PRAGMA user_version").get() as { user_version?: number })
       .user_version;
-    expect(Number(version)).toBe(3);
+    expect(Number(version)).toBe(4);
     expect(store.getTask("task_legacy")?.title).toBe("Legacy task");
     expect(store.getRun("run_legacy")?.attempt).toBe(1);
     const baseline = store
@@ -1063,7 +1063,7 @@ describe("t83 migration backup fail-closed", () => {
     const dbPath = createLegacyTaskDb(root, { wal: true });
     const store = new Store(dbPath);
     cleanups.push(() => store.close());
-    expect(userVersion(dbPath)).toBe(3);
+    expect(userVersion(dbPath)).toBe(4);
     expect(store.lastBackupPath).toBeTruthy();
     expect(existsSync(store.lastBackupPath!)).toBe(true);
     const backup = new DatabaseSync(store.lastBackupPath!);

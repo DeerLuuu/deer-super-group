@@ -51,9 +51,6 @@ describe("TaskGraphService O1-2", () => {
     expect(b.dependsOn).toEqual([a.id]);
     expect(store.getTask(b.id)).toMatchObject({ ownerId: agent.id, dependsOn: [a.id] });
     expect(
-      store.db.prepare("SELECT owner_id, depends_on FROM tasks WHERE id = ?").get(b.id),
-    ).toMatchObject({ owner_id: agent.id, depends_on: JSON.stringify([a.id]) });
-    expect(
       store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(b.id),
     ).toMatchObject({ agent_id: agent.id });
     expect(
@@ -146,7 +143,10 @@ describe("TaskGraphService O1-2", () => {
     const b = createTask(graph, workspace.id, "B");
     const eventsBefore = store.listEvents({ aggregateId: b.id }).length;
     expect(() =>
-      store.updateTask(b.id, { ownerId: agent.id, dependsOn: [b.id] }),
+      store.withTransaction(() => {
+        store.setTaskOwner(b.id, agent.id);
+        store.setTaskDependencies(b.id, [b.id]);
+      }),
     ).toThrow(expect.objectContaining({ code: "TASK_DEPENDENCY_SELF" }));
     expect(store.getTask(b.id)?.ownerId).toBeNull();
     expect(store.getTask(b.id)?.dependsOn).toEqual([]);
@@ -212,9 +212,6 @@ describe("TaskGraphService O1-2", () => {
 
     rebuildProjections(store);
     expect(store.getTask(b.id)).toMatchObject({ ownerId: ownerB.id, dependsOn: [] });
-    expect(
-      store.db.prepare("SELECT owner_id, depends_on FROM tasks WHERE id = ?").get(b.id),
-    ).toMatchObject({ owner_id: ownerB.id, depends_on: "[]" });
     expect(
       store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(b.id),
     ).toMatchObject({ agent_id: ownerB.id });

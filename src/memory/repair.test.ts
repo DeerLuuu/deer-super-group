@@ -35,8 +35,11 @@ function seedAgent(store: Store, ws: string, id: string, name: string, now: stri
 
 function seedTaskRun(store: Store, ws: string, taskId: string, runId: string, agentId: string, now: string) {
   store.db.prepare(
-    "INSERT OR IGNORE INTO tasks (id, workspace_id, title, description, acceptance, status, owner_id, depends_on, created_at) VALUES (?, ?, ?, '', '[]', 'done', ?, '[]', ?)",
-  ).run(taskId, ws, taskId, agentId, now);
+    "INSERT OR IGNORE INTO tasks (id, workspace_id, title, description, acceptance, status, created_at) VALUES (?, ?, ?, '', '[]', 'done', ?)",
+  ).run(taskId, ws, taskId, now);
+  store.db.prepare(
+    "INSERT OR IGNORE INTO task_owners (task_id, agent_id, assigned_at, assigned_by) VALUES (?, ?, ?, 'system')",
+  ).run(taskId, agentId, now);
   store.db.prepare(
     "INSERT OR IGNORE INTO runs (id, task_id, agent_id, status, started_at, token_in, token_out) VALUES (?, ?, ?, 'completed', ?, 0, 0)",
   ).run(runId, taskId, agentId, now);
@@ -163,7 +166,7 @@ describe("t105 repair: source/agent migration", () => {
     expect(memory.listProposals("ws", "pending")[0]?.entrySnapshot).toBeNull();
   });
 
-  it("backfills and writes summaries.agent_id from task.owner_id/run.agent_id", () => {
+  it("backfills summaries.agent_id from task_owners/run.agent_id", () => {
     const store = new Store(":memory:");
     const clock = new FixedClock("2026-05-01T00:00:00.000Z");
     cleanups.push(() => store.close());
