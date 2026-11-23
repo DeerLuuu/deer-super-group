@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { Store } from "./store.js";
 import { TaskGraphService } from "./taskGraphService.js";
-import { rebuildProjections } from "./execution/projections.js";
+import { rebuildProjections, projectionDigest } from "./execution/projections.js";
 
 function setup() {
   const store = new Store(":memory:");
@@ -248,6 +248,34 @@ describe("TaskGraphService O1-2", () => {
     store.close();
   });
 
+  it("projects task.deleted by removing task, relation rows and runs from rebuild", () => {
+    const { store, workspace, agent, graph } = setup();
+    const a = createTask(graph, workspace.id, "A");
+    const b = createTask(graph, workspace.id, "B", {
+      ownerId: agent.id,
+      dependsOn: [a.id],
+    });
+    expect(store.getTask(b.id)).not.toBeNull();
+    graph.deleteTask(b.id);
+    expect(store.getTask(b.id)).toBeNull();
+    const digestAfterDelete = projectionDigest(store);
+    expect(digestAfterDelete.tasks.blocked).toBe(0);
+
+    rebuildProjections(store);
+    expect(store.getTask(b.id)).toBeNull();
+    expect(
+      store.db.prepare("SELECT * FROM task_owners WHERE task_id = ?").all(b.id),
+    ).toEqual([]);
+    expect(
+      store.db.prepare("SELECT * FROM task_dependencies WHERE task_id = ? OR depends_on_task_id = ?").all(b.id, b.id),
+    ).toEqual([]);
+    expect(projectionDigest(store)).toEqual(digestAfterDelete);
+    expect(store.listEvents({ aggregateId: b.id }).some((event) => event.type === "task.deleted")).toBe(
+      true,
+    );
+    store.close();
+  });
+
   it("replays graph events into relation tables", () => {
     const { store, workspace, agent, graph } = setup();
     const a = createTask(graph, workspace.id, "A");
@@ -269,9 +297,12 @@ describe("TaskGraphService O1-2", () => {
   it("keeps direct SQL owner/dependency writes inside the controlled Store mirror", () => {
     const serviceSource = readFileSync(new URL("./service.ts", import.meta.url), "utf8");
     const kernelSource = readFileSync(new URL("./execution/kernel.ts", import.meta.url), "utf8");
-    for (const source of [serviceSource, kernelSource]) {
+    const gitSource = readFileSync(new URL("../git/gitService.ts", import.meta.url), "utf8");
+    for (const source of [serviceSource, kernelSource, gitSource]) {
       expect(source).not.toMatch(/UPDATE\s+tasks\s+SET\s+(owner_id|depends_on)/i);
       expect(source).not.toMatch(/UPDATE\s+task_(owners|dependencies)/i);
     }
+    expect(gitSource).toContain("this.tasks.createTask");
+    expect(gitSource).toContain("this.tasks.setOwner");
   });
 });

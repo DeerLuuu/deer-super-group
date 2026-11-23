@@ -189,6 +189,9 @@ export function applyKernelEvent(store: Store, event: EventRecord): void {
         failureKind: "retry_exhausted",
       });
       return;
+    case "task.deleted":
+      store.applyTaskDeletedProjection(event.aggregateId);
+      return;
     case "run.started": {
       const run = asRecord(payload.run);
       if (run) upsertRunProjection(store, run as unknown as Run);

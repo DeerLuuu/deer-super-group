@@ -22,7 +22,7 @@
   - `task.owner_changed`：`{taskId, from, to, assignedBy, reason}`；幂等键 `task:<id>:owner:<from|none>:<to|none>:v<eventCount>`（版本保证 A→B→A→B 四次真实变更都落库；失败重试/重复同值仍幂等）。
   - `task.dependencies_changed`：`{taskId, from[], to[], reason}`；幂等键 `task:<id>:deps:<hash(from)>:<hash(to)>:v<eventCount>`。
 - `task.updated` 不再承载 owner/deps（普通 UI patch 继续）；`task.created` 保留完整快照。
-- 事件注册表新增两类型 zod strict schema；`task.status_changed` 用于依赖变化后的 ready/blocked 重算，键含 status old/new + eventCount。
+- 事件注册表新增 `task.owner_changed`/`task.dependencies_changed`/`task.deleted` zod strict schema；`task.deleted` 投影会删除 task/owner/dependency/run/summary 行，重建时不会把已删除任务从旧 task.created 复活。
 - projection replay 增加 owner/deps 事件处理，并清除/重建 relation 行；`rebuildProjections` 先清 relation 再清 tasks，避免 RESTRICT。
 - `gitService` 的 conflict task create/merge-captain owner 写入改走 `TaskGraphService`；全仓无 service 外 owner/deps SQL。
 
@@ -34,7 +34,7 @@
 
 ## 4. 测试
 
-`src/kernel/taskGraphService.test.ts`（10 例）：
+`src/kernel/taskGraphService.test.ts`（11 例）：
 
 - create owner/deps + 旧列/relation 镜像/事件；
 - setOwner/setDeps 幂等、事件顺序、`task.updated` 不含 owner/deps；
@@ -45,9 +45,10 @@
 - 依赖满足/回退时 ready/blocked 状态 reset；
 - `TASK_HAS_DEPENDENTS` deleteTask 拒绝；
 - rebuildProjections 后 relation 可从事件恢复；
-- kernel/service 源无直接 `UPDATE tasks SET owner_id/depends_on`。
+- create→owner/deps→delete→rebuildProjections：task=null、relation 无行、digest 不计数、task.deleted 事件保留；
+- kernel/service/git 源无直接 owner/deps SQL（git 走 TaskGraphService）。
 
-`src/git/git.test.ts` 新增 conflict task merge-captain owner 经 TaskGraphService 的测试；`src/kernel/planDraft.test.ts` 8 例新增 non-null owner 持久化。全量 174 文件/1143 用例通过。
+`src/git/git.test.ts` 新增 conflict task merge-captain owner 经 TaskGraphService 的测试；`src/kernel/planDraft.test.ts` 8 例新增 non-null owner 持久化。全量 174 文件/1144 用例通过。
 
 ## 5. 命令
 

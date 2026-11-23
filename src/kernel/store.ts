@@ -1952,6 +1952,18 @@ export class Store {
     this.syncTaskDependencyRelations(taskId, dependsOn);
   }
 
+  /** Controlled replay deletion for task.deleted; event log remains append-only. */
+  applyTaskDeletedProjection(taskId: string): void {
+    this.db.prepare("DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_task_id = ?").run(
+      taskId,
+      taskId,
+    );
+    this.db.prepare("DELETE FROM task_owners WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM runs WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM summaries WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+  }
+
   updateTask(
     id: string,
     patch: Partial<Pick<Task, "title" | "description" | "acceptance" | "status" | "ownerId" | "dependsOn" | "branch" | "worktree" | "summary" | "startedAt" | "endedAt">>,

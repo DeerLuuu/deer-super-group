@@ -10,6 +10,7 @@ export const KERNEL_EVENT_TYPES = [
   "task.updated",
   "task.owner_changed",
   "task.dependencies_changed",
+  "task.deleted",
   "task.status_changed",
   "task.blocked",
   "task.unblocked",
@@ -158,6 +159,15 @@ export const EVENT_REGISTRY: Record<KernelEventType, KernelEventDefinition> = {
       from: z.array(z.string().max(200)).max(100),
       to: z.array(z.string().max(200)).max(100),
       reason: shortText,
+    }),
+  ),
+  "task.deleted": def(
+    z.strictObject({
+      taskId: z.string().min(1).max(200),
+      title: z.string().max(2_000),
+      status: taskStatus,
+      removedRuns: z.number().int().min(0),
+      removedSummaries: z.number().int().min(0),
     }),
   ),
   "task.status_changed": def(
