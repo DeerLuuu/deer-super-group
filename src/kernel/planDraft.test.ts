@@ -196,6 +196,36 @@ describe("t231 confirmPlan atomic/idempotent", () => {
     expect(service.getSnapshot(workspace.id).tasks).toHaveLength(2);
   });
 
+  it("persists a non-null draft owner through the graph service", async () => {
+    const service = setup();
+    const workspace = await ws(service);
+    const owner = service.createAgent({
+      workspaceId: workspace.id,
+      name: "Plan Owner",
+      role: "engineer",
+      systemPrompt: "",
+      persona: "",
+      agentsMd: "",
+      model: null,
+    });
+    const source = planSource();
+    const result = service.confirmPlan({
+      workspaceId: workspace.id,
+      source,
+      sourceDigest: source.digest,
+      idempotencyKey: "owner-key",
+      tasks: [draftTask("a", "Owned task", { ownerId: owner.id })],
+      ackHighRisk: false,
+    });
+    expect(result.tasks[0]?.ownerId).toBe(owner.id);
+    expect(service.store.getTask(result.tasks[0]!.id)?.ownerId).toBe(owner.id);
+    expect(
+      service.store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(
+        result.tasks[0]!.id,
+      ),
+    ).toMatchObject({ agent_id: owner.id });
+  });
+
   it("rejects forged count/digest and oversized sources before writing", async () => {
     const service = setup();
     const workspace = await ws(service);

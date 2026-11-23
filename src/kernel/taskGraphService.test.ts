@@ -167,6 +167,87 @@ describe("TaskGraphService O1-2", () => {
     store.close();
   });
 
+  it("keeps A-B-A-B graph changes in the event log and replays the final state", () => {
+    const { store, workspace, graph } = setup();
+    const ownerA = store.createAgent({
+      workspaceId: workspace.id,
+      name: "Owner A",
+      role: "engineer",
+      systemPrompt: "",
+      persona: "",
+      agentsMd: "",
+      model: null,
+    });
+    const ownerB = store.createAgent({
+      workspaceId: workspace.id,
+      name: "Owner B",
+      role: "engineer",
+      systemPrompt: "",
+      persona: "",
+      agentsMd: "",
+      model: null,
+    });
+    const a = createTask(graph, workspace.id, "A");
+    const b = createTask(graph, workspace.id, "B");
+
+    graph.setOwner(b.id, ownerA.id);
+    graph.setOwner(b.id, ownerB.id);
+    graph.setOwner(b.id, ownerA.id);
+    graph.setOwner(b.id, ownerB.id);
+    graph.setDependencies(b.id, [a.id]);
+    graph.setDependencies(b.id, []);
+    graph.setDependencies(b.id, [a.id]);
+    graph.setDependencies(b.id, []);
+
+    const ownerEvents = store
+      .listEvents({ aggregateId: b.id })
+      .filter((event) => event.type === "task.owner_changed");
+    const dependencyEvents = store
+      .listEvents({ aggregateId: b.id })
+      .filter((event) => event.type === "task.dependencies_changed");
+    expect(ownerEvents).toHaveLength(4);
+    expect(dependencyEvents).toHaveLength(4);
+    expect(new Set(ownerEvents.map((event) => event.idempotencyKey)).size).toBe(4);
+    expect(new Set(dependencyEvents.map((event) => event.idempotencyKey)).size).toBe(4);
+
+    rebuildProjections(store);
+    expect(store.getTask(b.id)).toMatchObject({ ownerId: ownerB.id, dependsOn: [] });
+    expect(
+      store.db.prepare("SELECT owner_id, depends_on FROM tasks WHERE id = ?").get(b.id),
+    ).toMatchObject({ owner_id: ownerB.id, depends_on: "[]" });
+    expect(
+      store.db.prepare("SELECT agent_id FROM task_owners WHERE task_id = ?").get(b.id),
+    ).toMatchObject({ agent_id: ownerB.id });
+    expect(store.db.prepare("SELECT * FROM task_dependencies WHERE task_id = ?").all(b.id)).toEqual([]);
+    store.close();
+  });
+
+  it("resets ready/blocked when dependency satisfaction changes", () => {
+    const { store, workspace, graph } = setup();
+    const a = createTask(graph, workspace.id, "A");
+    const b = createTask(graph, workspace.id, "B");
+    graph.setDependencies(b.id, [a.id]);
+    expect(store.getTask(b.id)?.status).toBe("blocked");
+    store.updateTask(a.id, { status: "done" });
+    graph.setDependencies(b.id, [a.id]);
+    expect(store.getTask(b.id)).toMatchObject({ status: "ready", blockedReason: null });
+    graph.setDependencies(b.id, []);
+    expect(store.getTask(b.id)?.status).toBe("ready");
+    store.close();
+  });
+
+  it("raises TASK_HAS_DEPENDENTS when deleting a parent", () => {
+    const { store, workspace, graph } = setup();
+    const parent = createTask(graph, workspace.id, "Parent");
+    const child = createTask(graph, workspace.id, "Child");
+    graph.setDependencies(child.id, [parent.id]);
+    expect(() => graph.deleteTask(parent.id)).toThrow(
+      expect.objectContaining({ code: "TASK_HAS_DEPENDENTS" }),
+    );
+    expect(store.getTask(parent.id)).not.toBeNull();
+    store.close();
+  });
+
   it("replays graph events into relation tables", () => {
     const { store, workspace, agent, graph } = setup();
     const a = createTask(graph, workspace.id, "A");

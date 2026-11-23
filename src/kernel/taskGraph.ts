@@ -32,14 +32,16 @@ export function taskOwnerIdempotencyKey(
   taskId: string,
   from: string | null,
   to: string | null,
+  version = 0,
 ): string {
-  return `task:${taskId}:owner:${from ?? "none"}:${to ?? "none"}`;
+  return `task:${taskId}:owner:${from ?? "none"}:${to ?? "none"}:v${version}`;
 }
 
 export function taskDependenciesIdempotencyKey(
   taskId: string,
   from: readonly string[],
   to: readonly string[],
+  version = 0,
 ): string {
-  return `task:${taskId}:deps:${hashIds(from)}:${hashIds(to)}`;
+  return `task:${taskId}:deps:${hashIds(from)}:${hashIds(to)}:v${version}`;
 }

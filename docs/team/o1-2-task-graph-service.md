@@ -19,11 +19,12 @@
 
 - `setOwner`/`setDependencies` 在 `Store.withTransaction` 内写 relation + 旧列 + 事件；失败整体 ROLLBACK（含 owner/deps/镜像/事件）。
 - 新事件（schemaVersion=2）：
-  - `task.owner_changed`：`{taskId, from, to, assignedBy, reason}`；幂等键 `task:<id>:owner:<from|none>:<to|none>`。
-  - `task.dependencies_changed`：`{taskId, from[], to[], reason}`；幂等键 `task:<id>:deps:<hash(from)>:<hash(to)>`。
+  - `task.owner_changed`：`{taskId, from, to, assignedBy, reason}`；幂等键 `task:<id>:owner:<from|none>:<to|none>:v<eventCount>`（版本保证 A→B→A→B 四次真实变更都落库；失败重试/重复同值仍幂等）。
+  - `task.dependencies_changed`：`{taskId, from[], to[], reason}`；幂等键 `task:<id>:deps:<hash(from)>:<hash(to)>:v<eventCount>`。
 - `task.updated` 不再承载 owner/deps（普通 UI patch 继续）；`task.created` 保留完整快照。
-- 事件注册表新增两类型 zod strict schema；`task.status_changed` 用于依赖变化后的 ready/blocked 重算。
+- 事件注册表新增两类型 zod strict schema；`task.status_changed` 用于依赖变化后的 ready/blocked 重算，键含 status old/new + eventCount。
 - projection replay 增加 owner/deps 事件处理，并清除/重建 relation 行；`rebuildProjections` 先清 relation 再清 tasks，避免 RESTRICT。
+- `gitService` 的 conflict task create/merge-captain owner 写入改走 `TaskGraphService`；全仓无 service 外 owner/deps SQL。
 
 ## 3. PlanDraft / router plan
 
@@ -33,17 +34,20 @@
 
 ## 4. 测试
 
-`src/kernel/taskGraphService.test.ts`（7 例）：
+`src/kernel/taskGraphService.test.ts`（10 例）：
 
 - create owner/deps + 旧列/relation 镜像/事件；
 - setOwner/setDeps 幂等、事件顺序、`task.updated` 不含 owner/deps；
+- A→B→A→B owner/deps 四次真实变更均保留，`rebuildProjections` 后 relation/旧列/最终状态一致；
 - owner 缺失/跨 workspace、依赖缺失/跨 workspace/自依赖/重复/环校验及回滚；
 - 组合 graph patch 后段失败时 owner 回滚；
 - >100 依赖失败；
+- 依赖满足/回退时 ready/blocked 状态 reset；
+- `TASK_HAS_DEPENDENTS` deleteTask 拒绝；
 - rebuildProjections 后 relation 可从事件恢复；
 - kernel/service 源无直接 `UPDATE tasks SET owner_id/depends_on`。
 
-既有 `planDraft.test`（7 例）覆盖 PlanDraft 失败回滚/幂等/环；`delete.test` 覆盖 owner cascade/依赖保护；`kernel.test` 覆盖调度语义。全量 174 文件/1138 用例通过。
+`src/git/git.test.ts` 新增 conflict task merge-captain owner 经 TaskGraphService 的测试；`src/kernel/planDraft.test.ts` 8 例新增 non-null owner 持久化。全量 174 文件/1143 用例通过。
 
 ## 5. 命令
 

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import type { Store } from "../kernel/store.js";
+import { TaskGraphService } from "../kernel/taskGraphService.js";
 import type { Task } from "../shared/types.js";
 import type { TaskVcs, GitSettings, MergeQueueItem, MergeQueueSnapshot, PrInfo, PrProvider, PrepareRunInput, PrepareRunResult, RepoDiagnostics, RepoInfo, FinalizeRunInput, TaskVcsSnapshot, GitResult } from "./types.js";
 import { DEFAULT_GIT_SETTINGS } from "./types.js";
@@ -61,6 +62,7 @@ export class GitService {
   readonly gitStore: GitStore;
   readonly worktrees: WorktreeManager;
   readonly queue: MergeQueue;
+  private readonly tasks: TaskGraphService;
   private readonly checks = new ChecksRunner();
   private readonly repoCache = new Map<string, { repo: RepoInfo; at: number }>();
   private readonly prLock = new RepoLock();
@@ -69,6 +71,7 @@ export class GitService {
   private readonly graphWriteLock = new RepoLock();
 
   constructor(private readonly options: GitServiceOptions) {
+    this.tasks = new TaskGraphService(options.store);
     this.gitStore = new GitStore(path.join(options.dataDir, "git.db"));
     this.worktrees = new WorktreeManager(options.store, this.gitStore);
     this.queue = new MergeQueue({
@@ -1300,7 +1303,7 @@ export class GitService {
         return { taskId: samePr[0]!.conflictTaskId!, created: false };
       }
     }
-    const task = this.options.store.createTask({
+    const task = this.tasks.createTask({
       workspaceId: input.workspaceId,
       title: `解决合并冲突：${input.taskTitle}`,
       description: [
@@ -1317,7 +1320,11 @@ export class GitService {
     });
     const settings = this.gitStore.getConfig(input.workspaceId);
     if (settings.mergeCaptain !== "human") {
-      this.options.store.updateTask(task.id, { ownerId: settings.mergeCaptain });
+      this.tasks.setOwner(task.id, settings.mergeCaptain, {
+        assignedBy: "system",
+        reason: "merge.captain",
+        actor: "system",
+      });
     }
     this.gitStore.upsertTaskVcs({
       ...baseVcs(input.workspaceId, task.id, "git"),

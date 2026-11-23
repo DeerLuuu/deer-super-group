@@ -1476,7 +1476,8 @@ export class Store {
         row.dependsOn.includes(id),
       );
       if (dependents.length > 0) {
-        throw new Error(
+        throw new TaskGraphError(
+          "TASK_HAS_DEPENDENTS",
           `还有 ${dependents.length} 个任务依赖它（${dependents
             .slice(0, 3)
             .map((row) => row.title)
@@ -1577,6 +1578,13 @@ export class Store {
     }
   }
 
+  private taskGraphEventCount(taskId: string, type: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM events WHERE aggregate_type = 'task' AND aggregate_id = ? AND type = ?")
+      .get(taskId, type) as { n?: number };
+    return Number(row?.n ?? 0);
+  }
+
   private validateTaskDependencies(
     taskId: string | null,
     workspaceId: string,
@@ -1664,7 +1672,12 @@ export class Store {
         actor: options.actor ?? "system",
         payload: { taskId, from: before.ownerId, to: ownerId, assignedBy, reason },
         schemaVersion: 2,
-        idempotencyKey: taskOwnerIdempotencyKey(taskId, before.ownerId, ownerId),
+        idempotencyKey: taskOwnerIdempotencyKey(
+          taskId,
+          before.ownerId,
+          ownerId,
+          this.taskGraphEventCount(taskId, "task.owner_changed"),
+        ),
       });
       return this.getTask(taskId) ?? before;
     });
@@ -1683,7 +1696,10 @@ export class Store {
         next.length === before.dependsOn.length &&
         next.every((id, index) => id === before.dependsOn[index])
       ) {
-        return before;
+        // A dependency's status may have changed without changing the edge set;
+        // an explicit graph refresh should still reset ready/blocked.
+        this.recalculateDependencyStatus(taskId);
+        return this.getTask(taskId) ?? before;
       }
       this.validateTaskDependencies(taskId, before.workspaceId, next);
       this.db
@@ -1702,7 +1718,12 @@ export class Store {
           reason: options.reason ?? "task graph dependency update",
         },
         schemaVersion: 2,
-        idempotencyKey: taskDependenciesIdempotencyKey(taskId, before.dependsOn, next),
+        idempotencyKey: taskDependenciesIdempotencyKey(
+          taskId,
+          before.dependsOn,
+          next,
+          this.taskGraphEventCount(taskId, "task.dependencies_changed"),
+        ),
       });
       this.recalculateDependencyStatus(taskId);
       return this.getTask(taskId) ?? before;
@@ -1731,7 +1752,7 @@ export class Store {
         reason: "task.dependencies_changed",
       },
       schemaVersion: 2,
-      idempotencyKey: `task:${taskId}:status:${task.status}:${desired}:dependencies`,
+      idempotencyKey: `task:${taskId}:status:${task.status}:${desired}:${this.taskGraphEventCount(taskId, "task.status_changed")}`,
     });
   }
 
