@@ -22,7 +22,7 @@
     "start": "electron .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:compiler": "cross-env VITEST_REACT_COMPILER=1 RC1_MODE=infer vitest run src/shell src/git/ui",
+    "test:compiler": "cross-env VITEST_REACT_COMPILER=1 RC1_MODE=infer vitest run src/shell src/git/ui src/AppLiveRegions.test.tsx src/ChatContent.test.tsx src/CommandPalette.test.tsx src/Markdown.test.tsx src/TaskStarMap.click.test.tsx src/TaskStarMap.test.tsx src/SettingsView.test.tsx src/KernelRuntimeUi.test.tsx",
     "branch:start": "node scripts/branch-worktree.mjs start",
     "branch:sync": "node scripts/branch-worktree.mjs sync",
     "branch:list": "node scripts/branch-worktree.mjs list",

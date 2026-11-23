@@ -83,6 +83,7 @@ const DockShellV2 = forwardRef<DockHandle, DockShellV2Props>(function DockShellV
   },
   ref,
 ) {
+  "use no memo";
   const variant = selectVariant(dockWidth, windowWidth);
   // t550/F1：记录用户最近聚焦的组/面板，而不是永远取第一个 group.active。
   const [activePanel, setActivePanel] = useState<PanelKey | null>(initialPanelKey);

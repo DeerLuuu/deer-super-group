@@ -14,7 +14,7 @@ const PILOTS = [
 
 describe("t520/t534 annotation pilots in infer scope", () => {
   it("keeps the four former pilots explicitly opted into memo", () => {
-    expect(REACT_COMPILER_ALLOWLIST).toEqual(["src/shell/", "src/git/ui/"]);
+    expect(REACT_COMPILER_ALLOWLIST).toEqual(["src/"]);
     for (const file of PILOTS) {
       const source = readFileSync(path.join(root, file), "utf8");
       expect(source).toContain('"use memo";');

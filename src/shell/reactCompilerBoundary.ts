@@ -9,15 +9,11 @@ export const REACT_COMPILER_PACKAGE = "babel-plugin-react-compiler";
 export const REACT_COMPILER_VERSION = "1.0.0";
 export const REACT_COMPILER_LICENSE = "MIT";
 
-/** RC1-2 infer scope: directory allowlist; Dock/rewrite/high-risk files excluded below. */
-export const REACT_COMPILER_ALLOWLIST = ["src/shell/", "src/git/ui/"] as const;
+/** RC1-3: every renderer .tsx under src is inferred except explicit opt-outs. */
+export const REACT_COMPILER_ALLOWLIST = ["src/"] as const;
 
-/** DW1 rewrite / panel infrastructure is owned by another wave and never inferred. */
-export const REACT_COMPILER_EXCLUDED_FILES = [
-  "src/shell/dock/",
-  "src/shell/panel/PanelHost.tsx",
-  "src/shell/LazyPanel.tsx",
-] as const;
+/** RC1-3: Dock files are now stable and included; only explicit opt-outs remain. */
+export const REACT_COMPILER_EXCLUDED_FILES = [] as const;
 
 /** Behavior-sensitive components with an explicit `"use no memo"` opt-out. */
 export const REACT_COMPILER_HIGH_RISK_OPT_OUT = [
@@ -32,6 +28,14 @@ export const REACT_COMPILER_HIGH_RISK_OPT_OUT = [
   "src/git/ui/GitGraphPanel.tsx",
   "src/git/ui/MergeQueuePanel.tsx",
   "src/git/ui/GitAiDraft.tsx",
+  "src/App.tsx",
+  "src/shell/LazyPanel.tsx",
+  "src/shell/panel/PanelHost.tsx",
+  "src/shell/dock/DockShellV2.tsx",
+  "src/shell/dock/DockTree.tsx",
+  "src/shell/dock/DockGroup.tsx",
+  "src/shell/dock/DockSash.tsx",
+  "src/shell/dock/DockDropZone.tsx",
 ] as const;
 
 /** Files that must never reach the compiler, even if a future allowlist grows. */

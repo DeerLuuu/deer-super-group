@@ -16,6 +16,7 @@ export interface DockSashProps {
 const KEY_STEP = 0.02;
 
 export default function DockSash({ axis, onResize, ...rest }: DockSashProps) {
+  "use no memo";
   const dragOriginRef = useRef<{ pos: number; fired: boolean } | null>(null);
   const sashRef = useRef<HTMLDivElement | null>(null);
 
