@@ -1,0 +1,159 @@
+{
+  "at": "2026-11-23T13:49:22.495Z",
+  "results": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "tab": {
+        "text": "概览3\n运行1\n评审2\nGit\n历史4",
+        "rect": {
+          "x": 20,
+          "y": 98.875,
+          "width": 1400,
+          "height": 39.75,
+          "top": 98.875,
+          "right": 1420,
+          "bottom": 138.625,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "chips": {
+        "text": "模型\ndeepseek-flash\n权限\nworkspace write\n(workspace_write)\nFT\n开启（会话级）\n上下文\ntrace 3 条",
+        "rect": {
+          "x": 20,
+          "y": 57.9375,
+          "width": 1400,
+          "height": 26.9375,
+          "top": 57.9375,
+          "right": 1420,
+          "bottom": 84.875,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "terms": {
+        "text": "任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。",
+        "rect": {
+          "x": 20,
+          "y": 20,
+          "width": 1400,
+          "height": 15.9375,
+          "top": 20,
+          "right": 1420,
+          "bottom": 35.9375,
+          "left": 20
+        },
+        "font": "11px"
+      },
+      "active": "概览3"
+    },
+    {
+      "width": 960,
+      "scrollWidth": 960,
+      "innerWidth": 960,
+      "tab": {
+        "text": "概览3\n运行1\n评审2\nGit\n历史4",
+        "rect": {
+          "x": 20,
+          "y": 98.875,
+          "width": 920,
+          "height": 39.75,
+          "top": 98.875,
+          "right": 940,
+          "bottom": 138.625,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "chips": {
+        "text": "模型\ndeepseek-flash\n权限\nworkspace write\n(workspace_write)\nFT\n开启（会话级）\n上下文\ntrace 3 条",
+        "rect": {
+          "x": 20,
+          "y": 57.9375,
+          "width": 920,
+          "height": 26.9375,
+          "top": 57.9375,
+          "right": 940,
+          "bottom": 84.875,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "terms": {
+        "text": "任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。",
+        "rect": {
+          "x": 20,
+          "y": 20,
+          "width": 920,
+          "height": 15.9375,
+          "top": 20,
+          "right": 940,
+          "bottom": 35.9375,
+          "left": 20
+        },
+        "font": "11px"
+      },
+      "active": "概览3"
+    },
+    {
+      "width": 480,
+      "scrollWidth": 480,
+      "innerWidth": 480,
+      "tab": {
+        "text": "概览3\n运行1\n评审2\nGit\n历史4",
+        "rect": {
+          "x": 20,
+          "y": 143.3125,
+          "width": 440,
+          "height": 39.75,
+          "top": 143.3125,
+          "right": 460,
+          "bottom": 183.0625,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "chips": {
+        "text": "模型\ndeepseek-flash\n权限\nworkspace write\n(workspace_write)\nFT\n开启（会话级）\n上下文\ntrace 3 条",
+        "rect": {
+          "x": 20,
+          "y": 73.875,
+          "width": 440,
+          "height": 55.4375,
+          "top": 73.875,
+          "right": 460,
+          "bottom": 129.3125,
+          "left": 20
+        },
+        "font": "13px"
+      },
+      "terms": {
+        "text": "任务交付批准 / 代码评审通过 / 合并确认是三个不同 gate；任务交付批准不等于代码评审通过，未通过 review 不能 merge。",
+        "rect": {
+          "x": 20,
+          "y": 20,
+          "width": 440,
+          "height": 31.875,
+          "top": 20,
+          "right": 460,
+          "bottom": 51.875,
+          "left": 20
+        },
+        "font": "11px"
+      },
+      "active": "概览3"
+    }
+  ],
+  "interaction": {
+    "active": "运行1",
+    "selected": "task-tab-runs",
+    "focus": "task-tab-runs"
+  },
+  "bench": {
+    "iterations": 100,
+    "totalMs": 30.700000047683716,
+    "avgMs": 0.3070000004768372
+  }
+}
