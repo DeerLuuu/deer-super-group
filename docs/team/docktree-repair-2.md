@@ -50,7 +50,7 @@
 pnpm typecheck  # exit 0
 pnpm build      # exit 0（475 modules）
 pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
-                # 181 files / 1226 tests passed（serial）
+                # 181 files / 1227 tests passed（serial，同步 main 后）
 ```
 
 新增 `src/shell/dock/docktreeInteraction.test.tsx` 5 用例：
