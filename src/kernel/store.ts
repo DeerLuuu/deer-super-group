@@ -327,6 +327,28 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 `;
 
+const TASK_GRAPH_TABLES = `
+CREATE TABLE IF NOT EXISTS task_owners (
+  task_id    TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  assigned_at TEXT NOT NULL,
+  assigned_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  task_id             TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_task_id  TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,
+  ordinal             INTEGER NOT NULL DEFAULT 0,
+  created_at          TEXT NOT NULL,
+  PRIMARY KEY (task_id, depends_on_task_id),
+  CHECK (task_id <> depends_on_task_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_parent
+  ON task_dependencies(depends_on_task_id, task_id);
+`;
+
+const MAX_TASK_DEPENDENCIES = 100;
+
 const KERNEL_INDEXES = `
 CREATE UNIQUE INDEX IF NOT EXISTS ux_events_idem
   ON events(idempotency_key) WHERE idempotency_key IS NOT NULL;
@@ -594,6 +616,9 @@ export class Store {
       mkdirSync(path.dirname(databasePath), { recursive: true });
     }
     this.db = new DatabaseSync(databasePath);
+    // v3 relation tables use FKs. Enable before any schema/migration work;
+    // this is a per-connection setting and must never be left implicit.
+    this.db.exec("PRAGMA foreign_keys = ON");
     const legacyDatabase = this.tableExists("tasks");
     this.db.exec(SCHEMA);
 
@@ -707,7 +732,10 @@ export class Store {
       user_version?: number;
     };
     const version = Number(versionRow?.user_version ?? 0);
-    if (version >= 2) return;
+    if (version >= 2) {
+      this.migrateTaskGraphSchema();
+      return;
+    }
 
     // 旧库先钉在 v1：备份或迁移失败时 user_version 仍为 1，应用拒绝启动。
     if (legacyDatabase && version < 1) {
@@ -780,6 +808,149 @@ export class Store {
         }): ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    this.migrateTaskGraphSchema();
+  }
+
+  /**
+   * O1-1 expand migration (v2 -> v3). Creates relation tables, backfills from
+   * owner_id/depends_on, and leaves the legacy columns in place as mirrors.
+   * Any failure rolls back and leaves user_version=2; the constructor closes
+   * the connection and refuses to start.
+   */
+  private migrateTaskGraphSchema(): void {
+    const versionRow = this.db.prepare("PRAGMA user_version").get() as {
+      user_version?: number;
+    };
+    const version = Number(versionRow?.user_version ?? 0);
+    if (version >= 3) return;
+
+    try {
+      this.db.exec("PRAGMA foreign_keys = ON");
+      if (this.databasePath !== ":memory:") this.backupDatabase();
+      this.db.exec("BEGIN IMMEDIATE");
+      this.db.exec(TASK_GRAPH_TABLES);
+      this.backfillTaskGraph();
+      this.db
+        .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .run(3, now());
+      this.db.exec("PRAGMA user_version = 3");
+      const fk = this.db.prepare("PRAGMA foreign_keys").get() as {
+        foreign_keys?: number;
+      };
+      if (Number(fk?.foreign_keys) !== 1) {
+        throw new Error("foreign_keys is not enabled");
+      }
+      const violations = this.db.prepare("PRAGMA foreign_key_check").all() as Row[];
+      if (violations.length > 0) {
+        throw new Error(`foreign_key_check failed: ${JSON.stringify(violations)}`);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // ignore rollback failures
+      }
+      throw new Error(
+        `task graph migration failed (user_version stays 2${
+          this.lastBackupPath ? `, backup: ${this.lastBackupPath}` : ""
+        }): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** Backfill relation tables from the legacy task columns, fail-closed. */
+  private backfillTaskGraph(): void {
+    const tasks = this.db
+      .prepare("SELECT id, workspace_id, owner_id, depends_on, created_at FROM tasks")
+      .all() as Row[];
+    const taskWorkspace = new Map<string, string>();
+    for (const row of tasks) {
+      taskWorkspace.set(String(row.id), String(row.workspace_id));
+    }
+    const dependencies = new Map<string, string[]>();
+    const insertOwner = this.db.prepare(
+      `INSERT INTO task_owners (task_id, agent_id, assigned_at, assigned_by)
+       VALUES (?, ?, ?, 'system')`,
+    );
+    const insertDependency = this.db.prepare(
+      `INSERT INTO task_dependencies (task_id, depends_on_task_id, ordinal, created_at)
+       VALUES (?, ?, ?, ?)`,
+    );
+
+    for (const row of tasks) {
+      const taskId = String(row.id);
+      const workspaceId = String(row.workspace_id);
+      if (row.owner_id != null) {
+        const agentId = String(row.owner_id);
+        const agent = this.db
+          .prepare("SELECT workspace_id FROM agents WHERE id = ?")
+          .get(agentId) as { workspace_id?: string } | undefined;
+        if (!agent) {
+          throw new Error(`task ${taskId}: owner agent ${agentId} not found`);
+        }
+        if (String(agent.workspace_id) !== workspaceId) {
+          throw new Error(`task ${taskId}: owner agent ${agentId} is in another workspace`);
+        }
+        insertOwner.run(taskId, agentId, now());
+      }
+
+      const raw = row.depends_on;
+      if (typeof raw !== "string") {
+        throw new Error(`task ${taskId}: depends_on is not a JSON string`);
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new Error(`task ${taskId}: invalid depends_on JSON`);
+      }
+      if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) {
+        throw new Error(`task ${taskId}: depends_on must be a string array`);
+      }
+      const ids = parsed as string[];
+      if (ids.length > MAX_TASK_DEPENDENCIES) {
+        throw new Error(`task ${taskId}: too many dependencies (${ids.length})`);
+      }
+      const seen = new Set<string>();
+      for (const [ordinal, dependencyId] of ids.entries()) {
+        if (dependencyId === taskId) {
+          throw new Error(`task ${taskId}: self dependency`);
+        }
+        if (seen.has(dependencyId)) {
+          throw new Error(`task ${taskId}: duplicate dependency ${dependencyId}`);
+        }
+        seen.add(dependencyId);
+        const dependencyWorkspace = taskWorkspace.get(dependencyId);
+        if (!dependencyWorkspace) {
+          throw new Error(`task ${taskId}: dependency ${dependencyId} not found`);
+        }
+        if (dependencyWorkspace !== workspaceId) {
+          throw new Error(`task ${taskId}: dependency ${dependencyId} is in another workspace`);
+        }
+        insertDependency.run(taskId, dependencyId, ordinal, now());
+      }
+      dependencies.set(taskId, ids);
+    }
+    this.assertNoDependencyCycle(dependencies);
+  }
+
+  private assertNoDependencyCycle(dependencies: Map<string, string[]>): void {
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (taskId: string): void => {
+      if (visited.has(taskId)) return;
+      if (visiting.has(taskId)) {
+        throw new Error(`dependency cycle at task ${taskId}`);
+      }
+      visiting.add(taskId);
+      for (const dependencyId of dependencies.get(taskId) ?? []) {
+        visit(dependencyId);
+      }
+      visiting.delete(taskId);
+      visited.add(taskId);
+    };
+    for (const taskId of dependencies.keys()) visit(taskId);
   }
 
   private normalizeLegacyRuns(): void {
@@ -1449,18 +1620,102 @@ export class Store {
         task.attemptCount ?? 0,
         task.nextRunAt ?? null,
       );
+    this.syncTaskOwnerRelation(task.id, task.ownerId);
+    this.syncTaskDependencyRelations(task.id, task.dependsOn);
   }
 
   getTask(id: string): Task | null {
     const row = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Row | undefined;
-    return row ? toTask(row) : null;
+    if (!row) return null;
+    return this.withTaskRelations(toTask(row));
   }
 
   listTasks(workspaceId: string): Task[] {
     const rows = this.db
       .prepare("SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at ASC")
       .all(workspaceId) as Row[];
-    return rows.map(toTask);
+    const tasks = rows.map(toTask);
+    if (!this.taskRelationTablesReady()) return tasks;
+
+    const ownerRows = this.db
+      .prepare(
+        `SELECT o.task_id, o.agent_id FROM task_owners o
+         JOIN tasks t ON t.id = o.task_id WHERE t.workspace_id = ?`,
+      )
+      .all(workspaceId) as Array<{ task_id?: string; agent_id?: string }>;
+    const dependencyRows = this.db
+      .prepare(
+        `SELECT d.task_id, d.depends_on_task_id FROM task_dependencies d
+         JOIN tasks t ON t.id = d.task_id
+         WHERE t.workspace_id = ?
+         ORDER BY d.task_id ASC, d.ordinal ASC, d.depends_on_task_id ASC`,
+      )
+      .all(workspaceId) as Array<{ task_id?: string; depends_on_task_id?: string }>;
+    const owners = new Map(ownerRows.map((row) => [String(row.task_id), String(row.agent_id)]));
+    const dependencies = new Map<string, string[]>();
+    for (const row of dependencyRows) {
+      const taskId = String(row.task_id);
+      const list = dependencies.get(taskId) ?? [];
+      list.push(String(row.depends_on_task_id));
+      dependencies.set(taskId, list);
+    }
+    return tasks.map((task) => ({
+      ...task,
+      ownerId: owners.get(task.id) ?? null,
+      dependsOn: dependencies.get(task.id) ?? [],
+    }));
+  }
+
+  private taskRelationTablesReady(): boolean {
+    return this.tableExists("task_owners") && this.tableExists("task_dependencies");
+  }
+
+  /** Relation is authoritative in v3; old columns are only a schema fallback. */
+  private withTaskRelations(task: Task): Task {
+    if (!this.taskRelationTablesReady()) return task;
+    const owner = this.db
+      .prepare("SELECT agent_id FROM task_owners WHERE task_id = ?")
+      .get(task.id) as { agent_id?: string } | undefined;
+    const deps = this.db
+      .prepare(
+        "SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ? ORDER BY ordinal ASC, depends_on_task_id ASC",
+      )
+      .all(task.id) as Array<{ depends_on_task_id?: string }>;
+    return {
+      ...task,
+      ownerId: owner ? String(owner.agent_id) : null,
+      dependsOn: deps.map((row) => String(row.depends_on_task_id)),
+    };
+  }
+
+  private syncTaskOwnerRelation(taskId: string, ownerId: string | null): void {
+    if (!this.tableExists("task_owners")) return;
+    if (ownerId == null) {
+      this.db.prepare("DELETE FROM task_owners WHERE task_id = ?").run(taskId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO task_owners (task_id, agent_id, assigned_at, assigned_by)
+         VALUES (?, ?, ?, 'system')
+         ON CONFLICT(task_id) DO UPDATE SET
+           agent_id = excluded.agent_id,
+           assigned_at = excluded.assigned_at,
+           assigned_by = excluded.assigned_by`,
+      )
+      .run(taskId, ownerId, now());
+  }
+
+  private syncTaskDependencyRelations(taskId: string, dependsOn: readonly string[]): void {
+    if (!this.tableExists("task_dependencies")) return;
+    this.db.prepare("DELETE FROM task_dependencies WHERE task_id = ?").run(taskId);
+    const insert = this.db.prepare(
+      `INSERT INTO task_dependencies (task_id, depends_on_task_id, ordinal, created_at)
+       VALUES (?, ?, ?, ?)`,
+    );
+    for (const [ordinal, dependencyId] of dependsOn.entries()) {
+      insert.run(taskId, dependencyId, ordinal, now());
+    }
   }
 
   updateTask(
@@ -1495,6 +1750,12 @@ export class Store {
       if (!sets.length) return before;
       params.push(id);
       this.db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+      if ("ownerId" in patch) {
+        this.syncTaskOwnerRelation(id, patch.ownerId ?? null);
+      }
+      if ("dependsOn" in patch) {
+        this.syncTaskDependencyRelations(id, patch.dependsOn ?? []);
+      }
 
       const statusPatch = patch.status;
       if (patch.dependsOn && !statusPatch) {
