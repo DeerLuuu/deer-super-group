@@ -1,24 +1,56 @@
-﻿# O1-2锛歍askGraphService 鍐欒矾寰?+ 浜嬩欢 + PlanDraft 鍘熷瓙寤哄浘
+# O1-2：TaskGraphService 写路径 + 事件 + PlanDraft 原子建图
 
-- **浠诲姟**锛歵502 鈥?O1-2锛圓RCH v2 搂2.4/搂2.6 migrate 闃舵锛?- **鑼冨洿**锛氫换鍔?owner/dependency 鐨勫敮涓€鍐欒竟鐣屻€乺elation+鏃у垪闀滃儚+鏂板浜嬩欢鍚屼簨鍔°€丳lanDraft/router plan 鍘熷瓙寤哄浘锛涗笉鏀?scheduler/UI 璇汇€乺eview/merge gate銆佹潈闄愩€両PC銆?- **缁撹**锛歚TaskGraphService` + Store 鍙楁帶 graph 鍐欒矾寰勮惤鍦帮紱浜嬩欢涓庡叧绯?闀滃儚鍚屼簨鍔★紱澶辫触鍥炴粴锛汸lanDraft/router plan 鍗曚簨鍔″缓鍥俱€?
-## 1. 鍐欒竟鐣?
-`src/kernel/taskGraphService.ts`锛?
-- `createTask(ownerId?, dependsOn?)`锛氭牎楠?owner/deps 鍚庡垱寤?task锛坄task.created` 鎼哄甫瀹屾暣 owner/deps 蹇収锛夈€?- `setOwner(taskId, ownerId, {assignedBy, reason, actor})`锛氭牎楠屽悓 workspace/瀛樺湪鎬э紱鏇存柊 `task_owners` + `tasks.owner_id`锛沘ppend `task.owner_changed`銆?- `setDependencies(taskId, dependsOn, {reason, actor})`锛氭牎楠屽悓 workspace/瀛樺湪鎬?鑷緷璧?閲嶅/鐜?鈮?00锛涙洿鏂?`task_dependencies` + `tasks.depends_on`锛沘ppend `task.dependencies_changed`锛涙寜渚濊禆鐘舵€侀噸绠?ready/blocked锛坄task.status_changed`锛夈€?- `updateTask` 鏅€氬瓧娈碉紙鏍囬/鎻忚堪/status/branch 绛夛級浠嶇敱 Store 澶勭悊锛涘惈 owner/deps 鐨?patch 鐢?Store 鍐呴儴璺敱鍒板悓涓€ graph 鍘熻锛屼緵鏃ц皟鐢ㄦ柟锛堝 out-of-scope git merge captain锛変繚鎸佸彈鎺ч暅鍍忋€?
-绋冲畾閿欒鐮侊細`TASK_NOT_FOUND`銆乣TASK_OWNER_NOT_FOUND`銆乣TASK_OWNER_WORKSPACE_MISMATCH`銆乣TASK_DEPENDENCY_NOT_FOUND`銆乣TASK_DEPENDENCY_WORKSPACE_MISMATCH`銆乣TASK_DEPENDENCY_SELF`銆乣TASK_DEPENDENCY_DUPLICATE`銆乣TASK_DEPENDENCY_CYCLE`銆乣TASK_DEPENDENCY_LIMIT`銆乣TASK_HAS_DEPENDENTS`锛涘潎鎶?`TaskGraphError.code`銆?
-## 2. 鍚屼簨鍔?/ 浜嬩欢
+- **任务**：t502 — O1-2（ARCH v2 §2.4/§2.6 migrate 阶段）
+- **范围**：任务 owner/dependency 的唯一写边界、relation+旧列镜像+新增事件同事务、PlanDraft/router plan 原子建图；不改 scheduler/UI 读、review/merge gate、权限、IPC。
+- **结论**：`TaskGraphService` + Store 受控 graph 写路径落地；事件与关系/镜像同事务；失败回滚；PlanDraft/router plan 单事务建图。
 
-- `setOwner`/`setDependencies` 鍦?`Store.withTransaction` 鍐呭啓 relation + 鏃у垪 + 浜嬩欢锛涘け璐ユ暣浣?ROLLBACK锛堝惈 owner/deps/闀滃儚/浜嬩欢锛夈€?- 鏂颁簨浠讹紙schemaVersion=2锛夛細
-  - `task.owner_changed`锛歚{taskId, from, to, assignedBy, reason}`锛涘箓绛夐敭 `task:<id>:owner:<from|none>:<to|none>:v<eventCount>`锛堢増鏈繚璇?A鈫払鈫扐鈫払 鍥涙鐪熷疄鍙樻洿閮借惤搴擄紱澶辫触閲嶈瘯/閲嶅鍚屽€间粛骞傜瓑锛夈€?  - `task.dependencies_changed`锛歚{taskId, from[], to[], reason}`锛涘箓绛夐敭 `task:<id>:deps:<hash(from)>:<hash(to)>:v<eventCount>`銆?- `task.updated` 涓嶅啀鎵胯浇 owner/deps锛堟櫘閫?UI patch 缁х画锛夛紱`task.created` 淇濈暀瀹屾暣蹇収銆?- 浜嬩欢娉ㄥ唽琛ㄦ柊澧?`task.owner_changed`/`task.dependencies_changed`/`task.deleted` zod strict schema锛沗task.deleted` 鎶曞奖浼氬垹闄?task/owner/dependency/run/summary 琛岋紝閲嶅缓鏃朵笉浼氭妸宸插垹闄や换鍔′粠鏃?task.created 澶嶆椿銆?- projection replay 澧炲姞 owner/deps 浜嬩欢澶勭悊锛屽苟娓呴櫎/閲嶅缓 relation 琛岋紱`rebuildProjections` 鍏堟竻 relation 鍐嶆竻 tasks锛岄伩鍏?RESTRICT銆?- `gitService` 鐨?conflict task create/merge-captain owner 鍐欏叆鏀硅蛋 `TaskGraphService`锛涘叏浠撴棤 service 澶?owner/deps SQL銆?
+## 1. 写边界
+
+`src/kernel/taskGraphService.ts`：
+
+- `createTask(ownerId?, dependsOn?)`：校验 owner/deps 后创建 task（`task.created` 携带完整 owner/deps 快照）。
+- `setOwner(taskId, ownerId, {assignedBy, reason, actor})`：校验同 workspace/存在性；更新 `task_owners` + `tasks.owner_id`；append `task.owner_changed`。
+- `setDependencies(taskId, dependsOn, {reason, actor})`：校验同 workspace/存在性/自依赖/重复/环/≤100；更新 `task_dependencies` + `tasks.depends_on`；append `task.dependencies_changed`；按依赖状态重算 ready/blocked（`task.status_changed`）。
+- `updateTask` 普通字段（标题/描述/status/branch 等）仍由 Store 处理；含 owner/deps 的 patch 由 Store 内部路由到同一 graph 原语，供旧调用方（如 out-of-scope git merge captain）保持受控镜像。
+
+稳定错误码：`TASK_NOT_FOUND`、`TASK_OWNER_NOT_FOUND`、`TASK_OWNER_WORKSPACE_MISMATCH`、`TASK_DEPENDENCY_NOT_FOUND`、`TASK_DEPENDENCY_WORKSPACE_MISMATCH`、`TASK_DEPENDENCY_SELF`、`TASK_DEPENDENCY_DUPLICATE`、`TASK_DEPENDENCY_CYCLE`、`TASK_DEPENDENCY_LIMIT`、`TASK_HAS_DEPENDENTS`；均抛 `TaskGraphError.code`。
+
+## 2. 同事务 / 事件
+
+- `setOwner`/`setDependencies` 在 `Store.withTransaction` 内写 relation + 旧列 + 事件；失败整体 ROLLBACK（含 owner/deps/镜像/事件）。
+- 新事件（schemaVersion=2）：
+  - `task.owner_changed`：`{taskId, from, to, assignedBy, reason}`；幂等键 `task:<id>:owner:<from|none>:<to|none>:v<eventCount>`（版本保证 A→B→A→B 四次真实变更都落库；失败重试/重复同值仍幂等）。
+  - `task.dependencies_changed`：`{taskId, from[], to[], reason}`；幂等键 `task:<id>:deps:<hash(from)>:<hash(to)>:v<eventCount>`。
+- `task.updated` 不再承载 owner/deps（普通 UI patch 继续）；`task.created` 保留完整快照。
+- 事件注册表新增 `task.owner_changed`/`task.dependencies_changed`/`task.deleted` zod strict schema；`task.deleted` 投影会删除 task/owner/dependency/run/summary 行，重建时不会把已删除任务从旧 task.created 复活。
+- projection replay 增加 owner/deps 事件处理，并清除/重建 relation 行；`rebuildProjections` 先清 relation 再清 tasks，避免 RESTRICT。
+- `gitService` 的 conflict task create/merge-captain owner 写入改走 `TaskGraphService`；全仓无 service 外 owner/deps SQL。
+
 ## 3. PlanDraft / router plan
 
-- `confirmPlan`锛氬灞?`withTransaction` 鍐呯敤 `TaskGraphService.createTask`锛坥wner锛? `setDependencies`锛坉raft id鈫抰ask id锛? priority + `router.plan` 骞傜瓑浜嬩欢锛涗换涓€澶辫触鏁存壒鍥炴粴銆?- `plan`锛圧outer 鐢熸垚璁″垝锛夛細鍚屾牱鍖呭崟浜嬪姟锛屼换鍔?渚濊禆/`router.plan` 涓€璧锋彁浜わ紱涓嶅啀閫愪釜 `createTask` 鍚庡啀 update deps銆?- owner/deps 鏍￠獙澶辫触浼氬洖婊氭暣鎵癸紝涓嶇暀涓嬩换鍔?杈?浜嬩欢銆?
-## 4. 娴嬭瘯
+- `confirmPlan`：外层 `withTransaction` 内用 `TaskGraphService.createTask`（owner）+ `setDependencies`（draft id→task id）+ priority + `router.plan` 幂等事件；任一失败整批回滚。
+- `plan`（Router 生成计划）：同样包单事务，任务/依赖/`router.plan` 一起提交；不再逐个 `createTask` 后再 update deps。
+- owner/deps 校验失败会回滚整批，不留下任务/边/事件。
 
-`src/kernel/taskGraphService.test.ts`锛?1 渚嬶級锛?
-- create owner/deps + 鏃у垪/relation 闀滃儚/浜嬩欢锛?- setOwner/setDeps 骞傜瓑銆佷簨浠堕『搴忋€乣task.updated` 涓嶅惈 owner/deps锛?- A鈫払鈫扐鈫払 owner/deps 鍥涙鐪熷疄鍙樻洿鍧囦繚鐣欙紝`rebuildProjections` 鍚?relation/鏃у垪/鏈€缁堢姸鎬佷竴鑷达紱
-- owner 缂哄け/璺?workspace銆佷緷璧栫己澶?璺?workspace/鑷緷璧?閲嶅/鐜牎楠屽強鍥炴粴锛?- 缁勫悎 graph patch 鍚庢澶辫触鏃?owner 鍥炴粴锛?- >100 渚濊禆澶辫触锛?- 渚濊禆婊¤冻/鍥為€€鏃?ready/blocked 鐘舵€?reset锛?- `TASK_HAS_DEPENDENTS` deleteTask 鎷掔粷锛?- rebuildProjections 鍚?relation 鍙粠浜嬩欢鎭㈠锛?- create鈫抩wner/deps鈫抎elete鈫抮ebuildProjections锛歵ask=null銆乺elation 鏃犺銆乨igest 涓嶈鏁般€乼ask.deleted 浜嬩欢淇濈暀锛?- kernel/service/git 婧愭棤鐩存帴 owner/deps SQL锛坓it 璧?TaskGraphService锛夈€?
-`src/git/git.test.ts` 鏂板 conflict task merge-captain owner 缁?TaskGraphService 鐨勬祴璇曪紱`src/kernel/planDraft.test.ts` 8 渚嬫柊澧?non-null owner 鎸佷箙鍖栥€傚叏閲?174 鏂囦欢/1144 鐢ㄤ緥閫氳繃銆?
-## 5. 鍛戒护
+## 4. 测试
+
+`src/kernel/taskGraphService.test.ts`（11 例）：
+
+- create owner/deps + 旧列/relation 镜像/事件；
+- setOwner/setDeps 幂等、事件顺序、`task.updated` 不含 owner/deps；
+- A→B→A→B owner/deps 四次真实变更均保留，`rebuildProjections` 后 relation/旧列/最终状态一致；
+- owner 缺失/跨 workspace、依赖缺失/跨 workspace/自依赖/重复/环校验及回滚；
+- 组合 graph patch 后段失败时 owner 回滚；
+- >100 依赖失败；
+- 依赖满足/回退时 ready/blocked 状态 reset；
+- `TASK_HAS_DEPENDENTS` deleteTask 拒绝；
+- rebuildProjections 后 relation 可从事件恢复；
+- create→owner/deps→delete→rebuildProjections：task=null、relation 无行、digest 不计数、task.deleted 事件保留；
+- kernel/service/git 源无直接 owner/deps SQL（git 走 TaskGraphService）。
+
+`src/git/git.test.ts` 新增 conflict task merge-captain owner 经 TaskGraphService 的测试；`src/kernel/planDraft.test.ts` 8 例新增 non-null owner 持久化。全量 176 文件/1172 用例通过。
+
+## 5. 命令
 
 ```text
 pnpm typecheck
