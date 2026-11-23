@@ -15,6 +15,7 @@ export default function TaskWorkspaceTabs({
   onChange: (tab: TaskWorkspaceTab) => void;
   counts?: Partial<Record<TaskWorkspaceTab, number>>;
 }) {
+  "use memo";
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const next = taskWorkspaceTabForKey(tab, event.key);
     if (!next) return;

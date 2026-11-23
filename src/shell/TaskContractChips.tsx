@@ -12,6 +12,7 @@ export function TaskContractChips({
   onOpenModels: () => void;
   onEditOwner: (ownerId: string | null) => void;
 }) {
+  "use memo";
   return (
     <div className="task-contract-chips" role="group" aria-label="执行契约（只读）">
       <button
