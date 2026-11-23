@@ -412,6 +412,7 @@ export function GitDiffViewer({
   onLoadFull?: (path: string, oldPath: string | null) => void;
   fullLoading?: boolean;
 }) {
+  "use no memo";
   const [mode, setMode] = useState<"unified" | "side">("unified");
   const [wrap, setWrap] = useState(false);
   const [wide, setWide] = useState(

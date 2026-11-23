@@ -16,6 +16,7 @@ export default function ErrorRecoveryBar({
   onRetry: () => void;
   onClose: () => void;
 }) {
+  "use no memo";
   const [showDetail, setShowDetail] = useState(false);
   const recovery: ErrorRecovery = classifyErrorRecovery(message);
   const writeRetry = recovery.action.kind === "retry" ? retryAction : undefined;

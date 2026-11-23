@@ -71,6 +71,7 @@ export default function PollPanel({
   onAutoOpenHandled?: () => void;
   initialSource?: { title: string; sourceId: string; scope: PollScope; scopeId: string } | null;
 }) {
+  "use no memo";
   const [polls, setPolls] = useState<Poll[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"open" | "closed" | "all">("open");

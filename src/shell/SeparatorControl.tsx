@@ -19,6 +19,7 @@ export default function SeparatorControl({
   onDoubleClick?: () => void;
   className?: string;
 }) {
+  "use no memo";
   return (
     <div
       className={className}

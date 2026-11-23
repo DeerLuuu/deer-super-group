@@ -16,6 +16,7 @@ export function ChatLiveBridge({
   workspaceId: string;
   onSettled?: (agentId: string, settled: ChatLiveSettled) => void;
 }) {
+  "use no memo";
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
 
