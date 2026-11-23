@@ -305,6 +305,7 @@ describe("v2 持久化", () => {
       .replace(/^\s*\/\/.*$/gm, "");
     expect(code).not.toMatch(/deer\.dock\.state/);
     expect(code).not.toMatch(/deer\.dock\.v1\./);
+    expect(code).not.toMatch(/from ["']dockview/);
   });
 });
 
@@ -645,7 +646,7 @@ async function withLocalStorageAsync<T>(fn: () => Promise<T>): Promise<T> {
 describe("fake renderer parity（DW1-2 接线测试）", () => {
   /**
    * fake renderer：把布局树渲染为「组 → tabs/active」的纯文本快照（无 DOM）。
-   * parity = 新模型操作与旧布局语义的关键行为一致：
+   * parity = 新模型操作与旧 dockview 布局语义的关键行为一致：
    * open 已存在激活 / close 删组 / move center 并入 / split 新组 / reset 回默认。
    */
   function renderFake(layout: DockLayout): string {

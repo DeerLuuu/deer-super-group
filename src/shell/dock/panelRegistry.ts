@@ -1,11 +1,13 @@
 /**
- * t50 Dock 布局：面板注册表 + 默认布局 spec（依据 docs/team/dock-layout-design.md §4/§8）。
+ * t50 Dock 布局：面板注册表 + 默认布局 spec。
  *
  * t568/MF1-1：定义元数据搬到 src/shell/panel/panelManifest.ts（编译期 manifest）；
  * 本文件只做类型、派生 PANEL_DEFS 与布局工具，仍保持原公开 API。
+ * DW1 rollback：恢复 dockview v1 DockStore/LAYOUT_KEYS 持久化，v2 store 不再读写。
  */
 import { MIN_SPLIT_DOCK_WIDTH, NARROW_WINDOW_MAX } from "./narrowWindow";
 import { PANEL_MANIFEST_INDEX } from "../panel/panelManifest";
+import { LAYOUT_KEYS } from "../../shared/layoutPersistence.js";
 
 export type RouteTabString =
   | "tasks"
@@ -126,6 +128,66 @@ export function panelInsertDirection(
   key: PanelKey,
 ): "right" | "within" {
   return variant !== "single" && key === "team" ? "right" : "within";
+}
+
+// ---------- 持久化（§8） ----------
+
+export type DockStore = {
+  schema: "deer.dock.state";
+  version: 1;
+  updatedAt: string;
+  variants: Partial<
+    Record<DockVariant, { layout: unknown; activePanel: string | null }>
+  >;
+};
+
+export function storageKey(workspaceId: string): string {
+  return `${LAYOUT_KEYS.dockPrefix}${workspaceId}`;
+}
+
+const MAX_STORE_BYTES = 64 * 1024;
+
+export function loadStore(workspaceId: string): DockStore | null {
+  try {
+    const raw = localStorage.getItem(storageKey(workspaceId));
+    if (!raw) return null;
+    if (raw.length > MAX_STORE_BYTES) throw new Error("oversized");
+    const parsed = JSON.parse(raw) as DockStore;
+    if (parsed?.schema !== "deer.dock.state" || parsed?.version !== 1) {
+      throw new Error("schema mismatch");
+    }
+    if (typeof parsed.variants !== "object" || parsed.variants === null) {
+      throw new Error("bad variants");
+    }
+    return parsed;
+  } catch {
+    // §8.3：损坏 → 删除并回退默认
+    try {
+      localStorage.removeItem(storageKey(workspaceId));
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+}
+
+export function saveStore(workspaceId: string, store: DockStore): boolean {
+  try {
+    const payload = JSON.stringify(store);
+    if (payload.length > MAX_STORE_BYTES) return false;
+    localStorage.setItem(storageKey(workspaceId), payload);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearStore(workspaceId: string): void {
+  try {
+    localStorage.removeItem(storageKey(workspaceId));
+  } catch {
+    /* ignore */
+  }
 }
 
 export function routeTabFromPanel(key: PanelKey): RouteTabString | null {

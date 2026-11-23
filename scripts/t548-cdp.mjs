@@ -1,7 +1,7 @@
 /**
  * t548 DW1-3：真实 Electron + CDP 走查。
  * v2 引擎（默认）：三档截图、tab 点击激活、nav 打开、关闭、sash aria、
- * v2 store 持久化 + 重启恢复；v2-only 渲染器证据。
+ * v2 store 持久化 + 重启恢复；切 dockview 引擎对照。
  * 用法：node scripts/t548-cdp.mjs <port> <outDir>
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -86,7 +86,7 @@ async function screenshot(name) {
 
 // v2 引擎渲染检查。
 const hasTree = await waitFor(`!!document.querySelector(".docktree-root")`);
-record("t548-v2-engine-active", hasTree, hasTree ? "docktree-root rendered (v2 default)" : "no docktree-root");
+record("t548-v2-engine-active", hasTree, hasTree ? "docktree-root rendered (DOCK_ENGINE=v2 default)" : "no docktree-root");
 
 if (hasTree) {
   const tabCount = await evaluate(`document.querySelectorAll(".docktree-tab").length`);
@@ -151,8 +151,18 @@ if (hasTree) {
   const v2KeysAfter = await evaluate(`Object.keys(localStorage).filter((k) => k.startsWith("deer.dock.layout.v2."))`);
   record("t548-v2-store-survives-reload", v2KeysAfter.length > 0, `keys=${v2KeysAfter.length}`);
 
+  // 切旧引擎对照：localStorage 标记 + reload → dockview 容器。
+  await evaluate(`localStorage.setItem("deer.dock.engine", "dockview")`);
+  await evaluate(`location.reload()`);
+  await sleep(3000);
+  const legacy = await evaluate(`!!document.querySelector(".dockview-container") || !!document.querySelector(".dockview-drag-overlay") || !!document.querySelector(".dv-") || document.querySelectorAll("[data-panel]").length > 0`);
+  record("t548-legacy-engine-switchable", legacy, "dockview engine renders after deer.dock.engine=dockview");
   await setViewport(1440, 900);
-  await screenshot("t548-v2-1440.png");
+  await screenshot("t548-legacy-1440.png");
+  // 切回 v2。
+  await evaluate(`localStorage.setItem("deer.dock.engine", "v2")`);
+  await evaluate(`location.reload()`);
+  await sleep(2500);
 }
 
 writeFileSync(

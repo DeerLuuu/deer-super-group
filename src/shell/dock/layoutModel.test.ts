@@ -518,7 +518,7 @@ describe("layoutModel property tests（1000+ 随机操作不变量）", () => {
     }
   });
 
-  it("不读取 v1 deer.dock.state：模型无 localStorage 运行时访问（源码扫描）", async () => {
+  it("不读取 v1 deer.dock.state：模型无 localStorage/dockview 运行时访问（源码扫描）", async () => {
     const { readFile } = await import("node:fs/promises");
     const { resolve } = await import("node:path");
     const source = await readFile(resolve(__dirname, "layoutModel.ts"), "utf8");
@@ -528,5 +528,7 @@ describe("layoutModel property tests（1000+ 随机操作不变量）", () => {
       .replace(/^\s*\/\/.*$/gm, "");
     expect(code).not.toMatch(/localStorage/);
     expect(code).not.toMatch(/deer\.dock\.state/);
+    expect(code).not.toMatch(/from ["']dockview/);
+    expect(code).not.toMatch(/require\(["']dockview/);
   });
 });

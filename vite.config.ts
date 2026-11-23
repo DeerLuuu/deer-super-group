@@ -34,6 +34,9 @@ export default defineConfig(({ command }) => {
         manualChunks(id) {
           const path = id.replace(/\\/g, "/");
           if (!path.includes("/node_modules/")) return undefined;
+          if (path.includes("/dockview/") || path.includes("/dockview-core/") || path.includes("/dockview-react/")) {
+            return "vendor-dockview";
+          }
           if (
             path.includes("/react-markdown/") ||
             path.includes("/remark-") ||
