@@ -1,0 +1,104 @@
+{
+  "task": "t510",
+  "kind": "RC1-0 React Compiler spike",
+  "at": "2026-11-23T21:25:00+08:00",
+  "baseCommit": "82e54c4",
+  "dependency": {
+    "name": "babel-plugin-react-compiler",
+    "version": "1.0.0",
+    "license": "MIT",
+    "devDependency": true,
+    "unpackedSizeBytes": 3880402,
+    "runtimeDependency": false
+  },
+  "boundary": {
+    "allowlist": [
+      "src/shell/SkipLink.tsx"
+    ],
+    "excluded": [
+      "electron/",
+      "scripts/",
+      "src/kernel/",
+      "src/review/",
+      "src/watchdog/",
+      "src/memory/",
+      "src/shared/",
+      "dist/",
+      "dist-electron/",
+      "node_modules/",
+      "**/*.test.*",
+      "**/__tests__/**"
+    ],
+    "defaultBuildCompiler": false,
+    "compilerBuildCommand": "pnpm build:compiler",
+    "targetedTestCommand": "pnpm test:compiler",
+    "testDefaultCompiler": false
+  },
+  "build": {
+    "default": {
+      "totalMs": 1018,
+      "viteMs": 242,
+      "index": {
+        "file": "index-fKm9xc49.js",
+        "bytes": 369017,
+        "gzipKb": 109.84
+      },
+      "vendorReact": {
+        "file": "vendor-react-BUpqyDsC.js",
+        "bytes": 206755,
+        "gzipKb": 64.81
+      },
+      "css": {
+        "file": "index-Cl22jyNJ.css",
+        "bytes": 150017,
+        "gzipKb": 25.44
+      },
+      "rendererSourcemap": false
+    },
+    "compiler": {
+      "totalMs": 2357,
+      "viteMs": 1570,
+      "index": {
+        "file": "index-DckQwIra.js",
+        "bytes": 369147,
+        "gzipKb": 109.92
+      },
+      "vendorReact": {
+        "file": "vendor-react-Bcerwr7Q.js",
+        "bytes": 206922,
+        "gzipKb": 64.91
+      },
+      "css": {
+        "file": "index-Cl22jyNJ.css",
+        "bytes": 150017,
+        "gzipKb": 25.44
+      },
+      "rendererSourcemap": false
+    },
+    "delta": {
+      "indexBytes": 130,
+      "vendorReactBytes": 167,
+      "cssBytes": 0,
+      "rendererSourcemap": "unchanged (disabled in vite.config)"
+    }
+  },
+  "tests": {
+    "default": "174 files / 1136 tests (plain pnpm test 59.36s; extended serial 266.01s)",
+    "compilerTargeted": "2 files / 6 tests",
+    "defaultCompiler": false
+  },
+  "commands": {
+    "typecheck": "pnpm typecheck",
+    "build": "pnpm build",
+    "compilerBuild": "pnpm build:compiler",
+    "test": "pnpm test -- --max-workers=1 --testTimeout=20000",
+    "compilerTest": "pnpm test:compiler"
+  },
+  "rollback": [
+    "leave RC1_COMPILER unset (default build is baseline)",
+    "remove build:compiler/test:compiler scripts",
+    "remove babel-plugin-react-compiler devDependency",
+    "remove reactCompilerBoundary.ts/test and Vite plugin wiring",
+    "pnpm install && pnpm build && pnpm test"
+  ]
+}
