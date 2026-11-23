@@ -1,4 +1,4 @@
-﻿import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -130,7 +130,7 @@ describe("MemoryStore migration and schema", () => {
     expect(memory.schemaVersion).toBe(4);
     expect(memory.backupPath).not.toBeNull();
     expect(existsSync(memory.backupPath as string)).toBe(true);
-    expect((store.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
+    expect((store.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(3);
 
     const board = memory.getBoard("ws-old", legacy.id);
     expect(board?.source).toBe("agent");

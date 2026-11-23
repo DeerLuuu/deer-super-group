@@ -662,7 +662,7 @@ describe("t68 migration from a v1 database", () => {
     cleanups.push(() => store.close());
     const version = (store.db.prepare("PRAGMA user_version").get() as { user_version?: number })
       .user_version;
-    expect(Number(version)).toBe(2);
+    expect(Number(version)).toBe(3);
     expect(store.getTask("task_legacy")?.title).toBe("Legacy task");
     expect(store.getRun("run_legacy")?.attempt).toBe(1);
     const baseline = store
@@ -1053,7 +1053,7 @@ describe("t83 migration backup fail-closed", () => {
     const dbPath = createLegacyTaskDb(root, { wal: true });
     const store = new Store(dbPath);
     cleanups.push(() => store.close());
-    expect(userVersion(dbPath)).toBe(2);
+    expect(userVersion(dbPath)).toBe(3);
     expect(store.lastBackupPath).toBeTruthy();
     expect(existsSync(store.lastBackupPath!)).toBe(true);
     const backup = new DatabaseSync(store.lastBackupPath!);
