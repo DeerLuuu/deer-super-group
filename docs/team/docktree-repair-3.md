@@ -46,7 +46,7 @@
 pnpm typecheck  # exit 0
 pnpm build      # exit 0（475 modules）
 pnpm test -- --testTimeout=20000 --maxWorkers=1 --no-file-parallelism
-                # 181 files / 1231 tests passed（serial）
+                # 182 files / 1237 tests passed（serial，同步 main 后）
 ```
 
 新增/更新 `src/shell/dock/docktreeInteraction.test.tsx` 共 9 用例（mouse close、Delete close、嵌套相邻、lazy/keepalive、aria/结构等）。完整串行结果见任务完成报告。
