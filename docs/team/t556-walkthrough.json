@@ -57,5 +57,26 @@
     "v2Keys": [
       "deer.dock.layout.v2.ws_mw8tntlt_52e4fc39fa"
     ]
+  },
+  "devicePixelRatio": 1,
+  "screenshots": {
+    "480": {
+      "file": "t556-final-480.png",
+      "width": 480,
+      "height": 900,
+      "devicePixelRatio": 1
+    },
+    "960": {
+      "file": "t556-final-960.png",
+      "width": 960,
+      "height": 900,
+      "devicePixelRatio": 1
+    },
+    "1440": {
+      "file": "t556-final-1440.png",
+      "width": 1440,
+      "height": 1000,
+      "devicePixelRatio": 1
+    }
   }
 }
