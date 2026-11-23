@@ -10,7 +10,7 @@
  * - maxGroups 裁剪：超过上限时把「最深/最后」的多余组逐个并入 active group
  *   （center 语义），直到组数 ≤ limit；断点（wide/medium/narrow/single）沿用
  *   panelRegistry.selectVariant，本模块不改变阈值；
- * - 不接新 DockTree 渲染器（DW1-3）；dockview 运行不受影响。
+ * - v2 渲染器唯一消费方；旧 renderer 已移除。
  */
 
 import { PANEL_DEFS, type PanelKey } from "./panelRegistry";

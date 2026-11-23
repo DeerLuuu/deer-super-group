@@ -7,7 +7,6 @@ import DockTree from "./DockTree";
 import DockGroup from "./DockGroup";
 import DockSash from "./DockSash";
 import DockDropZone from "./DockDropZone";
-import { getDockEngine, setDockEngine } from "./dockEngine";
 
 /**
  * DW1-3（t548）：自研渲染器测试（SSR 断言 + controller 驱动的功能对齐）。
@@ -100,26 +99,13 @@ describe("DW1-3 DockSash / DockDropZone", () => {
   });
 });
 
-describe("DW1-3 引擎开关", () => {
-  it("默认 v2；setDockEngine 可切回 dockview（localStorage 可用时持久化）", () => {
-    expect(getDockEngine()).toBe("v2");
-    setDockEngine("dockview");
-    expect(getDockEngine()).toBe("dockview");
-    // node 测试环境无 localStorage：持久化由 Electron CDP 走查验证。
-    if (typeof localStorage !== "undefined") {
-      expect(localStorage.getItem("deer.dock.engine")).toBe("dockview");
-    }
-    setDockEngine("v2");
-    expect(getDockEngine()).toBe("v2");
-  });
-
-  it("DockShell.tsx：默认导出经引擎开关分派（v2 → DockShellV2，legacy 保留）", async () => {
+describe("DW1-4 v2-only 外壳", () => {
+  it("DockShell.tsx 默认直出 DockShellV2，无旧 renderer 分派", async () => {
     const { readFile } = await import("node:fs/promises");
     const { resolve } = await import("node:path");
     const source = await readFile(resolve(__dirname, "DockShell.tsx"), "utf8");
-    expect(source).toContain("getDockEngine()");
     expect(source).toContain("DockShellV2");
-    expect(source).toContain("DockShellLegacy");
+    expect(source).not.toContain("Legacy");
   });
 });
 
@@ -199,21 +185,5 @@ describe("DW1-3 DockShellV2 契约", () => {
   it("默认导出存在（forwardRef 组件）", async () => {
     const mod = await import("./DockShellV2");
     expect(mod.default).toBeDefined();
-  });
-
-  it("v2 渲染器文件不 import dockview（源码扫描）", async () => {
-    const { readFile } = await import("node:fs/promises");
-    const { resolve } = await import("node:path");
-    for (const file of [
-      "DockTree.tsx",
-      "DockGroup.tsx",
-      "DockSash.tsx",
-      "DockDropZone.tsx",
-      "DockShellV2.tsx",
-      "dockEngine.ts",
-    ]) {
-      const source = await readFile(resolve(__dirname, file), "utf8");
-      expect(source, file).not.toMatch(/from ["']dockview/);
-    }
   });
 });

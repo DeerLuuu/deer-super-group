@@ -1,0 +1,93 @@
+{
+  "task": "t556",
+  "baseline": {
+    "commit": "7280d10",
+    "modules": 475,
+    "distBytes": 1766950,
+    "distFiles": 17,
+    "indexBytes": 392663,
+    "indexGzipBytes": 116870,
+    "cssBytes": 153324,
+    "vendorDockviewJsBytes": 414896,
+    "vendorDockviewCssBytes": 136041
+  },
+  "new": {
+    "modules": 469,
+    "distBytes": 1216233,
+    "distFiles": 15,
+    "indexBytes": 383861,
+    "indexGzipBytes": 114290,
+    "cssBytes": 151258,
+    "vendorDockviewChunk": false
+  },
+  "delta": {
+    "distBytes": -550717,
+    "distPercent": -31.2
+  },
+  "cdp": {
+    "screenshot": [
+      "t556-final-1440.png",
+      "t556-final-960.png",
+      "t556-final-480.png"
+    ],
+    "dockviewDom": false,
+    "v1Seed": "keep-me",
+    "v1Preserved": true,
+    "v2Store": "deer.dock.layout.v2.<workspaceId>",
+    "reloadPersisted": true,
+    "widths": {
+      "480": {
+        "groups": 1,
+        "scrollWidth": 480
+      },
+      "960": {
+        "groups": 2,
+        "scrollWidth": 960
+      },
+      "1440": {
+        "groups": 2,
+        "scrollWidth": 1440
+      }
+    }
+  },
+  "rollbackRealCheckout": {
+    "method": "git checkout 7280d10 -- package.json pnpm-lock.yaml src/shell/dock src/styles.css vite.config.ts",
+    "install": "pnpm install --ignore-scripts",
+    "dependencies": [
+      "dockview-core 8.9.0",
+      "dockview-react 8.9.0"
+    ],
+    "build": {
+      "modules": 475,
+      "vendorDockviewJsBytes": 414896,
+      "vendorDockviewCssBytes": 136041,
+      "exit": 0
+    },
+    "restore": {
+      "method": "git checkout HEAD -- same paths; pnpm install --ignore-scripts",
+      "modules": 469,
+      "vendorDockviewChunk": false,
+      "exit": 0
+    }
+  },
+  "screenshots": {
+    "480": {
+      "file": "t556-final-480.png",
+      "width": 480,
+      "height": 900,
+      "devicePixelRatio": 1
+    },
+    "960": {
+      "file": "t556-final-960.png",
+      "width": 960,
+      "height": 900,
+      "devicePixelRatio": 1
+    },
+    "1440": {
+      "file": "t556-final-1440.png",
+      "width": 1440,
+      "height": 1000,
+      "devicePixelRatio": 1
+    }
+  }
+}
