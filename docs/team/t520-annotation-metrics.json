@@ -1,0 +1,113 @@
+{
+  "task": "t520",
+  "kind": "RC1-1 React Compiler annotation pilot",
+  "at": "2026-11-23T21:52:00+08:00",
+  "baseCommit": "9349d00",
+  "components": [
+    "src/shell/SkipLink.tsx",
+    "src/shell/ApprovalTerms.tsx",
+    "src/shell/TaskContractChips.tsx",
+    "src/shell/TaskWorkspaceTabs.tsx"
+  ],
+  "compilerMode": "annotation",
+  "runtimeDependency": false,
+  "manualMemoRemoved": false,
+  "build": {
+    "default": {
+      "viteMs": 259,
+      "totalMs": 1038,
+      "index": {
+        "file": "index-YEdgiQ0b.js",
+        "bytes": 369060,
+        "gzipKb": 109.86
+      },
+      "vendorReact": {
+        "file": "vendor-react-BUpqyDsC.js",
+        "bytes": 206755,
+        "gzipKb": 64.81
+      },
+      "css": {
+        "file": "index-Cl22jyNJ.css",
+        "bytes": 150017,
+        "gzipKb": 25.44
+      }
+    },
+    "compiler": {
+      "viteMs": 733,
+      "totalMs": 1720,
+      "index": {
+        "file": "index-DkZ7pAIV.js",
+        "bytes": 370580,
+        "gzipKb": 110.62
+      },
+      "vendorReact": {
+        "file": "vendor-react-Bcerwr7Q.js",
+        "bytes": 206922,
+        "gzipKb": 64.91
+      },
+      "css": {
+        "file": "index-Cl22jyNJ.css",
+        "bytes": 150017,
+        "gzipKb": 25.44
+      }
+    },
+    "delta": {
+      "indexBytes": 1520,
+      "vendorReactBytes": 167,
+      "cssBytes": 0,
+      "sourcemap": "unchanged (renderer sourcemap disabled)"
+    }
+  },
+  "story": {
+    "default": {
+      "file": "rc1-story-DfDZjHTU.js",
+      "bytes": 223868,
+      "gzipKb": 70.61
+    },
+    "compiler": {
+      "file": "rc1-story-CbHK391a.js",
+      "bytes": 225539,
+      "gzipKb": 71.39
+    },
+    "deltaBytes": 1671
+  },
+  "performance": {
+    "fixture": "real Electron compiled/default story; 100 flushSync mount/update iterations",
+    "default": {
+      "totalMs": 32.5,
+      "avgMs": 0.325
+    },
+    "compiler": {
+      "totalMs": 30.7,
+      "avgMs": 0.307
+    },
+    "deltaPct": -5.5,
+    "decision": "no regression observed; tiny/noisy improvement, keep pilot"
+  },
+  "screenshots": {
+    "widths": [
+      1440,
+      960,
+      480
+    ],
+    "files": [
+      "docs/team/t520-annotation-1440.png",
+      "docs/team/t520-annotation-960.png",
+      "docs/team/t520-annotation-480.png",
+      "docs/team/t520-annotation-interaction-1440.png"
+    ],
+    "assertions": "scrollWidth===innerWidth for 1440/960/480; ArrowRight overview→runs with aria-selected/focus"
+  },
+  "tests": {
+    "default": "175 files / 1137 tests",
+    "compiler": "6 files / 12 tests",
+    "note": "one earlier local openai endpoint flake; final plain pnpm test and serial/extended both 175 files/1137 green"
+  },
+  "rollback": [
+    "remove the four \"use memo\" directives",
+    "remove the four paths from REACT_COMPILER_ALLOWLIST",
+    "restore reactCompilerMode default if desired",
+    "leave RC1_COMPILER unset for default baseline build",
+    "run typecheck/build/test"
+  ]
+}

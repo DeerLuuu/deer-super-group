@@ -9,8 +9,13 @@ export const REACT_COMPILER_PACKAGE = "babel-plugin-react-compiler";
 export const REACT_COMPILER_VERSION = "1.0.0";
 export const REACT_COMPILER_LICENSE = "MIT";
 
-/** RC1-0 spike target: one small, non-critical renderer component. */
-export const REACT_COMPILER_ALLOWLIST = ["src/shell/SkipLink.tsx"] as const;
+/** RC1-1 annotation pilot: non-Dock, non-critical presentational components. */
+export const REACT_COMPILER_ALLOWLIST = [
+  "src/shell/SkipLink.tsx",
+  "src/shell/ApprovalTerms.tsx",
+  "src/shell/TaskContractChips.tsx",
+  "src/shell/TaskWorkspaceTabs.tsx",
+] as const;
 
 /** Files that must never reach the compiler, even if a future allowlist grows. */
 export const REACT_COMPILER_EXCLUDED_PREFIXES = [
@@ -56,7 +61,7 @@ export function isReactCompilerBuild(
 }
 
 export function reactCompilerMode(env: ReactCompilerEnv = process.env): ReactCompilerMode {
-  return env.RC1_MODE === "annotation" ? "annotation" : "infer";
+  return env.RC1_MODE === "infer" ? "infer" : "annotation";
 }
 
 export function isReactCompilerExcluded(filename: string): boolean {
