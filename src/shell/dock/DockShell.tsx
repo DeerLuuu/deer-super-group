@@ -35,14 +35,6 @@ import {
   effectivePanelMinWidth,
 } from "./narrowWindow";
 import {
-  // t530 F1（DW1-2）：v2 布局 shadow-sync——useDockLayoutController 作为 v2 状态源，
-  // DockHandle 命令同步 dispatch 给 reduceDock（v2 唯一入口）并持久化 deer.dock.layout.v2；
-  // dockview 仍负责渲染（DW1-3 才切换），默认行为零回归。
-  // t542：resetAll 用 controller.resetAll + clearV2Store（v2 key 一并清理）。
-  useDockLayoutController,
-} from "./layoutOps";
-import { clearV2Store } from "./layoutOps";
-import {
   canAddDockGroup,
   dockGroupLimitMessage,
   effectiveMaxDockGroups,
@@ -176,24 +168,6 @@ export default forwardRef<DockHandle, {
   onPanelCloseRef.current = onPanelClose;
   const onNotifyRef = useRef(onNotify);
   onNotifyRef.current = onNotify;
-
-  // t530 F1：v2 shadow-sync 控制器（真实生产消费方）。渲染不变（dockview legacy），
-  // 但每个 DockHandle 命令经 dispatch 进入 reduceDock，v2 存档随操作逐步构建，
-  // 为 DW1-3 切换准备数据；激活面板与通知回调与 legacy 路径复用同一出口。
-  const v2Controller = useDockLayoutController({
-    workspaceId,
-    variant: variantRef.current,
-    maxGroups,
-    onNotify: (message) => notify(message),
-    onActivatedPanel: (panel) => onActivePanelChangeRef.current(panel),
-  });
-  const v2DispatchRef = useRef(v2Controller.dispatch);
-  v2DispatchRef.current = v2Controller.dispatch;
-  const v2ResetAllRef = useRef(v2Controller.resetAll);
-  v2ResetAllRef.current = v2Controller.resetAll;
-  // t542：断点变化（variantRef 更新处）驱动 controller 的 variant useEffect 切换。
-  const v2VariantRef = useRef(v2Controller.setVariant);
-  v2VariantRef.current = v2Controller.setVariant;
 
   function notify(message: string) {
     onNotifyRef.current?.(message);
@@ -420,8 +394,6 @@ export default forwardRef<DockHandle, {
       if (next === variantRef.current) return;
       flushSave();
       variantRef.current = next;
-      // t542：断点切换同步 v2 controller（保存旧变体 + 恢复新变体）。
-      v2VariantRef.current(next);
       rebuild(next, activeKeyRef.current);
     });
     return () => {
@@ -458,8 +430,6 @@ export default forwardRef<DockHandle, {
 
   useImperativeHandle(ref, () => ({
     openPanel(key) {
-      // t542：anchor=chat 对齐 legacy ensurePanel referencePanel:"chat" 的目标组。
-      v2DispatchRef.current({ type: "open", panel: key, cause: "nav", anchor: "chat" });
       const api = apiRef.current;
       if (!api) return;
       if (!api.getPanel(key)) {
@@ -479,11 +449,9 @@ export default forwardRef<DockHandle, {
         notify("设置面板不可关闭（保护未保存的配置草稿）");
         return;
       }
-      v2DispatchRef.current({ type: "close", panel: panel.id as PanelKey });
       panel.api.close();
     },
     resetLayout() {
-      v2DispatchRef.current({ type: "reset" });
       const api = apiRef.current;
       if (!api) return;
       const active = api.activePanel?.id as PanelKey | undefined;
@@ -493,9 +461,7 @@ export default forwardRef<DockHandle, {
       notify("已恢复默认布局");
     },
     resetAllLayouts() {
-      v2ResetAllRef.current();
       clearStore(workspaceIdRef.current);
-      clearV2Store(workspaceIdRef.current);
       const api = apiRef.current;
       if (!api) return;
       const active = api.activePanel?.id as PanelKey | undefined;
@@ -508,8 +474,6 @@ export default forwardRef<DockHandle, {
       const api = apiRef.current;
       const panel = api?.activePanel;
       if (!api || !panel) return;
-      // t542：v2 dispatch 前先求相邻 group 的 activePanel 作 move target，
-      // 与下方 legacy 行为一致；无相邻且允许新增组时改用 split 命令。
       const navDirection =
         direction === "left"
           ? "left"
@@ -519,25 +483,6 @@ export default forwardRef<DockHandle, {
               ? "up"
               : "down";
       const adjacent = api.adjacentGroupInDirection(panel.group, navDirection);
-      if (adjacent) {
-        const adjacentActive = (
-          adjacent as unknown as { activePanel?: { id?: string } }
-        ).activePanel?.id as PanelKey | undefined;
-        if (adjacentActive) {
-          v2DispatchRef.current({
-            type: "move",
-            panel: panel.id as PanelKey,
-            target: adjacentActive,
-            position: "center",
-          });
-        }
-      } else {
-        v2DispatchRef.current({
-          type: "split",
-          panel: panel.id as PanelKey,
-          direction,
-        });
-      }
       if (adjacent) {
         panel.api.moveTo({ group: adjacent as never, position: "center" });
       } else if (canAddDockGroup(api.groups.length, groupLimitRef.current)) {

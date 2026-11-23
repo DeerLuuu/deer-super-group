@@ -386,25 +386,14 @@ export function defaultLayoutForWidth(
 
 export type SplitDirection = "left" | "right" | "above" | "below";
 
-/** 打开面板：已存在则激活；不存在则插入 anchor 所在组（缺省 active group，尾插），返回新布局。 */
-export function openPanelInLayout(
-  layout: DockLayout,
-  panel: PanelKey,
-  anchor?: PanelKey,
-): DockLayout {
+/** 打开面板：已存在则激活；不存在则插入 active group（尾插），返回新布局。 */
+export function openPanelInLayout(layout: DockLayout, panel: PanelKey): DockLayout {
   const groups = listGroups(layout.root);
   if (groups.some((group) => (group.panels as string[]).includes(panel))) {
     return activatePanelInLayout(layout, panel);
   }
   const next = structuredCloneCompat(layout);
-  // t542：anchor 优先（对齐 legacy ensurePanel referencePanel:"chat"）；无 anchor 回 active group。
-  const anchorGroup = anchor
-    ? groups.find((group) => (group.panels as string[]).includes(anchor))
-    : undefined;
-  const target =
-    (anchorGroup && findGroupOf(next.root, anchorGroup.panels[0])) ||
-    findActiveGroup(next.root) ||
-    listGroups(next.root)[0];
+  const target = findActiveGroup(next.root) ?? listGroups(next.root)[0];
   target.panels.push(panel);
   target.active = panel;
   return normalizeLayout(next);
