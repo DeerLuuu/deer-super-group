@@ -62,6 +62,7 @@ export function LazyPanel<P extends object>({
   label: string;
   children: (Component: ComponentType<P>) => ReactNode;
 }) {
+  "use no memo";
   const [attempt, setAttempt] = useState(0);
   const Component = useMemo(() => lazy(load), [load, attempt]);
   return (

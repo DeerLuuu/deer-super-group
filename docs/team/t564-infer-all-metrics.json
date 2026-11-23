@@ -1,0 +1,99 @@
+{
+  "task": "t564",
+  "kind": "RC1-3 full renderer React Compiler infer",
+  "at": "2026-11-24T01:05:00+08:00",
+  "baseCommit": "9198614",
+  "scope": {
+    "allowlist": ["src/"],
+    "excludedPrefixes": [
+      "electron/",
+      "scripts/",
+      "src/kernel/",
+      "src/review/",
+      "src/watchdog/",
+      "src/memory/",
+      "src/shared/",
+      "dist/",
+      "dist-electron/",
+      "node_modules/"
+    ],
+    "excludedPatterns": ["**/*.test.*", "**/__tests__/**", "non-.tsx"],
+    "dockIncluded": true,
+    "compilerMode": "infer",
+    "defaultBuildCompiler": false,
+    "defaultTestCompiler": false
+  },
+  "highRiskNoMemo": [
+    "src/shell/SeparatorControl.tsx",
+    "src/shell/ErrorRecoveryBar.tsx",
+    "src/shell/FirstRunCard.tsx",
+    "src/shell/chat/ChatLiveBridge.tsx",
+    "src/shell/MemoryWorkbench.tsx",
+    "src/shell/PlanDraftPanel.tsx",
+    "src/shell/PollPanel.tsx",
+    "src/git/ui/GitDiffViewer.tsx",
+    "src/git/ui/GitGraphPanel.tsx",
+    "src/git/ui/MergeQueuePanel.tsx",
+    "src/git/ui/GitAiDraft.tsx",
+    "src/App.tsx",
+    "src/shell/LazyPanel.tsx",
+    "src/shell/panel/PanelHost.tsx",
+    "src/shell/dock/DockShellV2.tsx",
+    "src/shell/dock/DockTree.tsx",
+    "src/shell/dock/DockGroup.tsx",
+    "src/shell/dock/DockSash.tsx",
+    "src/shell/dock/DockDropZone.tsx"
+  ],
+  "build": {
+    "default": {
+      "viteMs": 221,
+      "totalMs": 1015,
+      "index": { "file": "index-CSOlXrS3.js", "bytes": 384020, "gzipKb": 114.36 },
+      "vendorReact": { "file": "vendor-react-BWG1l_ZB.js", "bytes": 210540, "gzipKb": 65.71 },
+      "css": { "file": "index-B_PW-RiH.css", "bytes": 151250, "gzipKb": 25.70 }
+    },
+    "compiler": {
+      "viteMs": 5070,
+      "totalMs": 6271,
+      "index": { "file": "index-BAPn_xuv.js", "bytes": 432500, "gzipKb": 136.92 },
+      "vendorReact": { "file": "vendor-react-CZbqvQ-P.js", "bytes": 210710, "gzipKb": 65.81 },
+      "css": { "file": "index-B_PW-RiH.css", "bytes": 151250, "gzipKb": 25.70 }
+    },
+    "delta": {
+      "indexBytes": 48480,
+      "vendorReactBytes": 170,
+      "cssBytes": 0,
+      "rendererSourcemap": "unchanged (disabled)"
+    }
+  },
+  "tests": {
+    "default": "180 files / 1226 tests (serial/extended 288.93s; plain had existing 5s flake)",
+    "compiler": "87 files / 440 tests",
+    "note": "full default serial green; compiler renderer subset green"
+  },
+  "fixture": {
+    "mode": "real Electron compiler build, Settings interface; production App/CSS; not a synthetic HTML fixture",
+    "screenshots": [
+      "docs/team/t564-infer-settings-1440.png",
+      "docs/team/t564-infer-settings-960.png",
+      "docs/team/t564-infer-settings-480.png",
+      "docs/team/t564-infer-settings-interaction-1440.png"
+    ],
+    "horizontal": "scrollWidth===innerWidth at 1440/960/480; modal 1180/912/432",
+    "interaction": "ArrowRight standard→large; 3 radios; focus/aria checked",
+    "walkthrough": "docs/team/t564-infer-settings-walkthrough.json"
+  },
+  "performance": {
+    "compilerBuildOverheadMs": 5256,
+    "compilerViteOverheadMs": 4849,
+    "indexGrowthBytes": 48480,
+    "decision": "full infer accepted for RC1-3 evidence; significant build/bundle cost recorded; no performance claim"
+  },
+  "rollback": [
+    "leave RC1_COMPILER unset for default baseline",
+    "restore RC1-2 allowlist src/shell + src/git/ui",
+    "remove the eight new no-memo paths (App/LazyPanel/PanelHost/Dock files)",
+    "remove RC1_MODE=infer from build:compiler/test:compiler",
+    "typecheck/build/test"
+  ]
+}

@@ -74,6 +74,7 @@ export function PanelHostProvider({
   depsByKey: PanelDeps;
   children: ReactNode;
 }) {
+  "use no memo";
   const storeRef = useRef<PanelVersionStore | null>(null);
   if (!storeRef.current) storeRef.current = new PanelVersionStore();
   const contextRef = useRef<PanelContextValue | null>(null);
@@ -111,6 +112,7 @@ export function PanelHostProvider({
  * 父 DockShell/Provider 的无关 render 不会让它重新执行 renderRef。
  */
 export const PanelHost = memo(function PanelHost({ panelKey }: { panelKey: PanelKey }) {
+  "use no memo";
   const context = useContext(PanelHostContext);
   if (!context) return null;
   const { store, renderRef } = context;

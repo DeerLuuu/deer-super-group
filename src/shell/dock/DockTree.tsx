@@ -32,6 +32,7 @@ function TreeSplit({
   layout: DockLayout;
   props: DockTreeProps;
 }) {
+  "use no memo";
   const children: React.ReactNode[] = [];
   split.children.forEach((child, index) => {
     // 在相邻 pane 之间插入 sash（sash i 调整 children[i-1] 权重）。
@@ -77,6 +78,7 @@ function TreeNode({
   layout: DockLayout;
   props: DockTreeProps;
 }) {
+  "use no memo";
   if (node.kind === "split") {
     return <TreeSplit split={node} layout={layout} props={props} />;
   }
@@ -84,6 +86,7 @@ function TreeNode({
 }
 
 function TreeGroup({ group, props }: { group: LayoutGroup; props: DockTreeProps }) {
+  "use no memo";
   return (
     <DockGroup
       group={group}
@@ -97,6 +100,7 @@ function TreeGroup({ group, props }: { group: LayoutGroup; props: DockTreeProps 
 
 /** 递归渲染布局树（memo：layout 引用不变即跳过）。 */
 function DockTreeImpl(props: DockTreeProps & { layout: DockLayout }) {
+  "use no memo";
   const { layout, ...rest } = props;
   return (
     <div className="docktree-root" data-variant={layout.variant} role="presentation">
