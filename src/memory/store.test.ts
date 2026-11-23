@@ -56,8 +56,11 @@ function seedTaskRun(
   now = "2026-01-01T00:00:00.000Z",
 ) {
   store.db.prepare(
-    "INSERT OR IGNORE INTO tasks (id, workspace_id, title, description, acceptance, status, owner_id, depends_on, created_at) VALUES (?, ?, ?, '', '[]', 'done', ?, '[]', ?)",
-  ).run(taskId, workspaceId, taskId, agentId, now);
+    "INSERT OR IGNORE INTO tasks (id, workspace_id, title, description, acceptance, status, created_at) VALUES (?, ?, ?, '', '[]', 'done', ?)",
+  ).run(taskId, workspaceId, taskId, now);
+  store.db.prepare(
+    "INSERT OR IGNORE INTO task_owners (task_id, agent_id, assigned_at, assigned_by) VALUES (?, ?, ?, 'system')",
+  ).run(taskId, agentId, now);
   store.db.prepare(
     "INSERT OR IGNORE INTO runs (id, task_id, agent_id, status, started_at, token_in, token_out) VALUES (?, ?, ?, 'completed', ?, 0, 0)",
   ).run(runId, taskId, agentId, now);
@@ -130,7 +133,7 @@ describe("MemoryStore migration and schema", () => {
     expect(memory.schemaVersion).toBe(4);
     expect(memory.backupPath).not.toBeNull();
     expect(existsSync(memory.backupPath as string)).toBe(true);
-    expect((store.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(3);
+    expect((store.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(4);
 
     const board = memory.getBoard("ws-old", legacy.id);
     expect(board?.source).toBe("agent");

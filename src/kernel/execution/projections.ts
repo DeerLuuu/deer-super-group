@@ -13,8 +13,6 @@ const TASK_COLUMNS: Array<[keyof Task, string]> = [
   ["description", "description"],
   ["acceptance", "acceptance"],
   ["status", "status"],
-  ["ownerId", "owner_id"],
-  ["dependsOn", "depends_on"],
   ["branch", "branch"],
   ["worktree", "worktree"],
   ["summary", "summary"],

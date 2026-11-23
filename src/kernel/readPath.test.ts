@@ -13,11 +13,21 @@ describe("O1-3 read path source boundaries", () => {
       new URL("../TaskStarMap.tsx", import.meta.url),
       new URL("../shell/taskWorkspaceData.ts", import.meta.url),
       new URL("../shell/PlanDraftPanel.tsx", import.meta.url),
+      new URL("../memory/store.ts", import.meta.url),
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       expect(source, file.pathname).not.toMatch(/\b(owner_id|depends_on)\b/);
       expect(source, file.pathname).not.toMatch(/JSON\.parse\([^)]*depends/i);
     }
+  });
+
+  it("keeps the fresh v4 tasks schema free of legacy columns", () => {
+    const storeSource = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+    const start = storeSource.indexOf("CREATE TABLE IF NOT EXISTS tasks");
+    const end = storeSource.indexOf("CREATE INDEX IF NOT EXISTS idx_tasks_ws", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(storeSource.slice(start, end)).not.toMatch(/\b(owner_id|depends_on)\b/);
   });
 });

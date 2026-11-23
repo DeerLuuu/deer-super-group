@@ -102,8 +102,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   description TEXT NOT NULL DEFAULT '',
   acceptance TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'ready',
-  owner_id TEXT,
-  depends_on TEXT NOT NULL DEFAULT '[]',
   branch TEXT,
   worktree TEXT,
   summary TEXT,
@@ -426,8 +424,8 @@ function toTask(row: Row): Task {
     description: String(row.description),
     acceptance: parseJson<string[]>(row.acceptance, []),
     status: String(row.status) as TaskStatus,
-    ownerId: row.owner_id == null ? null : String(row.owner_id),
-    dependsOn: parseJson<string[]>(row.depends_on, []),
+    ownerId: null,
+    dependsOn: [],
     branch: row.branch == null ? null : String(row.branch),
     worktree: row.worktree == null ? null : String(row.worktree),
     summary: row.summary == null ? null : String(row.summary),
@@ -816,18 +814,24 @@ export class Store {
   }
 
   /**
-   * O1-1 expand migration (v2 -> v3). Creates relation tables, backfills from
-   * owner_id/depends_on, and leaves the legacy columns in place as mirrors.
-   * Any failure rolls back and leaves user_version=2; the constructor closes
-   * the connection and refuses to start.
+   * O1-1 expand (v2 -> v3) and O1-4 contract (v3 -> v4). The legacy mirror
+   * columns are only read while expanding; after v4 the tasks table is
+   * relation-only and a rollback must restore the pre-contract backup.
    */
   private migrateTaskGraphSchema(): void {
-    const versionRow = this.db.prepare("PRAGMA user_version").get() as {
+    let versionRow = this.db.prepare("PRAGMA user_version").get() as {
       user_version?: number;
     };
-    const version = Number(versionRow?.user_version ?? 0);
-    if (version >= 3) return;
+    let version = Number(versionRow?.user_version ?? 0);
+    if (version < 3) {
+      this.migrateTaskGraphV3();
+      version = 3;
+    }
+    if (version < 4) this.migrateTaskGraphV4();
+  }
 
+  /** O1-1 expand migration (v2 -> v3), keeping legacy columns as mirrors. */
+  private migrateTaskGraphV3(): void {
     try {
       this.db.exec("PRAGMA foreign_keys = ON");
       if (this.databasePath !== ":memory:") this.backupDatabase();
@@ -863,10 +867,62 @@ export class Store {
     }
   }
 
-  /** Backfill relation tables from the legacy task columns, fail-closed. */
+  /** O1-4 contract migration (v3 -> v4): remove the legacy task columns. */
+  private migrateTaskGraphV4(): void {
+    try {
+      this.db.exec("PRAGMA foreign_keys = ON");
+      if (!this.taskRelationTablesReady()) {
+        throw new Error("task relation tables are missing");
+      }
+      if (this.databasePath !== ":memory:") this.backupDatabase();
+      this.db.exec("BEGIN IMMEDIATE");
+      const columns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<{
+        name?: string;
+      }>;
+      const names = new Set(columns.map((column) => String(column.name)));
+      if (names.has("depends_on")) this.db.exec("ALTER TABLE tasks DROP COLUMN depends_on");
+      if (names.has("owner_id")) this.db.exec("ALTER TABLE tasks DROP COLUMN owner_id");
+      this.db
+        .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .run(4, now());
+      this.db.exec("PRAGMA user_version = 4");
+      const violations = this.db.prepare("PRAGMA foreign_key_check").all() as Row[];
+      if (violations.length > 0) {
+        throw new Error(`foreign_key_check failed: ${JSON.stringify(violations)}`);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // ignore rollback failures
+      }
+      throw new Error(
+        `task graph contract migration failed (user_version stays 3${
+          this.lastBackupPath ? `, backup: ${this.lastBackupPath}` : ""
+        }): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** Backfill relation tables from the legacy v2 columns, fail-closed. */
   private backfillTaskGraph(): void {
+    const taskColumns = new Set(
+      (this.db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name?: string }>).map((column) =>
+        String(column.name),
+      ),
+    );
+    const hasOwner = taskColumns.has("owner_id");
+    const hasDeps = taskColumns.has("depends_on");
+    if (!hasOwner && !hasDeps) return;
     const tasks = this.db
-      .prepare("SELECT id, workspace_id, owner_id, depends_on, created_at FROM tasks")
+      .prepare(
+        `SELECT id, workspace_id,
+                ${hasOwner ? "owner_id" : "NULL AS owner_id"},
+                ${hasDeps ? "depends_on" : "'[]' AS depends_on"},
+                created_at
+         FROM tasks`,
+      )
       .all() as Row[];
     const taskWorkspace = new Map<string, string>();
     for (const row of tasks) {
@@ -1420,16 +1476,10 @@ export class Store {
       if (Number(active.n) > 0) {
         throw new Error("成员还有排队/运行中的 Run，请先取消或等待其结束");
       }
-      const ownedRows = this.db
-        .prepare("SELECT id FROM tasks WHERE owner_id = ?")
-        .all(id) as Array<{ id?: string }>;
-      const ownedIds = new Set(ownedRows.map((row) => String(row.id)));
-      if (this.tableExists("task_owners")) {
-        const relationRows = this.db
-          .prepare("SELECT task_id FROM task_owners WHERE agent_id = ?")
-          .all(id) as Array<{ task_id?: string }>;
-        for (const row of relationRows) ownedIds.add(String(row.task_id));
-      }
+      const relationRows = this.db
+        .prepare("SELECT task_id FROM task_owners WHERE agent_id = ?")
+        .all(id) as Array<{ task_id?: string }>;
+      const ownedIds = new Set(relationRows.map((row) => String(row.task_id)));
       for (const taskId of ownedIds) {
         this.setTaskOwner(taskId, null, {
           assignedBy: "system",
@@ -1661,7 +1711,6 @@ export class Store {
       if (!before) throw new TaskGraphError("TASK_NOT_FOUND", `task not found: ${taskId}`);
       if (before.ownerId === ownerId) return before;
       this.validateTaskOwner(before.workspaceId, ownerId);
-      this.db.prepare("UPDATE tasks SET owner_id = ? WHERE id = ?").run(ownerId, taskId);
       this.syncTaskOwnerRelation(taskId, ownerId);
       const assignedBy = options.assignedBy ?? "system";
       const reason = options.reason ?? "task graph owner update";
@@ -1702,9 +1751,6 @@ export class Store {
         return this.getTask(taskId) ?? before;
       }
       this.validateTaskDependencies(taskId, before.workspaceId, next);
-      this.db
-        .prepare("UPDATE tasks SET depends_on = ? WHERE id = ?")
-        .run(JSON.stringify(next), taskId);
       this.syncTaskDependencyRelations(taskId, next);
       this.appendEventIdempotent({
         aggregateType: "task",
@@ -1805,10 +1851,10 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO tasks
-         (id, workspace_id, title, description, acceptance, status, owner_id, depends_on,
+         (id, workspace_id, title, description, acceptance, status,
           branch, worktree, summary, created_at, started_at, ended_at,
           priority, queued_at, blocked_reason, failure_kind, attempt_count, next_run_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
@@ -1817,8 +1863,6 @@ export class Store {
         task.description,
         JSON.stringify(task.acceptance),
         task.status,
-        task.ownerId,
-        JSON.stringify(task.dependsOn),
         task.branch,
         task.worktree,
         task.summary,
@@ -1847,7 +1891,6 @@ export class Store {
       .prepare("SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at ASC")
       .all(workspaceId) as Row[];
     const tasks = rows.map(toTask);
-    if (!this.taskRelationTablesReady()) return tasks;
 
     const ownerRows = this.db
       .prepare(
@@ -1879,8 +1922,8 @@ export class Store {
   }
 
   /**
-   * O1-3 scheduler queue read: owner comes from task_owners first; the legacy
-   * owner_id column is only consulted when the relation tables are absent.
+   * O1-3 scheduler queue read: owner comes from task_owners. Relation-only
+   * after O1-4; the legacy owner_id column no longer exists.
    */
   listQueuedTasks(workspaceId: string): Task[] {
     const rows = this.db
@@ -1891,7 +1934,6 @@ export class Store {
       )
       .all(workspaceId) as Row[];
     const tasks = rows.map(toTask);
-    if (!this.taskRelationTablesReady()) return tasks;
     const ownerRows = this.db
       .prepare(
         `SELECT o.task_id, o.agent_id FROM task_owners o
@@ -1906,9 +1948,8 @@ export class Store {
     return this.tableExists("task_owners") && this.tableExists("task_dependencies");
   }
 
-  /** Relation is authoritative in v3; old columns are only a schema fallback. */
+  /** Relation-only task graph reads after the O1-4 contract migration. */
   private withTaskRelations(task: Task): Task {
-    if (!this.taskRelationTablesReady()) return task;
     const owner = this.db
       .prepare("SELECT agent_id FROM task_owners WHERE task_id = ?")
       .get(task.id) as { agent_id?: string } | undefined;
@@ -1965,14 +2006,10 @@ export class Store {
   }
 
   applyTaskOwnerProjection(taskId: string, ownerId: string | null): void {
-    this.db.prepare("UPDATE tasks SET owner_id = ? WHERE id = ?").run(ownerId, taskId);
     this.syncTaskOwnerRelation(taskId, ownerId);
   }
 
   applyTaskDependenciesProjection(taskId: string, dependsOn: readonly string[]): void {
-    this.db
-      .prepare("UPDATE tasks SET depends_on = ? WHERE id = ?")
-      .run(JSON.stringify(dependsOn), taskId);
     this.syncTaskDependencyRelations(taskId, dependsOn);
   }
 
@@ -1990,25 +2027,11 @@ export class Store {
 
   updateTask(
     id: string,
-    patch: Partial<Pick<Task, "title" | "description" | "acceptance" | "status" | "ownerId" | "dependsOn" | "branch" | "worktree" | "summary" | "startedAt" | "endedAt">>,
+    patch: Partial<Pick<Task, "title" | "description" | "acceptance" | "status" | "branch" | "worktree" | "summary" | "startedAt" | "endedAt">>,
   ): Task {
     return this.withTransaction(() => {
       const before = this.getTask(id);
       if (!before) throw new TaskGraphError("TASK_NOT_FOUND", `task not found: ${id}`);
-
-      // Owner/dependencies are graph facts: route them through the same
-      // validation/event path as TaskGraphService. Everything else remains a
-      // regular task projection patch.
-      if ("ownerId" in patch) {
-        this.setTaskOwner(id, patch.ownerId ?? null, {
-          reason: "store.updateTask",
-        });
-      }
-      if ("dependsOn" in patch) {
-        this.setTaskDependencies(id, patch.dependsOn ?? [], {
-          reason: "store.updateTask",
-        });
-      }
 
       const columns: Record<string, string> = {
         title: "title",
