@@ -409,7 +409,8 @@
   }
 }
 
-@container git-panel (max-width: 719px) {  .git-st-layout {
+@container git-panel (max-width: 600px) {
+  .git-st-layout {
     display: flex;
     flex-direction: column;
     overflow: hidden;

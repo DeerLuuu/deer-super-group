@@ -25,7 +25,7 @@ describe("t401 working diff CSS contract", () => {
   it("uses 44/56 workspace and 480 section tabs", () => {
     expect(sourceTree).toContain("grid-template-columns: minmax(0, 44%) minmax(0, 56%)");
     expect(css).toContain(".git-ws-segment-tabs");
-    expect(css).toContain("@container git-panel (max-width: 719px)");
+    expect(css).toContain("@container git-panel (max-width: 600px)");
     expect(css).toContain(".git-ws-section.mobile-hidden");
   });
 

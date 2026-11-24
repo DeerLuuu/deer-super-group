@@ -9,7 +9,7 @@ describe("t391 SourceTree responsive contract", () => {
     expect(css).toContain("grid-template-columns: 220px minmax(0, 1fr)");
     expect(css).toContain("grid-template-areas:");
     expect(css).toContain("@container git-panel (max-width: 1099px)");
-    expect(css).toContain("@container git-panel (max-width: 719px)");
+    expect(css).toContain("@container git-panel (max-width: 600px)");
     expect(css).toContain(".git-st-tabs");
     expect(css).toContain("@container git-panel (max-height: 560px)");
     expect(css).toContain("grid-template-areas:");
@@ -46,8 +46,18 @@ describe("t432 G9：历史/工作区水平分隔条（CSS 契约）", () => {
     expect(css).toMatch(/\.git-st-splitter:focus-visible\s*\{/);
   });
 
-  it("≤719 三 tab 与 ≤560 短高隐藏分隔条", () => {
-    const mobile = css.split("@container git-panel (max-width: 719px)")[1] ?? "";
+  it("默认 1440 Dock 宽度约 666px 不进入三 tab 模式", () => {
+    const maxWidths = [...css.matchAll(/@container git-panel \(max-width: (\d+)px\)/g)]
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isFinite(value));
+    expect(maxWidths.length).toBeGreaterThan(0);
+    const mobileMax = Math.min(...maxWidths);
+    expect(mobileMax).toBeLessThanOrEqual(600);
+    expect(666).toBeGreaterThan(mobileMax);
+  });
+
+  it("≤600 三 tab 与 ≤560 短高隐藏分隔条", () => {
+    const mobile = css.split("@container git-panel (max-width: 600px)")[1] ?? "";
     expect(mobile).toMatch(/\.git-st-splitter[\s\S]{0,80}display:\s*none/);
     const short = css.split("@container git-panel (max-height: 560px)")[1] ?? "";
     expect(short).toMatch(/\.git-st-history,\s*\.git-st-splitter\s*\{[\s\S]*?display:\s*none/);
