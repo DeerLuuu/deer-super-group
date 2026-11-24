@@ -5,7 +5,7 @@
  *   history: minmax(180px, 1fr) | filter: 30px | splitter: 6px | workspace: var(--git-workspace-h, 300px)
  *
  * 约束：工作区 ≥ 160px；历史 ≥ 180px（由此推导工作区上限）；
- * 容器太矮（放不下 160+36+180）时分隔条隐藏（≤560 短高 / ≤719 三 tab 由 CSS 处理）。
+ * 容器太矮（放不下 160+36+180）时分隔条隐藏（≤560 短高 / ≤600 三 tab 由 CSS 处理）。
  */
 
 import type { CSSProperties } from "react";

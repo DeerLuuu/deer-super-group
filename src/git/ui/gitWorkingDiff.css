@@ -440,7 +440,7 @@
   color: var(--red);
 }
 
-@container git-panel (max-width: 719px) {
+@container git-panel (max-width: 600px) {
   .git-working-tree {
     height: 100%;
   }
